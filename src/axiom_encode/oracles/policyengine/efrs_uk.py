@@ -23,7 +23,6 @@ import yaml
 
 from .ecps_tax import (
     POLICYENGINE_CORE_VERSION,
-    POLICYENGINE_VERSION,
     input_record,
     money,
     output_number,
@@ -35,16 +34,36 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.20"
+POLICYENGINE_UK_VERSION = "2.88.40"
 
+NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
+NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
+INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
+INCOME_TAX_SECTION_10_BASE = "uk:statutes/ukpga/2007/3/10"
+INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
+INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
+BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH = Path("regulations/uksi/2013/376/80A.yaml")
+BENEFIT_CAP_REGULATION_80A_BASE = "uk:regulations/uksi/2013/376/80A"
+STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/2002/16/1.yaml")
+STATE_PENSION_CREDIT_SECTION_1_BASE = "uk:statutes/ukpga/2002/16/1"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
+UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH = Path("regulations/uksi/2013/376/22.yaml")
+UNIVERSAL_CREDIT_REGULATION_22_BASE = "uk:regulations/uksi/2013/376/22"
+UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH = Path("regulations/uksi/2013/376/34.yaml")
+UNIVERSAL_CREDIT_REGULATION_34_BASE = "uk:regulations/uksi/2013/376/34"
+UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH = Path("regulations/uksi/2013/376/72.yaml")
+UNIVERSAL_CREDIT_REGULATION_72_BASE = "uk:regulations/uksi/2013/376/72"
+WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
+WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
+WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
+WELFARE_REFORM_ACT_SECTION_11_BASE = "uk:statutes/ukpga/2012/5/11"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -53,11 +72,136 @@ PERSONAL_ALLOWANCE_OUTPUTS = {
     },
 }
 
+NATIONAL_INSURANCE_CLASS_1_OUTPUTS = {
+    "main_primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#main_primary_class_1_contribution",
+        "pe": "ni_class_1_employee_primary",
+        "pe_transform": "annual_to_weekly",
+        "applies": ("ni_liable", True),
+    },
+    "additional_primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#additional_primary_class_1_contribution",
+        "pe": "ni_class_1_employee_additional",
+        "pe_transform": "annual_to_weekly",
+        "applies": ("ni_liable", True),
+    },
+    "primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#primary_class_1_contribution",
+        "pe": "ni_class_1_employee",
+        "pe_transform": "annual_to_weekly",
+    },
+    "employee_national_insurance": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#primary_class_1_contribution",
+        "pe": "ni_employee",
+        "pe_transform": "annual_to_weekly",
+    },
+}
+
+INCOME_TAX_INCOME_BASE_COMPONENTS = (
+    "employment_income",
+    "private_pension_income",
+    "social_security_income",
+    "self_employment_income",
+    "property_income",
+    "savings_interest_income",
+    "dividend_income",
+    "miscellaneous_income",
+)
+
+INCOME_TAX_SECTION_23_ADDITION_COMPONENTS = (
+    "income_tax_pre_charges",
+    "CB_HITC",
+    "personal_pension_contributions_tax",
+)
+
+INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS = (
+    "capped_mcad",
+    "other_tax_credits",
+)
+
+INCOME_TAX_INCOME_BASE_OUTPUTS = {
+    "total_income": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#total_income",
+        "pe": "total_income",
+    },
+    "net_income": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#net_income",
+        "pe": "adjusted_net_income",
+        "applies": "income_tax_net_income_comparable",
+    },
+    "income_tax_liability": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
+        "pe": "income_tax",
+    },
+}
+
+INCOME_TAX_SECTION_10_OUTPUTS = {
+    "income_charged_at_basic_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_basic_rate",
+        "pe": "basic_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_charged_at_higher_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_higher_rate",
+        "pe": "higher_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_charged_at_additional_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_additional_rate",
+        "pe": "add_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_basic_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_basic_rate",
+        "pe": "basic_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_higher_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_higher_rate",
+        "pe": "higher_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_additional_rate": {
+        "axiom": (
+            f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_additional_rate"
+        ),
+        "pe": "add_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_tax_on_section_10_income": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_tax_on_section_10_income",
+        "pe": "earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+}
+
 CHILD_BENEFIT_OUTPUTS = {
     "child_benefit_weekly_rate": {
         "axiom": f"{CHILD_BENEFIT_BASE}#child_benefit_weekly_rate",
         "pe": "child_benefit_respective_amount",
         "pe_transform": "annual_to_weekly",
+    },
+}
+
+BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS = {
+    "benefit_cap_relevant_amount": {
+        "axiom": f"{BENEFIT_CAP_REGULATION_80A_BASE}#benefit_cap_relevant_amount",
+        "pe": "benefit_cap",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
+STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS = {
+    "qualifying_age": {
+        "axiom": f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#qualifying_age",
+        "pe": "state_pension_age",
+    },
+    "claimant_has_attained_qualifying_age": {
+        "axiom": (
+            f"{STATE_PENSION_CREDIT_SECTION_1_BASE}"
+            "#claimant_has_attained_qualifying_age"
+        ),
+        "pe": "is_SP_age",
     },
 }
 
@@ -172,6 +316,90 @@ UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS = {
+    "childcare_costs_element_amount": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#childcare_costs_element_amount",
+        "pe": "uc_childcare_element",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
+UNIVERSAL_CREDIT_AWARD_OUTPUTS = {
+    "universal_credit_maximum_amount": {
+        "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_maximum_amount",
+        "pe": "uc_maximum_amount",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_amounts_to_be_deducted": {
+        "axiom": (
+            f"{WELFARE_REFORM_ACT_SECTION_8_BASE}"
+            "#universal_credit_amounts_to_be_deducted"
+        ),
+        "pe": "uc_income_reduction",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_award_amount": {
+        "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_award_amount",
+        "pe": "universal_credit_pre_benefit_cap",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
+UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS = {
+    "section_11_amount_for_accommodation_payments": {
+        "axiom": (
+            f"{WELFARE_REFORM_ACT_SECTION_11_BASE}"
+            "#section_11_amount_for_accommodation_payments"
+        ),
+        "pe": "uc_housing_costs_element",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
+UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS = {
+    "applicable_work_allowance_amount": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#applicable_work_allowance_amount"
+        ),
+        "pe": "uc_work_allowance",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
+UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS = {
+    "earned_income_amount_subject_to_taper": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}"
+            "#earned_income_amount_subject_to_taper"
+        ),
+        "pe": "uc_earned_income",
+        "pe_transform": "annual_to_monthly",
+    },
+    "unearned_income_for_deduction": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#unearned_income_for_deduction",
+        "pe": "uc_unearned_income",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_award_deduction_from_maximum_amount": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}"
+            "#universal_credit_award_deduction_from_maximum_amount"
+        ),
+        "pe": "uc_income_reduction",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_income_reduction_uncapped",
+    },
+}
+
+UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_monthly_income": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#capital_tariff_monthly_income",
+        "pe": "uc_tariff_income",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_tariff_income_defined",
+    },
+}
+
 UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "standard_allowance_single_under_25": 338.58,
     "standard_allowance_single_25_or_over": 424.90,
@@ -186,6 +414,8 @@ UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "carer_element": 209.34,
     "childcare_costs_element_maximum_one_child": 1071.09,
     "childcare_costs_element_maximum_two_or_more_children": 1836.16,
+    "childcare_costs_element_reimbursement_rate": 0.85,
+    "earned_income_taper_rate": 0.55,
 }
 
 
@@ -198,6 +428,19 @@ class UKEFRSSurfaceSpec:
 
 
 SURFACE_SPECS = {
+    "national-insurance-class-1": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
+        pe_variables=(
+            "ni_class_1_employee",
+            "ni_class_1_employee_additional",
+            "ni_class_1_employee_primary",
+            "ni_class_1_income",
+            "ni_employee",
+            "ni_liable",
+        ),
+    ),
     "personal-allowance": UKEFRSSurfaceSpec(
         program=PERSONAL_ALLOWANCE_PROGRAM_PATH,
         entity="person",
@@ -208,6 +451,35 @@ SURFACE_SPECS = {
             "personal_allowance",
         ),
     ),
+    "income-tax-income-base": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_23_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_INCOME_BASE_OUTPUTS,
+        pe_variables=(
+            "adjusted_net_income",
+            *INCOME_TAX_INCOME_BASE_COMPONENTS,
+            *INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
+            *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
+            "income_tax",
+            "total_income",
+        ),
+    ),
+    "income-tax-section-10-earned-income": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_10_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_SECTION_10_OUTPUTS,
+        pe_variables=(
+            "add_rate_earned_income",
+            "add_rate_earned_income_tax",
+            "basic_rate_earned_income",
+            "basic_rate_earned_income_tax",
+            "earned_income_tax",
+            "earned_taxable_income",
+            "higher_rate_earned_income",
+            "higher_rate_earned_income_tax",
+            "pays_scottish_income_tax",
+        ),
+    ),
     "child-benefit": UKEFRSSurfaceSpec(
         program=CHILD_BENEFIT_PROGRAM_PATH,
         entity="person",
@@ -215,6 +487,28 @@ SURFACE_SPECS = {
         pe_variables=(
             "child_benefit_child_index",
             "child_benefit_respective_amount",
+        ),
+    ),
+    "benefit-cap-relevant-amount": UKEFRSSurfaceSpec(
+        program=BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH,
+        entity="benunit",
+        outputs=BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
+        pe_variables=(
+            "benefit_cap",
+            "benunit_region",
+            "num_adults",
+            "num_children",
+        ),
+    ),
+    "state-pension-credit-qualifying-age": UKEFRSSurfaceSpec(
+        program=STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH,
+        entity="person",
+        outputs=STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
+        pe_variables=(
+            "age",
+            "gender",
+            "is_SP_age",
+            "state_pension_age",
         ),
     ),
     "pension-credit": UKEFRSSurfaceSpec(
@@ -272,7 +566,83 @@ SURFACE_SPECS = {
             "uc_maximum_childcare_element_amount",
         ),
     ),
+    "universal-credit-childcare-element": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
+        pe_variables=(
+            "uc_childcare_element",
+            "uc_maximum_childcare_element_amount",
+        ),
+    ),
+    "universal-credit-award": UKEFRSSurfaceSpec(
+        program=WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_AWARD_OUTPUTS,
+        pe_variables=(
+            "is_uc_eligible",
+            "uc_carer_element",
+            "uc_child_element",
+            "uc_childcare_element",
+            "uc_disability_elements",
+            "uc_housing_costs_element",
+            "uc_income_reduction",
+            "uc_maximum_amount",
+            "uc_standard_allowance",
+            "universal_credit_pre_benefit_cap",
+        ),
+    ),
+    "universal-credit-housing-costs": UKEFRSSurfaceSpec(
+        program=WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
+        pe_variables=("uc_housing_costs_element",),
+    ),
+    "universal-credit-work-allowance": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS,
+        pe_variables=(
+            "is_uc_work_allowance_eligible",
+            "num_adults",
+            "num_children",
+            "uc_housing_costs_element",
+            "uc_work_allowance",
+        ),
+    ),
+    "universal-credit-income-deduction": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
+        pe_variables=(
+            "is_uc_work_allowance_eligible",
+            "num_adults",
+            "num_children",
+            "uc_earned_income",
+            "uc_housing_costs_element",
+            "uc_income_reduction",
+            "uc_maximum_amount",
+            "uc_unearned_income",
+            "uc_work_allowance",
+        ),
+    ),
+    "universal-credit-tariff-income": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "is_uc_eligible",
+            "uc_assessable_capital",
+            "uc_tariff_income",
+        ),
+    ),
 }
+
+UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
+    surface
+    for surface, spec in SURFACE_SPECS.items()
+    if spec.program == UNIVERSAL_CREDIT_PROGRAM_PATH
+)
 
 SKIPPED_SURFACES: list[dict[str, str]] = []
 
@@ -652,7 +1022,7 @@ def compare_uk_efrs(
     for selected_surface in surfaces:
         spec = SURFACE_SPECS[selected_surface]
         if (
-            selected_surface.startswith("universal-credit-")
+            selected_surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES
             and universal_credit_program is not None
         ):
             program = universal_credit_program.resolve()
@@ -692,54 +1062,61 @@ def load_policyengine_uk_data(
     ].pe_variables,
     benunit_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    require_policyengine_uk_versions()
+    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    if local_dataset is not None:
+        return load_local_policyengine_uk_data(
+            local_path=local_dataset,
+            year=year,
+            sample_size=sample_size,
+            person_ids=person_ids,
+            person_variables=person_variables,
+            benunit_variables=benunit_variables,
+        )
 
+    raise SystemExit(
+        "uk-efrs-compare with current PolicyEngine UK requires a local .h5 "
+        f"--dataset path. {policyengine_uk_install_message()}"
+    )
+
+
+def load_local_policyengine_uk_data(
+    *,
+    local_path: Path,
+    year: int,
+    sample_size: int,
+    person_ids: tuple[int, ...],
+    person_variables: tuple[str, ...],
+    benunit_variables: tuple[str, ...],
+) -> dict[str, Any]:
+    require_policyengine_uk_versions()
     try:
-        from policyengine.core import Simulation
-        from policyengine.provenance.manifest import dataset_logical_name
-        from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
+        import pandas as pd
+        from policyengine_uk import Microsimulation
+        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message()) from exc
 
-    log("Loading PolicyEngine UK EFRS...")
-    local_dataset = local_policyengine_uk_dataset(
-        dataset=dataset,
-        year=year,
-    )
-    if local_dataset is not None:
-        pe_dataset = local_dataset
-    else:
-        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
-        datasets = ensure_datasets(
-            datasets=[resolved_dataset],
-            years=[year],
-            data_folder=str(data_folder),
-        )
-        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
-    extra_variables: dict[str, list[str]] = {}
-    if person_variables:
-        extra_variables["person"] = list(person_variables)
-    if benunit_variables:
-        extra_variables["benunit"] = list(benunit_variables)
-    sim = Simulation(
-        dataset=pe_dataset,
-        tax_benefit_model_version=uk_latest,
-        extra_variables=extra_variables,
-    )
-    log("Running PolicyEngine UK outputs...")
-    sim.run()
+    log("Loading local PolicyEngine UK EFRS...")
+    pe_dataset = UKSingleYearDataset(file_path=str(local_path))
+    sim = Microsimulation(dataset=pe_dataset)
 
+    with pd.HDFStore(local_path, mode="r") as store:
+        raw_person = store["person"].copy()
+        raw_benunit = store["benunit"].copy()
+        household = store["household"].copy()
+
+    person = add_policyengine_uk_person_weights(raw_person, household)
     person_columns = ["person_id", "person_weight"]
-    if "person_benunit_id" in pe_dataset.data.person.columns:
+    if "person_benunit_id" in person.columns:
         person_columns.append("person_benunit_id")
-    raw_persons = pe_dataset.data.person[person_columns].copy()
-    person_outputs = sim.output_dataset.data.person[["person_id", *person_variables]]
-    merged = raw_persons.merge(
-        person_outputs,
-        on="person_id",
-        how="left",
-        validate="one_to_one",
-    )
+    merged = person[person_columns].copy()
+    log("Running PolicyEngine UK person outputs...")
+    for variable in person_variables:
+        merged[variable] = sim.calculate(
+            variable,
+            period=year,
+            map_to="person",
+        ).values
     records = table_records(merged)
     selected_indices = select_person_indices(
         records,
@@ -747,19 +1124,21 @@ def load_policyengine_uk_data(
         person_ids=person_ids,
     )
     selected = [records[index] for index in selected_indices]
-    benunit_records: list[dict[str, Any]] = []
     selected_benunits: list[dict[str, Any]] = []
     if benunit_variables:
-        raw_benunits = pe_dataset.data.benunit[["benunit_id", "benunit_weight"]].copy()
-        benunit_outputs = sim.output_dataset.data.benunit[
-            ["benunit_id", *benunit_variables]
-        ]
-        merged_benunits = raw_benunits.merge(
-            benunit_outputs,
-            on="benunit_id",
-            how="left",
-            validate="one_to_one",
+        benunit = add_policyengine_uk_benunit_weights(
+            raw_benunit,
+            raw_person,
+            household,
         )
+        merged_benunits = benunit[["benunit_id", "benunit_weight"]].copy()
+        log("Running PolicyEngine UK benefit-unit outputs...")
+        for variable in benunit_variables:
+            merged_benunits[variable] = sim.calculate(
+                variable,
+                period=year,
+                map_to="benunit",
+            ).values
         benunit_records = table_records(merged_benunits)
         selected_benunit_ids = ()
         if person_ids:
@@ -784,6 +1163,48 @@ def load_policyengine_uk_data(
         "benunits": selected_benunits,
         "benunit_ids": [int(row_value(row, "benunit_id")) for row in selected_benunits],
     }
+
+
+def add_policyengine_uk_person_weights(raw_person: Any, household: Any) -> Any:
+    person = raw_person.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    return person.rename(columns={"household_weight": "person_weight"}).drop(
+        columns=["household_id"],
+    )
+
+
+def add_policyengine_uk_benunit_weights(
+    raw_benunit: Any,
+    raw_person: Any,
+    household: Any,
+) -> Any:
+    benunit_household_map = raw_person[
+        ["person_benunit_id", "person_household_id"]
+    ].drop_duplicates()
+    benunit = raw_benunit.merge(
+        benunit_household_map,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    )
+    benunit = benunit.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    return benunit.rename(columns={"household_weight": "benunit_weight"}).drop(
+        columns=[
+            "person_benunit_id",
+            "person_household_id",
+            "household_id",
+        ],
+        errors="ignore",
+    )
 
 
 def resolve_policyengine_uk_dataset_reference(dataset: str) -> str:
@@ -1063,10 +1484,10 @@ def discover_policyengine_uk_variables(
 def load_policyengine_uk_variables() -> list[Any]:
     require_policyengine_uk_versions(command="uk-efrs-coverage")
     try:
-        from policyengine.tax_benefit_models.uk import uk_latest
+        from policyengine_uk import CountryTaxBenefitSystem
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
-    return list(uk_latest.variables)
+    return list(CountryTaxBenefitSystem().variables.values())
 
 
 def parse_policyengine_uk_variable_sources(
@@ -1144,6 +1565,8 @@ def variable_attribute(raw_variable: Any, name: str, default: Any = None) -> Any
 
 
 def normalize_policyengine_entity(value: Any) -> str:
+    if hasattr(value, "key"):
+        return str(value.key).strip().lower()
     text = str(value or "").strip()
     if "." in text:
         text = text.rsplit(".", 1)[-1]
@@ -1198,18 +1621,14 @@ def policyengine_uk_variables_source_root(*, required: bool = True) -> Path | No
 
 
 def policyengine_uk_versions() -> dict[str, str]:
-    try:
-        return {
-            "policyengine": version("policyengine"),
-            "policyengine-core": version("policyengine-core"),
-            "policyengine-uk": version("policyengine-uk"),
-        }
-    except PackageNotFoundError:
-        return {
-            "policyengine": "not installed",
-            "policyengine-core": "not installed",
-            "policyengine-uk": "not installed",
-        }
+    packages = ("policyengine", "policyengine-core", "policyengine-uk")
+    versions: dict[str, str] = {}
+    for package in packages:
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = "not installed"
+    return versions
 
 
 def policyengine_uk_efrs_activity(
@@ -1223,24 +1642,35 @@ def policyengine_uk_efrs_activity(
     try:
         import numpy as np
         import pandas as pd
-        from policyengine.core import Simulation
-        from policyengine.provenance.manifest import dataset_logical_name
-        from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
+        from policyengine_uk import Microsimulation
+        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
 
-    log("Loading PolicyEngine UK EFRS...")
-    local_dataset = local_policyengine_uk_dataset(dataset=dataset, year=year)
-    if local_dataset is not None:
-        pe_dataset = local_dataset
-    else:
-        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
-        datasets = ensure_datasets(
-            datasets=[resolved_dataset],
-            years=[year],
-            data_folder=str(data_folder),
+    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    if local_dataset is None:
+        raise SystemExit(
+            "uk-efrs-coverage --with-efrs-activity with current PolicyEngine UK "
+            f"requires a local .h5 --dataset path. "
+            f"{policyengine_uk_install_message('uk-efrs-coverage')}"
         )
-        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
+
+    log("Loading local PolicyEngine UK EFRS for coverage activity...")
+    pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    sim = Microsimulation(dataset=pe_dataset)
+    with pd.HDFStore(local_dataset, mode="r") as store:
+        raw_person = store["person"].copy()
+        raw_benunit = store["benunit"].copy()
+        household = store["household"].copy()
+    raw_tables = {
+        "person": add_policyengine_uk_person_weights(raw_person, household),
+        "benunit": add_policyengine_uk_benunit_weights(
+            raw_benunit,
+            raw_person,
+            household,
+        ),
+        "household": household,
+    }
 
     extra_variables: dict[str, list[str]] = defaultdict(list)
     variables_by_name = {variable.name: variable for variable in variables}
@@ -1249,18 +1679,11 @@ def policyengine_uk_efrs_activity(
             extra_variables[variable.entity].append(variable.name)
 
     log("Running PolicyEngine UK outputs for coverage activity...")
-    sim = Simulation(
-        dataset=pe_dataset,
-        tax_benefit_model_version=uk_latest,
-        extra_variables=dict(extra_variables),
-    )
-    sim.run()
 
     activity: list[UKEFRSVariableActivity] = []
     errors: list[dict[str, str]] = []
     for entity, names in sorted(extra_variables.items()):
-        output_table = getattr(sim.output_dataset.data, entity)
-        raw_table = getattr(pe_dataset.data, entity)
+        raw_table = raw_tables[entity]
         weight_column = ENTITY_WEIGHT_COLUMNS[entity]
         id_column = ENTITY_ID_COLUMNS[entity]
         if weight_column not in raw_table.columns:
@@ -1272,7 +1695,7 @@ def policyengine_uk_efrs_activity(
                 }
             )
             continue
-        if id_column not in raw_table.columns or id_column not in output_table.columns:
+        if id_column not in raw_table.columns:
             errors.append(
                 {
                     "entity": entity,
@@ -1281,6 +1704,22 @@ def policyengine_uk_efrs_activity(
                 }
             )
             continue
+        output_table = raw_table[[id_column]].copy()
+        for name in sorted(names):
+            try:
+                output_table[name] = sim.calculate(
+                    name,
+                    period=year,
+                    map_to=entity,
+                ).values
+            except Exception as exc:  # pragma: no cover - depends on PE variable graph
+                errors.append(
+                    {
+                        "entity": entity,
+                        "variable": name,
+                        "error": str(exc),
+                    }
+                )
         raw_weights = raw_table[[id_column, weight_column]].copy()
         output_ids = output_table[[id_column]].copy()
         aligned_weights = output_ids.merge(
@@ -1494,7 +1933,7 @@ def run_axiom_surface(
     axiom_rules_path: Path,
     surface: str,
 ) -> list[dict[str, Any]]:
-    if surface.startswith("universal-credit-"):
+    if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return run_axiom_parameter_outputs(
             program=program,
             request=request,
@@ -1637,19 +2076,115 @@ def build_axiom_request(
     year: int,
     surface: str = "personal-allowance",
 ) -> dict[str, Any]:
+    if surface == "national-insurance-class-1":
+        return build_national_insurance_class_1_request(pe_data=pe_data, year=year)
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-income-base":
+        return build_income_tax_income_base_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-section-10-earned-income":
+        return build_income_tax_section_10_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
+    if surface == "benefit-cap-relevant-amount":
+        return build_benefit_cap_relevant_amount_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "state-pension-credit-qualifying-age":
+        return build_state_pension_credit_qualifying_age_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
-    if surface.startswith("universal-credit-"):
+    if surface == "universal-credit-childcare-element":
+        return build_universal_credit_childcare_element_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "universal-credit-award":
+        return build_universal_credit_award_request(pe_data=pe_data, year=year)
+    if surface == "universal-credit-housing-costs":
+        return build_universal_credit_housing_costs_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "universal-credit-income-deduction":
+        return build_universal_credit_income_deduction_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "universal-credit-tariff-income":
+        return build_universal_credit_tariff_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "universal-credit-work-allowance":
+        return build_universal_credit_work_allowance_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
             year=year,
             surface=surface,
         )
     raise ValueError(f"unsupported UK EFRS surface: {surface}")
+
+
+def build_national_insurance_class_1_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_week_interval(year)
+    parameters = policyengine_uk_class_1_weekly_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-class-1"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        projected = {
+            "primary_class_1_contribution_payable_as_mentioned_in_section_6_1_a": bool(
+                row_value(row, "ni_liable", True)
+            ),
+            "regulations_under_section_6_6_do_not_displace_calculation": True,
+            "regulations_under_sections_116_to_120_do_not_displace_calculation": True,
+            "earnings_paid_in_tax_week_in_respect_of_employment": money(
+                row_value(row, "ni_class_1_income", 0)
+            )
+            / WEEKS_IN_YEAR,
+            "current_primary_threshold_or_prescribed_equivalent": parameters[
+                "primary_threshold"
+            ],
+            "current_upper_earnings_limit_or_prescribed_equivalent": parameters[
+                "upper_earnings_limit"
+            ],
+        }
+        for name, value in projected.items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_INSURANCE_CLASS_1_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
 
 
 def build_personal_allowance_request(
@@ -1686,6 +2221,108 @@ def build_personal_allowance_request(
     }
 
 
+def build_income_tax_income_base_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-income-base"):
+        person_id = int(row_value(row, "person_id"))
+        entity_id = person_entity_id(person_id)
+        for component in project_income_tax_income_base_components(row):
+            payment_id = income_tax_component_entity_id(
+                person_id,
+                str(component["name"]),
+            )
+            relations.append(
+                {
+                    "name": f"{INCOME_TAX_SECTION_23_BASE}#relation.income_component_of_taxpayer",
+                    "tuple": [payment_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.amount_charged_to_income_tax",
+                    payment_id,
+                    interval,
+                    money(component["amount_charged_to_income_tax"]),
+                )
+            )
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.relief_deducted_under_section_24",
+                    payment_id,
+                    interval,
+                    money(component["relief_deducted_under_section_24"]),
+                )
+            )
+        for name, value in project_income_tax_section_23_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_INCOME_BASE_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": queries,
+    }
+
+
+def build_income_tax_section_10_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    parameters = policyengine_uk_income_tax_section_10_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-section-10-earned-income"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_income_tax_section_10_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_10_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_SECTION_10_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_child_benefit_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -1708,6 +2345,78 @@ def build_child_benefit_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in CHILD_BENEFIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_benefit_cap_relevant_amount_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "benefit-cap-relevant-amount"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_benefit_cap_relevant_amount_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{BENEFIT_CAP_REGULATION_80A_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_state_pension_credit_qualifying_age_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = day_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "state-pension-credit-qualifying-age"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_state_pension_credit_qualifying_age_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS.values()
+                ],
             }
         )
 
@@ -1776,6 +2485,219 @@ def build_universal_credit_request(
     }
 
 
+def build_universal_credit_childcare_element_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-childcare-element"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_childcare_element_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_universal_credit_award_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-award"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_award_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in UNIVERSAL_CREDIT_AWARD_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_universal_credit_housing_costs_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-housing-costs"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_housing_costs_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{WELFARE_REFORM_ACT_SECTION_11_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_universal_credit_income_deduction_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-income-deduction"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_income_deduction_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_universal_credit_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-tariff-income"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_tariff_income_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_universal_credit_work_allowance_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-work-allowance"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_work_allowance_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -1783,6 +2705,68 @@ def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
         "individual_makes_claim": True,
         "individual_meets_requirements_under_section_56": True,
         "adjusted_net_income": max(0.0, adjusted_net_income - gift_aid_grossed_up),
+    }
+
+
+def project_income_tax_income_base_components(row: Any) -> list[dict[str, Any]]:
+    components = [
+        {
+            "name": name,
+            "amount_charged_to_income_tax": money(row_value(row, name, 0)),
+            "relief_deducted_under_section_24": 0.0,
+        }
+        for name in INCOME_TAX_INCOME_BASE_COMPONENTS
+    ]
+    nonzero_components = [
+        component
+        for component in components
+        if money(component["amount_charged_to_income_tax"])
+    ]
+    if not nonzero_components:
+        return []
+    total_income = sum(
+        money(component["amount_charged_to_income_tax"])
+        for component in nonzero_components
+    )
+    adjusted_net_income = money(row_value(row, "adjusted_net_income", total_income))
+    nonzero_components[0]["relief_deducted_under_section_24"] = max(
+        0.0,
+        total_income - adjusted_net_income,
+    )
+    return nonzero_components
+
+
+def project_income_tax_section_23_inputs(row: Any) -> dict[str, Any]:
+    additions = sum(
+        money(row_value(row, name, 0))
+        for name in INCOME_TAX_SECTION_23_ADDITION_COMPONENTS
+    )
+    reductions = sum(
+        money(row_value(row, name, 0))
+        for name in INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS
+    )
+    return {
+        "net_income_taken_as_zero_under_section_24b": False,
+        "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": additions,
+        "tax_reductions_listed_in_section_26": reductions,
+        "additional_tax_amounts_listed_in_section_30": 0.0,
+    }
+
+
+def project_income_tax_section_10_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    return {
+        "income_charged_under_section_10": money(
+            row_value(row, "earned_taxable_income", 0)
+        ),
+        "basic_rate_limit": parameters["basic_rate_limit"],
+        "higher_rate_limit": parameters["higher_rate_limit"],
+        "basic_rate": parameters["basic_rate"],
+        "higher_rate": parameters["higher_rate"],
+        "additional_rate": parameters["additional_rate"],
     }
 
 
@@ -1799,6 +2783,194 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
         "child_or_qualifying_young_person_is_elder_or_eldest_among_paragraph_2_children": is_eldest,
         "payee_is_voluntary_organisation": False,
         "payee_resides_with_parent_otherwise_than_paragraph_2_a": False,
+    }
+
+
+def project_benefit_cap_relevant_amount_inputs(row: Any) -> dict[str, Any]:
+    num_adults = int(money(row_value(row, "num_adults", 0)))
+    num_children = int(money(row_value(row, "num_children", 0)))
+    in_london = enum_name(row_value(row, "benunit_region", "")).upper() == "LONDON"
+    return {
+        "claim_is_for_joint_claimants": num_adults > 1,
+        "responsible_for_child_or_qualifying_young_person": num_children > 0,
+        "award_contains_housing_costs_element": False,
+        "accommodation_in_respect_of_which_claimant_meets_occupation_condition_is_in_greater_london": False,
+        "claimant_receives_housing_benefit_for_dwelling_in_greater_london": False,
+        "claimant_has_accommodation_normally_occupied_as_home": True,
+        "accommodation_normally_occupied_as_home_is_in_greater_london": in_london,
+        "jobcentre_plus_office_allocated_to_claim_is_in_greater_london": False,
+    }
+
+
+def project_state_pension_credit_qualifying_age_inputs(row: Any) -> dict[str, Any]:
+    state_pension_age = money(row_value(row, "state_pension_age", 0))
+    return {
+        "claimant_is_woman": enum_name(row_value(row, "gender", "")).upper()
+        == "FEMALE",
+        "pensionable_age": state_pension_age,
+        "pensionable_age_for_woman_born_same_day": state_pension_age,
+        "claimant_age": money(row_value(row, "age", 0)),
+    }
+
+
+def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
+    is_uc_eligible = bool(row_value(row, "is_uc_eligible", False))
+
+    def monthly(name: str) -> float:
+        return money(row_value(row, name, 0)) / MONTHS_IN_YEAR
+
+    def eligible_monthly(name: str) -> float:
+        return monthly(name) if is_uc_eligible else 0.0
+
+    return {
+        "amount_included_under_section_9_standard_allowance": eligible_monthly(
+            "uc_standard_allowance"
+        ),
+        "amount_included_under_section_10_responsibility_for_children_and_young_persons": eligible_monthly(
+            "uc_child_element"
+        ),
+        "amount_included_under_section_11_housing_costs": eligible_monthly(
+            "uc_housing_costs_element"
+        ),
+        "amount_included_under_section_12_other_particular_needs_or_circumstances": (
+            eligible_monthly("uc_disability_elements")
+            + eligible_monthly("uc_childcare_element")
+            + eligible_monthly("uc_carer_element")
+        ),
+        "earned_income_deduction_calculated_in_prescribed_manner": eligible_monthly(
+            "uc_income_reduction"
+        ),
+        "unearned_income_deduction_calculated_in_prescribed_manner": 0.0,
+    }
+
+
+def project_universal_credit_childcare_element_inputs(row: Any) -> dict[str, Any]:
+    monthly_childcare_element = money(row_value(row, "uc_childcare_element", 0)) / (
+        MONTHS_IN_YEAR
+    )
+    monthly_childcare_maximum = (
+        money(row_value(row, "uc_maximum_childcare_element_amount", 0)) / MONTHS_IN_YEAR
+    )
+    relevant_charges = (
+        monthly_childcare_element
+        / UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "childcare_costs_element_reimbursement_rate"
+        ]
+        if monthly_childcare_element
+        else 0.0
+    )
+    return {
+        "charges_paid_for_relevant_childcare_attributable_to_assessment_period": relevant_charges,
+        "amount_considered_excessive_having_regard_to_paid_work_extent": 0.0,
+        "amount_met_or_reimbursed_by_employer_or_some_other_person": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_meets_non_other_relevant_support_conditions": False,
+        "amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_amount": 0.0,
+        "maximum_amount_specified_in_table_in_regulation_36": max(
+            0.0,
+            monthly_childcare_maximum,
+        ),
+    }
+
+
+def project_universal_credit_housing_costs_inputs(row: Any) -> dict[str, Any]:
+    monthly_housing_costs = money(row_value(row, "uc_housing_costs_element", 0)) / (
+        MONTHS_IN_YEAR
+    )
+    return {
+        "payments_are_in_respect_of_accommodation_for_section_11": True,
+        "accommodation_is_in_great_britain": True,
+        "accommodation_is_residential_accommodation": True,
+        "claimant_is_liable_to_make_accommodation_payments": True,
+        "claimant_is_treated_as_liable_to_make_accommodation_payments_by_regulations": False,
+        "claimant_is_treated_as_not_liable_to_make_accommodation_payments_by_regulations": False,
+        "claimant_occupies_accommodation_as_home": True,
+        "claimant_is_treated_as_occupying_accommodation_as_home_by_regulations": False,
+        "claimant_is_treated_as_not_occupying_accommodation_as_home_by_regulations": False,
+        "section_11_exception_to_accommodation_amount_applies_by_regulations": False,
+        "section_11_inclusion_has_ended_at_prescribed_time_by_regulations": False,
+        "section_11_inclusion_has_not_started_until_prescribed_time_by_regulations": False,
+        "amount_determined_or_calculated_by_regulations_under_section_11": monthly_housing_costs,
+    }
+
+
+def project_universal_credit_income_deduction_inputs(row: Any) -> dict[str, Any]:
+    work_allowance_inputs = project_universal_credit_work_allowance_inputs(row)
+    work_allowance_specified = (
+        work_allowance_inputs[
+            "joint_claimants_responsible_for_child_or_qualifying_young_person"
+        ]
+        or work_allowance_inputs[
+            "one_or_both_joint_claimants_have_limited_capability_for_work"
+        ]
+        or work_allowance_inputs[
+            "single_claimant_responsible_for_child_or_qualifying_young_person"
+        ]
+        or work_allowance_inputs["single_claimant_has_limited_capability_for_work"]
+    )
+    monthly_earned_subject_to_taper = (
+        money(row_value(row, "uc_earned_income", 0)) / MONTHS_IN_YEAR
+    )
+    monthly_work_allowance = (
+        money(row_value(row, "uc_work_allowance", 0)) / MONTHS_IN_YEAR
+        if work_allowance_specified
+        else 0.0
+    )
+    monthly_earned_income_for_deduction = (
+        monthly_earned_subject_to_taper + monthly_work_allowance
+    )
+    monthly_unearned_income = (
+        money(row_value(row, "uc_unearned_income", 0)) / MONTHS_IN_YEAR
+    )
+    joint_claim = bool(work_allowance_inputs["claim_is_for_joint_claimants"])
+    claimant_earned_income = 0.0 if joint_claim else monthly_earned_income_for_deduction
+    joint_earned_income = monthly_earned_income_for_deduction if joint_claim else 0.0
+    claimant_unearned_income = 0.0 if joint_claim else monthly_unearned_income
+    joint_unearned_income = monthly_unearned_income if joint_claim else 0.0
+    return {
+        **work_allowance_inputs,
+        "claimant_earned_income_in_assessment_period": claimant_earned_income,
+        "joint_claimants_combined_earned_income_in_assessment_period": joint_earned_income,
+        "claimant_unearned_income_in_assessment_period": claimant_unearned_income,
+        "joint_claimants_combined_unearned_income_in_assessment_period": joint_unearned_income,
+    }
+
+
+def project_universal_credit_tariff_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "person_capital": money(row_value(row, "uc_assessable_capital", 0)),
+        "capital_is_disregarded": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_i_annuity": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_j_trust": False,
+        "actual_income_derived_from_that_capital_due_to_be_paid_to_person_on_day_amount": 0.0,
+    }
+
+
+def project_universal_credit_work_allowance_inputs(row: Any) -> dict[str, Any]:
+    num_adults = int(money(row_value(row, "num_adults", 0)))
+    num_children = int(money(row_value(row, "num_children", 0)))
+    joint_claim = num_adults > 1
+    has_child = num_children > 0
+    eligible = bool(row_value(row, "is_uc_work_allowance_eligible", False))
+    has_limited_capability = eligible and not has_child
+    return {
+        "claim_is_for_joint_claimants": joint_claim,
+        "claimant_is_member_of_couple": False,
+        "claimant_makes_claim_as_single_person": False,
+        "joint_claimants_responsible_for_child_or_qualifying_young_person": joint_claim
+        and has_child,
+        "one_or_both_joint_claimants_have_limited_capability_for_work": joint_claim
+        and has_limited_capability,
+        "single_claimant_responsible_for_child_or_qualifying_young_person": (
+            not joint_claim and has_child
+        ),
+        "single_claimant_has_limited_capability_for_work": (
+            not joint_claim and has_limited_capability
+        ),
+        "award_contains_housing_costs_element": money(
+            row_value(row, "uc_housing_costs_element", 0)
+        )
+        > 0,
     }
 
 
@@ -1831,6 +3003,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
         ]
+    benunits = pe_data.get("benunits", [])
+    if surface == "benefit-cap-relevant-amount":
+        return [
+            row
+            for row in benunits
+            if math.isfinite(money(row_value(row, "benefit_cap", math.inf)))
+        ]
     if surface == "universal-credit-child-element":
         return [
             row
@@ -1840,7 +3019,6 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             or money(row_value(row, "uc_individual_severely_disabled_child_element", 0))
             > 0
         ]
-    benunits = pe_data.get("benunits", [])
     if surface == "universal-credit-standard-allowance":
         return [
             row
@@ -1965,6 +3143,17 @@ def compare_outputs(
             "meeting the Section 56 residence/citizenship-condition boundary "
             "facts, matching the usual PolicyEngine UK EFRS personal allowance "
             "surface until those upstream legal predicates are encoded.",
+            "National Insurance Class 1 comparison projects annual PolicyEngine "
+            "NI Class 1 income into a representative tax week, supplies the "
+            "PolicyEngine weekly primary threshold and upper earnings limit, "
+            "compares RuleSpec's weekly section 8 aggregate output against "
+            "PolicyEngine's annual ni_class_1_employee divided by 52, and "
+            "also compares the same aggregate against PolicyEngine's "
+            "ni_employee wrapper because PE-UK defines ni_employee as an "
+            "aggregate containing only ni_class_1_employee. It "
+            "compares the main/additional component outputs on ni_liable rows "
+            "because PolicyEngine's component formulas are not masked by that "
+            "liability predicate.",
             "Child Benefit comparison filters to positive PolicyEngine "
             "child_benefit_respective_amount rows, divides that annualized "
             "PolicyEngine output by 52 to compare against the RuleSpec weekly "
@@ -1974,6 +3163,12 @@ def compare_outputs(
             "specified-benefit, and polygamous-marriage branches are projected "
             "false because PolicyEngine UK's child_benefit_respective_amount "
             "does not expose those legal predicates separately.",
+            "Universal Credit Regulation 80A benefit-cap relevant-amount "
+            "comparison filters to finite PolicyEngine benefit_cap rows, "
+            "divides the annual PE cap by 12, and projects the annual-limit "
+            "case from PolicyEngine's num_adults, num_children, and "
+            "benunit_region. PolicyEngine uses infinity for exempt benunits, "
+            "which are outside the finite relevant-amount comparison.",
             "Pension Credit standard minimum guarantee comparison runs at "
             "benefit-unit level, divides PolicyEngine's annual output by 52, "
             "and projects claimant_has_partner from PolicyEngine's relation_type "
@@ -1985,11 +3180,79 @@ def compare_outputs(
             "divided by num_carers and 52. The EFRS oracle has no positive "
             "severe-disability addition rows, so that branch is currently a "
             "zero-row guard rather than a positive-eligibility validation.",
+            "State Pension Credit Act section 1 qualifying-age comparison "
+            "queries RuleSpec's day-level qualifying_age on a representative "
+            "day and supplies PolicyEngine's annual state_pension_age for both "
+            "the pensionable-age leaf and the woman-born-same-day leaf. The "
+            "same projection compares the attained-age judgment against "
+            "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK EFRS "
+            "data exposes the modern equalized-age surface rather than "
+            "historical sex-specific age transitions.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
             "EFRS component outputs are divided by 12, and EFRS category "
             "variables select the matching standard-allowance, child-element, "
             "carer, LCWRA, and childcare-cap rows.",
+            "Welfare Reform Act 2012 section 8 Universal Credit award "
+            "comparison projects annual PolicyEngine component outputs into "
+            "monthly section 8 maximum-amount buckets, gates those buckets by "
+            "PolicyEngine's is_uc_eligible predicate to match uc_maximum_amount, "
+            "and projects PolicyEngine's capped uc_income_reduction as the "
+            "prescribed income deduction because PolicyEngine exposes the final "
+            "deduction rather than the exact statutory earned/unearned split.",
+            "Welfare Reform Act 2012 section 11 Universal Credit housing-costs "
+            "comparison projects PolicyEngine's annual uc_housing_costs_element "
+            "into the monthly amount determined or calculated by regulations, "
+            "with ordinary Great Britain residential-accommodation eligibility "
+            "predicates projected true and exception/timing predicates false.",
+            "Universal Credit Regulation 22 work-allowance comparison projects "
+            "PolicyEngine's is_uc_work_allowance_eligible, num_adults, "
+            "num_children, and uc_housing_costs_element into the statutory "
+            "higher/lower work-allowance case split, then compares the monthly "
+            "RuleSpec allowance against PolicyEngine's annual uc_work_allowance "
+            "divided by 12.",
+            "Universal Credit Regulation 22 income-deduction comparison "
+            "projects PolicyEngine's annual uc_earned_income divided by 12 as "
+            "the post-work-allowance amount subject to taper, adds back the "
+            "monthly uc_work_allowance when Regulation 22 specifies one to "
+            "supply the pre-allowance earned-income leaf, projects annual "
+            "uc_unearned_income divided by 12 as the unearned-income leaf, and "
+            "compares the final Regulation 22 deduction to uc_income_reduction "
+            "only on rows where PolicyEngine's maximum-credit cap is not binding "
+            "and PolicyEngine's negative-unearned-income treatment does not "
+            "differ from Regulation 22's non-negative unearned-income "
+            "deduction.",
+            "Universal Credit Regulation 72 tariff-income comparison projects "
+            "PolicyEngine's annual uc_assessable_capital stock into the "
+            "RuleSpec person_capital leaf, projects capital disregards and "
+            "actual-capital-income exceptions false, compares the monthly "
+            "RuleSpec tariff income against PolicyEngine's annual "
+            "uc_tariff_income divided by 12, and only counts rows where "
+            "PolicyEngine defines UC eligibility.",
+            "Universal Credit Regulation 34 childcare-costs element comparison "
+            "projects PolicyEngine's annual uc_childcare_element into monthly "
+            "relevant childcare charges by reversing the statutory 85 percent "
+            "reimbursement rate, supplies PolicyEngine's annual "
+            "uc_maximum_childcare_element_amount divided by 12 as the regulation "
+            "36 maximum, and projects excluded, reimbursed, and other-support "
+            "amounts to zero.",
+            "The protected LCWRA Regulation 36 table amount is compared only "
+            "when PolicyEngine exposes the raw protected amount. Current "
+            "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
+            "scenario for existing claimants, so those rebalanced health-element "
+            "values are not treated as the same surface.",
+            "Income Tax Act 2007 section 23 net-income comparison projects "
+            "PolicyEngine UK's adjusted_net_income into section 24 reliefs only "
+            "for rows with non-negative income components where adjusted net "
+            "income does not exceed total income. Rows with loss semantics are "
+            "skipped because RuleSpec section 23 net_income cannot exceed the "
+            "section 23 total_income output.",
+            "Income Tax Act 2007 section 23 final-liability comparison collapses "
+            "PolicyEngine's income_tax_additions into the RuleSpec step-4 tax "
+            "input and PolicyEngine's income_tax_subtractions into the section "
+            "26 reductions input, because PolicyEngine exposes final income_tax "
+            "and aggregate additive/subtractive components rather than exact "
+            "section 23 step buckets.",
         ],
     )
 
@@ -2021,6 +3284,15 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         return True
     if applies == "positive_pe_output":
         return policyengine_output_value(spec, row) > 0
+    if applies == "income_tax_net_income_comparable":
+        return all(
+            money(row_value(row, name, 0)) >= 0
+            for name in INCOME_TAX_INCOME_BASE_COMPONENTS
+        ) and money(row_value(row, "adjusted_net_income", 0)) <= money(
+            row_value(row, "total_income", 0)
+        )
+    if applies == "non_scottish_income_tax":
+        return not bool(row_value(row, "pays_scottish_income_tax", False))
     if applies == "uc_first_child_element":
         return (
             policyengine_output_value(spec, row) > 0
@@ -2037,9 +3309,28 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         return 0 < monthly_value < 300
     if applies == "uc_lcwra_higher_amount":
         monthly_value = policyengine_output_value(spec, row)
-        return 300 <= monthly_value < 600
+        expected = UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant"
+        ]
+        return math.isclose(monthly_value, expected, abs_tol=0.01)
     if applies == "uc_childcare_two_or_more_children":
         return int(row_value(row, "uc_childcare_element_eligible_children", 0)) >= 2
+    if applies == "uc_income_reduction_uncapped":
+        annual_uncapped_reduction = UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "earned_income_taper_rate"
+        ] * money(row_value(row, "uc_earned_income", 0)) + max(
+            0.0,
+            money(row_value(row, "uc_unearned_income", 0)),
+        )
+        pe_reduction = money(row_value(row, "uc_income_reduction", 0))
+        maximum_credit = money(row_value(row, "uc_maximum_amount", 0))
+        return (
+            pe_reduction >= 0
+            and annual_uncapped_reduction <= maximum_credit + 0.01
+            and math.isclose(pe_reduction, annual_uncapped_reduction, abs_tol=0.01)
+        )
+    if applies == "uc_tariff_income_defined":
+        return bool(row_value(row, "is_uc_eligible", False))
     if isinstance(applies, tuple) and len(applies) == 2:
         name, expected = applies
         value = row_value(row, name)
@@ -2286,10 +3577,28 @@ def tax_year_interval(year: int) -> dict[str, str]:
     }
 
 
+def day_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "day",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year:04d}-04-06",
+    }
+
+
 def benefit_week_interval(year: int) -> dict[str, str]:
     return {
         "period_kind": "custom",
         "name": "benefit_week",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year:04d}-04-12",
+    }
+
+
+def tax_week_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "tax_week",
         "start": f"{year:04d}-04-06",
         "end": f"{year:04d}-04-12",
     }
@@ -2306,6 +3615,10 @@ def benefit_month_interval(year: int) -> dict[str, str]:
 
 def person_entity_id(person_id: int) -> str:
     return f"person_{person_id}"
+
+
+def income_tax_component_entity_id(person_id: int, component: str) -> str:
+    return f"{person_entity_id(person_id)}_income_{component}"
 
 
 def benunit_entity_id(benunit_id: int) -> str:
@@ -2326,16 +3639,10 @@ def resolve_workspace_root(root: Path | None) -> Path:
 
 def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
     try:
-        policyengine_version = version("policyengine")
         policyengine_core_version = version("policyengine-core")
         policyengine_uk_version = version("policyengine-uk")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_uk_install_message(command)) from exc
-    if policyengine_version != POLICYENGINE_VERSION:
-        raise SystemExit(
-            f"policyengine=={POLICYENGINE_VERSION} required; found "
-            f"{policyengine_version}. {policyengine_uk_install_message(command)}"
-        )
     if policyengine_core_version != POLICYENGINE_CORE_VERSION:
         raise SystemExit(
             f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
@@ -2348,10 +3655,49 @@ def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
         )
 
 
+def policyengine_uk_class_1_weekly_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    class_1 = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.national_insurance.class_1
+    )
+    return {
+        "primary_threshold": money(class_1.thresholds.primary_threshold),
+        "upper_earnings_limit": money(class_1.thresholds.upper_earnings_limit),
+    }
+
+
+def policyengine_uk_income_tax_section_10_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    uk_rates = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.income_tax.rates.uk
+    )
+    return {
+        "basic_rate_limit": money(uk_rates.thresholds[1]),
+        "higher_rate_limit": money(uk_rates.thresholds[2]),
+        "basic_rate": money(uk_rates.rates[0]),
+        "higher_rate": money(uk_rates.rates[1]),
+        "additional_rate": money(uk_rates.rates[2]),
+    }
+
+
 def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:
     return (
         "Run with: uv run "
-        f"--with 'policyengine[uk]=={POLICYENGINE_VERSION}' "
+        f"--with policyengine-uk=={POLICYENGINE_UK_VERSION} "
         f"axiom-encode {command}"
     )
 

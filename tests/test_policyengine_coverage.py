@@ -779,10 +779,7 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {
-        "comparable": 2,
-        "known_not_comparable": 1,
-    }
+    assert report["status_counts"] == {"comparable": 3}
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     main_rate = items_by_id["uk:statutes/ukpga/1992/4/8#main_primary_percentage"]
@@ -803,9 +800,9 @@ rules:
         == "gov.hmrc.national_insurance.class_1.rates.employee.additional"
     )
     assert additional_rate["tested"] is True
-    assert contribution["status"] == "known_not_comparable"
+    assert contribution["status"] == "comparable"
     assert contribution["policyengine_variable"] == "ni_class_1_employee"
-    assert contribution["candidate_priority"] == "P4"
+    assert contribution["tested"] is True
 
 
 def test_policyengine_coverage_classifies_uk_pension_credit_section_1_outputs(
@@ -853,7 +850,7 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
 
-    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert report["status_counts"] == {"comparable": 2}
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     qualifying_age = items_by_id["uk:statutes/ukpga/2002/16/1#qualifying_age"]
     attained_age = items_by_id[
@@ -861,8 +858,12 @@ rules:
     ]
 
     assert qualifying_age["policyengine_variable"] == "state_pension_age"
+    assert qualifying_age["status"] == "comparable"
+    assert qualifying_age["mapping_type"] == "direct_variable"
     assert qualifying_age["candidate_priority"] == "P3"
     assert attained_age["policyengine_variable"] == "is_SP_age"
+    assert attained_age["status"] == "comparable"
+    assert attained_age["mapping_type"] == "direct_variable"
     assert attained_age["candidate_priority"] == "P3"
 
 
