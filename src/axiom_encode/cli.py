@@ -4270,6 +4270,49 @@ def _repair_colorado_snap_policy_composition(path: Path) -> None:
         "us-co:regulations/10-ccr-2506-1/4.407.6",
         before_import="us-co:regulations/10-ccr-2506-1/4.407.61",
     )
+    content = _upsert_rule_text(
+        content,
+        {
+            "name": "snap_maximum_allotment_table_max_household_size",
+            "kind": "parameter",
+            "dtype": "Count",
+            "source": "Colorado SNAP FY 2026 benefit calculation composition",
+            "versions": [
+                {
+                    "effective_from": "2025-10-01",
+                    "formula": "8",
+                }
+            ],
+        },
+        before_rule="max_allotment_for_number_of_boarders",
+    )
+    content = _upsert_rule_text(
+        content,
+        {
+            "name": "max_allotment_for_number_of_boarders",
+            "kind": "derived",
+            "entity": "Household",
+            "dtype": "Money",
+            "period": "Month",
+            "unit": "USD",
+            "source": "Colorado SNAP FY 2026 benefit calculation composition",
+            "versions": [
+                {
+                    "effective_from": "2025-10-01",
+                    "formula": (
+                        "if number_of_boarders <= 0:\n"
+                        "    0\n"
+                        "else:\n"
+                        "    snap_maximum_allotment_table[max(min(number_of_boarders, "
+                        "snap_maximum_allotment_table_max_household_size), 1)]\n"
+                        "    + (max(number_of_boarders - "
+                        "snap_maximum_allotment_table_max_household_size, 0) * "
+                        "snap_maximum_allotment_additional_member)"
+                    ),
+                }
+            ],
+        },
+    )
     content = _upsert_rules_text(
         content,
         _colorado_snap_federal_bridge_rules(include_allotment_bridges=False),
@@ -4352,6 +4395,10 @@ def _repair_colorado_snap_2072(path: Path) -> None:
 
 def _repair_colorado_snap_401(path: Path) -> None:
     content = path.read_text()
+    content, _ = _remove_rulespec_rule_by_name(
+        content,
+        "snap_gross_income_limit_165_percent_fpl_table_max_household_size",
+    )
     content = _upsert_rule_text(
         content,
         {
