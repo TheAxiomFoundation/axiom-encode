@@ -610,6 +610,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Universal Credit helper outputs not listed above are statutory amount variants that PolicyEngine UK does not expose as one-to-one oracle parameters in the current model, including the protected pre-2026 LCWRA amount.
 
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/4/paragraph/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 4 housing-cost calculation helpers are source-level rent, bedroom, contribution, cap, and under-occupation intermediates; PolicyEngine UK exposes downstream UC housing element and award results rather than each statutory helper one-to-one.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/10/paragraph/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 10 premises predicates are source-level housing occupation conditions used by Schedule 4 calculations; PolicyEngine UK does not expose them as one-to-one oracle variables.
+
   - legal_id_prefix: uk:regulations/uksi/2013/376/1#
     country: uk
     program: universal_credit
