@@ -333,6 +333,7 @@ rules:
 
     results = efrs_uk.run_axiom_parameter_outputs(
         program=program,
+        rulespec_root=tmp_path,
         request={
             "queries": [
                 {
@@ -350,6 +351,62 @@ rules:
             "outputs": {
                 "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount": {
                     "value": {"value": "338.58"}
+                }
+            }
+        }
+    ]
+
+
+def test_run_axiom_parameter_outputs_resolves_composed_program_imports(tmp_path):
+    rulespec_root = tmp_path / "rulespec-uk"
+    source = rulespec_root / "regulations" / "uksi" / "2013" / "376" / "36.yaml"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """
+format: rulespec/v1
+rules:
+  - name: carer_element_amount
+    kind: parameter
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          200
+      - effective_from: '2026-04-01'
+        formula: |-
+          209.34
+""".strip()
+    )
+    composed = tmp_path / "uk-uc-composed.yaml"
+    composed.write_text(
+        """
+format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - uk:regulations/uksi/2013/376/36
+""".strip()
+    )
+
+    results = efrs_uk.run_axiom_parameter_outputs(
+        program=composed,
+        rulespec_root=rulespec_root,
+        request={
+            "queries": [
+                {
+                    "period": {"start": "2026-04-01"},
+                    "outputs": ["uk:regulations/uksi/2013/376/36#carer_element_amount"],
+                }
+            ]
+        },
+    )
+
+    assert results == [
+        {
+            "outputs": {
+                "uk:regulations/uksi/2013/376/36#carer_element_amount": {
+                    "value": {"value": "209.34"}
                 }
             }
         }
