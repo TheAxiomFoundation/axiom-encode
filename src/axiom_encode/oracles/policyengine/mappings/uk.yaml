@@ -488,6 +488,42 @@ mappings:
     candidate_priority: P3
     rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. The UK EFRS oracle compares RuleSpec's judgment output to PolicyEngine UK's annual is_SP_age predicate after supplying the same age and state_pension_age projection used for qualifying_age.
 
+  - legal_id: uk:statutes/ukpga/2002/16/3#savings_credit
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: savings_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    candidate_priority: P2
+    rationale: Same annual Pension Credit savings credit amount. The EFRS oracle projects section 3 inputs from PolicyEngine's savings-credit income, claimant income, minimum-guarantee, standard-minimum-guarantee, and prescribed threshold/rate parameters.
+
+  - legal_id: uk:statutes/ukpga/2002/16/3#maximum_savings_credit
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law intermediate for State Pension Credit Act section 3. PolicyEngine UK exposes the final savings_credit amount, but not the section 3 maximum savings credit as a separate one-to-one variable.
+
+  - legal_id: uk:statutes/ukpga/2002/16/3#amount_a_for_savings_credit
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law intermediate for State Pension Credit Act section 3 amount A. PolicyEngine UK exposes the final savings_credit amount, but not amount A separately.
+
+  - legal_id: uk:statutes/ukpga/2002/16/3#amount_b_for_savings_credit
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law intermediate for State Pension Credit Act section 3 amount B. PolicyEngine UK exposes the final savings_credit amount, but not amount B separately.
+
+  - legal_id: uk:statutes/ukpga/2002/16/3#savings_credit_second_condition_satisfied
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law entitlement predicate under State Pension Credit Act section 3(2). PolicyEngine UK has an eligibility variable, but it combines age and income conditions and is not a one-to-one match for this second condition.
+
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount
     country: uk
     program: universal_credit

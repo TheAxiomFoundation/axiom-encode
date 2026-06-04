@@ -1180,6 +1180,100 @@ rules:
     assert attained_age["candidate_priority"] == "P3"
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_section_3_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2002/16/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: maximum_savings_credit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          10
+  - name: amount_a_for_savings_credit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          9
+  - name: amount_b_for_savings_credit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          2
+  - name: savings_credit_second_condition_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          amount_a_for_savings_credit > amount_b_for_savings_credit
+  - name: savings_credit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          amount_a_for_savings_credit - amount_b_for_savings_credit
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2002/16/3.test.yaml",
+        """- name: savings credit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:statutes/ukpga/2002/16/3#maximum_savings_credit: 10
+    uk:statutes/ukpga/2002/16/3#amount_a_for_savings_credit: 9
+    uk:statutes/ukpga/2002/16/3#amount_b_for_savings_credit: 2
+    uk:statutes/ukpga/2002/16/3#savings_credit_second_condition_satisfied: holds
+    uk:statutes/ukpga/2002/16/3#savings_credit: 7
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 4,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    savings_credit = items_by_id["uk:statutes/ukpga/2002/16/3#savings_credit"]
+
+    assert savings_credit["policyengine_variable"] == "savings_credit"
+    assert savings_credit["status"] == "comparable"
+    assert savings_credit["mapping_type"] == "direct_variable"
+    assert savings_credit["candidate_priority"] == "P2"
+    assert (
+        items_by_id["uk:statutes/ukpga/2002/16/3#amount_a_for_savings_credit"]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",
