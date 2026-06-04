@@ -33,7 +33,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_REGULATION_22_BASE,
     UNIVERSAL_CREDIT_REGULATION_34_BASE,
+    UNIVERSAL_CREDIT_REGULATION_72_BASE,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
+    UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS,
     UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
     WELFARE_REFORM_ACT_SECTION_8_BASE,
@@ -51,6 +53,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_housing_costs_request,
     build_universal_credit_income_deduction_request,
     build_universal_credit_request,
+    build_universal_credit_tariff_income_request,
     build_universal_credit_work_allowance_request,
     compare_outputs,
     compare_uk_efrs,
@@ -68,6 +71,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_universal_credit_childcare_element_inputs,
     project_universal_credit_housing_costs_inputs,
     project_universal_credit_income_deduction_inputs,
+    project_universal_credit_tariff_income_inputs,
     project_universal_credit_work_allowance_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
@@ -1120,6 +1124,71 @@ def test_universal_credit_income_deduction_request_projects_regulation_22_inputs
     }
 
 
+def test_universal_credit_tariff_income_projection_uses_regulation_72_inputs():
+    assert project_universal_credit_tariff_income_inputs(
+        {
+            "uc_assessable_capital": 6_001,
+        }
+    ) == {
+        "person_capital": 6_001,
+        "capital_is_disregarded": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_i_annuity": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_j_trust": False,
+        "actual_income_derived_from_that_capital_due_to_be_paid_to_person_on_day_amount": 0.0,
+    }
+
+
+def test_universal_credit_tariff_income_request_projects_regulation_72_inputs():
+    request = build_universal_credit_tariff_income_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "is_uc_eligible": True,
+                    "uc_assessable_capital": 6_001,
+                    "uc_tariff_income": 52.20,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#input.person_capital"
+    ] == {
+        "kind": "decimal",
+        "value": "6001.0",
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#input.capital_is_disregarded"
+    ] == {
+        "kind": "bool",
+        "value": False,
+    }
+
+
 def test_universal_credit_child_element_request_filters_to_positive_rows():
     request = build_universal_credit_request(
         pe_data={
@@ -1400,6 +1469,13 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_maximum_amount",
         "uc_unearned_income",
         "uc_work_allowance",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-tariff-income"]
+    ) == (
+        "is_uc_eligible",
+        "uc_assessable_capital",
+        "uc_tariff_income",
     )
 
 
@@ -2080,6 +2156,76 @@ def test_compare_outputs_skips_negative_unearned_income_deduction_final():
     )
 
     assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_transforms_universal_credit_tariff_income_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "is_uc_eligible": True,
+                    "uc_assessable_capital": 6_001,
+                    "uc_tariff_income": 52.20,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-tariff-income": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS[
+                            "capital_tariff_monthly_income"
+                        ]["axiom"]: decimal_output(4.35),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_skips_undefined_universal_credit_tariff_income():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "is_uc_eligible": False,
+                    "uc_assessable_capital": 20_000,
+                    "uc_tariff_income": 0,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-tariff-income": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS[
+                            "capital_tariff_monthly_income"
+                        ]["axiom"]: decimal_output(243.60),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 0
     assert report.mismatches == []
     assert report.oracle_divergences == []
 

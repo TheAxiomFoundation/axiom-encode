@@ -56,6 +56,8 @@ UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH = Path("regulations/uksi/2013/376/22
 UNIVERSAL_CREDIT_REGULATION_22_BASE = "uk:regulations/uksi/2013/376/22"
 UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH = Path("regulations/uksi/2013/376/34.yaml")
 UNIVERSAL_CREDIT_REGULATION_34_BASE = "uk:regulations/uksi/2013/376/34"
+UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH = Path("regulations/uksi/2013/376/72.yaml")
+UNIVERSAL_CREDIT_REGULATION_72_BASE = "uk:regulations/uksi/2013/376/72"
 WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
 WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
@@ -347,6 +349,15 @@ UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_monthly_income": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#capital_tariff_monthly_income",
+        "pe": "uc_tariff_income",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_tariff_income_defined",
+    },
+}
+
 UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "standard_allowance_single_under_25": 338.58,
     "standard_allowance_single_25_or_over": 424.90,
@@ -555,6 +566,16 @@ SURFACE_SPECS = {
             "uc_maximum_amount",
             "uc_unearned_income",
             "uc_work_allowance",
+        ),
+    ),
+    "universal-credit-tariff-income": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "is_uc_eligible",
+            "uc_assessable_capital",
+            "uc_tariff_income",
         ),
     ),
 }
@@ -2034,6 +2055,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "universal-credit-tariff-income":
+        return build_universal_credit_tariff_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-work-allowance":
         return build_universal_credit_work_allowance_request(
             pe_data=pe_data,
@@ -2504,6 +2530,41 @@ def build_universal_credit_income_deduction_request(
     }
 
 
+def build_universal_credit_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-tariff-income"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_tariff_income_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_work_allowance_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -2757,6 +2818,16 @@ def project_universal_credit_income_deduction_inputs(row: Any) -> dict[str, Any]
         "joint_claimants_combined_earned_income_in_assessment_period": joint_earned_income,
         "claimant_unearned_income_in_assessment_period": claimant_unearned_income,
         "joint_claimants_combined_unearned_income_in_assessment_period": joint_unearned_income,
+    }
+
+
+def project_universal_credit_tariff_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "person_capital": money(row_value(row, "uc_assessable_capital", 0)),
+        "capital_is_disregarded": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_i_annuity": False,
+        "actual_income_from_capital_taken_into_account_under_regulation_66_1_j_trust": False,
+        "actual_income_derived_from_that_capital_due_to_be_paid_to_person_on_day_amount": 0.0,
     }
 
 
@@ -3036,6 +3107,13 @@ def compare_outputs(
             "and PolicyEngine's negative-unearned-income treatment does not "
             "differ from Regulation 22's non-negative unearned-income "
             "deduction.",
+            "Universal Credit Regulation 72 tariff-income comparison projects "
+            "PolicyEngine's annual uc_assessable_capital stock into the "
+            "RuleSpec person_capital leaf, projects capital disregards and "
+            "actual-capital-income exceptions false, compares the monthly "
+            "RuleSpec tariff income against PolicyEngine's annual "
+            "uc_tariff_income divided by 12, and only counts rows where "
+            "PolicyEngine defines UC eligibility.",
             "Universal Credit Regulation 34 childcare-costs element comparison "
             "projects PolicyEngine's annual uc_childcare_element into monthly "
             "relevant childcare charges by reversing the statutory 85 percent "
@@ -3134,6 +3212,8 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
             and annual_uncapped_reduction <= maximum_credit + 0.01
             and math.isclose(pe_reduction, annual_uncapped_reduction, abs_tol=0.01)
         )
+    if applies == "uc_tariff_income_defined":
+        return bool(row_value(row, "is_uc_eligible", False))
     if isinstance(applies, tuple) and len(applies) == 2:
         name, expected = applies
         value = row_value(row, name)

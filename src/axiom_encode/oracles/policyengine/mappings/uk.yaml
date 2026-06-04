@@ -424,6 +424,17 @@ mappings:
     comparison: money
     rationale: Same Universal Credit maximum childcare costs element for two or more children. Companion tests exercise it through the branch-selected childcare cap output.
 
+  - legal_id: uk:regulations/uksi/2013/376/72#capital_tariff_monthly_income
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: uc_tariff_income
+    entity: benunit
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit assessed capital to the Regulation 72 capital leaf and converts PolicyEngine's annual output to a monthly amount.
+
 prefixes:
   - legal_id_prefix: uk:statutes/ukpga/2007/3/35#
     country: uk
@@ -567,7 +578,7 @@ prefixes:
     country: uk
     program: universal_credit
     mapping_type: not_comparable
-    rationale: Universal Credit regulation 72 tariff-income helpers are source-level capital-to-income conversion mechanics not exposed as one-to-one PolicyEngine UK variables.
+    rationale: Remaining Universal Credit regulation 72 tariff-income helpers are source-level capital-to-income conversion mechanics not exposed as one-to-one PolicyEngine UK variables.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/77#
     country: uk
