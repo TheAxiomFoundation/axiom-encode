@@ -39,6 +39,8 @@ POLICYENGINE_UK_VERSION = "2.88.20"
 
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
+INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
+INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
@@ -50,6 +52,24 @@ PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
         "axiom": f"{PERSONAL_ALLOWANCE_BASE}#personal_allowance",
         "pe": "personal_allowance",
+    },
+}
+
+INCOME_TAX_INCOME_BASE_COMPONENTS = (
+    "employment_income",
+    "private_pension_income",
+    "social_security_income",
+    "self_employment_income",
+    "property_income",
+    "savings_interest_income",
+    "dividend_income",
+    "miscellaneous_income",
+)
+
+INCOME_TAX_INCOME_BASE_OUTPUTS = {
+    "total_income": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#total_income",
+        "pe": "total_income",
     },
 }
 
@@ -206,6 +226,15 @@ SURFACE_SPECS = {
             "adjusted_net_income",
             "gift_aid_grossed_up",
             "personal_allowance",
+        ),
+    ),
+    "income-tax-income-base": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_23_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_INCOME_BASE_OUTPUTS,
+        pe_variables=(
+            *INCOME_TAX_INCOME_BASE_COMPONENTS,
+            "total_income",
         ),
     ),
     "child-benefit": UKEFRSSurfaceSpec(
@@ -1639,6 +1668,8 @@ def build_axiom_request(
 ) -> dict[str, Any]:
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-income-base":
+        return build_income_tax_income_base_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
     if surface == "pension-credit":
@@ -1682,6 +1713,53 @@ def build_personal_allowance_request(
     return {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_income_tax_income_base_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-income-base"):
+        person_id = int(row_value(row, "person_id"))
+        entity_id = person_entity_id(person_id)
+        for component in project_income_tax_income_base_components(row):
+            payment_id = income_tax_component_entity_id(
+                person_id,
+                str(component["name"]),
+            )
+            relations.append(
+                {
+                    "name": f"{INCOME_TAX_SECTION_23_BASE}#relation.income_component_of_taxpayer",
+                    "tuple": [payment_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.amount_charged_to_income_tax",
+                    payment_id,
+                    interval,
+                    money(component["amount_charged_to_income_tax"]),
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_INCOME_BASE_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
         "queries": queries,
     }
 
@@ -1784,6 +1862,21 @@ def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
         "individual_meets_requirements_under_section_56": True,
         "adjusted_net_income": max(0.0, adjusted_net_income - gift_aid_grossed_up),
     }
+
+
+def project_income_tax_income_base_components(row: Any) -> list[dict[str, Any]]:
+    components = [
+        {
+            "name": name,
+            "amount_charged_to_income_tax": money(row_value(row, name, 0)),
+        }
+        for name in INCOME_TAX_INCOME_BASE_COMPONENTS
+    ]
+    return [
+        component
+        for component in components
+        if money(component["amount_charged_to_income_tax"])
+    ]
 
 
 def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
@@ -2306,6 +2399,10 @@ def benefit_month_interval(year: int) -> dict[str, str]:
 
 def person_entity_id(person_id: int) -> str:
     return f"person_{person_id}"
+
+
+def income_tax_component_entity_id(person_id: int, component: str) -> str:
+    return f"{person_entity_id(person_id)}_income_{component}"
 
 
 def benunit_entity_id(benunit_id: int) -> str:

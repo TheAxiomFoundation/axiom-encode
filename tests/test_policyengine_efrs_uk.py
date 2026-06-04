@@ -8,6 +8,9 @@ import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_BASE,
     CHILD_BENEFIT_OUTPUTS,
+    INCOME_TAX_INCOME_BASE_COMPONENTS,
+    INCOME_TAX_INCOME_BASE_OUTPUTS,
+    INCOME_TAX_SECTION_23_BASE,
     PENSION_CREDIT_BASE,
     PENSION_CREDIT_OUTPUTS,
     PERSONAL_ALLOWANCE_BASE,
@@ -17,6 +20,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
     build_child_benefit_request,
+    build_income_tax_income_base_request,
     build_pension_credit_request,
     build_personal_allowance_request,
     build_uk_efrs_coverage_report,
@@ -26,6 +30,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
     project_child_benefit_inputs,
+    project_income_tax_income_base_components,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     require_policyengine_uk_versions,
@@ -104,6 +109,89 @@ def test_personal_allowance_request_projects_efrs_people():
             "value": "20000.0",
         },
     }
+
+
+def test_income_tax_income_base_projection_uses_income_components():
+    components = project_income_tax_income_base_components(
+        {
+            "employment_income": 30_000,
+            "private_pension_income": 2_000,
+            "savings_interest_income": 100,
+        }
+    )
+
+    assert components == [
+        {
+            "name": "employment_income",
+            "amount_charged_to_income_tax": 30_000,
+        },
+        {
+            "name": "private_pension_income",
+            "amount_charged_to_income_tax": 2_000,
+        },
+        {
+            "name": "savings_interest_income",
+            "amount_charged_to_income_tax": 100,
+        },
+    ]
+
+
+def test_income_tax_income_base_request_projects_section_23_relation():
+    request = build_income_tax_income_base_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "employment_income": 30_000,
+                    "private_pension_income": 2_000,
+                    "total_income": 32_000,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"] for output in INCOME_TAX_INCOME_BASE_OUTPUTS.values()
+            ),
+        }
+    ]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": f"{INCOME_TAX_SECTION_23_BASE}#relation.income_component_of_taxpayer",
+            "tuple": ["person_7_income_employment_income", "person_7"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
+            "name": f"{INCOME_TAX_SECTION_23_BASE}#relation.income_component_of_taxpayer",
+            "tuple": ["person_7_income_private_pension_income", "person_7"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.amount_charged_to_income_tax:person_7_income_employment_income"
+    ] == {"kind": "decimal", "value": "30000.0"}
 
 
 def test_child_benefit_projection_uses_child_index():
@@ -437,6 +525,14 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "child_benefit_respective_amount",
         "gift_aid_grossed_up",
         "personal_allowance",
+    )
+    assert policyengine_person_variables_for_surfaces(["income-tax-income-base"]) == (
+        *sorted(
+            (
+                *INCOME_TAX_INCOME_BASE_COMPONENTS,
+                "total_income",
+            )
+        ),
     )
     assert policyengine_benunit_variables_for_surfaces(
         ["personal-allowance", "pension-credit"]
