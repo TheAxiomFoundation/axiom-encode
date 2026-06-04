@@ -19,6 +19,7 @@ from axiom_encode.harness.validator_pipeline import (
     _extract_json_object,
     _infer_us_state_code_from_rulespec_path,
     _load_applied_encoding_manifest_source_metadata,
+    _load_nearby_eval_source_metadata,
     _normalize_us_tax_filing_status,
     _policyengine_expected_float,
     _policyengine_period_string,
@@ -14958,6 +14959,121 @@ rules: []
     )
 
     assert issues == []
+
+
+def test_nearby_eval_source_metadata_matches_corpus_path_shapes(tmp_path):
+    output_root = tmp_path / "axiom-encode-encodings"
+    unrelated_workspace = (
+        output_root
+        / "_eval_workspaces"
+        / "codex-gpt-5.5"
+        / "26-USC-1402-a"
+        / "workspace"
+    )
+    unrelated_workspace.mkdir(parents=True)
+    (unrelated_workspace / "context-manifest.json").write_text(
+        json.dumps(
+            {
+                "citation": "26 USC 1402(a)",
+                "source_metadata": {
+                    "corpus_citation_path": "us/statute/26/1402/a",
+                    "corpus_source": "supabase",
+                    "requested_source": "26 USC 1402(a)",
+                },
+            }
+        )
+    )
+
+    colorado_workspace = (
+        output_root
+        / "_eval_workspaces"
+        / "codex-gpt-5.5"
+        / "us-co-regulation-9-ccr-2503-6-3.606.3"
+        / "workspace"
+    )
+    colorado_workspace.mkdir(parents=True)
+    colorado_metadata = {
+        "corpus_citation_path": "us-co/regulation/9-ccr-2503-6/3.606.3",
+        "corpus_source": "supabase",
+        "requested_source": "us-co/regulation/9-ccr-2503-6/3.606.3",
+    }
+    (colorado_workspace / "context-manifest.json").write_text(
+        json.dumps(
+            {
+                "citation": "9 CCR 2503-6 3.606.3",
+                "source_metadata": colorado_metadata,
+            }
+        )
+    )
+
+    rulespec_file = (
+        output_root / "codex-gpt-5.5" / "regulations/9-ccr-2503-6/3.606.3.yaml"
+    )
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    assert _load_nearby_eval_source_metadata(rulespec_file) == colorado_metadata
+
+    federal_workspace = (
+        output_root
+        / "_eval_workspaces"
+        / "codex-gpt-5.5"
+        / "us-regulation-7-273-10"
+        / "workspace"
+    )
+    federal_workspace.mkdir(parents=True)
+    federal_metadata = {
+        "corpus_citation_path": "us/regulation/7/273/10",
+        "corpus_source": "supabase",
+        "requested_source": "us/regulation/7/273/10",
+    }
+    (federal_workspace / "context-manifest.json").write_text(
+        json.dumps(
+            {
+                "citation": "7 CFR 273.10",
+                "source_metadata": federal_metadata,
+            }
+        )
+    )
+    federal_rulespec_file = (
+        output_root / "codex-gpt-5.5" / "regulations/7-cfr/273/10.yaml"
+    )
+    federal_rulespec_file.parent.mkdir(parents=True)
+    federal_rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    assert _load_nearby_eval_source_metadata(federal_rulespec_file) == federal_metadata
+
+    california_workspace = (
+        output_root
+        / "_eval_workspaces"
+        / "codex-gpt-5.5"
+        / "us-ca-regulation-mpp-63-503.132"
+        / "workspace"
+    )
+    california_workspace.mkdir(parents=True)
+    california_metadata = {
+        "corpus_citation_path": "us-ca/regulation/mpp/63-503.132",
+        "corpus_source": "supabase",
+        "requested_source": "us-ca/regulation/mpp/63-503.132",
+    }
+    (california_workspace / "context-manifest.json").write_text(
+        json.dumps(
+            {
+                "citation": "MPP 63-503.132",
+                "source_metadata": california_metadata,
+            }
+        )
+    )
+    california_rulespec_file = (
+        output_root / "codex-gpt-5.5" / "regulations/mpp/63-503/132.yaml"
+    )
+    california_rulespec_file.parent.mkdir(parents=True)
+    california_rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    assert (
+        _load_nearby_eval_source_metadata(california_rulespec_file)
+        == california_metadata
+    )
 
 
 def test_source_subparagraph_coverage_without_requested_source_keeps_strict_scope():
