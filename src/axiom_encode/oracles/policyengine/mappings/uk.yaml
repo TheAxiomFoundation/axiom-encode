@@ -616,6 +616,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Universal Credit Schedule 4 housing-cost calculation helpers are source-level rent, bedroom, contribution, cap, and under-occupation intermediates; PolicyEngine UK exposes downstream UC housing element and award results rather than each statutory helper one-to-one.
 
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/5/paragraph/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 5 owner-occupier housing-cost helpers are source-level relevant-payment, qualifying-period, and service-charge intermediates; PolicyEngine UK exposes downstream UC housing element and award results rather than each statutory helper one-to-one.
+
   - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/10/paragraph/
     country: uk
     program: universal_credit

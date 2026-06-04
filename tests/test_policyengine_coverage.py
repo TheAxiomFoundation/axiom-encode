@@ -8999,6 +8999,19 @@ rules:
     _write_rulespec_file(
         tmp_path
         / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/5/paragraph/9.yaml",
+        """format: rulespec/v1
+rules:
+  - name: owner_occupier_housing_costs_element_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: relevant_payment_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk"
         / "regulations/uksi/2013/376/schedule/10/paragraph/1.yaml",
         """format: rulespec/v1
 rules:
@@ -9012,11 +9025,14 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path)
 
-    assert report["total_outputs"] == 2
-    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     schedule_4 = items_by_id[
         "uk:regulations/uksi/2013/376/schedule/4/paragraph/22#renters_housing_costs_element_calculated_under_this_part"
+    ]
+    schedule_5 = items_by_id[
+        "uk:regulations/uksi/2013/376/schedule/5/paragraph/9#owner_occupier_housing_costs_element_amount"
     ]
     schedule_10 = items_by_id[
         "uk:regulations/uksi/2013/376/schedule/10/paragraph/1#premises_treated_as_persons_home_for_paragraphs_1_to_5"
@@ -9025,6 +9041,11 @@ rules:
     assert schedule_4["mapping_type"] == "not_comparable"
     assert "Schedule 4 housing-cost calculation helpers" in str(
         schedule_4["rationale"],
+    )
+    assert schedule_5["program"] == "universal_credit"
+    assert schedule_5["mapping_type"] == "not_comparable"
+    assert "Schedule 5 owner-occupier housing-cost helpers" in str(
+        schedule_5["rationale"],
     )
     assert schedule_10["program"] == "universal_credit"
     assert schedule_10["mapping_type"] == "not_comparable"
