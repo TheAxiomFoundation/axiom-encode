@@ -260,14 +260,14 @@ mappings:
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk
     program: pension_credit
-    mapping_type: not_comparable
+    mapping_type: direct_variable
     policyengine_variable: state_pension_age
     entity: person
     period: day
     unit: year
     comparison: count
     candidate_priority: P3
-    rationale: State Pension Credit Act section 1 defines a source-level qualifying age at day granularity, including the man's woman-born-same-day rule. PolicyEngine UK exposes state_pension_age as a year-period person variable from state-pension age parameters, so this needs a period and historical-sex-rule adapter before direct oracle comparison.
+    rationale: State Pension Credit Act section 1 defines a source-level qualifying age at day granularity. The UK EFRS oracle supplies PolicyEngine UK's state_pension_age to both statutory pensionable-age leaves on a representative day, matching the modern equalized-age surface exposed by PolicyEngine.
 
   - legal_id: uk:statutes/ukpga/2002/16/1#claimant_has_attained_qualifying_age
     country: uk

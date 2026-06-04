@@ -853,7 +853,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
 
-    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     qualifying_age = items_by_id["uk:statutes/ukpga/2002/16/1#qualifying_age"]
     attained_age = items_by_id[
@@ -861,8 +864,11 @@ rules:
     ]
 
     assert qualifying_age["policyengine_variable"] == "state_pension_age"
+    assert qualifying_age["status"] == "comparable"
+    assert qualifying_age["mapping_type"] == "direct_variable"
     assert qualifying_age["candidate_priority"] == "P3"
     assert attained_age["policyengine_variable"] == "is_SP_age"
+    assert attained_age["status"] == "known_not_comparable"
     assert attained_age["candidate_priority"] == "P3"
 
 

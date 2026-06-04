@@ -44,6 +44,8 @@ INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
 INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
+STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/2002/16/1.yaml")
+STATE_PENSION_CREDIT_SECTION_1_BASE = "uk:statutes/ukpga/2002/16/1"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
@@ -114,6 +116,13 @@ CHILD_BENEFIT_OUTPUTS = {
         "axiom": f"{CHILD_BENEFIT_BASE}#child_benefit_weekly_rate",
         "pe": "child_benefit_respective_amount",
         "pe_transform": "annual_to_weekly",
+    },
+}
+
+STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS = {
+    "qualifying_age": {
+        "axiom": f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#qualifying_age",
+        "pe": "state_pension_age",
     },
 }
 
@@ -295,6 +304,16 @@ SURFACE_SPECS = {
         pe_variables=(
             "child_benefit_child_index",
             "child_benefit_respective_amount",
+        ),
+    ),
+    "state-pension-credit-qualifying-age": UKEFRSSurfaceSpec(
+        program=STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH,
+        entity="person",
+        outputs=STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
+        pe_variables=(
+            "age",
+            "gender",
+            "state_pension_age",
         ),
     ),
     "pension-credit": UKEFRSSurfaceSpec(
@@ -1794,6 +1813,11 @@ def build_axiom_request(
         return build_income_tax_income_base_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
+    if surface == "state-pension-credit-qualifying-age":
+        return build_state_pension_credit_qualifying_age_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
     if surface.startswith("universal-credit-"):
@@ -1980,6 +2004,43 @@ def build_child_benefit_request(
     }
 
 
+def build_state_pension_credit_qualifying_age_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = day_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "state-pension-credit-qualifying-age"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_state_pension_credit_qualifying_age_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_pension_credit_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -2092,6 +2153,17 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
         "child_or_qualifying_young_person_is_elder_or_eldest_among_paragraph_2_children": is_eldest,
         "payee_is_voluntary_organisation": False,
         "payee_resides_with_parent_otherwise_than_paragraph_2_a": False,
+    }
+
+
+def project_state_pension_credit_qualifying_age_inputs(row: Any) -> dict[str, Any]:
+    state_pension_age = money(row_value(row, "state_pension_age", 0))
+    return {
+        "claimant_is_woman": enum_name(row_value(row, "gender", "")).upper()
+        == "FEMALE",
+        "pensionable_age": state_pension_age,
+        "pensionable_age_for_woman_born_same_day": state_pension_age,
+        "claimant_age": money(row_value(row, "age", 0)),
     }
 
 
@@ -2286,6 +2358,12 @@ def compare_outputs(
             "divided by num_carers and 52. The EFRS oracle has no positive "
             "severe-disability addition rows, so that branch is currently a "
             "zero-row guard rather than a positive-eligibility validation.",
+            "State Pension Credit Act section 1 qualifying-age comparison "
+            "queries RuleSpec's day-level qualifying_age on a representative "
+            "day and supplies PolicyEngine's annual state_pension_age for both "
+            "the pensionable-age leaf and the woman-born-same-day leaf. Current "
+            "PolicyEngine UK EFRS data exposes the modern equalized-age surface "
+            "rather than historical sex-specific age transitions.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
             "EFRS component outputs are divided by 12, and EFRS category "
@@ -2598,6 +2676,15 @@ def tax_year_interval(year: int) -> dict[str, str]:
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
+    }
+
+
+def day_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "day",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year:04d}-04-06",
     }
 
 

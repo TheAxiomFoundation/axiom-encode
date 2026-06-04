@@ -20,6 +20,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
+    STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
+    STATE_PENSION_CREDIT_SECTION_1_BASE,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
@@ -29,6 +31,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
+    build_state_pension_credit_qualifying_age_request,
     build_uk_efrs_coverage_report,
     build_universal_credit_request,
     compare_outputs,
@@ -41,6 +44,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
+    project_state_pension_credit_qualifying_age_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
 )
@@ -380,6 +384,72 @@ def test_pension_credit_projection_uses_relation_type():
     }
 
 
+def test_state_pension_credit_qualifying_age_projection_uses_equalized_age():
+    assert project_state_pension_credit_qualifying_age_inputs(
+        {
+            "gender": "FEMALE",
+            "state_pension_age": 66,
+            "age": 67,
+        }
+    ) == {
+        "claimant_is_woman": True,
+        "pensionable_age": 66,
+        "pensionable_age_for_woman_born_same_day": 66,
+        "claimant_age": 67,
+    }
+    assert (
+        project_state_pension_credit_qualifying_age_inputs(
+            {
+                "gender": "Gender.MALE",
+                "state_pension_age": 66,
+                "age": 65,
+            }
+        )["claimant_is_woman"]
+        is False
+    )
+
+
+def test_state_pension_credit_qualifying_age_request_projects_people():
+    request = build_state_pension_credit_qualifying_age_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "gender": "FEMALE",
+                    "state_pension_age": 66,
+                    "age": 67,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "custom",
+                "name": "day",
+                "start": "2026-04-06",
+                "end": "2026-04-06",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS.values()
+            ),
+        }
+    ]
+    assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
+        f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#input.claimant_is_woman"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+
+
 def test_pension_credit_request_projects_benefit_units():
     request = build_pension_credit_request(
         pe_data={
@@ -653,6 +723,13 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "ni_class_1_income",
         "ni_liable",
     )
+    assert policyengine_person_variables_for_surfaces(
+        ["state-pension-credit-qualifying-age"]
+    ) == (
+        "age",
+        "gender",
+        "state_pension_age",
+    )
     assert policyengine_benunit_variables_for_surfaces(
         ["personal-allowance", "pension-credit"]
     ) == (
@@ -736,7 +813,10 @@ class age(Variable):
     assert report.computed_variables_total == 3
     assert report.computed_variables_by_entity == {"person": 3}
     assert report.computed_variables_by_domain == {"gov": 2, "input": 1}
-    assert report.computed_covered_variables == ["income_tax", "personal_allowance"]
+    assert report.computed_covered_variables == [
+        "income_tax",
+        "personal_allowance",
+    ]
     assert report.missing_variables_total == 1
     assert [variable.name for variable in report.missing_variables] == [
         "employment_income",
