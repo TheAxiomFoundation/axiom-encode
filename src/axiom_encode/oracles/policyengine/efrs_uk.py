@@ -496,6 +496,16 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         help="PolicyEngine dataset cache folder",
     )
     parser.add_argument(
+        "--universal-credit-program",
+        type=Path,
+        default=None,
+        help=(
+            "Optional RuleSpec program to use for Universal Credit surfaces. "
+            "This lets oracle runs compare a composed axiom-programs package "
+            "while keeping non-UC UK surfaces on their source RuleSpec files."
+        ),
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
         default=0.01,
@@ -530,6 +540,7 @@ def main(args: argparse.Namespace) -> int:
         data_folder=args.data_folder,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
+        universal_credit_program=getattr(args, "universal_credit_program", None),
         person_ids=tuple(args.person_ids or ()),
     )
     if args.json:
@@ -620,6 +631,7 @@ def compare_uk_efrs(
     data_folder: Path,
     tolerance: float,
     relative_tolerance: float,
+    universal_credit_program: Path | None = None,
     person_ids: tuple[int, ...] = (),
 ) -> UKEFRSComparisonReport:
     resolved_rulespec_root = (rulespec_root or workspace_root / "rulespec-uk").resolve()
@@ -639,7 +651,13 @@ def compare_uk_efrs(
     surface_results: dict[str, list[dict[str, Any]]] = {}
     for selected_surface in surfaces:
         spec = SURFACE_SPECS[selected_surface]
-        program = resolved_rulespec_root / spec.program
+        if (
+            selected_surface.startswith("universal-credit-")
+            and universal_credit_program is not None
+        ):
+            program = universal_credit_program.resolve()
+        else:
+            program = resolved_rulespec_root / spec.program
         if not program.exists():
             raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
         request = build_axiom_request(
@@ -1477,7 +1495,11 @@ def run_axiom_surface(
     surface: str,
 ) -> list[dict[str, Any]]:
     if surface.startswith("universal-credit-"):
-        return run_axiom_parameter_outputs(program=program, request=request)
+        return run_axiom_parameter_outputs(
+            program=program,
+            request=request,
+            rulespec_root=rulespec_root,
+        )
     return run_axiom_program(
         program=program,
         request=request,
@@ -1490,6 +1512,7 @@ def run_axiom_parameter_outputs(
     *,
     program: Path,
     request: dict[str, Any],
+    rulespec_root: Path,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     parameter_cache: dict[str, dict[str, float]] = {}
@@ -1498,6 +1521,7 @@ def run_axiom_parameter_outputs(
         if period_start not in parameter_cache:
             parameter_cache[period_start] = rulespec_scalar_parameter_values(
                 program,
+                rulespec_root=rulespec_root,
                 period_start=period_start,
             )
         parameter_values = parameter_cache[period_start]
@@ -1511,13 +1535,36 @@ def run_axiom_parameter_outputs(
 
 
 def rulespec_scalar_parameter_values(
-    program: Path, *, period_start: str
+    program: Path, *, rulespec_root: Path, period_start: str
 ) -> dict[str, float]:
+    return _rulespec_scalar_parameter_values(
+        program.resolve(),
+        rulespec_root=rulespec_root.resolve(),
+        period_start=period_start,
+        seen=set(),
+    )
+
+
+def _rulespec_scalar_parameter_values(
+    program: Path,
+    *,
+    rulespec_root: Path,
+    period_start: str,
+    seen: set[Path],
+) -> dict[str, float]:
+    if program in seen:
+        return {}
+    seen.add(program)
     payload = yaml.safe_load(program.read_text()) or {}
-    base = rule_base_from_program(program)
     values: dict[str, float] = {}
+    try:
+        base = rule_base_from_program(program)
+    except ValueError:
+        base = None
     for rule in payload.get("rules") or []:
         if str(rule.get("kind") or "").strip() != "parameter":
+            continue
+        if base is None:
             continue
         version = effective_parameter_version(rule.get("versions") or [], period_start)
         if version is None:
@@ -1528,7 +1575,35 @@ def rulespec_scalar_parameter_values(
         except ValueError:
             continue
         values[f"{base}#{rule['name']}"] = value
+    for import_ref in payload.get("imports") or []:
+        imported = resolve_rulespec_import(import_ref, rulespec_root=rulespec_root)
+        if imported is None:
+            continue
+        values.update(
+            _rulespec_scalar_parameter_values(
+                imported,
+                rulespec_root=rulespec_root,
+                period_start=period_start,
+                seen=seen,
+            )
+        )
     return values
+
+
+def resolve_rulespec_import(import_ref: Any, *, rulespec_root: Path) -> Path | None:
+    raw = str(import_ref or "").strip()
+    if not raw:
+        return None
+    if ":" in raw:
+        repo_prefix, path_ref = raw.split(":", 1)
+        if repo_prefix != "uk":
+            return None
+    else:
+        path_ref = raw
+    candidate = rulespec_root / f"{path_ref}.yaml"
+    if candidate.exists():
+        return candidate.resolve()
+    return None
 
 
 def effective_parameter_version(
