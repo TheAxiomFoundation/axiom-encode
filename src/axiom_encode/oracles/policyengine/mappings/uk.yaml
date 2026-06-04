@@ -76,6 +76,79 @@ mappings:
     comparison: money
     rationale: Same UK income tax on ordinary earned income under section 10, with Scottish-rate rows excluded because PolicyEngine branches earned_income_tax to Scotland-specific rates.
 
+  - legal_id: uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_basic_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: basic_rate_savings_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK savings income amount charged at the savings basic rate after starting-rate and savings nil-rate amounts are removed.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_higher_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: higher_rate_savings_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK savings income amount charged at the savings higher rate after starting-rate and savings nil-rate amounts are removed.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_additional_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: add_rate_savings_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK savings income amount charged at the savings additional rate after starting-rate and savings nil-rate amounts are removed.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#savings_income_charged_under_section_11d
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxed_savings_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same aggregate savings income charged under section 11D after PolicyEngine's starting-rate and savings nil-rate deductions.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#income_tax_on_section_11d_savings_income
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: savings_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on savings income charged at the savings basic, higher, and additional rates.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_basic_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 11D savings basic-rate income; PolicyEngine UK exposes the aggregate savings_income_tax rather than per-rate savings tax variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_higher_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 11D savings higher-rate income; PolicyEngine UK exposes the aggregate savings_income_tax rather than per-rate savings tax variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_additional_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 11D savings additional-rate income; PolicyEngine UK exposes the aggregate savings_income_tax rather than per-rate savings tax variables.
+
   - legal_id: uk:statutes/ukpga/2007/3/23#total_income
     country: uk
     program: tax

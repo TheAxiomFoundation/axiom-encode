@@ -733,6 +733,150 @@ rules:
     assert future_output["status"] == "unmapped"
 
 
+def test_policyengine_coverage_classifies_uk_income_tax_section_11d_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/11D.yaml",
+        """format: rulespec/v1
+rules:
+  - name: savings_income_charged_at_savings_basic_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+  - name: savings_income_charged_at_savings_higher_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2
+  - name: savings_income_charged_at_savings_additional_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3
+  - name: savings_income_charged_under_section_11d
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 6
+  - name: tax_on_savings_income_charged_at_savings_basic_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.2
+  - name: tax_on_savings_income_charged_at_savings_higher_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.8
+  - name: tax_on_savings_income_charged_at_savings_additional_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1.35
+  - name: income_tax_on_section_11d_savings_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.35
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/11D.test.yaml",
+        """- name: savings income tax
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_basic_rate: 1
+    uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_higher_rate: 2
+    uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_additional_rate: 3
+    uk:statutes/ukpga/2007/3/11D#savings_income_charged_under_section_11d: 6
+    uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_basic_rate: 0.2
+    uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_higher_rate: 0.8
+    uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_additional_rate: 1.35
+    uk:statutes/ukpga/2007/3/11D#income_tax_on_section_11d_savings_income: 2.35
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 3,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_basic_rate"
+        ]["policyengine_variable"]
+        == "basic_rate_savings_income"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_higher_rate"
+        ]["policyengine_variable"]
+        == "higher_rate_savings_income"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#savings_income_charged_at_savings_additional_rate"
+        ]["policyengine_variable"]
+        == "add_rate_savings_income"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#savings_income_charged_under_section_11d"
+        ]["policyengine_variable"]
+        == "taxed_savings_income"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#income_tax_on_section_11d_savings_income"
+        ]["policyengine_variable"]
+        == "savings_income_tax"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/11D#tax_on_savings_income_charged_at_savings_basic_rate"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_uk_class_1_ni_section_8_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/8.yaml",
