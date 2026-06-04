@@ -690,6 +690,17 @@ mappings:
     comparison: money
     rationale: Same Universal Credit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit assessed capital to the Regulation 72 capital leaf and converts PolicyEngine's annual output to a monthly amount.
 
+  - legal_id: uk:regulations/uksi/2013/376/32#work_condition_met_for_assessment_period
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: uc_childcare_work_condition
+    entity: benunit
+    period: month
+    unit: bool
+    comparison: bool
+    rationale: Same Universal Credit childcare work-condition predicate, with the EFRS oracle projecting person-level adult work status into the Regulation 32 claimant and other-member work leaves.
+
 prefixes:
   - legal_id_prefix: uk:statutes/ukpga/2007/3/35#
     country: uk
@@ -792,17 +803,6 @@ prefixes:
     program: universal_credit
     mapping_type: not_comparable
     rationale: Universal Credit regulation 31 childcare cost element inclusion is a source-level gate; PolicyEngine UK exposes downstream element amounts rather than this predicate separately.
-
-  - legal_id: uk:regulations/uksi/2013/376/32#work_condition_met_for_assessment_period
-    country: uk
-    program: universal_credit
-    mapping_type: direct_variable
-    policyengine_variable: uc_childcare_work_condition
-    entity: benunit
-    period: month
-    unit: bool
-    comparison: bool
-    rationale: Same Universal Credit childcare work-condition predicate, with the EFRS oracle projecting person-level adult work status into the Regulation 32 claimant and other-member work leaves.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/32#
     country: uk
