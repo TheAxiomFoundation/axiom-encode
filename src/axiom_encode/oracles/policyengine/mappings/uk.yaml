@@ -1,4 +1,81 @@
 mappings:
+  - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_basic_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: basic_rate_earned_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax earned-income amount charged at the basic rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_higher_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: higher_rate_earned_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax earned-income amount charged at the higher rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_additional_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: add_rate_earned_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax earned-income amount charged at the additional rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#tax_on_income_charged_at_basic_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: basic_rate_earned_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on earned income charged at the basic rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#tax_on_income_charged_at_higher_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: higher_rate_earned_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on earned income charged at the higher rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#tax_on_income_charged_at_additional_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: add_rate_earned_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on earned income charged at the additional rate under section 10, with the EFRS oracle comparing only the ordinary non-Scottish UK-rate branch.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#income_tax_on_section_10_income
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: earned_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on ordinary earned income under section 10, with Scottish-rate rows excluded because PolicyEngine branches earned_income_tax to Scotland-specific rates.
+
   - legal_id: uk:statutes/ukpga/2007/3/23#total_income
     country: uk
     program: tax

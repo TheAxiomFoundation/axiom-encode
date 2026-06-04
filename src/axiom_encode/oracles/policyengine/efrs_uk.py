@@ -40,6 +40,8 @@ NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
+INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
+INCOME_TAX_SECTION_10_BASE = "uk:statutes/ukpga/2007/3/10"
 INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
 INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
@@ -130,6 +132,46 @@ INCOME_TAX_INCOME_BASE_OUTPUTS = {
     "income_tax_liability": {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
         "pe": "income_tax",
+    },
+}
+
+INCOME_TAX_SECTION_10_OUTPUTS = {
+    "income_charged_at_basic_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_basic_rate",
+        "pe": "basic_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_charged_at_higher_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_higher_rate",
+        "pe": "higher_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_charged_at_additional_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_charged_at_additional_rate",
+        "pe": "add_rate_earned_income",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_basic_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_basic_rate",
+        "pe": "basic_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_higher_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_higher_rate",
+        "pe": "higher_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "tax_on_income_charged_at_additional_rate": {
+        "axiom": (
+            f"{INCOME_TAX_SECTION_10_BASE}#tax_on_income_charged_at_additional_rate"
+        ),
+        "pe": "add_rate_earned_income_tax",
+        "applies": "non_scottish_income_tax",
+    },
+    "income_tax_on_section_10_income": {
+        "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_tax_on_section_10_income",
+        "pe": "earned_income_tax",
+        "applies": "non_scottish_income_tax",
     },
 }
 
@@ -420,6 +462,22 @@ SURFACE_SPECS = {
             *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
             "income_tax",
             "total_income",
+        ),
+    ),
+    "income-tax-section-10-earned-income": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_10_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_SECTION_10_OUTPUTS,
+        pe_variables=(
+            "add_rate_earned_income",
+            "add_rate_earned_income_tax",
+            "basic_rate_earned_income",
+            "basic_rate_earned_income_tax",
+            "earned_income_tax",
+            "earned_taxable_income",
+            "higher_rate_earned_income",
+            "higher_rate_earned_income_tax",
+            "pays_scottish_income_tax",
         ),
     ),
     "child-benefit": UKEFRSSurfaceSpec(
@@ -2024,6 +2082,8 @@ def build_axiom_request(
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
         return build_income_tax_income_base_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-section-10-earned-income":
+        return build_income_tax_section_10_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
     if surface == "benefit-cap-relevant-amount":
@@ -2221,6 +2281,44 @@ def build_income_tax_income_base_request(
     return {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": relations},
+        "queries": queries,
+    }
+
+
+def build_income_tax_section_10_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    parameters = policyengine_uk_income_tax_section_10_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-section-10-earned-income"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_income_tax_section_10_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_10_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_SECTION_10_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
         "queries": queries,
     }
 
@@ -2652,6 +2750,23 @@ def project_income_tax_section_23_inputs(row: Any) -> dict[str, Any]:
         "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": additions,
         "tax_reductions_listed_in_section_26": reductions,
         "additional_tax_amounts_listed_in_section_30": 0.0,
+    }
+
+
+def project_income_tax_section_10_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    return {
+        "income_charged_under_section_10": money(
+            row_value(row, "earned_taxable_income", 0)
+        ),
+        "basic_rate_limit": parameters["basic_rate_limit"],
+        "higher_rate_limit": parameters["higher_rate_limit"],
+        "basic_rate": parameters["basic_rate"],
+        "higher_rate": parameters["higher_rate"],
+        "additional_rate": parameters["additional_rate"],
     }
 
 
@@ -3176,6 +3291,8 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         ) and money(row_value(row, "adjusted_net_income", 0)) <= money(
             row_value(row, "total_income", 0)
         )
+    if applies == "non_scottish_income_tax":
+        return not bool(row_value(row, "pays_scottish_income_tax", False))
     if applies == "uc_first_child_element":
         return (
             policyengine_output_value(spec, row) > 0
@@ -3553,6 +3670,27 @@ def policyengine_uk_class_1_weekly_parameters(year: int) -> dict[str, float]:
     return {
         "primary_threshold": money(class_1.thresholds.primary_threshold),
         "upper_earnings_limit": money(class_1.thresholds.upper_earnings_limit),
+    }
+
+
+def policyengine_uk_income_tax_section_10_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    uk_rates = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.income_tax.rates.uk
+    )
+    return {
+        "basic_rate_limit": money(uk_rates.thresholds[1]),
+        "higher_rate_limit": money(uk_rates.thresholds[2]),
+        "basic_rate": money(uk_rates.rates[0]),
+        "higher_rate": money(uk_rates.rates[1]),
+        "additional_rate": money(uk_rates.rates[2]),
     }
 
 

@@ -13,6 +13,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_OUTPUTS,
     INCOME_TAX_INCOME_BASE_COMPONENTS,
     INCOME_TAX_INCOME_BASE_OUTPUTS,
+    INCOME_TAX_SECTION_10_BASE,
+    INCOME_TAX_SECTION_10_OUTPUTS,
     INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
     INCOME_TAX_SECTION_23_BASE,
     INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
@@ -43,6 +45,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_benefit_cap_relevant_amount_request,
     build_child_benefit_request,
     build_income_tax_income_base_request,
+    build_income_tax_section_10_request,
     build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
@@ -63,6 +66,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_benefit_cap_relevant_amount_inputs,
     project_child_benefit_inputs,
     project_income_tax_income_base_components,
+    project_income_tax_section_10_inputs,
     project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
@@ -277,6 +281,28 @@ def test_income_tax_section_23_projection_uses_pe_liability_components():
     }
 
 
+def test_income_tax_section_10_projection_uses_pe_earned_income_and_rates():
+    projected = project_income_tax_section_10_inputs(
+        {"earned_taxable_income": 60_000},
+        parameters={
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "basic_rate": 0.2,
+            "higher_rate": 0.4,
+            "additional_rate": 0.45,
+        },
+    )
+
+    assert projected == {
+        "income_charged_under_section_10": 60_000,
+        "basic_rate_limit": 37_700,
+        "higher_rate_limit": 125_140,
+        "basic_rate": 0.2,
+        "higher_rate": 0.4,
+        "additional_rate": 0.45,
+    }
+
+
 def test_income_tax_net_income_output_skips_negative_component_rows():
     spec = INCOME_TAX_INCOME_BASE_OUTPUTS["net_income"]
 
@@ -381,6 +407,88 @@ def test_income_tax_income_base_request_projects_section_23_relation():
     assert inputs[
         f"{INCOME_TAX_SECTION_23_BASE}#input.additional_tax_amounts_listed_in_section_30:person_7"
     ] == {"kind": "decimal", "value": "0.0"}
+
+
+def test_income_tax_section_10_request_projects_earned_income_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_income_tax_section_10_parameters",
+        lambda year: {
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "basic_rate": 0.2,
+            "higher_rate": 0.4,
+            "additional_rate": 0.45,
+        },
+    )
+    request = build_income_tax_section_10_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "earned_taxable_income": 60_000,
+                    "pays_scottish_income_tax": False,
+                    "basic_rate_earned_income": 37_700,
+                    "higher_rate_earned_income": 22_300,
+                    "add_rate_earned_income": 0,
+                    "basic_rate_earned_income_tax": 7_540,
+                    "higher_rate_earned_income_tax": 8_920,
+                    "add_rate_earned_income_tax": 0,
+                    "earned_income_tax": 16_460,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"] for output in INCOME_TAX_SECTION_10_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_10_BASE}#input.income_charged_under_section_10:person_7"
+    ] == {"kind": "decimal", "value": "60000.0"}
+    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.basic_rate_limit:person_7"] == {
+        "kind": "integer",
+        "value": 37700,
+    }
+    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.higher_rate_limit:person_7"] == {
+        "kind": "integer",
+        "value": 125140,
+    }
+    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.basic_rate:person_7"] == {
+        "kind": "decimal",
+        "value": "0.2",
+    }
+    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.higher_rate:person_7"] == {
+        "kind": "decimal",
+        "value": "0.4",
+    }
+    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.additional_rate:person_7"] == {
+        "kind": "decimal",
+        "value": "0.45",
+    }
+
+
+def test_income_tax_section_10_output_skips_scottish_income_tax_rows():
+    spec = INCOME_TAX_SECTION_10_OUTPUTS["income_tax_on_section_10_income"]
+
+    assert efrs_uk.output_applies(spec, {"pays_scottish_income_tax": False})
+    assert not efrs_uk.output_applies(spec, {"pays_scottish_income_tax": True})
 
 
 def test_child_benefit_projection_uses_child_index():
@@ -2074,6 +2182,97 @@ def test_compare_outputs_transforms_universal_credit_income_deduction_monthly():
     assert report.compared_values == 3
     assert report.mismatches == []
     assert report.oracle_divergences == []
+
+
+def test_compare_outputs_matches_income_tax_section_10_earned_income():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "pays_scottish_income_tax": False,
+                    "basic_rate_earned_income": 37_700,
+                    "higher_rate_earned_income": 22_300,
+                    "add_rate_earned_income": 0,
+                    "basic_rate_earned_income_tax": 7_540,
+                    "higher_rate_earned_income_tax": 8_920,
+                    "add_rate_earned_income_tax": 0,
+                    "earned_income_tax": 16_460,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "income-tax-section-10-earned-income": [
+                {
+                    "outputs": {
+                        INCOME_TAX_SECTION_10_OUTPUTS["income_charged_at_basic_rate"][
+                            "axiom"
+                        ]: decimal_output(37_700),
+                        INCOME_TAX_SECTION_10_OUTPUTS["income_charged_at_higher_rate"][
+                            "axiom"
+                        ]: decimal_output(22_300),
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "income_charged_at_additional_rate"
+                        ]["axiom"]: decimal_output(0),
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "tax_on_income_charged_at_basic_rate"
+                        ]["axiom"]: decimal_output(7_540),
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "tax_on_income_charged_at_higher_rate"
+                        ]["axiom"]: decimal_output(8_920),
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "tax_on_income_charged_at_additional_rate"
+                        ]["axiom"]: decimal_output(0),
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "income_tax_on_section_10_income"
+                        ]["axiom"]: decimal_output(16_460),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 7
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_skips_scottish_income_tax_section_10_rows():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "pays_scottish_income_tax": True,
+                    "earned_income_tax": 17_000,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "income-tax-section-10-earned-income": [
+                {
+                    "outputs": {
+                        INCOME_TAX_SECTION_10_OUTPUTS[
+                            "income_tax_on_section_10_income"
+                        ]["axiom"]: decimal_output(16_460),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 0
+    assert report.mismatches == []
 
 
 def test_compare_outputs_skips_capped_universal_credit_income_deduction_final():
