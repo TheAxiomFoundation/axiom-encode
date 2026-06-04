@@ -14355,6 +14355,27 @@ prefixes:
     candidate_priority: P4
     rationale: Colorado Works basic-cash-assistance outputs decompose certification periods, assistance-unit table selection, current need and grant standards, pregnancy allowance, earned-income reporting, and grant authorization. PolicyEngine-US exposes adjacent Colorado TANF variables built from its own annual parameter table, but does not expose these month-level legal helper boundaries one-to-one; its current grant-standard table also needs a 2025 update before direct oracle comparison.
 
+  - legal_id_prefix: us-co:regulations/9-ccr-2503-6/3.606.2#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Colorado Works earned-income-disregard outputs are section-specific eligibility and payment intermediates for the Colorado TANF cash-assistance calculation. PolicyEngine-US exposes adjacent Colorado TANF variables built from its own annual parameter table, but does not expose these month-level 9 CCR 2503-6 Section 3.606.2 disregard tests, rates, or payment-disregard amounts one-to-one.
+
+  - legal_id_prefix: us-co:regulations/9-ccr-2503-6/3.606.6#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Colorado Works time-limit and extension outputs are month-level legal predicates and thresholds for the 60-month Federal TANF limit, hardship and domestic-violence extensions, Indian Country exclusions, and the statewide extension allocation. PolicyEngine-US exposes adjacent Colorado TANF variables built from its own annual parameter table, but does not expose these 9 CCR 2503-6 Section 3.606.6 extension and time-limit determinations one-to-one.
+
+  - legal_id_prefix: us-co:policies/cdhs/colorado-works/basic-cash-assistance#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Colorado Works basic-cash-assistance composition outputs are Axiom assembly points across encoded 9 CCR 2503-6 Section 3.606.1 and 3.606.2 provisions. PolicyEngine-US does not expose this exact composed monthly TANF legal slice one-to-one; direct oracle comparison should wait for an adapter that targets the same Colorado Works source boundaries and updated grant parameters.
+
   - legal_id_prefix: us-co:policies/cdhs/snap/
     country: us
     program: snap

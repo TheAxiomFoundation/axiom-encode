@@ -193,11 +193,11 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
 
 
-def test_colorado_snap_ecps_projects_bare_member_relation_alias():
+def test_colorado_snap_ecps_uses_absolute_member_relation_only():
     config = JURISDICTION_CONFIGS["us-co"]
 
     assert config.relation_id == "us:statutes/7/2012/j#relation.member_of_household"
-    assert "member_of_household" in config.additional_relation_ids
+    assert config.additional_relation_ids == ()
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
