@@ -42,6 +42,8 @@ PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
 INCOME_TAX_SECTION_10_BASE = "uk:statutes/ukpga/2007/3/10"
+INCOME_TAX_SECTION_11D_PROGRAM_PATH = Path("statutes/ukpga/2007/3/11D.yaml")
+INCOME_TAX_SECTION_11D_BASE = "uk:statutes/ukpga/2007/3/11D"
 INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
 INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
@@ -172,6 +174,34 @@ INCOME_TAX_SECTION_10_OUTPUTS = {
         "axiom": f"{INCOME_TAX_SECTION_10_BASE}#income_tax_on_section_10_income",
         "pe": "earned_income_tax",
         "applies": "non_scottish_income_tax",
+    },
+}
+
+INCOME_TAX_SECTION_11D_OUTPUTS = {
+    "savings_income_charged_at_savings_basic_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_basic_rate",
+        "pe": "basic_rate_savings_income",
+        "tolerance": 0.1,
+    },
+    "savings_income_charged_at_savings_higher_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_higher_rate",
+        "pe": "higher_rate_savings_income",
+        "tolerance": 0.1,
+    },
+    "savings_income_charged_at_savings_additional_rate": {
+        "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_additional_rate",
+        "pe": "add_rate_savings_income",
+        "tolerance": 0.1,
+    },
+    "savings_income_charged_under_section_11d": {
+        "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_under_section_11d",
+        "pe": "taxed_savings_income",
+        "tolerance": 0.1,
+    },
+    "income_tax_on_section_11d_savings_income": {
+        "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#income_tax_on_section_11d_savings_income",
+        "pe": "savings_income_tax",
+        "tolerance": 0.1,
     },
 }
 
@@ -478,6 +508,23 @@ SURFACE_SPECS = {
             "higher_rate_earned_income",
             "higher_rate_earned_income_tax",
             "pays_scottish_income_tax",
+        ),
+    ),
+    "income-tax-section-11d-savings-income": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_11D_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_SECTION_11D_OUTPUTS,
+        pe_variables=(
+            "add_rate_savings_income",
+            "basic_rate_savings_income",
+            "earned_taxable_income",
+            "higher_rate_savings_income",
+            "received_allowances_savings_income",
+            "savings_allowance",
+            "savings_income_tax",
+            "savings_starter_rate_income",
+            "taxable_savings_interest_income",
+            "taxed_savings_income",
         ),
     ),
     "child-benefit": UKEFRSSurfaceSpec(
@@ -2084,6 +2131,8 @@ def build_axiom_request(
         return build_income_tax_income_base_request(pe_data=pe_data, year=year)
     if surface == "income-tax-section-10-earned-income":
         return build_income_tax_section_10_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-section-11d-savings-income":
+        return build_income_tax_section_11d_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
     if surface == "benefit-cap-relevant-amount":
@@ -2312,6 +2361,44 @@ def build_income_tax_section_10_request(
                 "period": interval,
                 "outputs": [
                     spec["axiom"] for spec in INCOME_TAX_SECTION_10_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_income_tax_section_11d_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    parameters = policyengine_uk_income_tax_section_11d_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-section-11d-savings-income"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_income_tax_section_11d_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_11D_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_SECTION_11D_OUTPUTS.values()
                 ],
             }
         )
@@ -2770,6 +2857,38 @@ def project_income_tax_section_10_inputs(
     }
 
 
+def project_income_tax_section_11d_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    savings_after_allowances = max(
+        0.0,
+        money(row_value(row, "taxable_savings_interest_income", 0))
+        - money(row_value(row, "received_allowances_savings_income", 0)),
+    )
+    zero_rate_savings = min(
+        savings_after_allowances,
+        money(row_value(row, "savings_allowance", 0))
+        + money(row_value(row, "savings_starter_rate_income", 0)),
+    )
+    return {
+        "income_already_charged_before_section_11d_savings_income": money(
+            row_value(row, "earned_taxable_income", 0)
+        )
+        + zero_rate_savings,
+        "savings_income_remaining_after_sections_12_and_12a": max(
+            0.0,
+            savings_after_allowances - zero_rate_savings,
+        ),
+        "basic_rate_limit": parameters["basic_rate_limit"],
+        "higher_rate_limit": parameters["higher_rate_limit"],
+        "savings_basic_rate": parameters["savings_basic_rate"],
+        "savings_higher_rate": parameters["savings_higher_rate"],
+        "savings_additional_rate": parameters["savings_additional_rate"],
+    }
+
+
 def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
     child_index = int(row_value(row, "child_benefit_child_index", -1))
     is_eldest = child_index == 1
@@ -3100,7 +3219,7 @@ def compare_outputs(
                 if not within_tolerance(
                     axiom_value,
                     pe_value,
-                    absolute_tolerance=tolerance,
+                    absolute_tolerance=float(spec.get("tolerance", tolerance)),
                     relative_tolerance=relative_tolerance,
                 ):
                     divergence = known_policyengine_divergence(
@@ -3253,6 +3372,15 @@ def compare_outputs(
             "26 reductions input, because PolicyEngine exposes final income_tax "
             "and aggregate additive/subtractive components rather than exact "
             "section 23 step buckets.",
+            "Income Tax Act 2007 section 11D savings-income comparison projects "
+            "PolicyEngine's taxable_savings_interest_income net of "
+            "received_allowances_savings_income, then lets "
+            "savings_starter_rate_income and savings_allowance consume rate-band "
+            "capacity before the remaining section 11D savings income starts. "
+            "It uses UK income-tax thresholds and savings rates from "
+            "PolicyEngine parameters to compare the section 11D band amounts "
+            "and aggregate savings income tax, with a 10p output tolerance for "
+            "EFRS float precision in PolicyEngine's savings-income arrays.",
         ],
     )
 
@@ -3691,6 +3819,27 @@ def policyengine_uk_income_tax_section_10_parameters(year: int) -> dict[str, flo
         "basic_rate": money(uk_rates.rates[0]),
         "higher_rate": money(uk_rates.rates[1]),
         "additional_rate": money(uk_rates.rates[2]),
+    }
+
+
+def policyengine_uk_income_tax_section_11d_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    income_tax_rates = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.income_tax.rates
+    )
+    return {
+        "basic_rate_limit": money(income_tax_rates.uk.thresholds[1]),
+        "higher_rate_limit": money(income_tax_rates.uk.thresholds[2]),
+        "savings_basic_rate": money(income_tax_rates.savings.basic),
+        "savings_higher_rate": money(income_tax_rates.savings.higher),
+        "savings_additional_rate": money(income_tax_rates.savings.additional),
     }
 
 

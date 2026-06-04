@@ -15,6 +15,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     INCOME_TAX_INCOME_BASE_OUTPUTS,
     INCOME_TAX_SECTION_10_BASE,
     INCOME_TAX_SECTION_10_OUTPUTS,
+    INCOME_TAX_SECTION_11D_BASE,
+    INCOME_TAX_SECTION_11D_OUTPUTS,
     INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
     INCOME_TAX_SECTION_23_BASE,
     INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
@@ -46,6 +48,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_child_benefit_request,
     build_income_tax_income_base_request,
     build_income_tax_section_10_request,
+    build_income_tax_section_11d_request,
     build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
@@ -67,6 +70,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_child_benefit_inputs,
     project_income_tax_income_base_components,
     project_income_tax_section_10_inputs,
+    project_income_tax_section_11d_inputs,
     project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
@@ -303,6 +307,35 @@ def test_income_tax_section_10_projection_uses_pe_earned_income_and_rates():
     }
 
 
+def test_income_tax_section_11d_projection_removes_savings_deductions():
+    projected = project_income_tax_section_11d_inputs(
+        {
+            "earned_taxable_income": 37_000,
+            "taxable_savings_interest_income": 2_500,
+            "received_allowances_savings_income": 100,
+            "savings_allowance": 500,
+            "savings_starter_rate_income": 400,
+        },
+        parameters={
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "savings_basic_rate": 0.2,
+            "savings_higher_rate": 0.4,
+            "savings_additional_rate": 0.45,
+        },
+    )
+
+    assert projected == {
+        "income_already_charged_before_section_11d_savings_income": 37_900,
+        "savings_income_remaining_after_sections_12_and_12a": 1_500,
+        "basic_rate_limit": 37_700,
+        "higher_rate_limit": 125_140,
+        "savings_basic_rate": 0.2,
+        "savings_higher_rate": 0.4,
+        "savings_additional_rate": 0.45,
+    }
+
+
 def test_income_tax_net_income_output_skips_negative_component_rows():
     spec = INCOME_TAX_INCOME_BASE_OUTPUTS["net_income"]
 
@@ -479,6 +512,93 @@ def test_income_tax_section_10_request_projects_earned_income_inputs(monkeypatch
         "value": "0.4",
     }
     assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.additional_rate:person_7"] == {
+        "kind": "decimal",
+        "value": "0.45",
+    }
+
+
+def test_income_tax_section_11d_request_projects_savings_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_income_tax_section_11d_parameters",
+        lambda year: {
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "savings_basic_rate": 0.2,
+            "savings_higher_rate": 0.4,
+            "savings_additional_rate": 0.45,
+        },
+    )
+    request = build_income_tax_section_11d_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "earned_taxable_income": 37_000,
+                    "taxable_savings_interest_income": 2_500,
+                    "received_allowances_savings_income": 100,
+                    "savings_allowance": 500,
+                    "savings_starter_rate_income": 400,
+                    "basic_rate_savings_income": 700,
+                    "higher_rate_savings_income": 800,
+                    "add_rate_savings_income": 0,
+                    "taxed_savings_income": 1_500,
+                    "savings_income_tax": 460,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"] for output in INCOME_TAX_SECTION_11D_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.income_already_charged_before_section_11d_savings_income:person_7"
+    ] == {"kind": "decimal", "value": "37900.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.savings_income_remaining_after_sections_12_and_12a:person_7"
+    ] == {"kind": "decimal", "value": "1500.0"}
+    assert inputs[f"{INCOME_TAX_SECTION_11D_BASE}#input.basic_rate_limit:person_7"] == {
+        "kind": "integer",
+        "value": 37700,
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.higher_rate_limit:person_7"
+    ] == {
+        "kind": "integer",
+        "value": 125140,
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.savings_basic_rate:person_7"
+    ] == {
+        "kind": "decimal",
+        "value": "0.2",
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.savings_higher_rate:person_7"
+    ] == {
+        "kind": "decimal",
+        "value": "0.4",
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_11D_BASE}#input.savings_additional_rate:person_7"
+    ] == {
         "kind": "decimal",
         "value": "0.45",
     }
@@ -1585,6 +1705,20 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_assessable_capital",
         "uc_tariff_income",
     )
+    assert policyengine_person_variables_for_surfaces(
+        ["income-tax-section-11d-savings-income"]
+    ) == (
+        "add_rate_savings_income",
+        "basic_rate_savings_income",
+        "earned_taxable_income",
+        "higher_rate_savings_income",
+        "received_allowances_savings_income",
+        "savings_allowance",
+        "savings_income_tax",
+        "savings_starter_rate_income",
+        "taxable_savings_interest_income",
+        "taxed_savings_income",
+    )
 
 
 def test_uk_efrs_coverage_report_counts_computed_pe_backlog(tmp_path):
@@ -2238,6 +2372,55 @@ def test_compare_outputs_matches_income_tax_section_10_earned_income():
     )
 
     assert report.compared_values == 7
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_matches_income_tax_section_11d_savings_income():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "basic_rate_savings_income": 700,
+                    "higher_rate_savings_income": 800,
+                    "add_rate_savings_income": 0,
+                    "taxed_savings_income": 1_500,
+                    "savings_income_tax": 460,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "income-tax-section-11d-savings-income": [
+                {
+                    "outputs": {
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_basic_rate"
+                        ]["axiom"]: decimal_output(700),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_higher_rate"
+                        ]["axiom"]: decimal_output(800),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_additional_rate"
+                        ]["axiom"]: decimal_output(0),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_under_section_11d"
+                        ]["axiom"]: decimal_output(1_500),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "income_tax_on_section_11d_savings_income"
+                        ]["axiom"]: decimal_output(460),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 5
     assert report.mismatches == []
     assert report.oracle_divergences == []
 
