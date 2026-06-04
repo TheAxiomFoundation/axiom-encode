@@ -36,10 +36,12 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
+    UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS,
     UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
     UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_REGULATION_22_BASE,
+    UNIVERSAL_CREDIT_REGULATION_32_BASE,
     UNIVERSAL_CREDIT_REGULATION_34_BASE,
     UNIVERSAL_CREDIT_REGULATION_72_BASE,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
@@ -62,6 +64,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_uk_efrs_coverage_report,
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
+    build_universal_credit_childcare_work_condition_request,
     build_universal_credit_housing_costs_request,
     build_universal_credit_income_deduction_request,
     build_universal_credit_request,
@@ -85,6 +88,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_state_pension_credit_savings_credit_inputs,
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
+    project_universal_credit_childcare_work_condition_inputs,
     project_universal_credit_housing_costs_inputs,
     project_universal_credit_income_deduction_inputs,
     project_universal_credit_tariff_income_inputs,
@@ -96,6 +100,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
 
 def decimal_output(value):
     return {"value": {"value": str(value)}}
+
+
+def judgment_output(holds):
+    return {"kind": "judgment", "outcome": "holds" if holds else "not_holds"}
 
 
 def test_national_insurance_class_1_request_projects_weekly_inputs(monkeypatch):
@@ -1308,6 +1316,129 @@ def test_universal_credit_childcare_element_request_projects_regulation_34_input
     }
 
 
+def test_universal_credit_childcare_work_condition_projection_uses_adult_work_flags():
+    assert project_universal_credit_childcare_work_condition_inputs(
+        {
+            "uc_childcare_adult_count": 2,
+            "uc_childcare_any_adult_in_work": True,
+            "uc_childcare_all_adults_in_work": False,
+        }
+    ) == {
+        "claimant_in_paid_work": True,
+        "claimant_ceased_paid_work_in_assessment_period": False,
+        "claimant_ceased_paid_work_in_previous_assessment_period": False,
+        "assessment_period_is_first_or_second_assessment_period_in_relation_to_award": False,
+        "claimant_ceased_paid_work_in_month_immediately_preceding_award_commencement": False,
+        "claimant_receiving_statutory_sick_pay": False,
+        "claimant_receiving_statutory_maternity_pay": False,
+        "claimant_receiving_statutory_paternity_pay": False,
+        "claimant_receiving_statutory_adoption_pay": False,
+        "claimant_receiving_statutory_shared_parental_pay": False,
+        "claimant_receiving_statutory_parental_bereavement_pay": False,
+        "claimant_receiving_statutory_neonatal_care_pay": False,
+        "claimant_receiving_maternity_allowance": False,
+        "claimant_has_offer_of_paid_work_due_to_start_before_end_of_next_assessment_period": False,
+        "claimant_is_member_of_couple": True,
+        "other_member_in_paid_work": False,
+        "other_member_has_limited_capability_for_work": False,
+        "other_member_has_regular_and_substantial_caring_responsibilities_for_severely_disabled_person": False,
+        "other_member_temporarily_absent_from_claimants_household": False,
+    }
+
+    single_projection = project_universal_credit_childcare_work_condition_inputs(
+        {
+            "uc_childcare_adult_count": 1,
+            "uc_childcare_any_adult_in_work": True,
+            "uc_childcare_all_adults_in_work": True,
+        }
+    )
+    assert single_projection["claimant_is_member_of_couple"] is False
+    assert single_projection["claimant_in_paid_work"] is True
+
+
+def test_universal_credit_childcare_work_condition_request_projects_regulation_32_inputs():
+    request = build_universal_credit_childcare_work_condition_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_childcare_adult_count": 2,
+                    "uc_childcare_any_adult_in_work": True,
+                    "uc_childcare_all_adults_in_work": False,
+                    "uc_childcare_work_condition": False,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_32_BASE}#input.claimant_in_paid_work"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_32_BASE}#input.claimant_is_member_of_couple"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_32_BASE}#input.other_member_in_paid_work"
+    ] == {
+        "kind": "bool",
+        "value": False,
+    }
+
+
+def test_adds_universal_credit_childcare_work_projection_columns():
+    pd = pytest.importorskip("pandas")
+    benunit = pd.DataFrame({"benunit_id": [10, 11, 12]})
+    person = pd.DataFrame(
+        {
+            "person_benunit_id": [10, 10, 11],
+            "is_adult": [True, True, True],
+            "in_work": [True, False, True],
+        }
+    )
+
+    projected = efrs_uk.add_universal_credit_childcare_work_projection_columns(
+        benunit,
+        person,
+    ).set_index("benunit_id")
+
+    assert projected.loc[10, "uc_childcare_adult_count"] == 2
+    assert bool(projected.loc[10, "uc_childcare_any_adult_in_work"]) is True
+    assert bool(projected.loc[10, "uc_childcare_all_adults_in_work"]) is False
+    assert projected.loc[11, "uc_childcare_adult_count"] == 1
+    assert bool(projected.loc[11, "uc_childcare_all_adults_in_work"]) is True
+    assert projected.loc[12, "uc_childcare_adult_count"] == 0
+    assert bool(projected.loc[12, "uc_childcare_any_adult_in_work"]) is False
+
+
 def test_universal_credit_housing_costs_projection_uses_monthly_amount():
     projected = project_universal_credit_housing_costs_inputs(
         {"uc_housing_costs_element": 360}
@@ -1909,6 +2040,15 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_childcare_element",
         "uc_maximum_childcare_element_amount",
     )
+    assert policyengine_person_variables_for_surfaces(
+        ["universal-credit-childcare-work-condition"]
+    ) == (
+        "in_work",
+        "is_adult",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-childcare-work-condition"]
+    ) == ("uc_childcare_work_condition",)
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-work-allowance"]
     ) == (
@@ -2099,7 +2239,7 @@ def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-uk==2.88.42 required"):
+    with pytest.raises(SystemExit, match="policyengine-uk==2.88.43 required"):
         require_policyengine_uk_versions()
 
 
@@ -2513,6 +2653,50 @@ def test_compare_outputs_transforms_universal_credit_childcare_element_monthly()
     )
 
     assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_handles_universal_credit_childcare_work_condition():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_childcare_work_condition": True,
+                },
+                {
+                    "benunit_id": 12,
+                    "uc_childcare_work_condition": False,
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-childcare-work-condition": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS[
+                            "work_condition_met_for_assessment_period"
+                        ]["axiom"]: judgment_output(True),
+                    }
+                },
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS[
+                            "work_condition_met_for_assessment_period"
+                        ]["axiom"]: judgment_output(False),
+                    }
+                },
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 2
     assert report.mismatches == []
     assert report.oracle_divergences == []
 

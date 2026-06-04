@@ -793,11 +793,22 @@ prefixes:
     mapping_type: not_comparable
     rationale: Universal Credit regulation 31 childcare cost element inclusion is a source-level gate; PolicyEngine UK exposes downstream element amounts rather than this predicate separately.
 
+  - legal_id: uk:regulations/uksi/2013/376/32#work_condition_met_for_assessment_period
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: uc_childcare_work_condition
+    entity: benunit
+    period: month
+    unit: bool
+    comparison: bool
+    rationale: Same Universal Credit childcare work-condition predicate, with the EFRS oracle projecting person-level adult work status into the Regulation 32 claimant and other-member work leaves.
+
   - legal_id_prefix: uk:regulations/uksi/2013/376/32#
     country: uk
     program: universal_credit
     mapping_type: not_comparable
-    rationale: Universal Credit regulation 32 paid-work and unable-to-provide-childcare predicates are source-level childcare work-condition tests not exposed as one-to-one PolicyEngine UK variables.
+    rationale: Remaining Universal Credit regulation 32 paid-work, treated-as-in-work, and unable-to-provide-childcare helper predicates are source-level childcare work-condition inputs not exposed as one-to-one PolicyEngine UK variables.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/33#
     country: uk
