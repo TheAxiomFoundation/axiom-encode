@@ -12204,6 +12204,54 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_resolves_compact_uk_statute_corpus_path(
+    tmp_path,
+    monkeypatch,
+):
+    provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "uk" / "statute"
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "uk-statute.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": (
+                    "uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"
+                ),
+                "body": "Income tax is charged at the savings basic rate.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: uk/statute/ukpga/2007/3/11D
+rules:
+  - name: savings_income_charged_at_savings_basic_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2024-04-06'
+        formula: taxable_dividend_income
+"""
+
+    assert (
+        validator_pipeline._fetch_local_corpus_source_text(
+            "uk/statute/ukpga/2007/3/11D"
+        )
+        == "Income tax is charged at the savings basic rate."
+    )
+    assert find_source_verification_issues(content) == []
+
+
 def test_source_verification_reads_local_corpus_child_blocks(
     tmp_path,
     monkeypatch,
