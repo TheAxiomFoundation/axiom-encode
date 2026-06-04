@@ -44,6 +44,8 @@ INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
 INCOME_TAX_SECTION_10_BASE = "uk:statutes/ukpga/2007/3/10"
 INCOME_TAX_SECTION_11D_PROGRAM_PATH = Path("statutes/ukpga/2007/3/11D.yaml")
 INCOME_TAX_SECTION_11D_BASE = "uk:statutes/ukpga/2007/3/11D"
+INCOME_TAX_SECTION_13_PROGRAM_PATH = Path("statutes/ukpga/2007/3/13.yaml")
+INCOME_TAX_SECTION_13_BASE = "uk:statutes/ukpga/2007/3/13"
 INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
 INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
@@ -201,6 +203,19 @@ INCOME_TAX_SECTION_11D_OUTPUTS = {
     "income_tax_on_section_11d_savings_income": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#income_tax_on_section_11d_savings_income",
         "pe": "savings_income_tax",
+        "tolerance": 0.1,
+    },
+}
+
+INCOME_TAX_SECTION_13_OUTPUTS = {
+    "dividend_income_charged_under_section_13": {
+        "axiom": f"{INCOME_TAX_SECTION_13_BASE}#dividend_income_charged_under_section_13",
+        "pe": "taxed_dividend_income",
+        "tolerance": 0.1,
+    },
+    "income_tax_on_section_13_dividend_income": {
+        "axiom": f"{INCOME_TAX_SECTION_13_BASE}#income_tax_on_section_13_dividend_income",
+        "pe": "dividend_income_tax",
         "tolerance": 0.1,
     },
 }
@@ -525,6 +540,20 @@ SURFACE_SPECS = {
             "savings_starter_rate_income",
             "taxable_savings_interest_income",
             "taxed_savings_income",
+        ),
+    ),
+    "income-tax-section-13-dividend-income": UKEFRSSurfaceSpec(
+        program=INCOME_TAX_SECTION_13_PROGRAM_PATH,
+        entity="person",
+        outputs=INCOME_TAX_SECTION_13_OUTPUTS,
+        pe_variables=(
+            "dividend_income_tax",
+            "earned_taxable_income",
+            "received_allowances_dividend_income",
+            "received_allowances_savings_income",
+            "taxable_dividend_income",
+            "taxable_savings_interest_income",
+            "taxed_dividend_income",
         ),
     ),
     "child-benefit": UKEFRSSurfaceSpec(
@@ -2133,6 +2162,8 @@ def build_axiom_request(
         return build_income_tax_section_10_request(pe_data=pe_data, year=year)
     if surface == "income-tax-section-11d-savings-income":
         return build_income_tax_section_11d_request(pe_data=pe_data, year=year)
+    if surface == "income-tax-section-13-dividend-income":
+        return build_income_tax_section_13_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
     if surface == "benefit-cap-relevant-amount":
@@ -2399,6 +2430,44 @@ def build_income_tax_section_11d_request(
                 "period": interval,
                 "outputs": [
                     spec["axiom"] for spec in INCOME_TAX_SECTION_11D_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_income_tax_section_13_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    parameters = policyengine_uk_income_tax_section_13_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "income-tax-section-13-dividend-income"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_income_tax_section_13_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_13_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in INCOME_TAX_SECTION_13_OUTPUTS.values()
                 ],
             }
         )
@@ -2886,6 +2955,42 @@ def project_income_tax_section_11d_inputs(
         "savings_basic_rate": parameters["savings_basic_rate"],
         "savings_higher_rate": parameters["savings_higher_rate"],
         "savings_additional_rate": parameters["savings_additional_rate"],
+    }
+
+
+def project_income_tax_section_13_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    savings_after_income_allowances = max(
+        0.0,
+        money(row_value(row, "taxable_savings_interest_income", 0))
+        - money(row_value(row, "received_allowances_savings_income", 0)),
+    )
+    dividends_after_income_allowances = max(
+        0.0,
+        money(row_value(row, "taxable_dividend_income", 0))
+        - money(row_value(row, "received_allowances_dividend_income", 0)),
+    )
+    dividend_allowance_used = min(
+        parameters["dividend_allowance"],
+        dividends_after_income_allowances,
+    )
+    return {
+        "income_already_charged_before_section_13_dividend_income": money(
+            row_value(row, "earned_taxable_income", 0)
+        )
+        + savings_after_income_allowances
+        + dividend_allowance_used,
+        "dividend_income_subject_to_section_13_rates": money(
+            row_value(row, "taxed_dividend_income", 0)
+        ),
+        "basic_rate_limit": parameters["basic_rate_limit"],
+        "higher_rate_limit": parameters["higher_rate_limit"],
+        "dividend_ordinary_rate": parameters["dividend_ordinary_rate"],
+        "dividend_upper_rate": parameters["dividend_upper_rate"],
+        "dividend_additional_rate": parameters["dividend_additional_rate"],
     }
 
 
@@ -3381,6 +3486,12 @@ def compare_outputs(
             "PolicyEngine parameters to compare the section 11D band amounts "
             "and aggregate savings income tax, with a 10p output tolerance for "
             "EFRS float precision in PolicyEngine's savings-income arrays.",
+            "Income Tax Act 2007 section 13 dividend-income comparison projects "
+            "PolicyEngine's dividend tax formula directly: savings after income "
+            "allowances occupies rate-band capacity before dividends, the used "
+            "dividend allowance occupies nil-rate dividend band capacity, and "
+            "the remaining taxed_dividend_income is compared as the section 13 "
+            "charged amount and aggregate dividend income tax.",
         ],
     )
 
@@ -3840,6 +3951,27 @@ def policyengine_uk_income_tax_section_11d_parameters(year: int) -> dict[str, fl
         "savings_basic_rate": money(income_tax_rates.savings.basic),
         "savings_higher_rate": money(income_tax_rates.savings.higher),
         "savings_additional_rate": money(income_tax_rates.savings.additional),
+    }
+
+
+def policyengine_uk_income_tax_section_13_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    income_tax = (
+        CountryTaxBenefitSystem().parameters(f"{year:04d}-04-06").gov.hmrc.income_tax
+    )
+    income_tax_rates = income_tax.rates
+    return {
+        "basic_rate_limit": money(income_tax_rates.uk.thresholds[1]),
+        "higher_rate_limit": money(income_tax_rates.uk.thresholds[2]),
+        "dividend_allowance": money(income_tax.allowances.dividend_allowance),
+        "dividend_ordinary_rate": money(income_tax_rates.dividends.rates[0]),
+        "dividend_upper_rate": money(income_tax_rates.dividends.rates[1]),
+        "dividend_additional_rate": money(income_tax_rates.dividends.rates[2]),
     }
 
 
