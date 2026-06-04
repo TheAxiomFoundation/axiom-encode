@@ -1177,12 +1177,18 @@ def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] 
             if rulespec_norm is None:
                 continue
             citation_raw = payload.get("citation")
-            manifest_norm = (
-                _citation_to_normalized_target(citation_raw)
-                if isinstance(citation_raw, str)
-                else None
-            )
-            if manifest_norm == rulespec_norm:
+            manifest_norms: list[tuple[str, ...]] = []
+            for candidate in (
+                citation_raw,
+                metadata.get("requested_source"),
+                metadata.get("corpus_citation_path"),
+            ):
+                if not isinstance(candidate, str):
+                    continue
+                candidate_norm = _citation_to_normalized_target(candidate)
+                if candidate_norm is not None:
+                    manifest_norms.append(candidate_norm)
+            if rulespec_norm in manifest_norms:
                 return metadata
     return fallback
 
@@ -1241,6 +1247,9 @@ def _rulespec_file_normalized_target(rulespec_file: Path) -> tuple[str, ...] | N
 
 
 def _citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
+    corpus_target = _corpus_citation_to_normalized_target(citation)
+    if corpus_target is not None:
+        return corpus_target
     try:
         parts = parse_usc_citation(citation)
     except Exception:
@@ -1249,6 +1258,95 @@ def _citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
         return None
     pieces = ["statutes", parts.title, parts.section, *parts.fragments]
     return tuple(p.lower() for p in pieces if p)
+
+
+def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
+    """Map corpus citation paths to the corresponding RuleSpec file target.
+
+    Eval metadata stores state and policy targets as corpus paths such as
+    ``us-co/regulation/9-ccr-2503-6/3.606.3``. The generated RuleSpec file
+    lands at ``regulations/9-ccr-2503-6/3.606.3.yaml``. Normalize both shapes
+    before nearby metadata matching so unrelated workspaces are not used as a
+    fallback.
+    """
+    candidate = citation.strip()
+    if not candidate:
+        return None
+    target_ref = _parse_rulespec_target(candidate)
+    if target_ref is not None:
+        return _rulespec_relative_path_parts(target_ref.relative_path)
+    parts = [part.strip().lower() for part in candidate.split("/") if part.strip()]
+    if len(parts) < 3 or not (parts[0] == "us" or parts[0].startswith("us-")):
+        return None
+    class_part = parts[1]
+    tail = parts[2:]
+    if class_part in {"statute", "statutes"}:
+        return tuple(
+            ["statutes", *_normalized_corpus_tail_parts(parts[0], "statutes", tail)]
+        )
+    if class_part in {"regulation", "regulations"}:
+        if parts[0] == "us":
+            tail = _canonical_us_regulation_tail_for_normalization(tail)
+        return tuple(
+            [
+                "regulations",
+                *_normalized_corpus_tail_parts(parts[0], "regulations", tail),
+            ]
+        )
+    if class_part in {"policy", "policies"}:
+        return tuple(
+            ["policies", *_normalized_corpus_tail_parts(parts[0], "policies", tail)]
+        )
+    return None
+
+
+def _normalized_corpus_tail_parts(
+    jurisdiction: str,
+    root: str,
+    tail: list[str],
+) -> tuple[str, ...]:
+    if not tail:
+        return ()
+    if _preserve_state_statute_dotted_leaf_for_normalization(jurisdiction, root, tail):
+        return tuple(tail)
+    if _preserve_dotted_leaf_filename_for_normalization(tail):
+        return tuple(tail)
+    leaf_segments = [part for part in tail[-1].split(".") if part]
+    if not leaf_segments:
+        return tuple(tail[:-1])
+    return tuple([*tail[:-1], *leaf_segments])
+
+
+def _preserve_dotted_leaf_filename_for_normalization(tail: list[str]) -> bool:
+    if len(tail) < 2:
+        return False
+    return bool(
+        re.fullmatch(r"\d+-ccr-\d+-\d+", tail[0], flags=re.IGNORECASE)
+        and re.fullmatch(r"\d+(?:\.\d+)+", tail[-1])
+    )
+
+
+def _preserve_state_statute_dotted_leaf_for_normalization(
+    jurisdiction: str,
+    root: str,
+    tail: list[str],
+) -> bool:
+    if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
+        return False
+    if len(tail) == 2 and tail[0].isdigit():
+        return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)+", tail[-1]))
+    if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
+        return False
+    return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
+
+
+def _canonical_us_regulation_tail_for_normalization(tail: list[str]) -> list[str]:
+    if not tail:
+        return tail
+    title = tail[0].strip()
+    if title.isdigit():
+        return [f"{title}-cfr", *tail[1:]]
+    return tail
 
 
 _SOURCE_CITATION_SEPARATOR_RE = re.compile(
