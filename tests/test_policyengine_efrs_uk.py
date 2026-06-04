@@ -1,4 +1,5 @@
 import argparse
+import math
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
@@ -6,6 +7,8 @@ import pytest
 
 import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
+    BENEFIT_CAP_REGULATION_80A_BASE,
+    BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
     CHILD_BENEFIT_BASE,
     CHILD_BENEFIT_OUTPUTS,
     INCOME_TAX_INCOME_BASE_COMPONENTS,
@@ -24,10 +27,15 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_CREDIT_SECTION_1_BASE,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
+    UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
+    UNIVERSAL_CREDIT_REGULATION_22_BASE,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
+    UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
     WELFARE_REFORM_ACT_SECTION_8_BASE,
+    WELFARE_REFORM_ACT_SECTION_11_BASE,
+    build_benefit_cap_relevant_amount_request,
     build_child_benefit_request,
     build_income_tax_income_base_request,
     build_national_insurance_class_1_request,
@@ -36,12 +44,15 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_qualifying_age_request,
     build_uk_efrs_coverage_report,
     build_universal_credit_award_request,
+    build_universal_credit_housing_costs_request,
     build_universal_credit_request,
+    build_universal_credit_work_allowance_request,
     compare_outputs,
     compare_uk_efrs,
     normalize_policyengine_entity,
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
+    project_benefit_cap_relevant_amount_inputs,
     project_child_benefit_inputs,
     project_income_tax_income_base_components,
     project_income_tax_section_23_inputs,
@@ -49,6 +60,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_personal_allowance_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_universal_credit_award_inputs,
+    project_universal_credit_housing_costs_inputs,
+    project_universal_credit_work_allowance_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
 )
@@ -420,6 +433,91 @@ def test_child_benefit_request_filters_to_positive_respective_amount_rows():
     }
 
 
+def test_benefit_cap_relevant_amount_projection_uses_pe_case_inputs():
+    projected = project_benefit_cap_relevant_amount_inputs(
+        {
+            "num_adults": 1,
+            "num_children": 0,
+            "benunit_region": "LONDON",
+        }
+    )
+
+    assert projected == {
+        "claim_is_for_joint_claimants": False,
+        "responsible_for_child_or_qualifying_young_person": False,
+        "award_contains_housing_costs_element": False,
+        "accommodation_in_respect_of_which_claimant_meets_occupation_condition_is_in_greater_london": False,
+        "claimant_receives_housing_benefit_for_dwelling_in_greater_london": False,
+        "claimant_has_accommodation_normally_occupied_as_home": True,
+        "accommodation_normally_occupied_as_home_is_in_greater_london": True,
+        "jobcentre_plus_office_allocated_to_claim_is_in_greater_london": False,
+    }
+
+    assert (
+        project_benefit_cap_relevant_amount_inputs(
+            {
+                "num_adults": 2,
+                "num_children": 0,
+                "benunit_region": "WALES",
+            }
+        )["claim_is_for_joint_claimants"]
+        is True
+    )
+
+
+def test_benefit_cap_relevant_amount_request_filters_to_finite_caps():
+    request = build_benefit_cap_relevant_amount_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benefit_cap": math.inf,
+                    "num_adults": 1,
+                    "num_children": 0,
+                    "benunit_region": "LONDON",
+                },
+                {
+                    "benunit_id": 12,
+                    "benefit_cap": 22_020,
+                    "num_adults": 2,
+                    "num_children": 0,
+                    "benunit_region": "WALES",
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_12",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{BENEFIT_CAP_REGULATION_80A_BASE}#input.claim_is_for_joint_claimants"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+
+
 def test_pension_credit_projection_uses_relation_type():
     assert project_pension_credit_inputs(
         {
@@ -676,6 +774,152 @@ def test_universal_credit_award_request_projects_section_8_inputs():
     }
 
 
+def test_universal_credit_housing_costs_projection_uses_monthly_amount():
+    projected = project_universal_credit_housing_costs_inputs(
+        {"uc_housing_costs_element": 360}
+    )
+
+    assert projected["payments_are_in_respect_of_accommodation_for_section_11"] is True
+    assert projected["accommodation_is_in_great_britain"] is True
+    assert projected["accommodation_is_residential_accommodation"] is True
+    assert projected["claimant_is_liable_to_make_accommodation_payments"] is True
+    assert (
+        projected[
+            "claimant_is_treated_as_not_liable_to_make_accommodation_payments_by_regulations"
+        ]
+        is False
+    )
+    assert (
+        projected["amount_determined_or_calculated_by_regulations_under_section_11"]
+        == 30
+    )
+
+
+def test_universal_credit_housing_costs_request_projects_section_11_inputs():
+    request = build_universal_credit_housing_costs_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "uc_housing_costs_element": 360,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{WELFARE_REFORM_ACT_SECTION_11_BASE}#input.amount_determined_or_calculated_by_regulations_under_section_11"
+    ] == {
+        "kind": "decimal",
+        "value": "30.0",
+    }
+
+
+def test_universal_credit_work_allowance_projection_uses_regulation_22_case_inputs():
+    projected = project_universal_credit_work_allowance_inputs(
+        {
+            "num_adults": 1,
+            "num_children": 1,
+            "is_uc_work_allowance_eligible": True,
+            "uc_housing_costs_element": 360,
+        }
+    )
+
+    assert projected == {
+        "claim_is_for_joint_claimants": False,
+        "claimant_is_member_of_couple": False,
+        "claimant_makes_claim_as_single_person": False,
+        "joint_claimants_responsible_for_child_or_qualifying_young_person": False,
+        "one_or_both_joint_claimants_have_limited_capability_for_work": False,
+        "single_claimant_responsible_for_child_or_qualifying_young_person": True,
+        "single_claimant_has_limited_capability_for_work": False,
+        "award_contains_housing_costs_element": True,
+    }
+
+    assert (
+        project_universal_credit_work_allowance_inputs(
+            {
+                "num_adults": 2,
+                "num_children": 0,
+                "is_uc_work_allowance_eligible": True,
+                "uc_housing_costs_element": 0,
+            }
+        )["one_or_both_joint_claimants_have_limited_capability_for_work"]
+        is True
+    )
+
+
+def test_universal_credit_work_allowance_request_projects_regulation_22_inputs():
+    request = build_universal_credit_work_allowance_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "num_adults": 1,
+                    "num_children": 1,
+                    "is_uc_work_allowance_eligible": True,
+                    "uc_housing_costs_element": 360,
+                    "uc_work_allowance": 5_124,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.award_contains_housing_costs_element"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+
+
 def test_universal_credit_child_element_request_filters_to_positive_rows():
     request = build_universal_credit_request(
         pe_data={
@@ -887,6 +1131,14 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "severe_disability_minimum_guarantee_addition",
         "standard_minimum_guarantee",
     )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["benefit-cap-relevant-amount"]
+    ) == (
+        "benefit_cap",
+        "benunit_region",
+        "num_adults",
+        "num_children",
+    )
     assert policyengine_person_variables_for_surfaces(
         ["universal-credit-child-element"]
     ) == (
@@ -917,6 +1169,18 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_maximum_amount",
         "uc_standard_allowance",
         "universal_credit_pre_benefit_cap",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-housing-costs"]
+    ) == ("uc_housing_costs_element",)
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-work-allowance"]
+    ) == (
+        "is_uc_work_allowance_eligible",
+        "num_adults",
+        "num_children",
+        "uc_housing_costs_element",
+        "uc_work_allowance",
     )
 
 
@@ -1217,6 +1481,38 @@ def test_compare_outputs_compares_child_benefit_weekly_rate():
     assert report.output_summary[0]["compared"] == 1
 
 
+def test_compare_outputs_transforms_benefit_cap_relevant_amount_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benefit_cap": 22_020,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "benefit-cap-relevant-amount": [
+                {
+                    "outputs": {
+                        BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS[
+                            "benefit_cap_relevant_amount"
+                        ]["axiom"]: decimal_output(1_835),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+
+
 def test_compare_outputs_compares_applicable_universal_credit_standard_allowance():
     report = compare_outputs(
         pe_data={
@@ -1343,7 +1639,71 @@ def test_compare_outputs_transforms_universal_credit_award_outputs_monthly():
 
     assert report.compared_values == 3
     assert report.mismatches == []
+
+
+def test_compare_outputs_transforms_universal_credit_housing_costs_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_housing_costs_element": 360,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-housing-costs": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS[
+                            "section_11_amount_for_accommodation_payments"
+                        ]["axiom"]: decimal_output(30),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
     assert report.oracle_divergences == []
+
+
+def test_compare_outputs_transforms_universal_credit_work_allowance_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_work_allowance": 5_124,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-work-allowance": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS[
+                            "applicable_work_allowance_amount"
+                        ]["axiom"]: decimal_output(427),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
 
 
 def test_compare_outputs_skips_rebalanced_universal_credit_lcwra_health_element():

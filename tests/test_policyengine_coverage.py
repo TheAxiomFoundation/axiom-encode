@@ -779,10 +779,7 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {
-        "comparable": 2,
-        "known_not_comparable": 1,
-    }
+    assert report["status_counts"] == {"comparable": 3}
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     main_rate = items_by_id["uk:statutes/ukpga/1992/4/8#main_primary_percentage"]
@@ -803,9 +800,9 @@ rules:
         == "gov.hmrc.national_insurance.class_1.rates.employee.additional"
     )
     assert additional_rate["tested"] is True
-    assert contribution["status"] == "known_not_comparable"
+    assert contribution["status"] == "comparable"
     assert contribution["policyengine_variable"] == "ni_class_1_employee"
-    assert contribution["candidate_priority"] == "P4"
+    assert contribution["tested"] is True
 
 
 def test_policyengine_coverage_classifies_uk_pension_credit_section_1_outputs(
