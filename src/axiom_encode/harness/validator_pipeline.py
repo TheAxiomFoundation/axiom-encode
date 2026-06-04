@@ -628,6 +628,20 @@ def _normalize_scalar_literal_text(value: str) -> str:
     return value.strip().replace(",", "")
 
 
+def _scalar_formula_value_text(formula: Any) -> str | None:
+    if isinstance(formula, bool):
+        return None
+    if isinstance(formula, int):
+        return str(formula)
+    if isinstance(formula, float):
+        return ("%f" % formula).rstrip("0").rstrip(".")
+    if isinstance(formula, str):
+        normalized = _normalize_scalar_literal_text(formula)
+        if _EMBEDDED_SCALAR_DIRECT_VALUE.fullmatch(normalized):
+            return normalized
+    return None
+
+
 def _source_backed_parameter_scalar_values(
     rules: list[Any],
 ) -> dict[str, set[str]]:
@@ -647,10 +661,8 @@ def _source_backed_parameter_scalar_values(
             if not isinstance(version, dict):
                 continue
             formula = version.get("formula")
-            if not isinstance(formula, str):
-                continue
-            normalized = _normalize_scalar_literal_text(formula)
-            if not _EMBEDDED_SCALAR_DIRECT_VALUE.fullmatch(normalized):
+            normalized = _scalar_formula_value_text(formula)
+            if normalized is None:
                 continue
             values.setdefault(name, set()).add(normalized)
     return values
@@ -20550,18 +20562,60 @@ class ValidatorPipeline:
     def _check_embedded_scalar_literals(self, rulespec_file: Path) -> list[str]:
         """Flag substantive scalar literals embedded inside formulas."""
         issues: list[str] = []
+        content = rulespec_file.read_text()
+        imported_parameter_scalar_values = (
+            self._imported_source_backed_parameter_scalar_values(
+                rulespec_file,
+                content,
+            )
+        )
         for (
             line_number,
             name,
             literal,
             expression,
-        ) in self._collect_embedded_scalar_literals(rulespec_file.read_text()):
+        ) in self._collect_embedded_scalar_literals(
+            content,
+            imported_parameter_scalar_values=imported_parameter_scalar_values,
+        ):
             issues.append(
                 "Embedded scalar literal: "
                 f"{name} line {line_number} embeds {literal} in `{expression}`; "
                 "extract the value to its own named numeric concept or indexed table/grid value"
             )
         return issues
+
+    def _imported_source_backed_parameter_scalar_values(
+        self,
+        rulespec_file: Path,
+        content: str,
+    ) -> dict[str, set[str]]:
+        """Return scalar values for source-backed parameters imported by this file."""
+        source_root = self._validation_source_root(rulespec_file)
+        values: dict[str, set[str]] = {}
+        for item in self._extract_import_items(content):
+            base, separator, symbol = item.partition("#")
+            if not separator:
+                continue
+            symbol = symbol.strip()
+            if not symbol:
+                continue
+            target = source_root / self._import_to_relative_rulespec_path(base)
+            if not target.exists():
+                continue
+            try:
+                payload = yaml.safe_load(target.read_text())
+            except (OSError, yaml.YAMLError, ValueError):
+                continue
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("rules"),
+                list,
+            ):
+                continue
+            imported_values = _source_backed_parameter_scalar_values(payload["rules"])
+            if symbol in imported_values:
+                values.setdefault(symbol, set()).update(imported_values[symbol])
+        return values
 
     def _check_decomposed_date_scalars(self, rulespec_file: Path) -> list[str]:
         """Flag numeric year/month/day scalars derived from non-substantive date references."""
@@ -20804,6 +20858,8 @@ class ValidatorPipeline:
     def _collect_embedded_scalar_literals(
         self,
         content: str,
+        *,
+        imported_parameter_scalar_values: dict[str, set[str]] | None = None,
     ) -> list[tuple[int, str, str, str]]:
         """Return embedded substantive scalar literals found in RuleSpec formulas."""
         issues: list[tuple[int, str, str, str]] = []
@@ -20818,6 +20874,8 @@ class ValidatorPipeline:
         parameter_scalar_values = _source_backed_parameter_scalar_values(
             payload["rules"],
         )
+        for name, values in (imported_parameter_scalar_values or {}).items():
+            parameter_scalar_values.setdefault(name, set()).update(values)
 
         for rule_index, rule in enumerate(payload["rules"], start=1):
             if not isinstance(rule, dict):
