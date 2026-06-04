@@ -8980,3 +8980,52 @@ rules:
     assert item["program"] == "universal_credit"
     assert item["status"] == "known_not_comparable"
     assert item["mapping_type"] == "not_comparable"
+
+
+def test_universal_credit_housing_schedule_prefixes_are_classified(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/4/paragraph/22.yaml",
+        """format: rulespec/v1
+rules:
+  - name: renters_housing_costs_element_calculated_under_this_part
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: renters_lower_rent_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/10/paragraph/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: premises_treated_as_persons_home_for_paragraphs_1_to_5
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: claimant_occupies_premises
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    schedule_4 = items_by_id[
+        "uk:regulations/uksi/2013/376/schedule/4/paragraph/22#renters_housing_costs_element_calculated_under_this_part"
+    ]
+    schedule_10 = items_by_id[
+        "uk:regulations/uksi/2013/376/schedule/10/paragraph/1#premises_treated_as_persons_home_for_paragraphs_1_to_5"
+    ]
+    assert schedule_4["program"] == "universal_credit"
+    assert schedule_4["mapping_type"] == "not_comparable"
+    assert "Schedule 4 housing-cost calculation helpers" in str(
+        schedule_4["rationale"],
+    )
+    assert schedule_10["program"] == "universal_credit"
+    assert schedule_10["mapping_type"] == "not_comparable"
+    assert "Schedule 10 premises predicates" in str(schedule_10["rationale"])
