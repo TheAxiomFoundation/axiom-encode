@@ -920,6 +920,132 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_uk_income_tax_section_13_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/13.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dividend_income_charged_at_dividend_ordinary_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+  - name: dividend_income_charged_at_dividend_upper_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2
+  - name: dividend_income_charged_at_dividend_additional_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3
+  - name: dividend_income_charged_under_section_13
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 6
+  - name: tax_on_dividend_income_charged_at_dividend_ordinary_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.1075
+  - name: tax_on_dividend_income_charged_at_dividend_upper_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.715
+  - name: tax_on_dividend_income_charged_at_dividend_additional_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1.1805
+  - name: income_tax_on_section_13_dividend_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.003
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/13.test.yaml",
+        """- name: dividend income tax
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_ordinary_rate: 1
+    uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_upper_rate: 2
+    uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_additional_rate: 3
+    uk:statutes/ukpga/2007/3/13#dividend_income_charged_under_section_13: 6
+    uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_ordinary_rate: 0.1075
+    uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_upper_rate: 0.715
+    uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_additional_rate: 1.1805
+    uk:statutes/ukpga/2007/3/13#income_tax_on_section_13_dividend_income: 2.003
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 6,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/13#dividend_income_charged_under_section_13"
+        ]["policyengine_variable"]
+        == "taxed_dividend_income"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/13#income_tax_on_section_13_dividend_income"
+        ]["policyengine_variable"]
+        == "dividend_income_tax"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_ordinary_rate"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_uk_class_1_ni_section_8_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/8.yaml",

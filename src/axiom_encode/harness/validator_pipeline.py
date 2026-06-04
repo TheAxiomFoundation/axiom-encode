@@ -16150,7 +16150,7 @@ def _find_source_text_value_issues(
 
 @functools.lru_cache(maxsize=512)
 def _fetch_corpus_source_text(citation_path: str) -> str | None:
-    """Fetch a corpus.provisions body by exact citation path.
+    """Fetch a corpus.provisions body by citation path.
 
     Local corpus artifacts are preferred so encoder and CI runs verify against
     normalized source text without re-reading original PDFs or HTML pages.
@@ -16159,7 +16159,11 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     local_text = _fetch_local_corpus_source_text(citation_path)
     if local_text is not None:
         return local_text
-    return _fetch_supabase_corpus_source_text(citation_path)
+    for candidate_path in _candidate_corpus_source_paths(citation_path):
+        source_text = _fetch_supabase_corpus_source_text(candidate_path)
+        if source_text is not None:
+            return source_text
+    return None
 
 
 @functools.lru_cache(maxsize=512)
@@ -16169,29 +16173,83 @@ def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
         return None
 
     for provisions_root in _local_corpus_provisions_roots():
-        exact_records: list[dict[str, Any]] = []
-        for provision_file in _candidate_local_corpus_provision_files(
-            provisions_root,
-            normalized_path,
-        ):
-            exact_records.extend(
-                _read_local_corpus_provision_records(provision_file, normalized_path)
-            )
-        source_text = _select_local_corpus_record_body(exact_records)
-        if source_text is not None:
-            return source_text
-
-        for provision_file in _candidate_local_corpus_provision_files(
-            provisions_root,
-            normalized_path,
-        ):
-            source_text = _read_local_corpus_descendant_text(
-                provision_file,
-                normalized_path,
-            )
+        for candidate_path in _candidate_corpus_source_paths(normalized_path):
+            exact_records: list[dict[str, Any]] = []
+            for provision_file in _candidate_local_corpus_provision_files(
+                provisions_root,
+                candidate_path,
+            ):
+                exact_records.extend(
+                    _read_local_corpus_provision_records(
+                        provision_file,
+                        candidate_path,
+                    )
+                )
+            source_text = _select_local_corpus_record_body(exact_records)
             if source_text is not None:
                 return source_text
+
+            for provision_file in _candidate_local_corpus_provision_files(
+                provisions_root,
+                candidate_path,
+            ):
+                source_text = _read_local_corpus_descendant_text(
+                    provision_file,
+                    candidate_path,
+                )
+                if source_text is not None:
+                    return source_text
     return None
+
+
+def _candidate_corpus_source_paths(citation_path: str) -> tuple[str, ...]:
+    normalized_path = citation_path.strip().strip("/")
+    if not normalized_path:
+        return ()
+
+    candidates = [normalized_path]
+    candidates.extend(_uk_legislation_gov_source_path_aliases(normalized_path))
+    return tuple(dict.fromkeys(candidates))
+
+
+def _uk_legislation_gov_source_path_aliases(citation_path: str) -> tuple[str, ...]:
+    parts = citation_path.split("/")
+    if (
+        len(parts) >= 6
+        and parts[0] == "uk"
+        and parts[1] == "statute"
+        and parts[2] != "legislation.gov.uk"
+    ):
+        source_type, year, chapter, *section_parts = parts[2:]
+        prefix = (
+            "uk",
+            "statute",
+            "legislation.gov.uk",
+            source_type,
+            year,
+            chapter,
+            "section",
+        )
+        candidates = [
+            "/".join(
+                (
+                    *prefix,
+                    *section_parts,
+                )
+            )
+        ]
+        lower_section_parts = [part.lower() for part in section_parts]
+        if lower_section_parts != section_parts:
+            candidates.append(
+                "/".join(
+                    (
+                        *prefix,
+                        *lower_section_parts,
+                    )
+                )
+            )
+        return tuple(candidates)
+    return ()
 
 
 def _local_corpus_provisions_roots() -> tuple[Path, ...]:

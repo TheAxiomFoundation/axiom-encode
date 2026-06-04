@@ -17,6 +17,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     INCOME_TAX_SECTION_10_OUTPUTS,
     INCOME_TAX_SECTION_11D_BASE,
     INCOME_TAX_SECTION_11D_OUTPUTS,
+    INCOME_TAX_SECTION_13_BASE,
+    INCOME_TAX_SECTION_13_OUTPUTS,
     INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
     INCOME_TAX_SECTION_23_BASE,
     INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
@@ -49,6 +51,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_income_base_request,
     build_income_tax_section_10_request,
     build_income_tax_section_11d_request,
+    build_income_tax_section_13_request,
     build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
@@ -71,6 +74,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_income_base_components,
     project_income_tax_section_10_inputs,
     project_income_tax_section_11d_inputs,
+    project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
@@ -333,6 +337,37 @@ def test_income_tax_section_11d_projection_removes_savings_deductions():
         "savings_basic_rate": 0.2,
         "savings_higher_rate": 0.4,
         "savings_additional_rate": 0.45,
+    }
+
+
+def test_income_tax_section_13_projection_uses_taxed_dividends_and_rates():
+    projected = project_income_tax_section_13_inputs(
+        {
+            "earned_taxable_income": 37_000,
+            "taxable_savings_interest_income": 2_000,
+            "received_allowances_savings_income": 500,
+            "taxable_dividend_income": 3_000,
+            "received_allowances_dividend_income": 500,
+            "taxed_dividend_income": 2_000,
+        },
+        parameters={
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "dividend_allowance": 500,
+            "dividend_ordinary_rate": 0.1075,
+            "dividend_upper_rate": 0.3575,
+            "dividend_additional_rate": 0.3935,
+        },
+    )
+
+    assert projected == {
+        "income_already_charged_before_section_13_dividend_income": 39_000,
+        "dividend_income_subject_to_section_13_rates": 2_000,
+        "basic_rate_limit": 37_700,
+        "higher_rate_limit": 125_140,
+        "dividend_ordinary_rate": 0.1075,
+        "dividend_upper_rate": 0.3575,
+        "dividend_additional_rate": 0.3935,
     }
 
 
@@ -601,6 +636,89 @@ def test_income_tax_section_11d_request_projects_savings_inputs(monkeypatch):
     ] == {
         "kind": "decimal",
         "value": "0.45",
+    }
+
+
+def test_income_tax_section_13_request_projects_dividend_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_income_tax_section_13_parameters",
+        lambda year: {
+            "basic_rate_limit": 37_700,
+            "higher_rate_limit": 125_140,
+            "dividend_allowance": 500,
+            "dividend_ordinary_rate": 0.1075,
+            "dividend_upper_rate": 0.3575,
+            "dividend_additional_rate": 0.3935,
+        },
+    )
+    request = build_income_tax_section_13_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "earned_taxable_income": 37_000,
+                    "taxable_savings_interest_income": 2_000,
+                    "received_allowances_savings_income": 500,
+                    "taxable_dividend_income": 3_000,
+                    "received_allowances_dividend_income": 500,
+                    "taxed_dividend_income": 2_000,
+                    "dividend_income_tax": 715,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"] for output in INCOME_TAX_SECTION_13_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_13_BASE}#input.income_already_charged_before_section_13_dividend_income:person_7"
+    ] == {"kind": "decimal", "value": "39000.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_13_BASE}#input.dividend_income_subject_to_section_13_rates:person_7"
+    ] == {"kind": "decimal", "value": "2000.0"}
+    assert inputs[f"{INCOME_TAX_SECTION_13_BASE}#input.basic_rate_limit:person_7"] == {
+        "kind": "integer",
+        "value": 37700,
+    }
+    assert inputs[f"{INCOME_TAX_SECTION_13_BASE}#input.higher_rate_limit:person_7"] == {
+        "kind": "integer",
+        "value": 125140,
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_13_BASE}#input.dividend_ordinary_rate:person_7"
+    ] == {
+        "kind": "decimal",
+        "value": "0.1075",
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_13_BASE}#input.dividend_upper_rate:person_7"
+    ] == {
+        "kind": "decimal",
+        "value": "0.3575",
+    }
+    assert inputs[
+        f"{INCOME_TAX_SECTION_13_BASE}#input.dividend_additional_rate:person_7"
+    ] == {
+        "kind": "decimal",
+        "value": "0.3935",
     }
 
 
@@ -1599,6 +1717,17 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
                 "total_income",
             )
         ),
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["income-tax-section-13-dividend-income"]
+    ) == (
+        "dividend_income_tax",
+        "earned_taxable_income",
+        "received_allowances_dividend_income",
+        "received_allowances_savings_income",
+        "taxable_dividend_income",
+        "taxable_savings_interest_income",
+        "taxed_dividend_income",
     )
     assert policyengine_person_variables_for_surfaces(
         ["national-insurance-class-1"]

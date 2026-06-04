@@ -149,6 +149,64 @@ mappings:
     mapping_type: not_comparable
     rationale: Per-rate tax helper for section 11D savings additional-rate income; PolicyEngine UK exposes the aggregate savings_income_tax rather than per-rate savings tax variables.
 
+  - legal_id: uk:statutes/ukpga/2007/3/13#dividend_income_charged_under_section_13
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxed_dividend_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK dividend income remaining for dividend-rate taxation after personal allowances and the dividend allowance.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#income_tax_on_section_13_dividend_income
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: dividend_income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax on dividend income charged at the dividend ordinary, upper, and additional rates.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_ordinary_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate dividend income helper for section 13; PolicyEngine UK exposes aggregate taxed_dividend_income and dividend_income_tax, not per-rate dividend-income variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_upper_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate dividend income helper for section 13; PolicyEngine UK exposes aggregate taxed_dividend_income and dividend_income_tax, not per-rate dividend-income variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#dividend_income_charged_at_dividend_additional_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate dividend income helper for section 13; PolicyEngine UK exposes aggregate taxed_dividend_income and dividend_income_tax, not per-rate dividend-income variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_ordinary_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 13 dividend ordinary-rate income; PolicyEngine UK exposes the aggregate dividend_income_tax rather than per-rate dividend tax variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_upper_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 13 dividend upper-rate income; PolicyEngine UK exposes the aggregate dividend_income_tax rather than per-rate dividend tax variables.
+
+  - legal_id: uk:statutes/ukpga/2007/3/13#tax_on_dividend_income_charged_at_dividend_additional_rate
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Per-rate tax helper for section 13 dividend additional-rate income; PolicyEngine UK exposes the aggregate dividend_income_tax rather than per-rate dividend tax variables.
+
   - legal_id: uk:statutes/ukpga/2007/3/23#total_income
     country: uk
     program: tax
