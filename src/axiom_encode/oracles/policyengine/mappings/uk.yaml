@@ -1748,6 +1748,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Universal Credit Schedule 4 renter housing-cost helper outputs are source-level rent payment, bedroom allocation, housing cost contribution, private and social rent calculation, under-occupancy, and specified-renter mechanics; PolicyEngine UK exposes downstream Universal Credit housing outcomes rather than these schedule-level legal helpers one-to-one.
 
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/5/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 5 owner-occupier housing-cost helper outputs are source-level relevant-payment, qualifying-period, earned-income exclusion, and service-charge monthly-equivalent mechanics; PolicyEngine UK exposes downstream Universal Credit housing outcomes rather than these schedule-level legal helpers one-to-one.
+
   - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/10/
     country: uk
     program: universal_credit

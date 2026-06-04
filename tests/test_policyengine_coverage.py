@@ -934,10 +934,25 @@ rules:
         formula: false
 """,
     )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/schedule/5/paragraph/9.yaml",
+        """format: rulespec/v1
+rules:
+  - name: owner_occupier_housing_costs_element_amount
+    kind: derived
+    entity: BenefitUnit
+    dtype: Money
+    period: Month
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+""",
+    )
 
     report = build_policyengine_coverage_report(tmp_path, program="universal_credit")
 
-    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert report["status_counts"] == {"known_not_comparable": 3}
     statuses = {item["legal_id"]: item["status"] for item in report["items"]}
     assert (
         statuses[
@@ -948,6 +963,12 @@ rules:
     assert (
         statuses[
             "uk:regulations/uksi/2013/376/schedule/10/paragraph/1#premises_treated_as_persons_home_for_paragraphs_1_to_5"
+        ]
+        == "known_not_comparable"
+    )
+    assert (
+        statuses[
+            "uk:regulations/uksi/2013/376/schedule/5/paragraph/9#owner_occupier_housing_costs_element_amount"
         ]
         == "known_not_comparable"
     )
