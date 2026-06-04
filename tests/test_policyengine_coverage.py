@@ -513,6 +513,49 @@ rules:
     assert "state income bridge" in str(exact_output["rationale"])
 
 
+def test_policyengine_coverage_classifies_nc_and_sc_snap_manual_prefixes(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-nc"
+        / "policies/dhhs/fns/fns-600-simplified-nutritional-assistance-program-snap/page-1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: person_eligible_for_snap
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: person_receives_ssi
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-sc" / "policies/dss/snap-policy-manual/page-100.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_et_referral_required
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: person_subject_to_work_requirement
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    nc_output = items_by_id[
+        "us-nc:policies/dhhs/fns/fns-600-simplified-nutritional-assistance-program-snap/page-1#person_eligible_for_snap"
+    ]
+    sc_output = items_by_id[
+        "us-sc:policies/dss/snap-policy-manual/page-100#snap_et_referral_required"
+    ]
+    assert nc_output["mapping_type"] == "not_comparable"
+    assert "North Carolina DHHS FNS manual sections" in str(nc_output["rationale"])
+    assert sc_output["mapping_type"] == "not_comparable"
+    assert "South Carolina DSS SNAP manual sections" in str(sc_output["rationale"])
+
+
 def test_policyengine_coverage_ignores_nested_axiom_dependency_checkout(tmp_path):
     content = """format: rulespec/v1
 rules:
