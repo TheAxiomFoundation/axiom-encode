@@ -58,6 +58,18 @@ PERSONAL_ALLOWANCE_OUTPUTS = {
 }
 
 NATIONAL_INSURANCE_CLASS_1_OUTPUTS = {
+    "main_primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#main_primary_class_1_contribution",
+        "pe": "ni_class_1_employee_primary",
+        "pe_transform": "annual_to_weekly",
+        "applies": ("ni_liable", True),
+    },
+    "additional_primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#additional_primary_class_1_contribution",
+        "pe": "ni_class_1_employee_additional",
+        "pe_transform": "annual_to_weekly",
+        "applies": ("ni_liable", True),
+    },
     "primary_class_1_contribution": {
         "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#primary_class_1_contribution",
         "pe": "ni_class_1_employee",
@@ -234,6 +246,8 @@ SURFACE_SPECS = {
         outputs=NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
         pe_variables=(
             "ni_class_1_employee",
+            "ni_class_1_employee_additional",
+            "ni_class_1_employee_primary",
             "ni_class_1_income",
             "ni_liable",
         ),
@@ -2136,8 +2150,11 @@ def compare_outputs(
             "National Insurance Class 1 comparison projects annual PolicyEngine "
             "NI Class 1 income into a representative tax week, supplies the "
             "PolicyEngine weekly primary threshold and upper earnings limit, "
-            "and compares RuleSpec's weekly section 8 output against "
-            "PolicyEngine's annual ni_class_1_employee divided by 52.",
+            "compares RuleSpec's weekly section 8 aggregate output against "
+            "PolicyEngine's annual ni_class_1_employee divided by 52, and "
+            "compares the main/additional component outputs on ni_liable rows "
+            "because PolicyEngine's component formulas are not masked by that "
+            "liability predicate.",
             "Child Benefit comparison filters to positive PolicyEngine "
             "child_benefit_respective_amount rows, divides that annualized "
             "PolicyEngine output by 52 to compare against the RuleSpec weekly "

@@ -599,6 +599,8 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         ["national-insurance-class-1"]
     ) == (
         "ni_class_1_employee",
+        "ni_class_1_employee_additional",
+        "ni_class_1_employee_primary",
         "ni_class_1_income",
         "ni_liable",
     )
