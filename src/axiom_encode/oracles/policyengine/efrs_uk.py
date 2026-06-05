@@ -1119,6 +1119,12 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers Child Tax Credit family, child, disabled-child, and severe-disabled-child element rates; it does not yet compute final Child Tax Credit entitlement.",
     },
+    "tax_free_childcare": {
+        "status": "partial",
+        "surfaces": ("tax-free-childcare-parameters",),
+        "covered_outputs": ("tax_free_childcare",),
+        "rationale": "Axiom covers the Tax-Free Childcare contribution rate and income cap, not the child/provider eligibility tests, expenses, annual caps, or final aggregate amount.",
+    },
     "pip": {
         "status": "partial",
         "surfaces": ("personal-independence-payment-rates",),
