@@ -119,6 +119,9 @@ from .oracles.policyengine.efrs_uk import (
     configure_coverage_parser as configure_uk_efrs_coverage_parser,
 )
 from .oracles.policyengine.efrs_uk import (
+    configure_hbai_coverage_parser as configure_uk_efrs_hbai_coverage_parser,
+)
+from .oracles.policyengine.efrs_uk import (
     configure_parser as configure_uk_efrs_compare_parser,
 )
 from .oracles.policyengine.efrs_uk import (
@@ -126,6 +129,9 @@ from .oracles.policyengine.efrs_uk import (
 )
 from .oracles.policyengine.efrs_uk import (
     main_coverage as run_uk_efrs_coverage,
+)
+from .oracles.policyengine.efrs_uk import (
+    main_hbai_coverage as run_uk_efrs_hbai_coverage,
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
@@ -733,6 +739,12 @@ def main():
         help="Report PE-UK EFRS computed-variable coverage and backlog",
     )
     configure_uk_efrs_coverage_parser(uk_efrs_coverage_parser)
+
+    uk_efrs_hbai_coverage_parser = subparsers.add_parser(
+        "uk-efrs-hbai-coverage",
+        help="Report HBAI net-income policy-component coverage",
+    )
+    configure_uk_efrs_hbai_coverage_parser(uk_efrs_hbai_coverage_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
@@ -1815,6 +1827,8 @@ def main():
         sys.exit(run_uk_efrs_compare(args))
     elif args.command == "uk-efrs-coverage":
         sys.exit(run_uk_efrs_coverage(args))
+    elif args.command == "uk-efrs-hbai-coverage":
+        sys.exit(run_uk_efrs_hbai_coverage(args))
     elif args.command == "snap-readiness":
         cmd_snap_readiness(args)
     elif args.command == "calibration":

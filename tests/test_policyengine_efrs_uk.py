@@ -88,6 +88,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
     build_uk_efrs_coverage_report,
+    build_uk_hbai_policy_coverage_report,
     build_universal_credit_assessable_capital_request,
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
@@ -2717,6 +2718,92 @@ class income_tax(Variable):
     assert payload["missing_variables"] == []
     assert "income_tax" in payload["covered_output_variables"]
     assert "personal_allowance" in payload["covered_output_variables"]
+
+
+def test_uk_hbai_policy_coverage_report_classifies_policy_components(tmp_path):
+    source_root = tmp_path / "variables"
+    hbai_path = source_root / "household" / "income"
+    hbai_path.mkdir(parents=True)
+    (hbai_path / "hbai_household_net_income.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class hbai_household_net_income(Variable):
+    entity = Household
+    adds = [
+        "employment_income",
+        "child_benefit",
+        "universal_credit",
+        "working_tax_credit",
+        "child_tax_credit",
+    ]
+    subtracts = [
+        "income_tax",
+        "national_insurance",
+        "council_tax",
+        "maintenance_expenses",
+    ]
+""".strip()
+    )
+
+    report = build_uk_hbai_policy_coverage_report(source_root=source_root)
+    by_name = {component.name: component for component in report.components}
+
+    assert report.adds == (
+        "employment_income",
+        "child_benefit",
+        "universal_credit",
+        "working_tax_credit",
+        "child_tax_credit",
+    )
+    assert report.subtracts == (
+        "income_tax",
+        "national_insurance",
+        "council_tax",
+        "maintenance_expenses",
+    )
+    assert by_name["employment_income"].status == "fixed_input"
+    assert by_name["employment_income"].policy_component is False
+    assert by_name["income_tax"].status == "exact"
+    assert by_name["income_tax"].policy_component is True
+    assert by_name["universal_credit"].status == "partial"
+    assert by_name["working_tax_credit"].status == "partial"
+    assert by_name["child_tax_credit"].status == "missing"
+    assert by_name["council_tax"].status == "missing"
+    assert report.policy_component_count == 7
+    assert report.covered_policy_component_count == 5
+    assert report.exact_policy_component_count == 1
+    assert math.isclose(report.covered_policy_component_share, 5 / 7)
+    assert math.isclose(report.exact_policy_component_share, 1 / 7)
+
+
+def test_uk_hbai_policy_coverage_report_serializes_json(tmp_path):
+    source_root = tmp_path / "variables" / "household"
+    source_root.mkdir(parents=True)
+    (source_root / "hbai_household_net_income.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class hbai_household_net_income(Variable):
+    entity = Household
+    adds = ["employment_income", "child_benefit"]
+    subtracts = ["income_tax"]
+""".strip()
+    )
+
+    report = build_uk_hbai_policy_coverage_report(source_root=source_root.parent)
+    payload = report.to_json()
+
+    assert payload["policy_component_count"] == 2
+    assert payload["covered_policy_component_count"] == 2
+    assert payload["exact_policy_component_count"] == 1
+    assert payload["status_counts"] == {
+        "exact": 1,
+        "fixed_input": 1,
+        "partial": 1,
+    }
+    assert payload["activity_totals"] is None
+    assert payload["components"][0]["name"] == "employment_income"
 
 
 def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
