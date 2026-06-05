@@ -2012,6 +2012,144 @@ rules:
     assert carers_allowance["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_dla_rate_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/14.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dla_self_care_higher_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 114.60
+  - name: dla_self_care_middle_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 76.70
+  - name: dla_self_care_lower_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 30.30
+  - name: dla_mobility_higher_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 80.00
+  - name: dla_mobility_lower_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 30.30
+  - name: dla_self_care_higher_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: dla_self_care_higher_substituted_amount
+  - name: dla_self_care_middle_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: dla_self_care_middle_substituted_amount
+  - name: dla_self_care_lower_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: dla_self_care_lower_substituted_amount
+  - name: dla_mobility_higher_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: dla_mobility_higher_substituted_amount
+  - name: dla_mobility_lower_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: dla_mobility_lower_substituted_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/14.test.yaml",
+        """- name: article 14 dla rates
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_substituted_amount: 114.60
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_substituted_amount: 76.70
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_substituted_amount: 30.30
+    uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_substituted_amount: 80.00
+    uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_substituted_amount: 30.30
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate: 114.60
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate: 76.70
+    uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate: 30.30
+    uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate: 80.00
+    uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate: 30.30
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="dla")
+
+    assert report["status_counts"] == {"comparable": 10}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate"
+        ]["policyengine_parameter"]
+        == "gov.dwp.dla.self_care.higher"
+    )
+    assert (
+        items_by_id[
+            "uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate"
+        ]["policyengine_parameter"]
+        == "gov.dwp.dla.self_care.middle"
+    )
+    assert (
+        items_by_id[
+            "uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate"
+        ]["policyengine_parameter"]
+        == "gov.dwp.dla.self_care.lower"
+    )
+    assert (
+        items_by_id[
+            "uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate"
+        ]["policyengine_parameter"]
+        == "gov.dwp.dla.mobility.higher"
+    )
+    assert (
+        items_by_id[
+            "uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate"
+        ]["policyengine_parameter"]
+        == "gov.dwp.dla.mobility.lower"
+    )
+    assert all(item["mapping_type"] == "parameter_value" for item in report["items"])
+    assert all(item["tested"] is True for item in report["items"])
+
+
 @pytest.mark.parametrize(
     (
         "path",

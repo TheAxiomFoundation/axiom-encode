@@ -2737,6 +2737,7 @@ class hbai_household_net_income(Variable):
         "working_tax_credit",
         "child_tax_credit",
         "pip",
+        "dla",
         "attendance_allowance",
         "carers_allowance",
         "sda",
@@ -2760,6 +2761,7 @@ class hbai_household_net_income(Variable):
         "working_tax_credit",
         "child_tax_credit",
         "pip",
+        "dla",
         "attendance_allowance",
         "carers_allowance",
         "sda",
@@ -2778,15 +2780,58 @@ class hbai_household_net_income(Variable):
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["pip"].status == "partial"
+    assert by_name["dla"].status == "partial"
     assert by_name["attendance_allowance"].status == "partial"
     assert by_name["carers_allowance"].status == "partial"
     assert by_name["sda"].status == "partial"
     assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 11
-    assert report.covered_policy_component_count == 10
+    assert report.policy_component_count == 12
+    assert report.covered_policy_component_count == 11
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 10 / 11)
-    assert math.isclose(report.exact_policy_component_share, 1 / 11)
+    assert math.isclose(report.covered_policy_component_share, 11 / 12)
+    assert math.isclose(report.exact_policy_component_share, 1 / 12)
+
+
+def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
+    tmp_path,
+):
+    source_root = tmp_path / "variables"
+    hbai_path = source_root / "household" / "income"
+    hbai_path.mkdir(parents=True)
+    (hbai_path / "hbai_household_net_income.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+HBAI_HOUSEHOLD_NET_INCOME_ADDS = [
+    "employment_income",
+    "dla",
+]
+HBAI_HOUSEHOLD_NET_INCOME_SUBTRACTS = [
+    "income_tax",
+]
+
+class hbai_household_net_income(Variable):
+    entity = Household
+
+    def formula(household, period, parameters):
+        return add(household, period, HBAI_HOUSEHOLD_NET_INCOME_ADDS) - add(
+            household, period, HBAI_HOUSEHOLD_NET_INCOME_SUBTRACTS
+        )
+""".strip()
+    )
+
+    report = build_uk_hbai_policy_coverage_report(source_root=source_root)
+
+    assert report.adds == ("employment_income", "dla")
+    assert report.subtracts == ("income_tax",)
+    assert report.status_counts == {
+        "exact": 1,
+        "fixed_input": 1,
+        "partial": 1,
+    }
+    assert report.policy_component_count == 2
+    assert report.covered_policy_component_count == 2
+    assert report.exact_policy_component_count == 1
 
 
 def test_uk_hbai_policy_coverage_report_serializes_json(tmp_path):

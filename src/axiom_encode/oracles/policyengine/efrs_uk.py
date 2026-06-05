@@ -1118,6 +1118,16 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers Personal Independence Payment daily-living and mobility weekly rates, not the category assignment or final aggregate PIP amount.",
     },
+    "dla": {
+        "status": "partial",
+        "surfaces": ("disability-living-allowance-rates",),
+        "covered_outputs": (
+            "dla_sc",
+            "dla_m",
+            "dla",
+        ),
+        "rationale": "Axiom covers Disability Living Allowance care and mobility weekly rates, not the category assignment or final aggregate DLA amount.",
+    },
     "attendance_allowance": {
         "status": "partial",
         "surfaces": ("attendance-allowance-rates",),
@@ -2532,6 +2542,7 @@ def parse_policyengine_uk_variable_sources(
             tree = ast.parse(source_file.read_text())
         except SyntaxError:
             continue
+        module_string_sequences = module_level_string_sequences(tree)
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
@@ -2562,11 +2573,23 @@ def parse_policyengine_uk_variable_sources(
                         entity = normalize_policyengine_entity(ast_value_name(value))
                     if target.id in {"adds", "subtracts"}:
                         has_aggregate = True
-                        components = ast_string_sequence(value)
+                        components = ast_string_sequence(
+                            value,
+                            module_string_sequences,
+                        )
                         if target.id == "adds":
                             adds = components
                         else:
                             subtracts = components
+            if node.name == "hbai_household_net_income" and (not adds or not subtracts):
+                formula_adds, formula_subtracts = formula_add_subtract_components(
+                    node,
+                    module_string_sequences,
+                )
+                adds = adds or formula_adds
+                subtracts = subtracts or formula_subtracts
+                if adds or subtracts:
+                    has_aggregate = True
             sources[node.name] = UKEFRSVariableSource(
                 name=node.name,
                 entity=entity,
@@ -2578,6 +2601,57 @@ def parse_policyengine_uk_variable_sources(
                 subtracts=subtracts,
             )
     return sources
+
+
+def module_level_string_sequences(tree: ast.Module) -> dict[str, tuple[str, ...]]:
+    sequences: dict[str, tuple[str, ...]] = {}
+    for item in tree.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(item, ast.Assign):
+            targets = list(item.targets)
+            value = item.value
+        elif isinstance(item, ast.AnnAssign):
+            targets = [item.target]
+            value = item.value
+        if value is None:
+            continue
+        components = ast_string_sequence(value)
+        if not components:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                sequences[target.id] = components
+    return sequences
+
+
+def formula_add_subtract_components(
+    node: ast.ClassDef,
+    module_string_sequences: dict[str, tuple[str, ...]],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    adds: list[str] = []
+    subtracts: list[str] = []
+    for item in node.body:
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not item.name.startswith("formula"):
+            continue
+        for child in ast.walk(item):
+            if not isinstance(child, ast.Call):
+                continue
+            if ast_value_name(child.func) != "add":
+                continue
+            if len(child.args) < 3:
+                continue
+            components = ast_string_sequence(child.args[2], module_string_sequences)
+            if not components:
+                continue
+            source_name = ast_value_name(child.args[2]).upper()
+            if "SUBTRACT" in source_name:
+                subtracts.extend(components)
+            elif "ADD" in source_name:
+                adds.extend(components)
+    return tuple(dict.fromkeys(adds)), tuple(dict.fromkeys(subtracts))
 
 
 def class_extends_variable(node: ast.ClassDef) -> bool:
@@ -2596,7 +2670,12 @@ def ast_value_name(node: ast.AST) -> str:
     return ""
 
 
-def ast_string_sequence(node: ast.AST | None) -> tuple[str, ...]:
+def ast_string_sequence(
+    node: ast.AST | None,
+    named_sequences: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[str, ...]:
+    if isinstance(node, ast.Name) and named_sequences is not None:
+        return named_sequences.get(node.id, ())
     if isinstance(node, (ast.List, ast.Tuple)):
         values: list[str] = []
         for item in node.elts:

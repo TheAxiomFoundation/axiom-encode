@@ -699,6 +699,106 @@ mappings:
     comparison: money
     rationale: Same weekly Personal Independence Payment mobility enhanced rate in Regulation 24.
 
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_substituted_amount
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.higher
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance highest-rate care component amount substituted by Article 14 of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_substituted_amount
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.middle
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance middle-rate care component amount substituted by Article 14 of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_substituted_amount
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.lower
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance lowest-rate care component amount substituted by Article 14 of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_substituted_amount
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.mobility.higher
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance higher-rate mobility component amount substituted by Article 14 of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_substituted_amount
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.mobility.lower
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance lower-rate mobility component amount substituted by Article 14 of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.higher
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance highest-rate care component amount after applying the Article 14 substitution.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.middle
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance middle-rate care component amount after applying the Article 14 substitution.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.self_care.lower
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance lowest-rate care component amount after applying the Article 14 substitution.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.mobility.higher
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance higher-rate mobility component amount after applying the Article 14 substitution.
+
+  - legal_id: uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate
+    country: uk
+    program: dla
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.dla.mobility.lower
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Disability Living Allowance lower-rate mobility component amount after applying the Article 14 substitution.
+
   - legal_id: uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_higher_weekly_rate
     country: uk
     program: attendance_allowance
