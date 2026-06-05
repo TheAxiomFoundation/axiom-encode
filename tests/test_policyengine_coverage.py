@@ -1396,6 +1396,112 @@ rules:
     assert helper["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_schedule_iia_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/1792/schedule/IIA.yaml",
+        """format: rulespec/v1
+rules:
+  - name: child_or_qualifying_young_person_weekly_amount
+    kind: parameter
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 69.98
+  - name: first_child_or_qualifying_young_person_born_before_6_april_2017_weekly_amount
+    kind: parameter
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 81.07
+  - name: disabled_child_or_qualifying_young_person_further_weekly_amount
+    kind: parameter
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 37.93
+  - name: severely_disabled_child_or_qualifying_young_person_further_weekly_amount
+    kind: parameter
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 118.46
+  - name: schedule_applies_to_claimant
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: claimant_responsible_child_or_qualifying_young_person_count > 0
+  - name: additional_amount_applicable
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: child_or_qualifying_young_person_weekly_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/1792/schedule/IIA.test.yaml",
+        """- name: child addition
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2002/1792/schedule/IIA#child_or_qualifying_young_person_weekly_amount: 69.98
+    uk:regulations/uksi/2002/1792/schedule/IIA#first_child_or_qualifying_young_person_born_before_6_april_2017_weekly_amount: 81.07
+    uk:regulations/uksi/2002/1792/schedule/IIA#disabled_child_or_qualifying_young_person_further_weekly_amount: 37.93
+    uk:regulations/uksi/2002/1792/schedule/IIA#severely_disabled_child_or_qualifying_young_person_further_weekly_amount: 118.46
+    uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable: 69.98
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    additional_amount = items_by_id[
+        "uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable"
+    ]
+    child_amount = items_by_id[
+        "uk:regulations/uksi/2002/1792/schedule/IIA#child_or_qualifying_young_person_weekly_amount"
+    ]
+    helper = items_by_id[
+        "uk:regulations/uksi/2002/1792/schedule/IIA#schedule_applies_to_claimant"
+    ]
+
+    assert (
+        additional_amount["policyengine_variable"] == "child_minimum_guarantee_addition"
+    )
+    assert additional_amount["status"] == "comparable"
+    assert additional_amount["mapping_type"] == "direct_variable"
+    assert additional_amount["tested"] is True
+    assert (
+        child_amount["policyengine_parameter"]
+        == "gov.dwp.pension_credit.guarantee_credit.child.addition"
+    )
+    assert child_amount["mapping_type"] == "parameter_value"
+    assert helper["status"] == "known_not_comparable"
+
+
 @pytest.mark.parametrize(
     (
         "path",

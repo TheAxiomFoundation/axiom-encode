@@ -35,9 +35,11 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
     PENSION_CREDIT_BASE,
+    PENSION_CREDIT_CHILD_ADDITION_OUTPUTS,
     PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
     PENSION_CREDIT_OUTPUTS,
     PENSION_CREDIT_REGULATION_15_BASE,
+    PENSION_CREDIT_SCHEDULE_IIA_BASE,
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
@@ -78,6 +80,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_13_request,
     build_jsa_income_tariff_income_request,
     build_national_insurance_class_1_request,
+    build_pension_credit_child_addition_request,
     build_pension_credit_deemed_income_request,
     build_pension_credit_request,
     build_personal_allowance_request,
@@ -111,6 +114,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_jsa_income_tariff_income_inputs,
+    project_pension_credit_child_addition_inputs,
     project_pension_credit_deemed_income_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
@@ -1751,6 +1755,103 @@ def test_adds_universal_credit_childcare_work_projection_columns():
     assert bool(projected.loc[11, "uc_childcare_all_adults_in_work"]) is True
     assert projected.loc[12, "uc_childcare_adult_count"] == 0
     assert bool(projected.loc[12, "uc_childcare_any_adult_in_work"]) is False
+
+
+def test_adds_pension_credit_child_addition_projection_columns():
+    pd = pytest.importorskip("pandas")
+    benunit = pd.DataFrame({"benunit_id": [10, 11, 12]})
+    person = pd.DataFrame(
+        {
+            "person_benunit_id": [10, 10, 10, 11],
+            "birth_year": [2010, 2018, 1980, 2019],
+            "is_child_or_qualifying_young_person_for_pension_credit": [
+                True,
+                True,
+                False,
+                True,
+            ],
+            "dla": [0, 1, 0, 0],
+            "pip": [0, 0, 0, 0],
+            "receives_highest_dla_sc": [True, False, False, False],
+            "receives_enhanced_pip_dl": [False, False, False, False],
+        }
+    )
+
+    projected = efrs_uk.add_pension_credit_child_addition_projection_columns(
+        benunit,
+        person,
+    ).set_index("benunit_id")
+
+    assert projected.loc[10, "pc_child_addition_child_count"] == 2
+    assert projected.loc[10, "pc_child_addition_standard_disabled_child_count"] == 1
+    assert projected.loc[10, "pc_child_addition_severely_disabled_child_count"] == 1
+    assert bool(projected.loc[10, "pc_child_addition_any_pre_2017_child"]) is True
+    assert projected.loc[11, "pc_child_addition_child_count"] == 1
+    assert bool(projected.loc[11, "pc_child_addition_any_pre_2017_child"]) is False
+    assert projected.loc[12, "pc_child_addition_child_count"] == 0
+
+
+def test_pension_credit_child_addition_request_projects_schedule_iia_inputs():
+    request = build_pension_credit_child_addition_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 22,
+                    "pc_child_addition_child_count": 2,
+                    "pc_child_addition_standard_disabled_child_count": 1,
+                    "pc_child_addition_severely_disabled_child_count": 1,
+                    "pc_child_addition_any_pre_2017_child": True,
+                }
+            ],
+            "benunit_ids": [22],
+        },
+        year=2026,
+    )
+
+    inputs_by_name = {
+        item["name"]: item["value"] for item in request["dataset"]["inputs"]
+    }
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_22",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": [
+                PENSION_CREDIT_CHILD_ADDITION_OUTPUTS["additional_amount_applicable"][
+                    "axiom"
+                ]
+            ],
+        }
+    ]
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#input.claimant_responsible_child_or_qualifying_young_person_count"
+    ] == {"kind": "integer", "value": 2}
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#input.claimant_responsible_disabled_not_severely_disabled_child_or_qualifying_young_person_count"
+    ] == {"kind": "integer", "value": 1}
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#input.claimant_responsible_severely_disabled_child_or_qualifying_young_person_count"
+    ] == {"kind": "integer", "value": 1}
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#input.eldest_child_or_qualifying_young_person_born_before_6_april_2017"
+    ] == {"kind": "bool", "value": True}
+
+
+def test_project_pension_credit_child_addition_inputs_defaults_to_zero():
+    projected = project_pension_credit_child_addition_inputs({})
+
+    assert projected == {
+        "claimant_responsible_child_or_qualifying_young_person_count": 0,
+        "claimant_responsible_disabled_not_severely_disabled_child_or_qualifying_young_person_count": 0,
+        "claimant_responsible_severely_disabled_child_or_qualifying_young_person_count": 0,
+        "eldest_child_or_qualifying_young_person_born_before_6_april_2017": False,
+    }
 
 
 def test_universal_credit_housing_costs_projection_uses_monthly_amount():
@@ -3976,6 +4077,39 @@ def test_compare_outputs_handles_state_pension_credit_guarantee_credit():
     )
 
     assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_handles_pension_credit_child_addition():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 22,
+                    "child_minimum_guarantee_addition": 307.44 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [22],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit-child-addition": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_CHILD_ADDITION_OUTPUTS[
+                            "additional_amount_applicable"
+                        ]["axiom"]: decimal_output(307.44),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=0,
+    )
+
+    assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []
 
