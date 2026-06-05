@@ -15589,3 +15589,93 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Section 2014(g) resource-test intermediates (vehicle countable amount, fair-market-value threshold, indexed base-amount components, rounding increments) are internal pieces of PolicyEngine's asset-limit aggregation; PE exposes the final snap_assets and snap_asset_limit but not these per-vehicle and base-amount computation steps.
+
+  - legal_id_prefix: us:statutes/42/1396a/xx#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/550#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.550 is a scope/definitions rule for Medicaid community engagement; PolicyEngine US does not expose this CMS work-requirement workflow as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/551#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.551 applicable-individual predicates are source-specific Medicaid community-engagement eligibility gates that PolicyEngine US does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/552#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.552 community-engagement hour and income pathways are CMS Medicaid work-requirement calculations not represented as one-to-one PolicyEngine US variables or parameters.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/553#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.553 mandatory-exception predicates are source-specific Medicaid work-requirement exemptions that PolicyEngine US does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/554#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.554 excluded-individual predicates cover CMS Medicaid work-requirement exclusions that PolicyEngine US does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/555#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.555 short-term-hardship categories and deeming rules are CMS Medicaid work-requirement exceptions not represented as one-to-one PolicyEngine US variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/556#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.556 assessment timing, lookback, notice, and verification predicates are Medicaid community-engagement administration rules outside PolicyEngine US's one-to-one oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/557#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.557 renewal-period assessment and notice predicates are CMS Medicaid work-requirement administration rules that PolicyEngine US does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/558#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.558 enrollment-period month counting, grace periods, and disenrollment predicates are Medicaid community-engagement workflow rules outside PolicyEngine US's one-to-one oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/559#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.559 beneficiary-notice predicates are source-specific Medicaid work-requirement notice rules not represented as one-to-one PolicyEngine US variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/560#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.560 reactivation scope is part of the CMS Medicaid community-engagement workflow, which PolicyEngine US does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/561#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.561 waiver-state eligibility and enrollment conditions are Medicaid demonstration-specific work-requirement rules outside PolicyEngine US's one-to-one oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/562#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.562 state-plan-amendment implementation scope is administrative Medicaid work-requirement material not represented as one-to-one PolicyEngine US variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/563#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.563 reporting obligations are CMS Medicaid work-requirement administration rules outside PolicyEngine US's one-to-one oracle surface.
