@@ -1052,6 +1052,16 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers major Pension Credit rates, additions, and deemed-income components, not the final aggregate pension_credit variable.",
     },
+    "state_pension": {
+        "status": "partial",
+        "surfaces": ("state-pension-rates",),
+        "covered_outputs": (
+            "basic_state_pension",
+            "new_state_pension",
+            "state_pension",
+        ),
+        "rationale": "Axiom covers the basic and full new State Pension weekly rates, not person-specific entitlement, deferral, inherited, or transitional amount rules feeding the final state_pension variable.",
+    },
     "universal_credit": {
         "status": "partial",
         "surfaces": (
