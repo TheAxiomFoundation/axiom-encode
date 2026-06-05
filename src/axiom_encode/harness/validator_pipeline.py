@@ -8865,7 +8865,28 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
+    if (
+        len(parts) >= 3
+        and parts[0].startswith("us-")
+        and parts[1] in _RULESPEC_DOCUMENT_CLASS_DIRS
+    ):
+        return re.compile(
+            rf"(?<![\w.-]){exact_corpus_path}"
+            r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+            flags=re.IGNORECASE,
+        )
     return None
+
+
+_RULESPEC_DOCUMENT_CLASS_DIRS = {
+    "form": "forms",
+    "forms": "forms",
+    "guidance": "guidance",
+    "manual": "manuals",
+    "manuals": "manuals",
+    "policies": "policies",
+    "policy": "policies",
+}
 
 
 def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
@@ -8880,6 +8901,12 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         return ("regulations", f"{parts[2]}-cfr", parts[3], parts[4])
     if len(parts) >= 3 and parts[0].startswith("us-") and parts[1] == "regulation":
         return ("regulations", *parts[2:])
+    if (
+        len(parts) >= 3
+        and parts[0].startswith("us-")
+        and parts[1] in _RULESPEC_DOCUMENT_CLASS_DIRS
+    ):
+        return (_RULESPEC_DOCUMENT_CLASS_DIRS[parts[1]], *parts[2:])
     return ()
 
 

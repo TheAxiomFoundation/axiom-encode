@@ -14657,6 +14657,64 @@ rules: []
     )
 
 
+def test_source_subparagraph_coverage_accepts_state_policy_corpus_source():
+    source_text = """Standard of need
+(g) Regular recurring monthly needs are set by the statewide schedule.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant
+  summary: New York TANF standard of need.
+rules:
+  - name: regular_recurring_monthly_need
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant(g)
+    versions:
+      - effective_from: '2012-10-01'
+        formula: monthly_need_schedule_amount
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={
+                "us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant": source_text
+            },
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_accepts_state_policy_deferred_output():
+    source_text = """Standard of need
+(g) Regular recurring monthly needs are set by the statewide schedule.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant
+  summary: New York TANF standard of need.
+  deferred_outputs:
+    - output: us-ny:policies/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant/g#regular_recurring_monthly_need
+      reason: Deferred until the statewide schedule is split into a reusable table.
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={
+                "us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant": source_text
+            },
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
