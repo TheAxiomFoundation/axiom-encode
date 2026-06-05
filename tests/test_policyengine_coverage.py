@@ -91,6 +91,72 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_conclusive_agency_determinations(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/5/5566.yaml",
+        """format: rulespec/v1
+rules:
+  - name: agency_determination_conclusive_as_to_death
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+  - name: agency_determination_conclusive_as_to_dependency
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+  - name: agency_determination_conclusive_as_to_essential_date
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+  - name: agency_determination_conclusive_as_to_official_report_of_death
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+  - name: agency_determination_conclusive_as_to_other_covered_status
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+  - name: agency_determination_conclusive_under_subchapter
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agency_determination_made
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/37/556.yaml",
+        """format: rulespec/v1
+rules:
+  - name: secretary_determination_conclusive
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: secretary_determination_made
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {"known_not_comparable": 7}
+    assert {item["program"] for item in report["items"]} == {"unknown"}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+
+
 def test_policyengine_coverage_classifies_colorado_tanf_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "regulations/9-ccr-2503-6/3.606.1/F.yaml",

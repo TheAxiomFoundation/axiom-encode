@@ -14094,6 +14094,18 @@ mappings:
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
 prefixes:
+  - legal_id_prefix: us:statutes/5/5566#
+    country: us
+    program: unknown
+    mapping_type: not_comparable
+    rationale: Section 5566 conclusive-agency-determination outputs are adjudicative predicates about official findings of death, dependency, and related status; PolicyEngine has no one-to-one microsimulation variables for those agency determinations.
+
+  - legal_id_prefix: us:statutes/37/556#
+    country: us
+    program: unknown
+    mapping_type: not_comparable
+    rationale: Section 556 secretary-determination outputs are final administrative determinations for death gratuity administration; PolicyEngine has no one-to-one microsimulation variables for those legal adjudication predicates.
+
   - legal_id_prefix: us:_compose/ca-snap#
     country: us
     program: snap
