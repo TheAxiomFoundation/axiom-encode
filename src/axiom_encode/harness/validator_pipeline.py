@@ -24776,6 +24776,10 @@ print(f'RESULT:{{val}}')
         rule_name_lower = (rule_name or "").lower()
         lowered = {str(key).lower(): value for key, value in inputs.items()}
 
+        pip_script = self._build_pe_uk_pip_scenario_script(pe_var, inputs, year)
+        if pip_script is not None:
+            return pip_script
+
         if pe_var == "uc_standard_allowance" and self._is_uk_uc_standard_allowance_var(
             rule_name_lower
         ):
@@ -25942,6 +25946,139 @@ monthly = sim.calculate('{pe_var}', '{month_period}')
 eldest = sim.calculate('is_eldest_child', '{month_period}')
 target_index = {target_index}
 {result_logic.rstrip()}
+print(f'RESULT:{{val}}')
+"""
+
+    def _build_pe_uk_pip_scenario_script(
+        self, pe_var: str, inputs: dict, year: str
+    ) -> str | None:
+        """Build a UK PIP scenario from RuleSpec entitlement-category facts."""
+        if pe_var not in {"pip_dl", "pip_m", "pip", "receives_enhanced_pip_dl"}:
+            return None
+
+        def fact(*names: str) -> Any | None:
+            for name in names:
+                value = self._rulespec_test_input_value(inputs, name)
+                if value is not None:
+                    return value
+            return None
+
+        def bool_or_none(value: Any | None) -> bool | None:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"holds", "true", "yes", "1"}:
+                    return True
+                if normalized in {"not_holds", "false", "no", "0"}:
+                    return False
+            return bool(value)
+
+        dl_required = bool_or_none(
+            fact("required_period_condition_met_for_daily_living_component")
+        )
+        dl_standard = bool_or_none(
+            fact(
+                "pip_daily_living_standard_rate_entitlement",
+                "daily_living_component_standard_rate_entitlement",
+            )
+        )
+        if dl_standard is None and dl_required is not None:
+            limited = bool_or_none(
+                fact(
+                    "ability_to_carry_out_daily_living_activities_is_limited_by_physical_or_mental_condition"
+                )
+            )
+            if limited is not None:
+                dl_standard = limited and dl_required
+
+        dl_enhanced = bool_or_none(
+            fact(
+                "pip_daily_living_enhanced_rate_entitlement",
+                "daily_living_component_enhanced_rate_entitlement",
+            )
+        )
+        if dl_enhanced is None and dl_required is not None:
+            severely_limited = bool_or_none(
+                fact(
+                    "ability_to_carry_out_daily_living_activities_is_severely_limited_by_physical_or_mental_condition"
+                )
+            )
+            if severely_limited is not None:
+                dl_enhanced = severely_limited and dl_required
+
+        mobility_age = bool_or_none(
+            fact("person_is_of_or_over_age_prescribed_for_mobility_component")
+        )
+        mobility_required = bool_or_none(
+            fact("required_period_condition_met_for_mobility_component")
+        )
+        mobility_standard = bool_or_none(
+            fact(
+                "pip_mobility_standard_rate_entitlement",
+                "mobility_component_standard_rate_entitlement",
+            )
+        )
+        if (
+            mobility_standard is None
+            and mobility_age is not None
+            and mobility_required is not None
+        ):
+            mobility_limited = bool_or_none(
+                fact(
+                    "ability_to_carry_out_mobility_activities_is_limited_by_physical_or_mental_condition"
+                )
+            )
+            if mobility_limited is not None:
+                mobility_standard = (
+                    mobility_age and mobility_limited and mobility_required
+                )
+
+        mobility_enhanced = bool_or_none(
+            fact(
+                "pip_mobility_enhanced_rate_entitlement",
+                "mobility_component_enhanced_rate_entitlement",
+            )
+        )
+        if (
+            mobility_enhanced is None
+            and mobility_age is not None
+            and mobility_required is not None
+        ):
+            mobility_severely_limited = bool_or_none(
+                fact(
+                    "ability_to_carry_out_mobility_activities_is_severely_limited_by_physical_or_mental_condition"
+                )
+            )
+            if mobility_severely_limited is not None:
+                mobility_enhanced = (
+                    mobility_age and mobility_severely_limited and mobility_required
+                )
+
+        def category(standard: bool | None, enhanced: bool | None) -> str:
+            if enhanced:
+                return "ENHANCED"
+            if standard:
+                return "STANDARD"
+            return "NONE"
+
+        dl_category = category(dl_standard, dl_enhanced)
+        mobility_category = category(mobility_standard, mobility_enhanced)
+        year_key = repr(str(year))
+        scale = "1" if pe_var == "receives_enhanced_pip_dl" else "52"
+
+        return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {{'adult': {{'age': {{{year_key}: 30}}, 'pip_dl_category': {{{year_key}: '{dl_category}'}}, 'pip_m_category': {{{year_key}: '{mobility_category}'}}}}}},
+    'benunits': {{'benunit': {{'members': ['adult']}}}},
+    'households': {{'household': {{'members': ['adult']}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('{pe_var}', int('{year}'))
+val = float(annual[0]) / {scale}
 print(f'RESULT:{{val}}')
 """
 

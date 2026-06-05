@@ -3251,6 +3251,30 @@ def test_policyengine_oracle_applies_result_multiplier(tmp_path):
     assert "snap_fpg" in scripts[0]
 
 
+def test_policyengine_uk_pip_adapter_sets_category_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+
+    script = pipeline._build_pe_uk_scenario_script(
+        "pip",
+        {
+            "pip_daily_living_enhanced_rate_entitlement": True,
+            "pip_mobility_standard_rate_entitlement": True,
+        },
+        "2026",
+        "personal_independence_payment_weekly_amount",
+    )
+
+    assert "'pip_dl_category': {'2026': 'ENHANCED'}" in script
+    assert "'pip_m_category': {'2026': 'STANDARD'}" in script
+    assert "sim.calculate('pip', int('2026'))" in script
+    assert "val = float(annual[0]) / 52" in script
+
+
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,

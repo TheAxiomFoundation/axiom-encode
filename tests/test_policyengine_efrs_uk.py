@@ -2794,7 +2794,7 @@ class hbai_household_net_income(Variable):
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["tax_free_childcare"].status == "partial"
-    assert by_name["pip"].status == "partial"
+    assert by_name["pip"].status == "exact"
     assert by_name["dla"].status == "partial"
     assert by_name["attendance_allowance"].status == "partial"
     assert by_name["carers_allowance"].status == "partial"
@@ -2808,9 +2808,9 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].status == "missing"
     assert report.policy_component_count == 19
     assert report.covered_policy_component_count == 18
-    assert report.exact_policy_component_count == 1
+    assert report.exact_policy_component_count == 2
     assert math.isclose(report.covered_policy_component_share, 18 / 19)
-    assert math.isclose(report.exact_policy_component_share, 1 / 19)
+    assert math.isclose(report.exact_policy_component_share, 2 / 19)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
