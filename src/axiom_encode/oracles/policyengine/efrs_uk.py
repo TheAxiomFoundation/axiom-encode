@@ -1118,6 +1118,24 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers Personal Independence Payment daily-living and mobility weekly rates, not the category assignment or final aggregate PIP amount.",
     },
+    "attendance_allowance": {
+        "status": "partial",
+        "surfaces": ("attendance-allowance-rates",),
+        "covered_outputs": ("attendance_allowance",),
+        "rationale": "Axiom covers Attendance Allowance weekly higher and lower rates, not the category assignment or final aggregate Attendance Allowance amount.",
+    },
+    "carers_allowance": {
+        "status": "partial",
+        "surfaces": ("carers-allowance-rate",),
+        "covered_outputs": ("carers_allowance",),
+        "rationale": "Axiom covers the weekly Carer's Allowance rate, not the care-hours, Scotland replacement, or final aggregate Carer's Allowance calculation.",
+    },
+    "sda": {
+        "status": "partial",
+        "surfaces": ("severe-disablement-allowance-rates",),
+        "covered_outputs": ("sda",),
+        "rationale": "Axiom covers the Severe Disablement Allowance basic row and maximum weekly rate, not reported receipt or all age-related addition branches in the final SDA amount.",
+    },
 }
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
