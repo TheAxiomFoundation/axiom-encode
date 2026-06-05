@@ -42,9 +42,11 @@ from axiom_encode.cli import (
     _has_zero_output_test,
     _hoist_nested_test_tables,
     _infer_missing_input_default,
+    _inline_medicaid_magi_income_helpers,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
+    _medicaid_magi_income_helper_issue_names,
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
@@ -4637,6 +4639,141 @@ rules:
         assert repaired == []
         assert rules_file.read_text() == original
 
+    def test_source_relation_delegation_repair_drops_unsupported_federal_cfr_implements(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "runner" / "regulations" / "42-cfr" / "435" / "110.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/110
+rules:
+- name: implements_section_1931_b_and_d
+  kind: source_relation
+  source: 42 CFR 435.110(a)
+  source_relation:
+    type: implements
+    target: us:statutes/42/1396u-1
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 CFR 435.110(b)
+  versions:
+    - effective_from: '2014-01-01'
+      formula: person_is_parent
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "RuleSpec source relation `implements_section_1931_b_and_d` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_section_1931_b_and_d"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "parent_or_caretaker_relative_medicaid_eligible"
+        ]
+
+    def test_source_relation_delegation_repair_drops_plural_cfr_implements(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "runner" / "regulations" / "42-cfr" / "435" / "110.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/42/435/110
+rules:
+- name: implements_section_1931_b_and_d
+  kind: source_relation
+  source: 42 C.F.R. § 435.110(a)
+  source_relation:
+    type: implements
+    target: us:statutes/42/1396u-1
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 CFR 435.110(b)
+  versions:
+    - effective_from: '2014-01-01'
+      formula: person_is_parent
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "RuleSpec source relation `implements_section_1931_b_and_d` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_section_1931_b_and_d"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "parent_or_caretaker_relative_medicaid_eligible"
+        ]
+
+    def test_source_relation_delegation_repair_keeps_non_cfr_implements_without_basis(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/regulation/example
+rules:
+- name: implements_federal_option
+  kind: source_relation
+  source: State Rule
+  source_relation:
+    type: implements
+    target: us:statutes/42/1396u-1
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "RuleSpec source relation `implements_federal_option` with type "
+                "`implements` must declare source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
     def test_source_relation_delegation_repair_prefers_single_delegate_rule(
         self, tmp_path
     ):
@@ -6050,6 +6187,311 @@ rules:
         ]
 
         assert _person_scoped_definition_issue_names(issues) == []
+
+    def test_medicaid_magi_income_helper_issue_names(self):
+        issues = [
+            "Source scope mismatch: "
+            "`household_income_at_or_below_state_section_1931_income_standard` "
+            "is declared on `Person`, but the embedded source states a "
+            "household/unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the person-level test."
+        ]
+
+        assert _medicaid_magi_income_helper_issue_names(issues) == [
+            "household_income_at_or_below_state_section_1931_income_standard"
+        ]
+
+    def test_inline_medicaid_magi_income_helpers_removes_one_use_income_helper(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
+        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/110
+rules:
+- name: person_is_parent_or_caretaker_relative_or_living_spouse
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: person_is_parent
+- name: household_income_at_or_below_state_section_1931_income_standard
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_magi_income <= state_established_section_1931_income_standard
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: |-
+      person_is_parent_or_caretaker_relative_or_living_spouse
+      and household_income_at_or_below_state_section_1931_income_standard
+"""
+        )
+        test_file.write_text(
+            """- name: eligible_parent
+  output:
+    us:regulations/42-cfr/435/110#household_income_at_or_below_state_section_1931_income_standard: holds
+    us:regulations/42-cfr/435/110#parent_or_caretaker_relative_medicaid_eligible: holds
+"""
+        )
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=[
+                "household_income_at_or_below_state_section_1931_income_standard"
+            ],
+        )
+
+        assert repaired == [
+            "household_income_at_or_below_state_section_1931_income_standard"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "person_is_parent_or_caretaker_relative_or_living_spouse",
+            "parent_or_caretaker_relative_medicaid_eligible",
+        ]
+        final_formula = payload["rules"][1]["versions"][0]["formula"]
+        assert (
+            "household_income_at_or_below_state_section_1931_income_standard"
+            not in (final_formula)
+        )
+        assert (
+            "(household_magi_income <= state_established_section_1931_income_standard)"
+            in final_formula
+        )
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert list(test_cases[0]["output"]) == [
+            "us:regulations/42-cfr/435/110#parent_or_caretaker_relative_medicaid_eligible"
+        ]
+
+    def test_inline_medicaid_magi_income_helpers_ignores_non_medicaid_module(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "statutes/26/1.yaml"
+        test_file = tmp_path / "statutes/26/1.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules:
+- name: household_income_at_or_below_threshold
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  versions:
+  - effective_from: '2026-01-01'
+    formula: household_income <= threshold
+"""
+        rules_file.write_text(original)
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=["household_income_at_or_below_threshold"],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_inline_medicaid_magi_income_helpers_accepts_plural_source_paths(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
+        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/42/435/110
+      - us/regulation/42/435/603
+rules:
+- name: household_income_at_or_below_state_section_1931_income_standard
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_magi_income <= state_established_section_1931_income_standard
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_income_at_or_below_state_section_1931_income_standard and person_is_parent
+"""
+        )
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=[
+                "household_income_at_or_below_state_section_1931_income_standard"
+            ],
+        )
+
+        assert repaired == [
+            "household_income_at_or_below_state_section_1931_income_standard"
+        ]
+
+    def test_inline_medicaid_magi_income_helpers_skips_multi_version_helper(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
+        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/110
+rules:
+- name: household_income_at_or_below_state_section_1931_income_standard
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_magi_income <= old_standard
+  - effective_from: '2026-01-01'
+    formula: household_magi_income <= new_standard
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_income_at_or_below_state_section_1931_income_standard and person_is_parent
+"""
+        rules_file.write_text(original)
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=[
+                "household_income_at_or_below_state_section_1931_income_standard"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_inline_medicaid_magi_income_helpers_skips_shared_helper(self, tmp_path):
+        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
+        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/110
+rules:
+- name: household_income_at_or_below_state_section_1931_income_standard
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_magi_income <= state_established_section_1931_income_standard
+- name: parent_income_screen_result
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_income_at_or_below_state_section_1931_income_standard
+- name: parent_or_caretaker_relative_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_income_at_or_below_state_section_1931_income_standard and person_is_parent
+"""
+        rules_file.write_text(original)
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=[
+                "household_income_at_or_below_state_section_1931_income_standard"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_inline_medicaid_magi_income_helpers_allows_magi_named_final_rule(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
+        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/110
+rules:
+- name: household_income_at_or_below_state_section_1931_income_standard
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_magi_income <= state_established_section_1931_income_standard
+- name: magi_medicaid_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2014-01-01'
+    formula: household_income_at_or_below_state_section_1931_income_standard and person_is_parent
+"""
+        )
+
+        repaired = _inline_medicaid_magi_income_helpers(
+            rules_file=rules_file,
+            test_file=test_file,
+            target_names=[
+                "household_income_at_or_below_state_section_1931_income_standard"
+            ],
+        )
+
+        assert repaired == [
+            "household_income_at_or_below_state_section_1931_income_standard"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["name"] == "magi_medicaid_eligible"
+        assert (
+            "household_magi_income <= state_established_section_1931_income_standard"
+            in (payload["rules"][0]["versions"][0]["formula"])
+        )
 
     def test_remove_cross_module_dependent_test_outputs_drops_imported_output(
         self, tmp_path

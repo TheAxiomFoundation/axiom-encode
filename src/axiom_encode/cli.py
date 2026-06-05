@@ -15910,6 +15910,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_medicaid_magi_income_helpers = (
+                    _try_repair_generated_medicaid_magi_income_helpers_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_medicaid_magi_income_helpers:
+                    outcome["auto_repaired_medicaid_magi_income_helpers"] = (
+                        repaired_medicaid_magi_income_helpers
+                    )
+                    print(
+                        "  apply=auto_repaired_medicaid_magi_income_helpers:"
+                        + ",".join(repaired_medicaid_magi_income_helpers)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_person_scoped_definitions = (
                     _try_repair_generated_person_scoped_definition_for_apply(
                         result,
@@ -16790,7 +16818,7 @@ def _try_repair_generated_source_relation_delegations_for_apply(
     policy_repo_path: Path | None = None,
     issues: list[str],
 ) -> list[str]:
-    """Fill missing delegation basis on generated implementation edges."""
+    """Fill or drop missing delegation basis on generated implementation edges."""
     if not any(
         _issue_mentions_missing_source_relation_delegation(issue) for issue in issues
     ):
@@ -16814,38 +16842,92 @@ def _try_repair_generated_source_relation_delegations_for_apply(
         return []
 
     repaired: list[str] = []
+    retained_rules: list[object] = []
+    changed = False
     for rule in rules:
         if not isinstance(rule, dict):
+            retained_rules.append(rule)
             continue
         if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            retained_rules.append(rule)
             continue
         source_relation = rule.get("source_relation")
         if not isinstance(source_relation, dict):
+            retained_rules.append(rule)
             continue
         if str(source_relation.get("type") or "").strip().lower() != "implements":
+            retained_rules.append(rule)
             continue
         target = str(source_relation.get("target") or "").strip()
         if not target:
+            retained_rules.append(rule)
             continue
         delegation = _source_relation_delegation_basis_for_target(
             target,
             policy_repo_path=policy_repo_path,
         )
         if not delegation:
+            if _may_drop_generated_federal_regulation_implements_relation(
+                rule,
+                payload=payload,
+            ):
+                repaired.append(str(rule.get("name") or target))
+                changed = True
+                continue
+            retained_rules.append(rule)
             continue
         basis = source_relation.get("basis")
         if isinstance(basis, dict) and str(basis.get("delegation") or "").strip():
+            retained_rules.append(rule)
             continue
         if not isinstance(basis, dict):
             basis = {}
             source_relation["basis"] = basis
         basis["delegation"] = delegation
         repaired.append(str(rule.get("name") or target))
+        changed = True
+        retained_rules.append(rule)
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    if changed:
+        payload["rules"] = retained_rules
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
     return repaired
+
+
+def _may_drop_generated_federal_regulation_implements_relation(
+    rule: dict[str, object],
+    *,
+    payload: dict[str, object],
+) -> bool:
+    """Return true for unsupported CFR-to-statute implementation provenance edges."""
+    source_relation = rule.get("source_relation")
+    if not isinstance(source_relation, dict):
+        return False
+    if source_relation.get("value"):
+        return False
+    basis = source_relation.get("basis")
+    if isinstance(basis, dict) and str(basis.get("delegation") or "").strip():
+        return False
+    target = str(source_relation.get("target") or "").strip()
+    if not target.startswith("us:statutes/"):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    source_verification = module.get("source_verification")
+    if not isinstance(source_verification, dict):
+        return False
+    if not any(
+        path.startswith("us/regulation/")
+        for path in _rulespec_module_source_paths(payload)
+    ):
+        return False
+    source = str(rule.get("source") or "").strip().lower()
+    return bool(re.search(r"\bc\.?\s*f\.?\s*r\.?\b", source, flags=re.IGNORECASE))
 
 
 def _source_relation_delegation_basis_for_target(
@@ -19663,6 +19745,10 @@ _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
     r"`(?:Household|SnapUnit|TaxUnit|Family|SPMUnit)`, but the embedded "
     r"source states an individual/person/member-scoped"
 )
+_SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN = re.compile(
+    r"Source scope mismatch: `([^`]+)` is declared on `Person`, but the "
+    r"embedded source states a household/unit-scoped test\."
+)
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
 )
@@ -21191,6 +21277,260 @@ def _repair_person_scoped_rate_base_entities(
 
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _try_repair_generated_medicaid_magi_income_helpers_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Inline invalid person-scoped Medicaid MAGI household-income helpers."""
+    target_names = _medicaid_magi_income_helper_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _inline_medicaid_magi_income_helpers(
+        rules_file=rules_file,
+        test_file=test_file,
+        target_names=target_names,
+    )
+
+
+def _medicaid_magi_income_helper_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _inline_medicaid_magi_income_helpers(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    if not _is_medicaid_magi_rulespec_payload(payload):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    repaired: list[str] = []
+    removed: set[str] = set()
+    for target_name in dict.fromkeys(target_names):
+        helper = by_name.get(target_name)
+        if not isinstance(helper, dict):
+            continue
+        if not _is_medicaid_magi_income_helper_rule(helper):
+            continue
+        helper_formula = _medicaid_magi_single_formula(helper)
+        if not helper_formula or not _formula_mentions_income(helper_formula):
+            continue
+        formula_references = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and rule is not helper
+            and target_name in _formula_identifiers(_first_rule_formula(rule))
+        ]
+        if len(formula_references) != 1:
+            continue
+        dependents = [
+            rule
+            for rule in formula_references
+            if _is_medicaid_magi_final_eligibility_rule(rule)
+        ]
+        if len(dependents) != 1:
+            continue
+        dependent = dependents[0]
+        if _replace_formula_identifier_with_expression(
+            dependent,
+            identifier=target_name,
+            expression=helper_formula,
+        ):
+            repaired.append(target_name)
+            removed.add(target_name)
+
+    if not repaired:
+        return []
+
+    payload["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict) and str(rule.get("name") or "").strip() in removed
+        )
+    ]
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    _remove_test_outputs_for_rule_names(test_file, removed)
+    return repaired
+
+
+def _is_medicaid_magi_rulespec_payload(payload: dict[str, object]) -> bool:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    source_verification = module.get("source_verification")
+    if not isinstance(source_verification, dict):
+        return False
+    citation_paths = _medicaid_magi_source_verification_paths(source_verification)
+    return bool(
+        citation_paths
+        & {
+            "us/regulation/42/435/110",
+            "us/regulation/42/435/116",
+            "us/regulation/42/435/118",
+            "us/regulation/42/435/119",
+        }
+    )
+
+
+def _medicaid_magi_source_verification_paths(
+    source_verification: dict[str, object],
+) -> set[str]:
+    paths: set[str] = set()
+    singular = source_verification.get("corpus_citation_path")
+    if isinstance(singular, str) and singular.strip():
+        paths.add(singular.strip())
+    plural = source_verification.get("corpus_citation_paths")
+    if isinstance(plural, list):
+        paths.update(value.strip() for value in plural if isinstance(value, str))
+    elif isinstance(plural, str) and plural.strip():
+        paths.add(plural.strip())
+    return {path for path in paths if path}
+
+
+def _medicaid_magi_single_formula(rule: dict[str, object]) -> str:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ""
+    formulas = [
+        formula
+        for version in versions
+        if isinstance(version, dict)
+        and isinstance((formula := version.get("formula")), str)
+        and formula.strip()
+    ]
+    if len(formulas) != 1:
+        return ""
+    return formulas[0]
+
+
+def _is_medicaid_magi_income_helper_rule(rule: dict[str, object]) -> bool:
+    name = str(rule.get("name") or "").strip().lower()
+    return (
+        str(rule.get("kind") or "").strip().lower() == "derived"
+        and str(rule.get("entity") or "").strip().lower() == "person"
+        and str(rule.get("dtype") or "").strip().lower() == "judgment"
+        and any(token in name for token in ("income", "magi", "fpl"))
+    )
+
+
+def _is_medicaid_magi_final_eligibility_rule(rule: dict[str, object]) -> bool:
+    name = str(rule.get("name") or "").strip().lower()
+    return (
+        str(rule.get("kind") or "").strip().lower() == "derived"
+        and str(rule.get("entity") or "").strip().lower() == "person"
+        and str(rule.get("dtype") or "").strip().lower() == "judgment"
+        and any(token in name for token in ("eligible", "eligibility"))
+        and not any(token in name for token in ("income", "limit", "standard"))
+    )
+
+
+def _formula_mentions_income(formula: str) -> bool:
+    return any(
+        token in formula.lower() for token in ("income", "magi", "fpl", "poverty")
+    )
+
+
+def _replace_formula_identifier_with_expression(
+    rule: dict[str, object],
+    *,
+    identifier: str,
+    expression: str,
+) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    changed = False
+    replacement = f"({expression.strip()})"
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        updated = _replace_rulespec_identifier(
+            formula,
+            old=identifier,
+            new=replacement,
+        )
+        if updated != formula:
+            version["formula"] = updated
+            changed = True
+    return changed
+
+
+def _remove_test_outputs_for_rule_names(test_file: Path, rule_names: set[str]) -> None:
+    if not rule_names or not test_file.exists():
+        return
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(test_cases, list):
+        return
+
+    changed = False
+    repaired_cases: list[object] = []
+    for case in test_cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            repaired_cases.append(case)
+            continue
+        repaired_outputs = {
+            key: value
+            for key, value in outputs.items()
+            if str(key).rsplit("#", 1)[-1] not in rule_names
+        }
+        if len(repaired_outputs) != len(outputs):
+            changed = True
+        if repaired_outputs:
+            repaired_case = dict(case)
+            repaired_case["output"] = repaired_outputs
+            repaired_cases.append(repaired_case)
+
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+        )
 
 
 def _try_repair_generated_person_scoped_definition_for_apply(
