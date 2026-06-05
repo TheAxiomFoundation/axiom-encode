@@ -1804,6 +1804,90 @@ rules:
     assert severe_additional["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_pip_rate_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/377/24.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pip_daily_living_standard_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 76.70
+  - name: pip_daily_living_enhanced_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 114.60
+  - name: pip_mobility_standard_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 30.30
+  - name: pip_mobility_enhanced_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 80.00
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/377/24.test.yaml",
+        """- name: pip rates
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate: 76.70
+    uk:regulations/uksi/2013/377/24#pip_daily_living_enhanced_weekly_rate: 114.60
+    uk:regulations/uksi/2013/377/24#pip_mobility_standard_weekly_rate: 30.30
+    uk:regulations/uksi/2013/377/24#pip_mobility_enhanced_weekly_rate: 80.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pip")
+
+    assert report["status_counts"] == {"comparable": 4}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    daily_standard = items_by_id[
+        "uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate"
+    ]
+    daily_enhanced = items_by_id[
+        "uk:regulations/uksi/2013/377/24#pip_daily_living_enhanced_weekly_rate"
+    ]
+    mobility_standard = items_by_id[
+        "uk:regulations/uksi/2013/377/24#pip_mobility_standard_weekly_rate"
+    ]
+    mobility_enhanced = items_by_id[
+        "uk:regulations/uksi/2013/377/24#pip_mobility_enhanced_weekly_rate"
+    ]
+
+    assert (
+        daily_standard["policyengine_parameter"] == "gov.dwp.pip.daily_living.standard"
+    )
+    assert (
+        daily_enhanced["policyengine_parameter"] == "gov.dwp.pip.daily_living.enhanced"
+    )
+    assert (
+        mobility_standard["policyengine_parameter"] == "gov.dwp.pip.mobility.standard"
+    )
+    assert (
+        mobility_enhanced["policyengine_parameter"] == "gov.dwp.pip.mobility.enhanced"
+    )
+    assert daily_standard["mapping_type"] == "parameter_value"
+    assert daily_standard["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",
