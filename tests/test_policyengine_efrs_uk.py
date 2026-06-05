@@ -354,8 +354,7 @@ def test_student_loan_repayment_request_projects_plan_inputs():
             "entity_id": "person_7",
             "period": period,
             "outputs": [
-                output["axiom"]
-                for output in STUDENT_LOAN_REPAYMENT_OUTPUTS.values()
+                output["axiom"] for output in STUDENT_LOAN_REPAYMENT_OUTPUTS.values()
             ],
         }
     ]
@@ -2569,9 +2568,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "is_SP_age",
         "state_pension_age",
     )
-    assert policyengine_person_variables_for_surfaces(
-        ["student-loan-repayment"]
-    ) == (
+    assert policyengine_person_variables_for_surfaces(["student-loan-repayment"]) == (
         "adjusted_net_income",
         "student_loan_plan",
         "student_loan_repayment",
@@ -2694,9 +2691,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_assessable_capital",
         "uc_tariff_income",
     )
-    assert policyengine_benunit_variables_for_surfaces(
-        ["student-loan-repayment"]
-    ) == ()
+    assert policyengine_benunit_variables_for_surfaces(["student-loan-repayment"]) == ()
     assert policyengine_person_variables_for_surfaces(
         ["income-tax-section-11d-savings-income"]
     ) == (
