@@ -25,7 +25,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
     PENSION_CREDIT_BASE,
+    PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
     PENSION_CREDIT_OUTPUTS,
+    PENSION_CREDIT_REGULATION_15_BASE,
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
@@ -61,6 +63,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_11d_request,
     build_income_tax_section_13_request,
     build_national_insurance_class_1_request,
+    build_pension_credit_deemed_income_request,
     build_pension_credit_request,
     build_personal_allowance_request,
     build_state_pension_credit_guarantee_credit_request,
@@ -88,6 +91,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_11d_inputs,
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
+    project_pension_credit_deemed_income_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     project_state_pension_credit_guarantee_credit_inputs,
@@ -1017,6 +1021,68 @@ def test_pension_credit_request_projects_benefit_units():
     ]
     assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
         f"{PENSION_CREDIT_BASE}#input.claimant_has_partner"
+    ] == {
+        "kind": "bool",
+        "value": False,
+    }
+
+
+def test_pension_credit_deemed_income_projection_uses_regulation_15_inputs():
+    assert project_pension_credit_deemed_income_inputs(
+        {
+            "pension_credit_assessable_capital": 10_501,
+        }
+    ) == {
+        "claimant_capital": 10_501,
+        "capital_disregarded_under_regulation_17_8": False,
+    }
+
+
+def test_pension_credit_deemed_income_request_projects_regulation_15_inputs():
+    request = build_pension_credit_deemed_income_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "pension_credit_assessable_capital": 10_501,
+                    "pension_credit_deemed_income": 2 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in PENSION_CREDIT_DEEMED_INCOME_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_REGULATION_15_BASE}#input.claimant_capital"
+    ] == {
+        "kind": "decimal",
+        "value": "10501.0",
+    }
+    assert inputs_by_name[
+        f"{PENSION_CREDIT_REGULATION_15_BASE}"
+        "#input.capital_disregarded_under_regulation_17_8"
     ] == {
         "kind": "bool",
         "value": False,
@@ -3256,6 +3322,40 @@ def test_compare_outputs_transforms_universal_credit_tariff_income_monthly():
                         UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS[
                             "capital_tariff_monthly_income"
                         ]["axiom"]: decimal_output(4.35),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_transforms_pension_credit_deemed_income_weekly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "pension_credit_assessable_capital": 10_501,
+                    "pension_credit_deemed_income": 2 * WEEKS_IN_YEAR,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit-deemed-income": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_DEEMED_INCOME_OUTPUTS[
+                            "capital_deemed_weekly_income"
+                        ]["axiom"]: decimal_output(2),
                     }
                 }
             ]

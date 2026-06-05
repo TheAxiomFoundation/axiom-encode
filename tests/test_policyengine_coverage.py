@@ -1334,6 +1334,68 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_regulation_15_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/1792/15.yaml",
+        """format: rulespec/v1
+rules:
+  - name: capital_treated_as_yielding_weekly_income
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2009-11-02'
+        formula: claimant_capital > capital_deemed_income_lower_threshold
+  - name: capital_deemed_weekly_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2009-11-02'
+        formula: capital_deemed_income_weekly_amount_per_band
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/1792/15.test.yaml",
+        """- name: deemed income
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2002/1792/15#capital_treated_as_yielding_weekly_income: holds
+    uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income: 2
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    deemed_income = items_by_id[
+        "uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income"
+    ]
+    helper = items_by_id[
+        "uk:regulations/uksi/2002/1792/15#capital_treated_as_yielding_weekly_income"
+    ]
+
+    assert deemed_income["policyengine_variable"] == "pension_credit_deemed_income"
+    assert deemed_income["status"] == "comparable"
+    assert deemed_income["mapping_type"] == "direct_variable"
+    assert deemed_income["tested"] is True
+    assert helper["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",

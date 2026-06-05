@@ -60,6 +60,8 @@ STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH = Path("statutes/ukpga/2002/16/3.yam
 STATE_PENSION_CREDIT_SECTION_3_BASE = "uk:statutes/ukpga/2002/16/3"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
+PENSION_CREDIT_REGULATION_15_PROGRAM_PATH = Path("regulations/uksi/2002/1792/15.yaml")
+PENSION_CREDIT_REGULATION_15_BASE = "uk:regulations/uksi/2002/1792/15"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 UNIVERSAL_CREDIT_REGULATION_18_PROGRAM_PATH = Path("regulations/uksi/2013/376/18.yaml")
@@ -296,6 +298,15 @@ PENSION_CREDIT_OUTPUTS = {
         "axiom": f"{PENSION_CREDIT_BASE}#carer_additional_amount",
         "pe": "carer_minimum_guarantee_addition",
         "pe_transform": "annual_to_weekly_per_carer",
+    },
+}
+
+PENSION_CREDIT_DEEMED_INCOME_OUTPUTS = {
+    "capital_deemed_weekly_income": {
+        "axiom": f"{PENSION_CREDIT_REGULATION_15_BASE}#capital_deemed_weekly_income",
+        "pe": "pension_credit_deemed_income",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
     },
 }
 
@@ -677,6 +688,15 @@ SURFACE_SPECS = {
             "relation_type",
             "severe_disability_minimum_guarantee_addition",
             "standard_minimum_guarantee",
+        ),
+    ),
+    "pension-credit-deemed-income": UKEFRSSurfaceSpec(
+        program=PENSION_CREDIT_REGULATION_15_PROGRAM_PATH,
+        entity="benunit",
+        outputs=PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
+        pe_variables=(
+            "pension_credit_assessable_capital",
+            "pension_credit_deemed_income",
         ),
     ),
     "universal-credit-standard-allowance": UKEFRSSurfaceSpec(
@@ -2334,6 +2354,11 @@ def build_axiom_request(
         )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
+    if surface == "pension-credit-deemed-income":
+        return build_pension_credit_deemed_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-childcare-element":
         return build_universal_credit_childcare_element_request(
             pe_data=pe_data,
@@ -2771,6 +2796,41 @@ def build_pension_credit_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in PENSION_CREDIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_pension_credit_deemed_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "pension-credit-deemed-income"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_pension_credit_deemed_income_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{PENSION_CREDIT_REGULATION_15_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in PENSION_CREDIT_DEEMED_INCOME_OUTPUTS.values()
+                ],
             }
         )
 
@@ -3517,6 +3577,15 @@ def project_universal_credit_tariff_income_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_pension_credit_deemed_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(
+            row_value(row, "pension_credit_assessable_capital", 0)
+        ),
+        "capital_disregarded_under_regulation_17_8": False,
+    }
+
+
 def project_universal_credit_assessable_capital_inputs(row: Any) -> dict[str, Any]:
     return {
         "claim_is_for_joint_claimants": False,
@@ -3876,6 +3945,14 @@ def compare_outputs(
             "RuleSpec tariff income against PolicyEngine's annual "
             "uc_tariff_income divided by 12, and only counts rows where "
             "PolicyEngine defines UC eligibility.",
+            "State Pension Credit Regulations 2002 Regulation 15 deemed-income "
+            "comparison projects PolicyEngine's benefit-unit "
+            "pension_credit_assessable_capital stock into the claimant capital "
+            "leaf, projects the Regulation 17(8) capital-disregard exception "
+            "false because PolicyEngine already applies capital-source "
+            "exclusions upstream, and compares weekly RuleSpec deemed income "
+            "against PolicyEngine's annual pension_credit_deemed_income "
+            "divided by 52.",
             "Universal Credit Regulation 34 childcare-costs element comparison "
             "projects PolicyEngine's annual uc_childcare_element into monthly "
             "relevant childcare charges by reversing the statutory 85 percent "

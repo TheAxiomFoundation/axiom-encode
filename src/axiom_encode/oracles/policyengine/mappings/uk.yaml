@@ -465,6 +465,17 @@ mappings:
     comparison: money
     rationale: Same Pension Credit carer addition output after applying claimant circumstances.
 
+  - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: pension_credit_deemed_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit deemed income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit pension_credit_assessable_capital into the Regulation 15 claimant-capital leaf and converts PolicyEngine's annual output to a weekly amount.
+
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk
     program: pension_credit
@@ -760,6 +771,12 @@ prefixes:
     program: pension_credit
     mapping_type: not_comparable
     rationale: Pension Credit helper outputs not listed above are remand-prisoner, tax-credit cessation, nil substitution, or branch-control intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2002/1792/15#
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Pension Credit Regulation 15 helper outputs not listed above are capital-to-deemed-income parameters or branch-control predicates that PolicyEngine UK does not expose as one-to-one oracle variables.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/36#
     country: uk
