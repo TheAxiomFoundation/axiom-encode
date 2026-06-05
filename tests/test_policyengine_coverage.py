@@ -663,6 +663,66 @@ rules:
     assert rounding_multiple["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_uk_uc_regulation_18_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/18.yaml",
+        """format: rulespec/v1
+rules:
+  - name: claimant_capital_for_prescribed_capital_limit
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Day
+    unit: GBP
+    versions:
+      - effective_from: '2013-04-29'
+        formula: claimant_capital
+  - name: prescribed_capital_limit_for_claim
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Day
+    unit: GBP
+    versions:
+      - effective_from: '2013-04-29'
+        formula: prescribed_capital_limit_for_single_claimant
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/18.test.yaml",
+        """- name: capital
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-04-06'
+    end: '2026-04-06'
+  input: {}
+  output:
+    uk:regulations/uksi/2013/376/18#claimant_capital_for_prescribed_capital_limit: 12000
+    uk:regulations/uksi/2013/376/18#prescribed_capital_limit_for_claim: 16000
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="universal_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    claimant_capital = items_by_id[
+        "uk:regulations/uksi/2013/376/18#claimant_capital_for_prescribed_capital_limit"
+    ]
+    prescribed_limit = items_by_id[
+        "uk:regulations/uksi/2013/376/18#prescribed_capital_limit_for_claim"
+    ]
+    assert claimant_capital["policyengine_variable"] == "uc_assessable_capital"
+    assert claimant_capital["status"] == "comparable"
+    assert claimant_capital["mapping_type"] == "direct_variable"
+    assert claimant_capital["tested"] is True
+    assert prescribed_limit["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_uk_income_tax_section_23_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/23.yaml",

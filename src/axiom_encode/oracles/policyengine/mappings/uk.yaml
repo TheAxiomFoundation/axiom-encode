@@ -720,6 +720,17 @@ mappings:
     comparison: money
     rationale: Same Universal Credit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit assessed capital to the Regulation 72 capital leaf and converts PolicyEngine's annual output to a monthly amount.
 
+  - legal_id: uk:regulations/uksi/2013/376/18#claimant_capital_for_prescribed_capital_limit
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: uc_assessable_capital
+    entity: benunit
+    period: day
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit assessable capital stock after the UK EFRS adapter projects PolicyEngine's benefit-unit uc_assessable_capital into the Regulation 18 claimant-capital leaf, with other-member inclusion set to zero because PolicyEngine already resolves household capital allocation, reported-capital overrides, and exclusions upstream.
+
   - legal_id: uk:regulations/uksi/2013/376/32#work_condition_met_for_assessment_period
     country: uk
     program: universal_credit

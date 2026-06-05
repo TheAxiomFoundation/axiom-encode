@@ -35,6 +35,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_CREDIT_SECTION_1_BASE,
     STATE_PENSION_CREDIT_SECTION_2_BASE,
     STATE_PENSION_CREDIT_SECTION_3_BASE,
+    UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
@@ -42,6 +43,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
     UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
+    UNIVERSAL_CREDIT_REGULATION_18_BASE,
     UNIVERSAL_CREDIT_REGULATION_22_BASE,
     UNIVERSAL_CREDIT_REGULATION_32_BASE,
     UNIVERSAL_CREDIT_REGULATION_34_BASE,
@@ -65,6 +67,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
     build_uk_efrs_coverage_report,
+    build_universal_credit_assessable_capital_request,
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
     build_universal_credit_childcare_work_condition_request,
@@ -90,6 +93,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
+    project_universal_credit_assessable_capital_inputs,
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
     project_universal_credit_childcare_work_condition_inputs,
@@ -1783,6 +1787,69 @@ def test_universal_credit_tariff_income_projection_uses_regulation_72_inputs():
     }
 
 
+def test_universal_credit_assessable_capital_projection_uses_regulation_18_inputs():
+    assert project_universal_credit_assessable_capital_inputs(
+        {
+            "uc_assessable_capital": 12_345,
+        }
+    ) == {
+        "claim_is_for_joint_claimants": False,
+        "claimant_is_member_of_couple": False,
+        "claimant_makes_claim_as_single_person": False,
+        "claimant_capital": 12_345,
+        "other_member_of_couple_capital": 0.0,
+    }
+
+
+def test_universal_credit_assessable_capital_request_projects_regulation_18_inputs():
+    request = build_universal_credit_assessable_capital_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_assessable_capital": 12_345,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "custom",
+                "name": "day",
+                "start": "2026-04-06",
+                "end": "2026-04-06",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_18_BASE}#input.claimant_capital"
+    ] == {
+        "kind": "decimal",
+        "value": "12345.0",
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_18_BASE}#input.other_member_of_couple_capital"
+    ] == {
+        "kind": "decimal",
+        "value": "0.0",
+    }
+
+
 def test_universal_credit_tariff_income_request_projects_regulation_72_inputs():
     request = build_universal_credit_tariff_income_request(
         pe_data={
@@ -2154,6 +2221,9 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_unearned_income",
         "uc_work_allowance",
     )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-assessable-capital"]
+    ) == ("uc_assessable_capital",)
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-tariff-income"]
     ) == (
@@ -3127,6 +3197,39 @@ def test_compare_outputs_skips_negative_unearned_income_deduction_final():
     )
 
     assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_handles_universal_credit_assessable_capital():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_assessable_capital": 12_345,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-assessable-capital": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS[
+                            "claimant_capital_for_prescribed_capital_limit"
+                        ]["axiom"]: decimal_output(12_345),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=0,
+    )
+
+    assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []
 

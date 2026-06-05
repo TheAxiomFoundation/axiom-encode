@@ -62,6 +62,8 @@ PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
+UNIVERSAL_CREDIT_REGULATION_18_PROGRAM_PATH = Path("regulations/uksi/2013/376/18.yaml")
+UNIVERSAL_CREDIT_REGULATION_18_BASE = "uk:regulations/uksi/2013/376/18"
 UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH = Path("regulations/uksi/2013/376/22.yaml")
 UNIVERSAL_CREDIT_REGULATION_22_BASE = "uk:regulations/uksi/2013/376/22"
 UNIVERSAL_CREDIT_REGULATION_32_PROGRAM_PATH = Path("regulations/uksi/2013/376/32.yaml")
@@ -475,6 +477,17 @@ UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS = {
+    "claimant_capital_for_prescribed_capital_limit": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_18_BASE}"
+            "#claimant_capital_for_prescribed_capital_limit"
+        ),
+        "pe": "uc_assessable_capital",
+        "tolerance": 0.1,
+    },
+}
+
 UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS = {
     "capital_tariff_monthly_income": {
         "axiom": f"{UNIVERSAL_CREDIT_REGULATION_72_BASE}#capital_tariff_monthly_income",
@@ -776,6 +789,12 @@ SURFACE_SPECS = {
             "uc_unearned_income",
             "uc_work_allowance",
         ),
+    ),
+    "universal-credit-assessable-capital": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_18_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS,
+        pe_variables=("uc_assessable_capital",),
     ),
     "universal-credit-tariff-income": UKEFRSSurfaceSpec(
         program=UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH,
@@ -2337,6 +2356,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "universal-credit-assessable-capital":
+        return build_universal_credit_assessable_capital_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-tariff-income":
         return build_universal_credit_tariff_income_request(
             pe_data=pe_data,
@@ -3039,6 +3063,43 @@ def build_universal_credit_income_deduction_request(
     }
 
 
+def build_universal_credit_assessable_capital_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = day_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-assessable-capital"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_assessable_capital_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_18_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_tariff_income_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -3456,6 +3517,16 @@ def project_universal_credit_tariff_income_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_universal_credit_assessable_capital_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claim_is_for_joint_claimants": False,
+        "claimant_is_member_of_couple": False,
+        "claimant_makes_claim_as_single_person": False,
+        "claimant_capital": money(row_value(row, "uc_assessable_capital", 0)),
+        "other_member_of_couple_capital": 0.0,
+    }
+
+
 def project_universal_credit_work_allowance_inputs(row: Any) -> dict[str, Any]:
     num_adults = int(money(row_value(row, "num_adults", 0)))
     num_children = int(money(row_value(row, "num_children", 0)))
@@ -3792,6 +3863,12 @@ def compare_outputs(
             "and PolicyEngine's negative-unearned-income treatment does not "
             "differ from Regulation 22's non-negative unearned-income "
             "deduction.",
+            "Universal Credit Regulation 18 assessable-capital comparison "
+            "projects PolicyEngine's benefit-unit uc_assessable_capital stock "
+            "into the claimant capital leaf, with other-member inclusion "
+            "projected to zero because PolicyEngine already resolves household "
+            "capital allocation, reported-capital overrides, and exclusions "
+            "upstream.",
             "Universal Credit Regulation 72 tariff-income comparison projects "
             "PolicyEngine's annual uc_assessable_capital stock into the "
             "RuleSpec person_capital leaf, projects capital disregards and "
