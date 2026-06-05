@@ -659,6 +659,46 @@ mappings:
     comparison: money
     rationale: Same annual additional Child Tax Credit severe-disabled-child layer after deriving the PolicyEngine-shape value as the severe-disabled total rate minus the disabled-child element.
 
+  - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
+    country: uk
+    program: pip
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pip.daily_living.standard
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Personal Independence Payment daily-living standard rate in Regulation 24.
+
+  - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_enhanced_weekly_rate
+    country: uk
+    program: pip
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pip.daily_living.enhanced
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Personal Independence Payment daily-living enhanced rate in Regulation 24.
+
+  - legal_id: uk:regulations/uksi/2013/377/24#pip_mobility_standard_weekly_rate
+    country: uk
+    program: pip
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pip.mobility.standard
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Personal Independence Payment mobility standard rate in Regulation 24.
+
+  - legal_id: uk:regulations/uksi/2013/377/24#pip_mobility_enhanced_weekly_rate
+    country: uk
+    program: pip
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pip.mobility.enhanced
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Personal Independence Payment mobility enhanced rate in Regulation 24.
+
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
     program: pension_credit

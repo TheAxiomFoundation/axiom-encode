@@ -1109,6 +1109,15 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers Child Tax Credit family, child, disabled-child, and severe-disabled-child element rates; it does not yet compute final Child Tax Credit entitlement.",
     },
+    "pip": {
+        "status": "partial",
+        "surfaces": ("personal-independence-payment-rates",),
+        "covered_outputs": (
+            "pip_dl",
+            "pip_m",
+        ),
+        "rationale": "Axiom covers Personal Independence Payment daily-living and mobility weekly rates, not the category assignment or final aggregate PIP amount.",
+    },
 }
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
