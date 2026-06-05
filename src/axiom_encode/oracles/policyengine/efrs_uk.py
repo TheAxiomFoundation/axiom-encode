@@ -1280,7 +1280,9 @@ class UKEFRSHBAICoverageReport:
 
     @property
     def status_counts(self) -> dict[str, int]:
-        return dict(sorted(Counter(component.status for component in self.components).items()))
+        return dict(
+            sorted(Counter(component.status for component in self.components).items())
+        )
 
     @property
     def policy_component_count(self) -> int:
@@ -1362,7 +1364,9 @@ class UKEFRSHBAICoverageReport:
             "covered_policy_component_share": self.covered_policy_component_share,
             "exact_policy_component_share": self.exact_policy_component_share,
             "activity_totals": self.activity_totals,
-            "hbai_activity": self.hbai_activity.to_json() if self.hbai_activity else None,
+            "hbai_activity": self.hbai_activity.to_json()
+            if self.hbai_activity
+            else None,
             "components": [component.to_json() for component in self.components],
             "activity_errors": self.activity_errors,
         }
@@ -2914,8 +2918,7 @@ def print_uk_hbai_policy_coverage_report(
         activity = ""
         if component.activity:
             activity = (
-                ", weighted_abs_total="
-                f"{component.activity.weighted_abs_total:.2f}"
+                f", weighted_abs_total={component.activity.weighted_abs_total:.2f}"
             )
         surfaces = ", ".join(component.surfaces) if component.surfaces else "none"
         print(
