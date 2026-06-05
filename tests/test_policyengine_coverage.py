@@ -1888,6 +1888,130 @@ rules:
     assert daily_standard["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/schedule/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: attendance_allowance_higher_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 114.60
+  - name: attendance_allowance_lower_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 76.70
+  - name: severe_disablement_allowance_basic_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 103.85
+  - name: sda_age_related_addition_higher_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 15.50
+  - name: sda_age_related_addition_middle_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 8.60
+  - name: sda_age_related_addition_lower_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 8.60
+  - name: severe_disablement_allowance_maximum_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: severe_disablement_allowance_basic_weekly_rate + sda_age_related_addition_higher_weekly_rate
+  - name: carers_allowance_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 86.45
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/schedule/1.test.yaml",
+        """- name: schedule 1 benefit rates
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_higher_weekly_rate: 114.60
+    uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_lower_weekly_rate: 76.70
+    uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_basic_weekly_rate: 103.85
+    uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_higher_weekly_rate: 15.50
+    uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_middle_weekly_rate: 8.60
+    uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_lower_weekly_rate: 8.60
+    uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_maximum_weekly_rate: 119.35
+    uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate: 86.45
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 4,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    attendance_higher = items_by_id[
+        "uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_higher_weekly_rate"
+    ]
+    attendance_lower = items_by_id[
+        "uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_lower_weekly_rate"
+    ]
+    sda_basic = items_by_id[
+        "uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_basic_weekly_rate"
+    ]
+    sda_maximum = items_by_id[
+        "uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_maximum_weekly_rate"
+    ]
+    carers_allowance = items_by_id[
+        "uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate"
+    ]
+
+    assert (
+        attendance_higher["policyengine_parameter"]
+        == "gov.dwp.attendance_allowance.higher"
+    )
+    assert (
+        attendance_lower["policyengine_parameter"]
+        == "gov.dwp.attendance_allowance.lower"
+    )
+    assert sda_basic["status"] == "known_not_comparable"
+    assert sda_maximum["policyengine_parameter"] == "gov.dwp.sda.maximum"
+    assert carers_allowance["policyengine_parameter"] == "gov.dwp.carers_allowance.rate"
+    assert attendance_higher["tested"] is True
+    assert sda_maximum["tested"] is True
+    assert carers_allowance["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

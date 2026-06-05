@@ -2737,6 +2737,9 @@ class hbai_household_net_income(Variable):
         "working_tax_credit",
         "child_tax_credit",
         "pip",
+        "attendance_allowance",
+        "carers_allowance",
+        "sda",
     ]
     subtracts = [
         "income_tax",
@@ -2757,6 +2760,9 @@ class hbai_household_net_income(Variable):
         "working_tax_credit",
         "child_tax_credit",
         "pip",
+        "attendance_allowance",
+        "carers_allowance",
+        "sda",
     )
     assert report.subtracts == (
         "income_tax",
@@ -2772,12 +2778,15 @@ class hbai_household_net_income(Variable):
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["pip"].status == "partial"
+    assert by_name["attendance_allowance"].status == "partial"
+    assert by_name["carers_allowance"].status == "partial"
+    assert by_name["sda"].status == "partial"
     assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 8
-    assert report.covered_policy_component_count == 7
+    assert report.policy_component_count == 11
+    assert report.covered_policy_component_count == 10
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 7 / 8)
-    assert math.isclose(report.exact_policy_component_share, 1 / 8)
+    assert math.isclose(report.covered_policy_component_share, 10 / 11)
+    assert math.isclose(report.exact_policy_component_share, 1 / 11)
 
 
 def test_uk_hbai_policy_coverage_report_serializes_json(tmp_path):

@@ -699,6 +699,81 @@ mappings:
     comparison: money
     rationale: Same weekly Personal Independence Payment mobility enhanced rate in Regulation 24.
 
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_higher_weekly_rate
+    country: uk
+    program: attendance_allowance
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.attendance_allowance.higher
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly higher Attendance Allowance rate in Schedule 1 Part III of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_lower_weekly_rate
+    country: uk
+    program: attendance_allowance
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.attendance_allowance.lower
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly lower Attendance Allowance rate in Schedule 1 Part III of the 2026 up-rating order.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_basic_weekly_rate
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.sda.maximum
+    candidate_priority: P2
+    rationale: Schedule 1 Part III states the basic Severe Disablement Allowance row separately, while PolicyEngine stores a maximum SDA rate including the highest age-related addition.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_higher_weekly_rate
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.sda.maximum
+    candidate_priority: P2
+    rationale: Schedule 1 Part III states the highest SDA age-related addition separately, while PolicyEngine stores a combined maximum SDA rate.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_middle_weekly_rate
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.sda.maximum
+    candidate_priority: P2
+    rationale: Schedule 1 Part III states the middle SDA age-related addition separately, while PolicyEngine stores a combined maximum SDA rate and does not expose this branch as a separate parameter.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_lower_weekly_rate
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.sda.maximum
+    candidate_priority: P2
+    rationale: Schedule 1 Part III states the lower SDA age-related addition separately, while PolicyEngine stores a combined maximum SDA rate and does not expose this branch as a separate parameter.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_maximum_weekly_rate
+    country: uk
+    program: sda
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.sda.maximum
+    related_legal_ids:
+      - uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_basic_weekly_rate
+      - uk:regulations/uksi/2026/148/schedule/1#sda_age_related_addition_higher_weekly_rate
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly maximum Severe Disablement Allowance rate after deriving PolicyEngine's maximum-rate shape as the basic SDA row plus the highest age-related addition.
+
+  - legal_id: uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
+    country: uk
+    program: carers_allowance
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.carers_allowance.rate
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Carer's Allowance rate in Schedule 1 Part III of the 2026 up-rating order.
+
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
     program: pension_credit
