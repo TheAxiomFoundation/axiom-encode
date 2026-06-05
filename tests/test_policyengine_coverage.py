@@ -1669,6 +1669,141 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_uk_child_tax_credit_element_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/2007/7.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ctc_family_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 545
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/2007/7.test.yaml",
+        """- name: ctc family element
+  period:
+    period_kind: tax_year
+    start: '2024-04-06'
+    end: '2025-04-05'
+  input: {}
+  output:
+    uk:regulations/uksi/2002/2007/7#ctc_family_element_amount: 545
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2024/247/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ctc_individual_element_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 3455
+  - name: ctc_disabled_child_element_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 4170
+  - name: ctc_severely_disabled_child_rate_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 5850
+  - name: ctc_individual_element_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: ctc_individual_element_substituted_amount
+  - name: ctc_disabled_child_element_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: ctc_disabled_child_element_substituted_amount
+  - name: ctc_severely_disabled_child_rate_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: ctc_severely_disabled_child_rate_substituted_amount
+  - name: ctc_severely_disabled_child_additional_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: ctc_severely_disabled_child_rate_amount - ctc_disabled_child_element_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2024/247/3.test.yaml",
+        """- name: ctc uprating
+  period:
+    period_kind: tax_year
+    start: '2024-04-06'
+    end: '2025-04-05'
+  input: {}
+  output:
+    uk:regulations/uksi/2024/247/3#ctc_individual_element_substituted_amount: 3455
+    uk:regulations/uksi/2024/247/3#ctc_disabled_child_element_substituted_amount: 4170
+    uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_rate_substituted_amount: 5850
+    uk:regulations/uksi/2024/247/3#ctc_individual_element_amount: 3455
+    uk:regulations/uksi/2024/247/3#ctc_disabled_child_element_amount: 4170
+    uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_rate_amount: 5850
+    uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_additional_amount: 1680
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="child_tax_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 6,
+        "known_not_comparable": 2,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    family = items_by_id["uk:regulations/uksi/2002/2007/7#ctc_family_element_amount"]
+    child = items_by_id["uk:regulations/uksi/2024/247/3#ctc_individual_element_amount"]
+    severe_rate = items_by_id[
+        "uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_rate_amount"
+    ]
+    severe_additional = items_by_id[
+        "uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_additional_amount"
+    ]
+
+    assert (
+        family["policyengine_parameter"]
+        == "gov.dwp.tax_credits.child_tax_credit.elements.family_element"
+    )
+    assert (
+        child["policyengine_parameter"]
+        == "gov.dwp.tax_credits.child_tax_credit.elements.child_element"
+    )
+    assert severe_rate["status"] == "known_not_comparable"
+    assert (
+        severe_additional["policyengine_parameter"]
+        == "gov.dwp.tax_credits.child_tax_credit.elements.severe_dis_child_element"
+    )
+    assert severe_additional["mapping_type"] == "parameter_value"
+    assert severe_additional["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

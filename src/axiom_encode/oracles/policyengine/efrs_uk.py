@@ -1098,6 +1098,17 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers Schedule 2 element rates after the WTC encoding; it does not yet compute final Working Tax Credit entitlement.",
     },
+    "child_tax_credit": {
+        "status": "partial",
+        "surfaces": ("child-tax-credit-elements",),
+        "covered_outputs": (
+            "CTC_family_element",
+            "CTC_child_element",
+            "CTC_disabled_child_element",
+            "CTC_severely_disabled_child_element",
+        ),
+        "rationale": "Axiom covers Child Tax Credit family, child, disabled-child, and severe-disabled-child element rates; it does not yet compute final Child Tax Credit entitlement.",
+    },
 }
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
