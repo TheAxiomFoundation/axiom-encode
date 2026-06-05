@@ -14406,6 +14406,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: New York SNAP composition outputs assemble federal SNAP rules and New York utility choices; exact oracle comparisons should target imported provision-level outputs unless a specific composition output is mapped separately.
 
+  - legal_id_prefix: us-ny:policies/otda/tanf-state-plan-2024-2026/
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: New York TANF State Plan outputs are source-specific OTDA cash-assistance eligibility, income-disregard, standard-of-need, grant, home-energy, and shelter schedule mechanics. PolicyEngine-US does not expose these State Plan provision boundaries as one-to-one TANF oracle outputs; direct comparison should wait for a New York TANF adapter that targets the same state source slices.
+
   - legal_id_prefix: us:policies/usda/snap/fy-2026-cola/
     country: us
     program: snap
