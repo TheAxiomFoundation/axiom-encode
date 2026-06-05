@@ -94,6 +94,10 @@ WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
 WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
 WELFARE_REFORM_ACT_SECTION_11_BASE = "uk:statutes/ukpga/2012/5/11"
+STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
+    "policies/govuk/student-loan-repayments.yaml"
+)
+STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -603,6 +607,13 @@ UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "earned_income_taper_rate": 0.55,
 }
 
+STUDENT_LOAN_REPAYMENT_OUTPUTS = {
+    "student_loan_repayment": {
+        "axiom": f"{STUDENT_LOAN_REPAYMENT_BASE}#student_loan_repayment",
+        "pe": "student_loan_repayment",
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -966,6 +977,16 @@ SURFACE_SPECS = {
             "uc_tariff_income",
         ),
     ),
+    "student-loan-repayment": UKEFRSSurfaceSpec(
+        program=STUDENT_LOAN_REPAYMENT_PROGRAM_PATH,
+        entity="person",
+        outputs=STUDENT_LOAN_REPAYMENT_OUTPUTS,
+        pe_variables=(
+            "adjusted_net_income",
+            "student_loan_plan",
+            "student_loan_repayment",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1111,6 +1132,12 @@ HBAI_COMPONENT_COVERAGE = {
             "uc_tariff_income",
         ),
         "rationale": "Axiom covers many Universal Credit legal elements and the award-before-take-up expression, not the final HBAI universal_credit aggregate.",
+    },
+    "student_loan_repayments": {
+        "status": "partial",
+        "surfaces": ("student-loan-repayment",),
+        "covered_outputs": ("student_loan_repayment",),
+        "rationale": "Axiom covers PolicyEngine UK's modelled student_loan_repayment formula by plan-specific threshold and repayment rate. The HBAI student_loan_repayments component remains partial because local EFRS supplies it as reported input data even when student_loan_plan is NONE, overriding PolicyEngine UK's wrapper formula.",
     },
     "working_tax_credit": {
         "status": "partial",
@@ -3339,6 +3366,9 @@ def rule_base_from_program(program: Path) -> str:
     if "statutes" in parts:
         index = parts.index("statutes")
         return "uk:" + "/".join(parts[index:])
+    if "policies" in parts:
+        index = parts.index("policies")
+        return "uk:" + "/".join(parts[index:])
     raise ValueError(f"cannot infer UK RuleSpec base from {program}")
 
 
@@ -3447,6 +3477,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "student-loan-repayment":
+        return build_student_loan_repayment_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -4419,6 +4451,40 @@ def build_universal_credit_work_allowance_request(
     }
 
 
+def build_student_loan_repayment_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "student-loan-repayment"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_student_loan_repayment_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{STUDENT_LOAN_REPAYMENT_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in STUDENT_LOAN_REPAYMENT_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -4855,6 +4921,25 @@ def project_universal_credit_work_allowance_inputs(row: Any) -> dict[str, Any]:
             row_value(row, "uc_housing_costs_element", 0)
         )
         > 0,
+    }
+
+
+def project_student_loan_repayment_inputs(row: Any) -> dict[str, Any]:
+    plan = enum_name(row_value(row, "student_loan_plan", "NONE")).upper()
+    return {
+        "loan_plan_is_plan_1": plan == "PLAN_1",
+        "loan_plan_is_plan_2": plan == "PLAN_2",
+        "loan_plan_is_plan_4": plan == "PLAN_4",
+        "loan_plan_is_plan_5": plan == "PLAN_5",
+        "loan_plan_is_postgraduate": plan
+        in {
+            "POSTGRADUATE",
+            "POSTGRADUATE_LOAN",
+            "PLAN_3",
+        },
+        "annual_income_before_tax_and_other_deductions": money(
+            row_value(row, "adjusted_net_income", 0)
+        ),
     }
 
 
@@ -5594,6 +5679,14 @@ def tax_year_interval(year: int) -> dict[str, str]:
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
+    }
+
+
+def uk_tax_year_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year + 1:04d}-04-05",
     }
 
 
