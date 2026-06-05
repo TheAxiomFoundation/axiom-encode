@@ -1180,6 +1180,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("carer_support_payment",),
         "rationale": "Axiom covers the Carer Support Payment care-hours threshold, weekly rate, and Scottish Carer Supplement amount, not residence, cared-for-person, overlapping-benefit, or final annual amount rules.",
     },
+    "cost_of_living_support_payment": {
+        "status": "partial",
+        "surfaces": ("cost-of-living-support-payment-parameters",),
+        "covered_outputs": ("cost_of_living_support_payment",),
+        "rationale": "Axiom covers the statutory means-tested and disability Cost-of-Living Payment amounts, not the qualifying-period, benefit-receipt, tax-credit, pensioner-top-up, fraud, or final household aggregation rules.",
+    },
     "winter_fuel_allowance": {
         "status": "partial",
         "surfaces": ("winter-fuel-payment-rates",),

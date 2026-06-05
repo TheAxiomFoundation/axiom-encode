@@ -746,6 +746,76 @@ mappings:
     comparison: money
     rationale: Same weekly Scottish Carer Supplement amount paid on top of Carer Support Payment.
 
+  - legal_id: uk:statutes/ukpga/2022/38/1#means_tested_additional_payment_total
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.treasury.cost_of_living_support.means_tested_households.amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same 2022-23 total means-tested Cost-of-Living Payments, aggregating the GBP 326 and GBP 324 single payments stated in section 1.
+
+  - legal_id: uk:statutes/ukpga/2022/38/1#first_means_tested_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Section 1 states this first 2022-23 instalment separately, while PolicyEngine UK stores the annual aggregate means-tested Cost-of-Living Payment amount rather than individual instalments.
+
+  - legal_id: uk:statutes/ukpga/2022/38/1#second_means_tested_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Section 1 states this second 2022-23 instalment separately, while PolicyEngine UK stores the annual aggregate means-tested Cost-of-Living Payment amount rather than individual instalments.
+
+  - legal_id: uk:statutes/ukpga/2022/38/5#disability_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.treasury.cost_of_living_support.disabled.amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same one-off Disability Cost-of-Living Payment amount for 2022-23.
+
+  - legal_id: uk:statutes/ukpga/2023/7/1#means_tested_additional_payment_total
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.treasury.cost_of_living_support.means_tested_households.amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same 2023-24 total means-tested Cost-of-Living Payments, aggregating the GBP 301, GBP 300, and GBP 299 single payments stated in section 1.
+
+  - legal_id: uk:statutes/ukpga/2023/7/1#first_means_tested_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Section 1 states this first 2023-24 instalment separately, while PolicyEngine UK stores the annual aggregate means-tested Cost-of-Living Payment amount rather than individual instalments.
+
+  - legal_id: uk:statutes/ukpga/2023/7/1#second_means_tested_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Section 1 states this second 2023-24 instalment separately, while PolicyEngine UK stores the annual aggregate means-tested Cost-of-Living Payment amount rather than individual instalments.
+
+  - legal_id: uk:statutes/ukpga/2023/7/1#third_means_tested_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Section 1 states this third 2023-24 instalment separately, while PolicyEngine UK stores the annual aggregate means-tested Cost-of-Living Payment amount rather than individual instalments.
+
+  - legal_id: uk:statutes/ukpga/2023/7/5#disability_additional_payment_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.treasury.cost_of_living_support.disabled.amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same one-off Disability Cost-of-Living Payment amount for 2023-24.
+
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
     program: pip
