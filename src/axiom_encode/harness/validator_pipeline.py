@@ -7191,6 +7191,43 @@ _FEDERAL_TAX_SOURCE_CONTEXT_PATTERN = re.compile(
     r"§\s*(?:\d+[A-Z]?|1\.\d+[A-Z]?)(?:\b|\()",
     flags=re.IGNORECASE,
 )
+_MEDICAID_MAGI_PERSON_ELIGIBILITY_CONTEXT_PATTERN = re.compile(
+    r"\b(?:individuals?|pregnant\s+(?:woman|women)|parents?|"
+    r"caretaker\s+relatives?|children|child|infants?)\b"
+    r"[\s\S]{0,600}\bhousehold\s+income\b"
+    r"|"
+    r"\bhousehold\s+income\b[\s\S]{0,600}\b"
+    r"(?:individuals?|pregnant\s+(?:woman|women)|parents?|"
+    r"caretaker\s+relatives?|children|child|infants?)\b",
+    flags=re.IGNORECASE,
+)
+_MEDICAID_MAGI_RULE_CITATION_PATTERN = re.compile(
+    r"\b42\s*(?:CFR|C\.?\s*F\.?\s*R\.?)\s*(?:§\s*)?"
+    r"435\.(?:110|116|118|119)\b"
+    r"|"
+    r"\bus/regulation/42/435/(?:110|116|118|119)\b",
+    flags=re.IGNORECASE,
+)
+_MEDICAID_MAGI_ELIGIBILITY_RULE_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:eligible|eligibility)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_MEDICAID_MAGI_INCOME_HELPER_RULE_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:income|resources?|assets?)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_MEDICAID_MAGI_INCOME_FORMULA_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:income|magi|fpl)[A-Za-z0-9_]*\b",
+    flags=re.IGNORECASE,
+)
+_MEDICAID_MAGI_SINGLE_INCOME_HELPER_FORMULA_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:income|magi|fpl)[A-Za-z0-9_]*(?:\s*\([^()]*\))?$",
+    flags=re.IGNORECASE,
+)
+_FORMULA_BOOLEAN_CONNECTIVE_PATTERN = re.compile(
+    r"\b(?:and|or|not)\b",
+    flags=re.IGNORECASE,
+)
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
     r"\b(?:each|every|any|an?)\s+employer\b"
@@ -7369,7 +7406,101 @@ def _unit_entities_are_equivalent_for_source_rule(
     )
 
 
+def _person_rule_can_use_unit_scoped_medicaid_magi_source(
+    rule: dict[str, Any],
+    *,
+    fallback_source_text: str,
+) -> bool:
+    """Allow Medicaid MAGI individual eligibility to include household income.
+
+    The federal MAGI groups in 42 CFR 435.110, .116, .118, and .119 define
+    eligibility for individuals, while one condition is stated as household
+    income against FPL. The source-scope guard should continue rejecting generic
+    person rules proven only from household text, but these final Medicaid
+    eligibility judgments are legitimately person-scoped.
+    """
+    name = str(rule.get("name") or "")
+    if not _MEDICAID_MAGI_ELIGIBILITY_RULE_NAME_PATTERN.search(name):
+        return False
+    if _MEDICAID_MAGI_INCOME_HELPER_RULE_NAME_PATTERN.search(name):
+        return False
+    if str(rule.get("dtype") or "").strip().lower() != "judgment":
+        return False
+    if _medicaid_magi_rule_has_income_only_formula(rule):
+        return False
+    if not _medicaid_magi_rule_has_income_formula_reference(rule):
+        return False
+    proof_contexts = _rule_proof_source_contexts(rule)
+    citation_context = "\n".join(
+        [
+            str(rule.get("source") or ""),
+            *(text for _key, text in proof_contexts),
+        ]
+    )
+    if not _MEDICAID_MAGI_RULE_CITATION_PATTERN.search(citation_context):
+        return False
+    proof_excerpts = [text for key, text in proof_contexts if key == "excerpt"]
+    classified_texts = proof_excerpts or [fallback_source_text]
+    if not any(
+        re.search(r"\bhousehold\s+income\b", text, re.IGNORECASE)
+        for text in classified_texts
+    ):
+        return False
+    eligibility_context = "\n".join([*classified_texts, fallback_source_text])
+    return bool(
+        _MEDICAID_MAGI_PERSON_ELIGIBILITY_CONTEXT_PATTERN.search(eligibility_context)
+    )
+
+
+def _medicaid_magi_rule_has_income_only_formula(rule: dict[str, Any]) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    formulas = [
+        formula
+        for version in versions
+        if isinstance(version, dict)
+        and isinstance((formula := version.get("formula")), str)
+        and formula.strip()
+    ]
+    if not formulas:
+        return False
+    return all(
+        not _FORMULA_BOOLEAN_CONNECTIVE_PATTERN.search(formula)
+        and (
+            _MEDICAID_MAGI_INCOME_FORMULA_PATTERN.search(formula)
+            or _MEDICAID_MAGI_SINGLE_INCOME_HELPER_FORMULA_PATTERN.fullmatch(
+                formula.strip()
+            )
+        )
+        for formula in formulas
+    )
+
+
+def _medicaid_magi_rule_has_income_formula_reference(rule: dict[str, Any]) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    formulas = [
+        formula
+        for version in versions
+        if isinstance(version, dict)
+        and isinstance((formula := version.get("formula")), str)
+        and formula.strip()
+    ]
+    if not formulas:
+        return False
+    return all(
+        bool(_MEDICAID_MAGI_INCOME_FORMULA_PATTERN.search(formula))
+        for formula in formulas
+    )
+
+
 def _rule_proof_source_excerpts(rule: dict[str, Any]) -> list[str]:
+    return [text for key, text in _rule_proof_source_contexts(rule) if key == "excerpt"]
+
+
+def _rule_proof_source_contexts(rule: dict[str, Any]) -> list[tuple[str, str]]:
     metadata = rule.get("metadata")
     if not isinstance(metadata, dict):
         return []
@@ -7380,17 +7511,25 @@ def _rule_proof_source_excerpts(rule: dict[str, Any]) -> list[str]:
     if not isinstance(atoms, list):
         return []
 
-    excerpts: list[str] = []
+    contexts: list[tuple[str, str]] = []
     for atom in atoms:
         if not isinstance(atom, dict):
             continue
         source = atom.get("source")
         if not isinstance(source, dict):
             continue
-        excerpt = source.get("excerpt")
-        if isinstance(excerpt, str) and excerpt.strip():
-            excerpts.append(excerpt.strip())
-    return excerpts
+        for key in ("excerpt", "corpus_citation_path"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                contexts.append((key, value.strip()))
+        many_paths = source.get("corpus_citation_paths")
+        if isinstance(many_paths, list):
+            for value in many_paths:
+                if isinstance(value, str) and value.strip():
+                    contexts.append(("corpus_citation_paths", value.strip()))
+        elif isinstance(many_paths, str) and many_paths.strip():
+            contexts.append(("corpus_citation_paths", many_paths.strip()))
+    return contexts
 
 
 def _rule_source_scope(
@@ -7464,6 +7603,11 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 "or cite source text that states the unit-level test."
             )
         elif source_scope == _SOURCE_SCOPE_UNIT and normalized_entity == "person":
+            if _person_rule_can_use_unit_scoped_medicaid_magi_source(
+                rule,
+                fallback_source_text=source_text,
+            ):
+                continue
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `Person`, but the embedded source "

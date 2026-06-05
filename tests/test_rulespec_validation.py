@@ -12811,6 +12811,684 @@ rules:
     ]
 
 
+def test_source_scope_consistency_allows_medicaid_magi_person_eligibility_with_household_income():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "the agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_full_adult_group_excerpt():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who meet the adult group conditions and have household income
+    at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "The agency must provide Medicaid to individuals who meet all of the following: (1) Are age 19 or older and under age 65. (2) Are not pregnant. (3) Are not entitled to or enrolled for Medicare benefits under part A or B of title XVIII of the Act. (4) Are not otherwise eligible for and enrolled for mandatory coverage under a State's Medicaid State plan in accordance with subpart B of this part. (5) Have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and not is_pregnant
+          and not enrolled_in_medicare_part_a_or_b
+          and not otherwise_eligible_for_mandatory_medicaid
+          and household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_corpus_only_proof():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_summary_only_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_plural_corpus_paths():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/42/435/119
+      - us/regulation/42/435/603
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_paths:
+                - us/regulation/42/435/119
+                - us/regulation/42/435/603
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and magi_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_cfr_section_symbol_citation():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 C.F.R. § 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "the agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and age < 65
+          and household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_infant_eligibility():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/118
+  summary: |-
+    The agency must provide Medicaid to infants under age 1 who have
+    household income at or below the applicable income standard.
+rules:
+  - name: infant_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.118
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/118
+              excerpt: "Infants under age 1 with household income at or below 194 percent of the Federal poverty level."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age < 1
+          and household_income_as_fraction_of_fpl <= 1.94
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_pregnant_woman_eligibility():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/116
+  summary: |-
+    The agency must provide Medicaid to a pregnant woman whose household
+    income is at or below the applicable income standard.
+rules:
+  - name: pregnant_woman_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.116
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/116
+              excerpt: "A pregnant woman whose household income is at or below 200 percent FPL."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          is_pregnant
+          and household_income_as_fraction_of_fpl <= 2.00
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_medicaid_magi_child_eligibility():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/118
+  summary: |-
+    The agency must provide Medicaid to a child whose household income is at
+    or below the applicable income standard.
+rules:
+  - name: child_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.118
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/118
+              excerpt: "A child age 1 through 5 whose household income is at or below 150 percent FPL."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 1
+          and age <= 5
+          and household_income_as_fraction_of_fpl <= 1.50
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_still_rejects_medicaid_magi_income_helper_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: Medicaid adult group household income test.
+rules:
+  - name: adult_group_income_requirement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)(5)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "Have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_income_requirement` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_income_eligible_helper():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_income_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "the agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_income_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_income_only_eligible_rule():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    The agency must provide Medicaid to individuals who have household income
+    at or below 133 percent FPL.
+rules:
+  - name: adult_group_fpl_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "The agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_fpl_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_single_income_helper_formula():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    The agency must provide Medicaid to individuals who have household income
+    at or below 133 percent FPL.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "The agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: adult_group_income_requirement
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_income_only_magi_formula():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    The agency must provide Medicaid to individuals who have household income
+    at or below 133 percent FPL.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "The agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: magi_income_as_fraction_of_fpl <= 1.33
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_numeric_limit_helper():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    The agency must provide Medicaid to individuals who have household income
+    at or below 133 percent FPL.
+rules:
+  - name: adult_group_eligible_fpl_limit
+    kind: derived
+    entity: Person
+    dtype: Float
+    period: Year
+    source: 42 CFR 435.119
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: literal
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "Have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: '1.33'
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_eligible_fpl_limit` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_prefixed_magi_income_helper():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: medicaid_adult_group_income_requirement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "the agency must provide Medicaid to individuals who have household income that is at or below 133 percent FPL for the applicable family size."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          household_income_as_fraction_of_fpl <= 1.33
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `medicaid_adult_group_income_requirement` is "
+        "declared on `Person`, but the embedded source states a "
+        "household/unit-scoped test. Encode the rule at the source-stated "
+        "unit scope or cite source text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_still_rejects_non_income_rule_in_medicaid_magi_module():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_resource_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/119
+              excerpt: "Household resources are tested against the applicable resource limit for household eligibility."
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          household_resources <= resource_limit
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_resource_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_without_rule_proof_excerpt():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_resource_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          household_resources <= resource_limit
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_resource_eligible` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_medicaid_magi_generic_final_non_income_formula():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/119
+  summary: |-
+    Effective January 1, 2014, the agency must provide Medicaid to
+    individuals who are age 19 or older and under age 65 and have household
+    income that is at or below 133 percent FPL for the applicable family size.
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 CFR 435.119
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age >= 19
+          and household_resources <= resource_limit
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `adult_group_eligible` is declared on `Person`, "
+        "but the embedded source states a household/unit-scoped test. Encode "
+        "the rule at the source-stated unit scope or cite source text that "
+        "states the person-level test."
+    ]
+
+
 def test_source_scope_consistency_allows_household_source_as_snapunit_rule():
     content = """format: rulespec/v1
 module:
