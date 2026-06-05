@@ -636,6 +636,62 @@ rules:
     assert "state income bridge" in str(exact_output["rationale"])
 
 
+def test_policyengine_coverage_classifies_medicaid_work_requirement_prefixes(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1396a/xx.yaml",
+        """format: rulespec/v1
+rules:
+  - name: medicaid_community_engagement_condition_applies
+    kind: derived
+    versions:
+      - effective_from: '2026-12-31'
+        formula: applicable_individual and not exempt
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/552.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_community_engagement_hours_requirement
+    kind: parameter
+    versions:
+      - effective_from: '2026-12-31'
+        value: 80
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/558.yaml",
+        """format: rulespec/v1
+rules:
+  - name: disenrollment_after_noncompliance_period
+    kind: derived
+    versions:
+      - effective_from: '2026-12-31'
+        formula: noncompliance_months >= 3
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="medicaid")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    statute_output = items_by_id[
+        "us:statutes/42/1396a/xx#medicaid_community_engagement_condition_applies"
+    ]
+    hours_output = items_by_id[
+        "us:regulations/42-cfr/435/552#monthly_community_engagement_hours_requirement"
+    ]
+    disenrollment_output = items_by_id[
+        "us:regulations/42-cfr/435/558#disenrollment_after_noncompliance_period"
+    ]
+    assert statute_output["mapping_type"] == "not_comparable"
+    assert hours_output["mapping_type"] == "not_comparable"
+    assert disenrollment_output["mapping_type"] == "not_comparable"
+    assert "work-requirement" in str(statute_output["rationale"])
+    assert "community-engagement" in str(disenrollment_output["rationale"])
+
+
 def test_policyengine_coverage_classifies_nc_and_sc_snap_manual_prefixes(tmp_path):
     _write_rulespec_file(
         tmp_path
