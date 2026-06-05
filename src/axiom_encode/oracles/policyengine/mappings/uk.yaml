@@ -686,6 +686,16 @@ mappings:
     comparison: money
     rationale: Same annual individual adjusted-net-income limit for Tax-Free Childcare eligibility.
 
+  - legal_id: uk:regulations/uksi/2005/3061/5#sure_start_maternity_grant_amount
+    country: uk
+    program: ssmg
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.ssmg.rate
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Sure Start Maternity Grant amount payable when the regulation's entitlement conditions are satisfied.
+
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
     program: pip

@@ -1984,6 +1984,40 @@ rules:
     assert income_limit["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_sure_start_maternity_grant_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2005/3061/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: sure_start_maternity_grant_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2005-12-05'
+        formula: 500
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2005/3061/5.test.yaml",
+        """- name: sure_start_maternity_grant_2026_amount
+  output:
+    uk:regulations/uksi/2005/3061/5#sure_start_maternity_grant_amount: 500
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ssmg")
+
+    assert report["status_counts"] == {"comparable": 1}
+    assert report["untested_comparable"] == 0
+    item = report["items"][0]
+    assert item["policyengine_parameter"] == "gov.dwp.ssmg.rate"
+    assert item["mapping_type"] == "parameter_value"
+    assert item["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
     tmp_path,
 ):

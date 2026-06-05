@@ -2742,6 +2742,7 @@ class hbai_household_net_income(Variable):
         "attendance_allowance",
         "carers_allowance",
         "sda",
+        "ssmg",
         "state_pension",
         "winter_fuel_allowance",
     ]
@@ -2769,6 +2770,7 @@ class hbai_household_net_income(Variable):
         "attendance_allowance",
         "carers_allowance",
         "sda",
+        "ssmg",
         "state_pension",
         "winter_fuel_allowance",
     )
@@ -2791,14 +2793,15 @@ class hbai_household_net_income(Variable):
     assert by_name["attendance_allowance"].status == "partial"
     assert by_name["carers_allowance"].status == "partial"
     assert by_name["sda"].status == "partial"
+    assert by_name["ssmg"].status == "partial"
     assert by_name["state_pension"].status == "partial"
     assert by_name["winter_fuel_allowance"].status == "partial"
     assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 15
-    assert report.covered_policy_component_count == 14
+    assert report.policy_component_count == 16
+    assert report.covered_policy_component_count == 15
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 14 / 15)
-    assert math.isclose(report.exact_policy_component_share, 1 / 15)
+    assert math.isclose(report.covered_policy_component_share, 15 / 16)
+    assert math.isclose(report.exact_policy_component_share, 1 / 16)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
