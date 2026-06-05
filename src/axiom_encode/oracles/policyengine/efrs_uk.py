@@ -1126,13 +1126,15 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the Tax-Free Childcare contribution rate and income cap, not the child/provider eligibility tests, expenses, annual caps, or final aggregate amount.",
     },
     "pip": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": ("personal-independence-payment-rates",),
         "covered_outputs": (
             "pip_dl",
             "pip_m",
+            "pip",
+            "receives_enhanced_pip_dl",
         ),
-        "rationale": "Axiom covers Personal Independence Payment daily-living and mobility weekly rates, not the category assignment or final aggregate PIP amount.",
+        "rationale": "Axiom covers PolicyEngine UK's category-input Personal Independence Payment mechanics, including daily-living, mobility, enhanced daily-living receipt, and the final aggregate PIP amount; descriptor scoring and residence, age, care-home, and hospital exclusions remain held as inputs or outside PolicyEngine's current PIP formula.",
     },
     "dla": {
         "status": "partial",

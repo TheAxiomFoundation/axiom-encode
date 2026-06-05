@@ -1945,6 +1945,172 @@ rules:
     assert daily_standard["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_pip_component_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/78.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pip_daily_living_enhanced_rate_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: enhanced_condition
+  - name: pip_daily_living_standard_rate_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: standard_condition
+  - name: pip_daily_living_component_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 114.60
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/79.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pip_mobility_standard_rate_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: standard_condition
+  - name: pip_mobility_enhanced_rate_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: enhanced_condition
+  - name: pip_mobility_component_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 30.30
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/77.yaml",
+        """format: rulespec/v1
+rules:
+  - name: personal_independence_payment_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 144.90
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/78.test.yaml",
+        """- name: daily living amount
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input:
+    enhanced_condition: true
+  output:
+    uk:statutes/ukpga/2012/5/78#pip_daily_living_enhanced_rate_entitlement: holds
+    uk:statutes/ukpga/2012/5/78#pip_daily_living_component_weekly_amount: 114.60
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/79.test.yaml",
+        """- name: mobility amount
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:statutes/ukpga/2012/5/79#pip_mobility_component_weekly_amount: 30.30
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/77.test.yaml",
+        """- name: total amount
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:statutes/ukpga/2012/5/77#personal_independence_payment_weekly_amount: 144.90
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pip")
+
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 3,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/78#pip_daily_living_enhanced_rate_entitlement"
+        ]["policyengine_variable"]
+        == "receives_enhanced_pip_dl"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/78#pip_daily_living_component_weekly_amount"
+        ]["policyengine_variable"]
+        == "pip_dl"
+    )
+    assert (
+        items_by_id["uk:statutes/ukpga/2012/5/79#pip_mobility_component_weekly_amount"][
+            "policyengine_variable"
+        ]
+        == "pip_m"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/77#personal_independence_payment_weekly_amount"
+        ]["policyengine_variable"]
+        == "pip"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/78#pip_daily_living_standard_rate_entitlement"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/79#pip_mobility_standard_rate_entitlement"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2012/5/79#pip_mobility_enhanced_rate_entitlement"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_uk_tax_free_childcare_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "statutes/ukpga/2014/28/1.yaml",
