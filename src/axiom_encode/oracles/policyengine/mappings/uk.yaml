@@ -465,6 +465,72 @@ mappings:
     comparison: money
     rationale: Same Pension Credit carer addition output after applying claimant circumstances.
 
+  - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: pension_credit_deemed_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit deemed income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit pension_credit_assessable_capital into the Regulation 15 claimant-capital leaf and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/2008/794/118#capital_tariff_weekly_income
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: direct_variable
+    policyengine_variable: esa_income_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same income-related ESA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit esa_income_assessable_capital into the Regulation 118 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/1996/207/116#capital_tariff_weekly_income
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: direct_variable
+    policyengine_variable: jsa_income_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same income-based JSA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit jsa_income_assessable_capital into the Regulation 116 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/1987/1967/53#capital_tariff_weekly_income
+    country: uk
+    program: income_support
+    mapping_type: direct_variable
+    policyengine_variable: income_support_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Income Support tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit income_support_assessable_capital into the Regulation 53 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/2006/213/52#capital_tariff_weekly_income
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same working-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 52 claimant-capital leaf, sets the prescribed-circumstances branch false because PolicyEngine does not expose that legal predicate, limits comparison to non-pension-age rows with capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/2006/214/29#capital_tariff_weekly_income
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same pension-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 29 claimant-capital leaf, projects the regulation 44(2) capital-disregard exception false because PolicyEngine applies capital exclusions upstream, limits comparison to pension-age rows without guarantee credit, and converts PolicyEngine's annual output to a weekly amount.
+
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk
     program: pension_credit
@@ -487,6 +553,36 @@ mappings:
     comparison: boolean
     candidate_priority: P3
     rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. The UK EFRS oracle compares RuleSpec's judgment output to PolicyEngine UK's annual is_SP_age predicate after supplying the same age and state_pension_age projection used for qualifying_age.
+
+  - legal_id: uk:statutes/ukpga/2002/16/2#guarantee_credit
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: guarantee_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    candidate_priority: P2
+    rationale: Same annual State Pension Credit guarantee credit amount. The EFRS oracle projects claimant income from PolicyEngine's pension_credit_income, appropriate minimum guarantee from minimum_guarantee, and entitlement from is_guarantee_credit_eligible.
+
+  - legal_id: uk:statutes/ukpga/2002/16/2#appropriate_minimum_guarantee
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: minimum_guarantee
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    candidate_priority: P3
+    rationale: Same annual State Pension Credit appropriate minimum guarantee, after the EFRS oracle projects PolicyEngine's standard_minimum_guarantee and positive additional amount decomposition into the section 2 formula.
+
+  - legal_id: uk:statutes/ukpga/2002/16/2#guarantee_credit_condition_satisfied
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law income condition for State Pension Credit Act section 2. PolicyEngine UK exposes is_guarantee_credit_eligible, but that combines this income condition with section 1 entitlement predicates and is not a one-to-one match.
 
   - legal_id: uk:statutes/ukpga/2002/16/3#savings_credit
     country: uk
@@ -690,6 +786,17 @@ mappings:
     comparison: money
     rationale: Same Universal Credit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit assessed capital to the Regulation 72 capital leaf and converts PolicyEngine's annual output to a monthly amount.
 
+  - legal_id: uk:regulations/uksi/2013/376/18#claimant_capital_for_prescribed_capital_limit
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: uc_assessable_capital
+    entity: benunit
+    period: day
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit assessable capital stock after the UK EFRS adapter projects PolicyEngine's benefit-unit uc_assessable_capital into the Regulation 18 claimant-capital leaf, with other-member inclusion set to zero because PolicyEngine already resolves household capital allocation, reported-capital overrides, and exclusions upstream.
+
   - legal_id: uk:regulations/uksi/2013/376/32#work_condition_met_for_assessment_period
     country: uk
     program: universal_credit
@@ -719,6 +826,42 @@ prefixes:
     program: pension_credit
     mapping_type: not_comparable
     rationale: Pension Credit helper outputs not listed above are remand-prisoner, tax-credit cessation, nil substitution, or branch-control intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2002/1792/15#
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Pension Credit Regulation 15 helper outputs not listed above are capital-to-deemed-income parameters or branch-control predicates that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2008/794/118#
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: not_comparable
+    rationale: ESA Regulation 118 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/1996/207/116#
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: not_comparable
+    rationale: JSA Regulation 116 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/1987/1967/53#
+    country: uk
+    program: income_support
+    mapping_type: not_comparable
+    rationale: Income Support Regulation 53 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2006/213/52#
+    country: uk
+    program: housing_benefit
+    mapping_type: not_comparable
+    rationale: Housing Benefit Regulation 52 helper outputs not listed above are working-age capital-to-tariff-income parameters, upper-limit predicates, or prescribed-circumstances branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2006/214/29#
+    country: uk
+    program: housing_benefit
+    mapping_type: not_comparable
+    rationale: Pension-age Housing Benefit Regulation 29 helper outputs not listed above are capital-to-tariff-income parameters or capital-disregard predicates that PolicyEngine UK does not expose as one-to-one oracle variables.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/36#
     country: uk
