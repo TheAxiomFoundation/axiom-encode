@@ -1568,6 +1568,107 @@ rules:
     assert helper["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_uk_wtc_schedule_2_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/2005/schedule/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: wtc_basic_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 2435
+  - name: wtc_disabled_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 3935
+  - name: schedule_2_row_3_maximum_annual_rate
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 1015
+  - name: wtc_second_adult_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 2500
+  - name: wtc_lone_parent_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 2500
+  - name: wtc_severely_disabled_element_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 1705
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2002/2005/schedule/2.test.yaml",
+        """- name: wtc schedule 2
+  period:
+    period_kind: tax_year
+    start: '2024-04-06'
+    end: '2025-04-05'
+  input: {}
+  output:
+    uk:regulations/uksi/2002/2005/schedule/2#wtc_basic_element_amount: 2435
+    uk:regulations/uksi/2002/2005/schedule/2#wtc_disabled_element_amount: 3935
+    uk:regulations/uksi/2002/2005/schedule/2#schedule_2_row_3_maximum_annual_rate: 1015
+    uk:regulations/uksi/2002/2005/schedule/2#wtc_second_adult_element_amount: 2500
+    uk:regulations/uksi/2002/2005/schedule/2#wtc_lone_parent_element_amount: 2500
+    uk:regulations/uksi/2002/2005/schedule/2#wtc_severely_disabled_element_amount: 1705
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="working_tax_credit")
+
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    basic = items_by_id[
+        "uk:regulations/uksi/2002/2005/schedule/2#wtc_basic_element_amount"
+    ]
+    second_adult = items_by_id[
+        "uk:regulations/uksi/2002/2005/schedule/2#wtc_second_adult_element_amount"
+    ]
+    row_3 = items_by_id[
+        "uk:regulations/uksi/2002/2005/schedule/2#schedule_2_row_3_maximum_annual_rate"
+    ]
+
+    assert (
+        basic["policyengine_parameter"]
+        == "gov.dwp.tax_credits.working_tax_credit.elements.basic"
+    )
+    assert basic["mapping_type"] == "parameter_value"
+    assert basic["tested"] is True
+    assert (
+        second_adult["policyengine_parameter"]
+        == "gov.dwp.tax_credits.working_tax_credit.elements.couple"
+    )
+    assert row_3["status"] == "known_not_comparable"
+    assert (
+        row_3["policyengine_parameter"]
+        == "gov.dwp.tax_credits.working_tax_credit.elements.worker"
+    )
+
+
 @pytest.mark.parametrize(
     (
         "path",

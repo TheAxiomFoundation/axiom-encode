@@ -525,6 +525,64 @@ mappings:
     candidate_priority: P2
     rationale: Same Pension Credit child-related addition after the UK EFRS adapter projects PolicyEngine's child count, pre-2017 eldest-child flag, and disability buckets into Schedule IIA inputs and converts PolicyEngine's annual output to a weekly amount.
 
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#wtc_basic_element_amount
+    country: uk
+    program: working_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.basic
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Working Tax Credit basic element maximum rate in Schedule 2.
+
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#wtc_disabled_element_amount
+    country: uk
+    program: working_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.disabled
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Working Tax Credit disability element maximum rate in Schedule 2.
+
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#schedule_2_row_3_maximum_annual_rate
+    country: uk
+    program: working_tax_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.worker
+    candidate_priority: P2
+    rationale: Official Schedule 2 states GBP 1,015 for the 30 hour element, but current PE-UK derives GBP 1,010.22 for 2024 from a stale uprated worker-element parameter instead of the direct Schedule 2 amount.
+
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#wtc_second_adult_element_amount
+    country: uk
+    program: working_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.couple
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Working Tax Credit second-adult/couple element maximum rate in Schedule 2.
+
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#wtc_lone_parent_element_amount
+    country: uk
+    program: working_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.lone_parent
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Working Tax Credit lone-parent element maximum rate in Schedule 2.
+
+  - legal_id: uk:regulations/uksi/2002/2005/schedule/2#wtc_severely_disabled_element_amount
+    country: uk
+    program: working_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.working_tax_credit.elements.severely_disabled
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Working Tax Credit severe disability element maximum rate in Schedule 2.
+
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
     program: pension_credit
