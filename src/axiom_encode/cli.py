@@ -15238,6 +15238,35 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_source_relations = (
+                    _try_repair_generated_source_relation_delegations_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_source_relations:
+                    outcome["auto_repaired_source_relation_delegations"] = (
+                        repaired_source_relations
+                    )
+                    print(
+                        "  apply=auto_repaired_source_relation_delegations:"
+                        + ",".join(repaired_source_relations)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_same_section_imports = _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                     result,
                     output_root=args.output,
@@ -16754,6 +16783,203 @@ def _try_repair_generated_boolean_parameter_inputs_for_apply(
     )
 
 
+def _try_repair_generated_source_relation_delegations_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Fill missing delegation basis on generated implementation edges."""
+    if not any(
+        _issue_mentions_missing_source_relation_delegation(issue) for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "implements":
+            continue
+        target = str(source_relation.get("target") or "").strip()
+        if not target:
+            continue
+        delegation = _source_relation_delegation_basis_for_target(
+            target,
+            policy_repo_path=policy_repo_path,
+        )
+        if not delegation:
+            continue
+        basis = source_relation.get("basis")
+        if isinstance(basis, dict) and str(basis.get("delegation") or "").strip():
+            continue
+        if not isinstance(basis, dict):
+            basis = {}
+            source_relation["basis"] = basis
+        basis["delegation"] = delegation
+        repaired.append(str(rule.get("name") or target))
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _source_relation_delegation_basis_for_target(
+    target: str,
+    *,
+    policy_repo_path: Path | None,
+) -> str | None:
+    """Return a concrete delegation slot for a source-relation target."""
+    normalized_target = _normalize_source_relation_target_ref(target)
+    if not normalized_target:
+        return None
+    if policy_repo_path is None:
+        return None
+    module_target, _, target_symbol = normalized_target.partition("#")
+
+    target_file = _rulespec_file_for_absolute_module_ref(
+        normalized_target,
+        policy_repo_path=policy_repo_path,
+    )
+    if target_file is None or not target_file.exists():
+        return None
+    try:
+        payload = yaml.safe_load(target_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    rule_delegations: set[str] = set()
+    deferred_delegations: set[str] = set()
+    rules = payload.get("rules")
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            source_relation = rule.get("source_relation")
+            if not isinstance(source_relation, dict):
+                continue
+            if str(source_relation.get("type") or "").strip().lower() != "delegates":
+                continue
+            name = str(rule.get("name") or "").strip()
+            if name:
+                candidate = f"{module_target}#{name}"
+                delegate_target = _normalize_source_relation_target_ref(
+                    source_relation.get("target")
+                )
+                if name == target_symbol or delegate_target == normalized_target:
+                    return candidate
+                if not target_symbol:
+                    rule_delegations.add(candidate)
+
+    module = payload.get("module")
+    deferred_outputs = (
+        module.get("deferred_outputs") if isinstance(module, dict) else None
+    )
+    if isinstance(deferred_outputs, list):
+        prefix = module_target + "#"
+        for output in deferred_outputs:
+            if not isinstance(output, dict):
+                continue
+            output_ref = _normalize_source_relation_target_ref(output.get("output"))
+            if not output_ref:
+                continue
+            if output_ref == normalized_target:
+                deferred_delegations.add(output_ref)
+            elif not target_symbol and output_ref.startswith(prefix):
+                deferred_delegations.add(output_ref)
+
+    if len(rule_delegations) == 1:
+        return next(iter(rule_delegations))
+    if len(rule_delegations) > 1:
+        return None
+    if len(deferred_delegations) == 1:
+        return next(iter(deferred_delegations))
+    return None
+
+
+def _normalize_source_relation_target_ref(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    base, separator, symbol = normalized.partition("#")
+    if base.endswith((".yaml", ".yml")):
+        base = str(Path(base).with_suffix(""))
+    return f"{base}{separator}{symbol}" if separator else base
+
+
+def _rulespec_file_for_absolute_module_ref(
+    target: str,
+    *,
+    policy_repo_path: Path,
+) -> Path | None:
+    module_ref = str(target or "").strip().split("#", 1)[0]
+    if not module_ref or ":" not in module_ref:
+        return None
+    prefix, relative = module_ref.split(":", 1)
+    prefix = prefix.strip()
+    relative = relative.strip("/")
+    if not prefix or not relative:
+        return None
+    relative_file = Path(relative)
+    if relative_file.suffix not in {".yaml", ".yml"}:
+        relative_file = Path(f"{relative}.yaml")
+    repo_name = f"rulespec-{prefix}"
+    current_repo = Path(policy_repo_path).expanduser()
+
+    candidates: list[Path] = []
+    candidate_roots = [
+        current_repo,
+        current_repo.parent,
+        current_repo / "_axiom",
+        current_repo.parent / "_axiom",
+    ]
+    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
+    candidate_roots.extend(
+        Path(root).expanduser() for root in env_roots.split(os.pathsep) if root
+    )
+    for root in candidate_roots:
+        if root.name == repo_name or canonical_rulespec_repo_name(root) == repo_name:
+            candidates.append(root / relative_file)
+        candidates.append(root / repo_name / relative_file)
+
+    seen_candidates: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen_candidates:
+            continue
+        seen_candidates.add(candidate)
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else None
+
+
 def _missing_input_names_from_issues(issues: list[str]) -> set[str]:
     names: set[str] = set()
     for issue in issues:
@@ -16763,6 +16989,15 @@ def _missing_input_names_from_issues(issues: list[str]) -> set[str]:
         for match in re.finditer(r"missing input `([A-Za-z_][A-Za-z0-9_]*)`", text):
             names.add(match.group(1))
     return names
+
+
+def _issue_mentions_missing_source_relation_delegation(issue: str) -> bool:
+    text = str(issue)
+    unquoted = text.replace("`", "")
+    return (
+        "must declare source_relation.basis.delegation" in unquoted
+        and "source relation" in unquoted.lower()
+    )
 
 
 def _issue_mentions_versioned_derived_formula(issue: str) -> bool:
