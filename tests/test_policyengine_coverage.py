@@ -2093,6 +2093,99 @@ rules:
     assert maximum_age["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_carer_support_payment_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2023/302/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carer_support_payment_minimum_weekly_care_hours
+    kind: parameter
+    dtype: Count
+    period: Week
+    unit: hour
+    versions:
+      - effective_from: '2024-11-01'
+        formula: 35
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2023/302/16.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carer_support_payment_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-04-05'
+        formula: 86.45
+  - name: scottish_carer_supplement_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-04-05'
+        formula: 11.70
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2023/302/5.test.yaml",
+        """- name: carer_support_payment_minimum_weekly_care_hours
+  output:
+    uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours: 35
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2023/302/16.test.yaml",
+        """- name: carer_support_payment_2026_weekly_rates
+  output:
+    uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate: 86.45
+    uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate: 11.70
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="carer_support_payment",
+    )
+
+    assert report["status_counts"] == {"comparable": 3}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    min_hours = items_by_id[
+        "uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours"
+    ]
+    rate = items_by_id[
+        "uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate"
+    ]
+    supplement = items_by_id[
+        "uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate"
+    ]
+
+    assert (
+        min_hours["policyengine_parameter"]
+        == "gov.social_security_scotland.carer_support_payment.min_hours"
+    )
+    assert (
+        rate["policyengine_parameter"]
+        == "gov.social_security_scotland.carer_support_payment.rate"
+    )
+    assert (
+        supplement["policyengine_parameter"]
+        == "gov.social_security_scotland.carer_support_payment.supplement"
+    )
+    assert min_hours["mapping_type"] == "parameter_value"
+    assert rate["mapping_type"] == "parameter_value"
+    assert supplement["mapping_type"] == "parameter_value"
+    assert min_hours["tested"] is True
+    assert rate["tested"] is True
+    assert supplement["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
     tmp_path,
 ):
