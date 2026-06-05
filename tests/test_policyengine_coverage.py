@@ -2018,6 +2018,81 @@ rules:
     assert item["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_scottish_child_payment_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2020/351/20.yaml",
+        """format: rulespec/v1
+rules:
+  - name: scottish_child_payment_weekly_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-04-01'
+        formula: 28.20
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2020/351/18.yaml",
+        """format: rulespec/v1
+rules:
+  - name: scottish_child_payment_maximum_child_age
+    kind: parameter
+    dtype: Integer
+    period: Year
+    unit: year
+    versions:
+      - effective_from: '2022-11-14'
+        formula: 16
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2020/351/20.test.yaml",
+        """- name: scottish_child_payment_2026_weekly_amount
+  output:
+    uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount: 28.20
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/ssi/2020/351/18.test.yaml",
+        """- name: scottish_child_payment_maximum_child_age
+  output:
+    uk:regulations/ssi/2020/351/18#scottish_child_payment_maximum_child_age: 16
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="scottish_child_payment",
+    )
+
+    assert report["status_counts"] == {"comparable": 2}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weekly_amount = items_by_id[
+        "uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount"
+    ]
+    maximum_age = items_by_id[
+        "uk:regulations/ssi/2020/351/18#scottish_child_payment_maximum_child_age"
+    ]
+
+    assert (
+        weekly_amount["policyengine_parameter"]
+        == "gov.social_security_scotland.scottish_child_payment.amount"
+    )
+    assert (
+        maximum_age["policyengine_parameter"]
+        == "gov.social_security_scotland.scottish_child_payment.max_age"
+    )
+    assert weekly_amount["mapping_type"] == "parameter_value"
+    assert maximum_age["mapping_type"] == "parameter_value"
+    assert weekly_amount["tested"] is True
+    assert maximum_age["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
     tmp_path,
 ):

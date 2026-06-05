@@ -696,6 +696,26 @@ mappings:
     comparison: money
     rationale: Same Sure Start Maternity Grant amount payable when the regulation's entitlement conditions are satisfied.
 
+  - legal_id: uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
+    country: uk
+    program: scottish_child_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.social_security_scotland.scottish_child_payment.amount
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Scottish Child Payment amount payable in respect of an eligible child.
+
+  - legal_id: uk:regulations/ssi/2020/351/18#scottish_child_payment_maximum_child_age
+    country: uk
+    program: scottish_child_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.social_security_scotland.scottish_child_payment.max_age
+    period: year
+    unit: year
+    comparison: number
+    rationale: Regulation 18 requires the child to be under 16; PolicyEngine stores the same threshold as the maximum child age parameter.
+
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
     program: pip
