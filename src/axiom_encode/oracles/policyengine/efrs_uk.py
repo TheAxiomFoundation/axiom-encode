@@ -1156,6 +1156,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("sda",),
         "rationale": "Axiom covers the Severe Disablement Allowance basic row and maximum weekly rate, not reported receipt or all age-related addition branches in the final SDA amount.",
     },
+    "winter_fuel_allowance": {
+        "status": "partial",
+        "surfaces": ("winter-fuel-payment-rates",),
+        "covered_outputs": ("winter_fuel_allowance",),
+        "rationale": "Axiom covers ordinary Winter Fuel Payment lower and higher annual amounts and the age-80 threshold, not the final household-level entitlement, shared-household branches, residential-care branches, Scotland replacement, or tax recovery mechanics.",
+    },
 }
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(

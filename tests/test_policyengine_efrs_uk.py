@@ -2742,6 +2742,7 @@ class hbai_household_net_income(Variable):
         "carers_allowance",
         "sda",
         "state_pension",
+        "winter_fuel_allowance",
     ]
     subtracts = [
         "income_tax",
@@ -2767,6 +2768,7 @@ class hbai_household_net_income(Variable):
         "carers_allowance",
         "sda",
         "state_pension",
+        "winter_fuel_allowance",
     )
     assert report.subtracts == (
         "income_tax",
@@ -2787,12 +2789,13 @@ class hbai_household_net_income(Variable):
     assert by_name["carers_allowance"].status == "partial"
     assert by_name["sda"].status == "partial"
     assert by_name["state_pension"].status == "partial"
+    assert by_name["winter_fuel_allowance"].status == "partial"
     assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 13
-    assert report.covered_policy_component_count == 12
+    assert report.policy_component_count == 14
+    assert report.covered_policy_component_count == 13
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 12 / 13)
-    assert math.isclose(report.exact_policy_component_share, 1 / 13)
+    assert math.isclose(report.covered_policy_component_share, 13 / 14)
+    assert math.isclose(report.exact_policy_component_share, 1 / 14)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
