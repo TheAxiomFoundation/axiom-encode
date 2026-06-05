@@ -2243,6 +2243,188 @@ rules:
     assert supplement["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_cost_of_living_support_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2022/38/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: first_means_tested_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2022-06-28'
+        formula: 326
+  - name: second_means_tested_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2022-06-28'
+        formula: 324
+  - name: means_tested_additional_payment_total
+    kind: derived
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2022-06-28'
+        formula: first_means_tested_additional_payment_amount + second_means_tested_additional_payment_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2022/38/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: disability_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2022-06-28'
+        formula: 150
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2023/7/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: first_means_tested_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2023-03-23'
+        formula: 301
+  - name: second_means_tested_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2023-03-23'
+        formula: 300
+  - name: third_means_tested_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2023-03-23'
+        formula: 299
+  - name: means_tested_additional_payment_total
+    kind: derived
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2023-03-23'
+        formula: first_means_tested_additional_payment_amount + second_means_tested_additional_payment_amount + third_means_tested_additional_payment_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2023/7/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: disability_additional_payment_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2023-03-23'
+        formula: 150
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2022/38/1.test.yaml",
+        """- name: means_tested_additional_payment_total_2022
+  output:
+    uk:statutes/ukpga/2022/38/1#first_means_tested_additional_payment_amount: 326
+    uk:statutes/ukpga/2022/38/1#second_means_tested_additional_payment_amount: 324
+    uk:statutes/ukpga/2022/38/1#means_tested_additional_payment_total: 650
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2022/38/5.test.yaml",
+        """- name: disability_additional_payment_amount_2022
+  output:
+    uk:statutes/ukpga/2022/38/5#disability_additional_payment_amount: 150
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2023/7/1.test.yaml",
+        """- name: means_tested_additional_payment_total_2023
+  output:
+    uk:statutes/ukpga/2023/7/1#first_means_tested_additional_payment_amount: 301
+    uk:statutes/ukpga/2023/7/1#second_means_tested_additional_payment_amount: 300
+    uk:statutes/ukpga/2023/7/1#third_means_tested_additional_payment_amount: 299
+    uk:statutes/ukpga/2023/7/1#means_tested_additional_payment_total: 900
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2023/7/5.test.yaml",
+        """- name: disability_additional_payment_amount_2023
+  output:
+    uk:statutes/ukpga/2023/7/5#disability_additional_payment_amount: 150
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="cost_of_living_support_payment",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 5,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+
+    assert (
+        items_by_id[
+            "uk:statutes/ukpga/2022/38/1#means_tested_additional_payment_total"
+        ]["policyengine_parameter"]
+        == "gov.treasury.cost_of_living_support.means_tested_households.amount"
+    )
+    assert (
+        items_by_id["uk:statutes/ukpga/2023/7/1#means_tested_additional_payment_total"][
+            "policyengine_parameter"
+        ]
+        == "gov.treasury.cost_of_living_support.means_tested_households.amount"
+    )
+    assert (
+        items_by_id["uk:statutes/ukpga/2022/38/5#disability_additional_payment_amount"][
+            "policyengine_parameter"
+        ]
+        == "gov.treasury.cost_of_living_support.disabled.amount"
+    )
+    assert (
+        items_by_id["uk:statutes/ukpga/2023/7/5#disability_additional_payment_amount"][
+            "policyengine_parameter"
+        ]
+        == "gov.treasury.cost_of_living_support.disabled.amount"
+    )
+    comparable_items = [
+        item for item in items_by_id.values() if item["status"] == "comparable"
+    ]
+    helper_items = [
+        item
+        for item in items_by_id.values()
+        if item["status"] == "known_not_comparable"
+    ]
+    assert {item["mapping_type"] for item in comparable_items} == {"parameter_value"}
+    assert {item["mapping_type"] for item in helper_items} == {"not_comparable"}
+    assert all(item["tested"] is True for item in comparable_items)
+
+
 def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
     tmp_path,
 ):
