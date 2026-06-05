@@ -2150,6 +2150,99 @@ rules:
     assert all(item["tested"] is True for item in report["items"])
 
 
+def test_policyengine_coverage_classifies_uk_state_pension_rate_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/4.yaml",
+        """format: rulespec/v1
+rules:
+  - name: category_a_basic_retirement_pension_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 184.90
+  - name: category_a_basic_retirement_pension_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: category_a_basic_retirement_pension_substituted_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/4.test.yaml",
+        """- name: article 4 basic state pension rate
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_substituted_amount: 184.90
+    uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_weekly_rate: 184.90
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/6.yaml",
+        """format: rulespec/v1
+rules:
+  - name: full_new_state_pension_substituted_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 241.30
+  - name: full_new_state_pension_weekly_rate
+    kind: derived
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: full_new_state_pension_substituted_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/6.test.yaml",
+        """- name: article 6 new state pension rate
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:regulations/uksi/2026/148/article/6#full_new_state_pension_substituted_amount: 241.30
+    uk:regulations/uksi/2026/148/article/6#full_new_state_pension_weekly_rate: 241.30
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="state_pension")
+
+    assert report["status_counts"] == {"comparable": 4}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    basic_rate = items_by_id[
+        "uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_weekly_rate"
+    ]
+    new_rate = items_by_id[
+        "uk:regulations/uksi/2026/148/article/6#full_new_state_pension_weekly_rate"
+    ]
+    assert (
+        basic_rate["policyengine_parameter"]
+        == "gov.dwp.state_pension.basic_state_pension.amount"
+    )
+    assert (
+        new_rate["policyengine_parameter"]
+        == "gov.dwp.state_pension.new_state_pension.amount"
+    )
+    assert all(item["mapping_type"] == "parameter_value" for item in report["items"])
+    assert all(item["tested"] is True for item in report["items"])
+
+
 @pytest.mark.parametrize(
     (
         "path",
