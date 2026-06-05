@@ -2012,6 +2012,134 @@ rules:
     assert carers_allowance["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_winter_fuel_payment_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2025/969/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: winter_fuel_payment_under_80_standard_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 200
+  - name: winter_fuel_payment_under_80_shared_or_residential_care_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 100
+  - name: winter_fuel_payment_under_80_partner_80_relevant_benefit_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 300
+  - name: winter_fuel_payment_age_80_standard_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 300
+  - name: winter_fuel_payment_age_80_shared_under_80_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 200
+  - name: winter_fuel_payment_age_80_shared_80_or_residential_care_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 150
+  - name: winter_fuel_payment_higher_age_requirement
+    kind: parameter
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: 80
+  - name: winter_fuel_payment_lower_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: winter_fuel_payment_under_80_standard_amount
+  - name: winter_fuel_payment_higher_amount
+    kind: derived
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2025-09-15'
+        formula: winter_fuel_payment_age_80_standard_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2025/969/3.test.yaml",
+        """- name: winter fuel payment amounts
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_under_80_standard_amount: 200
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_under_80_shared_or_residential_care_amount: 100
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_under_80_partner_80_relevant_benefit_amount: 300
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_age_80_standard_amount: 300
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_age_80_shared_under_80_amount: 200
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_age_80_shared_80_or_residential_care_amount: 150
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_higher_age_requirement: 80
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_lower_amount: 200
+    uk:regulations/uksi/2025/969/3#winter_fuel_payment_higher_amount: 300
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path, program="winter_fuel_allowance"
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 4,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    lower = items_by_id[
+        "uk:regulations/uksi/2025/969/3#winter_fuel_payment_lower_amount"
+    ]
+    higher = items_by_id[
+        "uk:regulations/uksi/2025/969/3#winter_fuel_payment_higher_amount"
+    ]
+    age = items_by_id[
+        "uk:regulations/uksi/2025/969/3#winter_fuel_payment_higher_age_requirement"
+    ]
+    shared = items_by_id[
+        "uk:regulations/uksi/2025/969/3#winter_fuel_payment_under_80_shared_or_residential_care_amount"
+    ]
+
+    assert lower["policyengine_parameter"] == "gov.dwp.winter_fuel_payment.amount.lower"
+    assert (
+        higher["policyengine_parameter"] == "gov.dwp.winter_fuel_payment.amount.higher"
+    )
+    assert (
+        age["policyengine_parameter"]
+        == "gov.dwp.winter_fuel_payment.eligibility.higher_age_requirement"
+    )
+    assert shared["status"] == "known_not_comparable"
+    assert lower["tested"] is True
+    assert higher["tested"] is True
+    assert age["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_dla_rate_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2026/148/article/14.yaml",
