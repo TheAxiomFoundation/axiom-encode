@@ -1168,6 +1168,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("ssmg",),
         "rationale": "Axiom covers the Sure Start Maternity Grant amount, not the qualifying-benefit, pregnancy, child, prescribed-time, residence, or reported-receipt conditions feeding the final SSMG amount.",
     },
+    "scottish_child_payment": {
+        "status": "partial",
+        "surfaces": ("scottish-child-payment-parameters",),
+        "covered_outputs": ("scottish_child_payment",),
+        "rationale": "Axiom covers the Scottish Child Payment weekly amount and child age threshold, not the qualifying benefits, residence, responsibility, application, take-up, or final annual amount.",
+    },
     "winter_fuel_allowance": {
         "status": "partial",
         "surfaces": ("winter-fuel-payment-rates",),
