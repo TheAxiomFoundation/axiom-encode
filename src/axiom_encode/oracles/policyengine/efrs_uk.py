@@ -968,6 +968,138 @@ SURFACE_SPECS = {
     ),
 }
 
+HBAI_FIXED_INPUT_COMPONENTS = frozenset(
+    {
+        "dividend_income",
+        "employee_pension_contributions",
+        "employment_income",
+        "external_child_payments",
+        "maintenance_expenses",
+        "maintenance_income",
+        "miscellaneous_income",
+        "personal_pension_contributions",
+        "private_pension_income",
+        "private_transfer_income",
+        "property_income",
+        "savings_interest_income",
+        "self_employment_income",
+    }
+)
+
+HBAI_COMPONENT_COVERAGE = {
+    "income_tax": {
+        "status": "exact",
+        "surfaces": ("income-tax-income-base",),
+        "covered_outputs": ("income_tax",),
+        "rationale": "Axiom compares the Section 23 income tax liability output directly to PolicyEngine UK's income_tax variable.",
+    },
+    "national_insurance": {
+        "status": "partial",
+        "surfaces": ("national-insurance-class-1",),
+        "covered_outputs": ("ni_employee",),
+        "rationale": "Axiom covers employee Class 1 National Insurance; HBAI national_insurance also includes non-Class-1 components.",
+    },
+    "child_benefit": {
+        "status": "partial",
+        "surfaces": ("child-benefit",),
+        "covered_outputs": ("child_benefit_respective_amount",),
+        "rationale": "Axiom covers the per-child weekly rates feeding Child Benefit, not the household aggregate HBAI component.",
+    },
+    "esa_income": {
+        "status": "partial",
+        "surfaces": ("esa-income-tariff-income",),
+        "covered_outputs": ("esa_income_tariff_income",),
+        "rationale": "Axiom covers capital tariff income used inside income-related ESA, not the final ESA HBAI amount.",
+    },
+    "housing_benefit": {
+        "status": "partial",
+        "surfaces": (
+            "housing-benefit-working-age-tariff-income",
+            "housing-benefit-pension-age-tariff-income",
+        ),
+        "covered_outputs": ("housing_benefit_tariff_income",),
+        "rationale": "Axiom covers Housing Benefit capital tariff income branches, not the final Housing Benefit HBAI amount.",
+    },
+    "income_support": {
+        "status": "partial",
+        "surfaces": ("income-support-tariff-income",),
+        "covered_outputs": ("income_support_tariff_income",),
+        "rationale": "Axiom covers Income Support capital tariff income, not the final Income Support HBAI amount.",
+    },
+    "jsa_income": {
+        "status": "partial",
+        "surfaces": ("jsa-income-tariff-income",),
+        "covered_outputs": ("jsa_income_tariff_income",),
+        "rationale": "Axiom covers capital tariff income used inside income-based JSA, not the final JSA HBAI amount.",
+    },
+    "pension_credit": {
+        "status": "partial",
+        "surfaces": (
+            "state-pension-credit-guarantee-credit",
+            "state-pension-credit-savings-credit",
+            "pension-credit",
+            "pension-credit-child-addition",
+            "pension-credit-deemed-income",
+        ),
+        "covered_outputs": (
+            "guarantee_credit",
+            "savings_credit",
+            "standard_minimum_guarantee",
+            "severe_disability_minimum_guarantee_addition",
+            "carer_minimum_guarantee_addition",
+            "child_minimum_guarantee_addition",
+            "pension_credit_deemed_income",
+        ),
+        "rationale": "Axiom covers major Pension Credit rates, additions, and deemed-income components, not the final aggregate pension_credit variable.",
+    },
+    "universal_credit": {
+        "status": "partial",
+        "surfaces": (
+            "universal-credit-standard-allowance",
+            "universal-credit-child-element",
+            "universal-credit-lcwra-element",
+            "universal-credit-carer-element",
+            "universal-credit-childcare-cap",
+            "universal-credit-childcare-work-condition",
+            "universal-credit-childcare-element",
+            "universal-credit-award",
+            "universal-credit-housing-costs",
+            "universal-credit-work-allowance",
+            "universal-credit-income-deduction",
+            "universal-credit-assessable-capital",
+            "universal-credit-tariff-income",
+        ),
+        "covered_outputs": (
+            "uc_standard_allowance",
+            "uc_individual_child_element",
+            "uc_individual_disabled_child_element",
+            "uc_individual_severely_disabled_child_element",
+            "uc_LCWRA_element",
+            "uc_carer_element",
+            "uc_childcare_element",
+            "uc_maximum_amount",
+            "uc_income_reduction",
+            "uc_housing_costs_element",
+            "uc_work_allowance",
+            "uc_assessable_capital",
+            "uc_tariff_income",
+        ),
+        "rationale": "Axiom covers many Universal Credit legal elements and the award-before-take-up expression, not the final HBAI universal_credit aggregate.",
+    },
+    "working_tax_credit": {
+        "status": "partial",
+        "surfaces": ("working-tax-credit-elements",),
+        "covered_outputs": (
+            "wtc_basic_element",
+            "wtc_couple_element",
+            "wtc_lone_parent_element",
+            "wtc_disabled_worker_element",
+            "wtc_severely_disabled_worker_element",
+        ),
+        "rationale": "Axiom covers Schedule 2 element rates after the WTC encoding; it does not yet compute final Working Tax Credit entitlement.",
+    },
+}
+
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
     surface
     for surface, spec in SURFACE_SPECS.items()
@@ -997,6 +1129,8 @@ class UKEFRSVariableSource:
     path: str
     has_formula: bool
     has_aggregate: bool
+    adds: tuple[str, ...] = ()
+    subtracts: tuple[str, ...] = ()
 
     @property
     def computation_kind(self) -> str:
@@ -1088,6 +1222,148 @@ class UKEFRSCoverageReport:
             "missing_variables_total": self.missing_variables_total,
             "missing_variables": [item.to_json() for item in self.missing_variables],
             "activity": [item.to_json() for item in self.activity],
+            "activity_errors": self.activity_errors,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSHBAIComponentActivity:
+    weighted_total: float
+    weighted_abs_total: float
+    weighted_mean: float
+    weighted_nonzero_share: float
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "weighted_total": self.weighted_total,
+            "weighted_abs_total": self.weighted_abs_total,
+            "weighted_mean": self.weighted_mean,
+            "weighted_nonzero_share": self.weighted_nonzero_share,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSHBAIComponentCoverage:
+    name: str
+    direction: str
+    status: str
+    policy_component: bool
+    surfaces: tuple[str, ...]
+    covered_outputs: tuple[str, ...]
+    rationale: str
+    activity: UKEFRSHBAIComponentActivity | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "direction": self.direction,
+            "status": self.status,
+            "policy_component": self.policy_component,
+            "surfaces": list(self.surfaces),
+            "covered_outputs": list(self.covered_outputs),
+            "rationale": self.rationale,
+            "activity": self.activity.to_json() if self.activity else None,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSHBAICoverageReport:
+    policyengine_versions: dict[str, str]
+    source_root: str | None
+    year: int
+    dataset: str
+    adds: tuple[str, ...]
+    subtracts: tuple[str, ...]
+    components: list[UKEFRSHBAIComponentCoverage]
+    activity_errors: list[dict[str, str]]
+    hbai_activity: UKEFRSHBAIComponentActivity | None = None
+
+    @property
+    def status_counts(self) -> dict[str, int]:
+        return dict(sorted(Counter(component.status for component in self.components).items()))
+
+    @property
+    def policy_component_count(self) -> int:
+        return sum(1 for component in self.components if component.policy_component)
+
+    @property
+    def covered_policy_component_count(self) -> int:
+        return sum(
+            1
+            for component in self.components
+            if component.policy_component and component.status in {"exact", "partial"}
+        )
+
+    @property
+    def exact_policy_component_count(self) -> int:
+        return sum(
+            1
+            for component in self.components
+            if component.policy_component and component.status == "exact"
+        )
+
+    @property
+    def covered_policy_component_share(self) -> float:
+        if self.policy_component_count == 0:
+            return 0.0
+        return self.covered_policy_component_count / self.policy_component_count
+
+    @property
+    def exact_policy_component_share(self) -> float:
+        if self.policy_component_count == 0:
+            return 0.0
+        return self.exact_policy_component_count / self.policy_component_count
+
+    @property
+    def activity_totals(self) -> dict[str, float] | None:
+        components_with_activity = [
+            component
+            for component in self.components
+            if component.policy_component and component.activity is not None
+        ]
+        if not components_with_activity:
+            return None
+        total = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None
+        )
+        covered = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None
+            and component.status in {"exact", "partial"}
+        )
+        exact = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None and component.status == "exact"
+        )
+        return {
+            "policy_weighted_abs_total": total,
+            "covered_policy_weighted_abs_total": covered,
+            "exact_policy_weighted_abs_total": exact,
+            "covered_policy_weighted_abs_share": covered / total if total else 0.0,
+            "exact_policy_weighted_abs_share": exact / total if total else 0.0,
+        }
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "policyengine_versions": self.policyengine_versions,
+            "source_root": self.source_root,
+            "year": self.year,
+            "dataset": self.dataset,
+            "adds": list(self.adds),
+            "subtracts": list(self.subtracts),
+            "status_counts": self.status_counts,
+            "policy_component_count": self.policy_component_count,
+            "covered_policy_component_count": self.covered_policy_component_count,
+            "exact_policy_component_count": self.exact_policy_component_count,
+            "covered_policy_component_share": self.covered_policy_component_share,
+            "exact_policy_component_share": self.exact_policy_component_share,
+            "activity_totals": self.activity_totals,
+            "hbai_activity": self.hbai_activity.to_json() if self.hbai_activity else None,
+            "components": [component.to_json() for component in self.components],
             "activity_errors": self.activity_errors,
         }
 
@@ -1303,6 +1579,48 @@ def configure_coverage_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
 
+def configure_hbai_coverage_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        help=(
+            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
+            "path for --with-efrs-activity"
+        ),
+    )
+    parser.add_argument(
+        "--data-folder",
+        type=Path,
+        default=Path(".axiom") / "policyengine-data",
+        help="PolicyEngine dataset cache folder",
+    )
+    parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=None,
+        help=(
+            "PolicyEngine UK variables source root; defaults to the installed "
+            "policyengine_uk package"
+        ),
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=40,
+        help="Maximum components to print in text mode",
+    )
+    parser.add_argument(
+        "--with-efrs-activity",
+        action="store_true",
+        help=(
+            "Run PolicyEngine over EFRS and add weighted household-level "
+            "activity for each HBAI component"
+        ),
+    )
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+
 def main_coverage(args: argparse.Namespace) -> int:
     report = build_uk_efrs_coverage_report(
         year=args.year,
@@ -1316,6 +1634,21 @@ def main_coverage(args: argparse.Namespace) -> int:
         print(json.dumps(report.to_json(), indent=2, sort_keys=True))
     else:
         print_uk_efrs_coverage_report(report, top=args.top)
+    return 0
+
+
+def main_hbai_coverage(args: argparse.Namespace) -> int:
+    report = build_uk_hbai_policy_coverage_report(
+        year=args.year,
+        dataset=args.dataset,
+        data_folder=args.data_folder,
+        include_efrs_activity=args.with_efrs_activity,
+        source_root=args.source_root,
+    )
+    if args.json:
+        print(json.dumps(report.to_json(), indent=2, sort_keys=True))
+    else:
+        print_uk_hbai_policy_coverage_report(report, top=args.top)
     return 0
 
 
@@ -1910,6 +2243,182 @@ def build_uk_efrs_coverage_report(
     )
 
 
+def build_uk_hbai_policy_coverage_report(
+    *,
+    year: int = 2026,
+    dataset: str = DEFAULT_DATASET,
+    data_folder: Path = Path(".axiom") / "policyengine-data",
+    include_efrs_activity: bool = False,
+    source_root: Path | None = None,
+) -> UKEFRSHBAICoverageReport:
+    versions = policyengine_uk_versions()
+    resolved_source_root = source_root or policyengine_uk_variables_source_root()
+    source_index = parse_policyengine_uk_variable_sources(resolved_source_root)
+    hbai_source = source_index.get("hbai_household_net_income")
+    if hbai_source is None:
+        raise SystemExit(
+            "PolicyEngine UK hbai_household_net_income source not found under "
+            f"{resolved_source_root}"
+        )
+    if not hbai_source.adds and not hbai_source.subtracts:
+        raise SystemExit(
+            "PolicyEngine UK hbai_household_net_income source does not declare "
+            "adds/subtracts components"
+        )
+
+    component_activity: dict[str, UKEFRSHBAIComponentActivity] = {}
+    hbai_activity = None
+    activity_errors: list[dict[str, str]] = []
+    if include_efrs_activity:
+        component_activity, hbai_activity, activity_errors = (
+            policyengine_uk_hbai_activity(
+                components=tuple(
+                    dict.fromkeys([*hbai_source.adds, *hbai_source.subtracts])
+                ),
+                year=year,
+                dataset=dataset,
+                data_folder=data_folder,
+            )
+        )
+
+    components: list[UKEFRSHBAIComponentCoverage] = []
+    for direction, names in (
+        ("add", hbai_source.adds),
+        ("subtract", hbai_source.subtracts),
+    ):
+        for name in names:
+            components.append(
+                classify_hbai_component(
+                    name=name,
+                    direction=direction,
+                    activity=component_activity.get(name),
+                )
+            )
+
+    return UKEFRSHBAICoverageReport(
+        policyengine_versions=versions,
+        source_root=str(resolved_source_root.resolve()),
+        year=year,
+        dataset=dataset,
+        adds=hbai_source.adds,
+        subtracts=hbai_source.subtracts,
+        components=components,
+        hbai_activity=hbai_activity,
+        activity_errors=activity_errors,
+    )
+
+
+def classify_hbai_component(
+    *,
+    name: str,
+    direction: str,
+    activity: UKEFRSHBAIComponentActivity | None = None,
+) -> UKEFRSHBAIComponentCoverage:
+    if name in HBAI_FIXED_INPUT_COMPONENTS:
+        return UKEFRSHBAIComponentCoverage(
+            name=name,
+            direction=direction,
+            status="fixed_input",
+            policy_component=False,
+            surfaces=(),
+            covered_outputs=(),
+            rationale=(
+                "Private, market, maintenance, or pension-contribution input held "
+                "fixed when measuring policy alignment."
+            ),
+            activity=activity,
+        )
+    coverage = HBAI_COMPONENT_COVERAGE.get(name)
+    if coverage is not None:
+        return UKEFRSHBAIComponentCoverage(
+            name=name,
+            direction=direction,
+            status=str(coverage["status"]),
+            policy_component=True,
+            surfaces=tuple(str(item) for item in coverage["surfaces"]),
+            covered_outputs=tuple(str(item) for item in coverage["covered_outputs"]),
+            rationale=str(coverage["rationale"]),
+            activity=activity,
+        )
+    return UKEFRSHBAIComponentCoverage(
+        name=name,
+        direction=direction,
+        status="missing",
+        policy_component=True,
+        surfaces=(),
+        covered_outputs=(),
+        rationale="No current Axiom UK RuleSpec surface is classified as covering this HBAI policy component.",
+        activity=activity,
+    )
+
+
+def policyengine_uk_hbai_activity(
+    *,
+    components: tuple[str, ...],
+    year: int,
+    dataset: str,
+    data_folder: Path,
+) -> tuple[
+    dict[str, UKEFRSHBAIComponentActivity],
+    UKEFRSHBAIComponentActivity | None,
+    list[dict[str, str]],
+]:
+    require_policyengine_uk_versions(command="uk-efrs-hbai-coverage")
+    try:
+        from policyengine_uk import Microsimulation
+        from policyengine_uk.data import UKSingleYearDataset
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(
+            policyengine_uk_install_message("uk-efrs-hbai-coverage")
+        ) from exc
+
+    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    if local_dataset is None:
+        raise SystemExit(
+            "uk-efrs-hbai-coverage --with-efrs-activity with current "
+            "PolicyEngine UK requires a local .h5 --dataset path. "
+            f"{policyengine_uk_install_message('uk-efrs-hbai-coverage')}"
+        )
+
+    log("Loading local PolicyEngine UK EFRS for HBAI activity...")
+    pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    sim = Microsimulation(dataset=pe_dataset)
+
+    activity: dict[str, UKEFRSHBAIComponentActivity] = {}
+    errors: list[dict[str, str]] = []
+    for name in components:
+        try:
+            activity[name] = microseries_activity(
+                sim.calculate(name, period=year, map_to="household")
+            )
+        except Exception as exc:  # pragma: no cover - depends on PE variable graph
+            errors.append({"variable": name, "error": str(exc)})
+
+    hbai_activity = None
+    try:
+        hbai_activity = microseries_activity(
+            sim.calculate(
+                "hbai_household_net_income",
+                period=year,
+                map_to="household",
+            )
+        )
+    except Exception as exc:  # pragma: no cover - depends on PE variable graph
+        errors.append({"variable": "hbai_household_net_income", "error": str(exc)})
+
+    return activity, hbai_activity, errors
+
+
+def microseries_activity(series: Any) -> UKEFRSHBAIComponentActivity:
+    abs_series = abs(series)
+    return UKEFRSHBAIComponentActivity(
+        weighted_total=float(series.sum()),
+        weighted_abs_total=float(abs_series.sum()),
+        weighted_mean=float(series.mean()),
+        weighted_nonzero_share=float((abs_series > 1e-9).mean()),
+    )
+
+
 def discover_policyengine_uk_variables(
     *,
     policyengine_variables: list[Any] | None = None,
@@ -1988,6 +2497,8 @@ def parse_policyengine_uk_variable_sources(
                 continue
             entity = ""
             has_aggregate = False
+            adds: tuple[str, ...] = ()
+            subtracts: tuple[str, ...] = ()
             has_formula = any(
                 isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and item.name.startswith("formula")
@@ -2009,6 +2520,11 @@ def parse_policyengine_uk_variable_sources(
                         entity = normalize_policyengine_entity(ast_value_name(value))
                     if target.id in {"adds", "subtracts"}:
                         has_aggregate = True
+                        components = ast_string_sequence(value)
+                        if target.id == "adds":
+                            adds = components
+                        else:
+                            subtracts = components
             sources[node.name] = UKEFRSVariableSource(
                 name=node.name,
                 entity=entity,
@@ -2016,6 +2532,8 @@ def parse_policyengine_uk_variable_sources(
                 path=relative_path.as_posix(),
                 has_formula=has_formula,
                 has_aggregate=has_aggregate,
+                adds=adds,
+                subtracts=subtracts,
             )
     return sources
 
@@ -2034,6 +2552,17 @@ def ast_value_name(node: ast.AST) -> str:
     if isinstance(node, ast.Subscript):
         return ast_value_name(node.value)
     return ""
+
+
+def ast_string_sequence(node: ast.AST | None) -> tuple[str, ...]:
+    if isinstance(node, (ast.List, ast.Tuple)):
+        values: list[str] = []
+        for item in node.elts:
+            value = ast_value_name(item)
+            if value:
+                values.append(value)
+        return tuple(values)
+    return ()
 
 
 def variable_attribute(raw_variable: Any, name: str, default: Any = None) -> Any:
@@ -2324,6 +2853,80 @@ def print_uk_efrs_coverage_report(
                 f"  - {error.get('entity', '?')}:{error.get('variable', '?')}: "
                 f"{error.get('error', '')}"
             )
+
+
+def print_uk_hbai_policy_coverage_report(
+    report: UKEFRSHBAICoverageReport,
+    *,
+    top: int,
+) -> None:
+    print("PolicyEngine UK HBAI policy coverage")
+    print(
+        "PolicyEngine versions: "
+        + ", ".join(
+            f"{package}=={version}"
+            for package, version in report.policyengine_versions.items()
+        )
+    )
+    if report.source_root:
+        print(f"Variable source root: {report.source_root}")
+    print(f"Year: {report.year}")
+    print(f"Dataset: {report.dataset}")
+    print(
+        "HBAI components: "
+        f"{len(report.adds):,} adds, {len(report.subtracts):,} subtracts"
+    )
+    print(
+        "Policy components covered exactly or partially: "
+        f"{report.covered_policy_component_count:,}/"
+        f"{report.policy_component_count:,} "
+        f"({report.covered_policy_component_share:.1%})"
+    )
+    print(
+        "Policy components covered exactly: "
+        f"{report.exact_policy_component_count:,}/"
+        f"{report.policy_component_count:,} "
+        f"({report.exact_policy_component_share:.1%})"
+    )
+    print("Status counts:")
+    for status, count in report.status_counts.items():
+        print(f"  - {status}: {count:,}")
+    if report.hbai_activity:
+        print()
+        print(
+            "HBAI weighted total: "
+            f"{report.hbai_activity.weighted_total:.2f}; "
+            f"weighted abs total: {report.hbai_activity.weighted_abs_total:.2f}"
+        )
+    if report.activity_totals:
+        totals = report.activity_totals
+        print(
+            "Policy component weighted abs activity covered exactly or partially: "
+            f"{totals['covered_policy_weighted_abs_share']:.1%}"
+        )
+        print(
+            "Policy component weighted abs activity covered exactly: "
+            f"{totals['exact_policy_weighted_abs_share']:.1%}"
+        )
+    print()
+    print(f"HBAI components (first {top:,}):")
+    for component in report.components[:top]:
+        activity = ""
+        if component.activity:
+            activity = (
+                ", weighted_abs_total="
+                f"{component.activity.weighted_abs_total:.2f}"
+            )
+        surfaces = ", ".join(component.surfaces) if component.surfaces else "none"
+        print(
+            f"  - {component.name} ({component.direction}): "
+            f"{component.status}, surfaces={surfaces}{activity}"
+        )
+    if report.activity_errors:
+        print()
+        print("Activity errors:")
+        for error in report.activity_errors[:top]:
+            print(f"  - {error.get('variable', '?')}: {error.get('error', '')}")
 
 
 def select_person_indices(
