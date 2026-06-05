@@ -465,6 +465,66 @@ mappings:
     comparison: money
     rationale: Same Pension Credit carer addition output after applying claimant circumstances.
 
+  - legal_id: uk:regulations/uksi/2002/1792/schedule/IIA#child_or_qualifying_young_person_weekly_amount
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.child.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same standard weekly Pension Credit child or qualifying-young-person addition. Companion tests exercise it through the aggregate Schedule IIA amount.
+
+  - legal_id: uk:regulations/uksi/2002/1792/schedule/IIA#first_child_or_qualifying_young_person_born_before_6_april_2017_weekly_amount
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.child.first.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Pension Credit amount for the eldest responsible child or qualifying young person born before 6 April 2017. Companion tests exercise it through the aggregate Schedule IIA amount.
+
+  - legal_id: uk:regulations/uksi/2002/1792/schedule/IIA#disabled_child_or_qualifying_young_person_further_weekly_amount
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.child.disability.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same further weekly Pension Credit amount for a disabled child or qualifying young person. Companion tests exercise it through the aggregate Schedule IIA amount.
+
+  - legal_id: uk:regulations/uksi/2002/1792/schedule/IIA#severely_disabled_child_or_qualifying_young_person_further_weekly_amount
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.child.disability.severe.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same further weekly Pension Credit amount for a severely disabled child or qualifying young person. Companion tests exercise it through the aggregate Schedule IIA amount.
+
+  - legal_id: uk:regulations/uksi/2002/1792/schedule/IIA#additional_amount_applicable
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: child_minimum_guarantee_addition
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    candidate_priority: P2
+    rationale: Same Pension Credit child-related addition after the UK EFRS adapter projects PolicyEngine's child count, pre-2017 eldest-child flag, and disability buckets into Schedule IIA inputs and converts PolicyEngine's annual output to a weekly amount.
+
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
     program: pension_credit
@@ -826,6 +886,12 @@ prefixes:
     program: pension_credit
     mapping_type: not_comparable
     rationale: Pension Credit helper outputs not listed above are remand-prisoner, tax-credit cessation, nil substitution, or branch-control intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2002/1792/schedule/IIA#
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Pension Credit Schedule IIA helper outputs not listed above are responsibility, absence, disability, or aggregation intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/15#
     country: uk

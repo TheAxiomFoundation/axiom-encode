@@ -60,6 +60,10 @@ STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH = Path("statutes/ukpga/2002/16/3.yam
 STATE_PENSION_CREDIT_SECTION_3_BASE = "uk:statutes/ukpga/2002/16/3"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
+PENSION_CREDIT_SCHEDULE_IIA_PROGRAM_PATH = Path(
+    "regulations/uksi/2002/1792/schedule/IIA.yaml"
+)
+PENSION_CREDIT_SCHEDULE_IIA_BASE = "uk:regulations/uksi/2002/1792/schedule/IIA"
 PENSION_CREDIT_REGULATION_15_PROGRAM_PATH = Path("regulations/uksi/2002/1792/15.yaml")
 PENSION_CREDIT_REGULATION_15_BASE = "uk:regulations/uksi/2002/1792/15"
 ESA_REGULATION_118_PROGRAM_PATH = Path("regulations/uksi/2008/794/118.yaml")
@@ -310,6 +314,15 @@ PENSION_CREDIT_OUTPUTS = {
         "axiom": f"{PENSION_CREDIT_BASE}#carer_additional_amount",
         "pe": "carer_minimum_guarantee_addition",
         "pe_transform": "annual_to_weekly_per_carer",
+    },
+}
+
+PENSION_CREDIT_CHILD_ADDITION_OUTPUTS = {
+    "additional_amount_applicable": {
+        "axiom": f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#additional_amount_applicable",
+        "pe": "child_minimum_guarantee_addition",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
     },
 }
 
@@ -752,6 +765,20 @@ SURFACE_SPECS = {
             "relation_type",
             "severe_disability_minimum_guarantee_addition",
             "standard_minimum_guarantee",
+        ),
+    ),
+    "pension-credit-child-addition": UKEFRSSurfaceSpec(
+        program=PENSION_CREDIT_SCHEDULE_IIA_PROGRAM_PATH,
+        entity="benunit",
+        outputs=PENSION_CREDIT_CHILD_ADDITION_OUTPUTS,
+        pe_variables=("child_minimum_guarantee_addition",),
+        projection_person_variables=(
+            "birth_year",
+            "dla",
+            "is_child_or_qualifying_young_person_for_pension_credit",
+            "pip",
+            "receives_enhanced_pip_dl",
+            "receives_highest_dla_sc",
         ),
     ),
     "pension-credit-deemed-income": UKEFRSSurfaceSpec(
@@ -1450,6 +1477,10 @@ def load_local_policyengine_uk_data(
             merged_benunits,
             merged,
         )
+        merged_benunits = add_pension_credit_child_addition_projection_columns(
+            merged_benunits,
+            merged,
+        )
         benunit_records = table_records(merged_benunits)
         selected_benunit_ids = ()
         if person_ids:
@@ -1586,6 +1617,69 @@ def add_housing_benefit_age_projection_columns(
     merged["housing_benefit_any_over_sp_age"] = merged[
         "housing_benefit_any_over_sp_age"
     ].fillna(False)
+    return merged
+
+
+def add_pension_credit_child_addition_projection_columns(
+    benunit: Any,
+    person: Any,
+) -> Any:
+    required = {
+        "person_benunit_id",
+        "birth_year",
+        "dla",
+        "is_child_or_qualifying_young_person_for_pension_credit",
+        "pip",
+        "receives_enhanced_pip_dl",
+        "receives_highest_dla_sc",
+    }
+    if not required.issubset(set(person.columns)):
+        return benunit
+    projection = person[["person_benunit_id"]].copy()
+    is_child = (
+        person["is_child_or_qualifying_young_person_for_pension_credit"]
+        .fillna(False)
+        .astype(bool)
+    )
+    standard_disability = (
+        person["dla"].fillna(0).astype(float) + person["pip"].fillna(0).astype(float)
+    ) > 0
+    severe_disability = person["receives_highest_dla_sc"].fillna(False).astype(
+        bool
+    ) | person["receives_enhanced_pip_dl"].fillna(False).astype(bool)
+    birth_year = person["birth_year"].fillna(9999).astype(float)
+    projection["pc_child_addition_child_count"] = is_child.astype(int)
+    projection["pc_child_addition_standard_disabled_child_count"] = (
+        is_child & standard_disability & ~severe_disability
+    ).astype(int)
+    projection["pc_child_addition_severely_disabled_child_count"] = (
+        is_child & severe_disability
+    ).astype(int)
+    projection["pc_child_addition_any_pre_2017_child"] = (
+        is_child & (birth_year < 2017)
+    ).astype(int)
+    by_benunit = projection.groupby("person_benunit_id", dropna=False).sum()
+    by_benunit["pc_child_addition_any_pre_2017_child"] = (
+        by_benunit["pc_child_addition_any_pre_2017_child"] > 0
+    )
+    output_columns = [
+        "pc_child_addition_child_count",
+        "pc_child_addition_standard_disabled_child_count",
+        "pc_child_addition_severely_disabled_child_count",
+        "pc_child_addition_any_pre_2017_child",
+    ]
+    by_benunit = by_benunit[output_columns].reset_index()
+    merged = benunit.merge(
+        by_benunit,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    ).drop(columns=["person_benunit_id"], errors="ignore")
+    for column in output_columns:
+        if column == "pc_child_addition_any_pre_2017_child":
+            merged[column] = merged[column].fillna(False)
+        else:
+            merged[column] = merged[column].fillna(0).astype(int)
     return merged
 
 
@@ -2497,6 +2591,8 @@ def build_axiom_request(
         )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
+    if surface == "pension-credit-child-addition":
+        return build_pension_credit_child_addition_request(pe_data=pe_data, year=year)
     if surface == "pension-credit-deemed-income":
         return build_pension_credit_deemed_income_request(
             pe_data=pe_data,
@@ -2958,6 +3054,41 @@ def build_pension_credit_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in PENSION_CREDIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_pension_credit_child_addition_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "pension-credit-child-addition"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_pension_credit_child_addition_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{PENSION_CREDIT_SCHEDULE_IIA_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in PENSION_CREDIT_CHILD_ADDITION_OUTPUTS.values()
+                ],
             }
         )
 
@@ -3955,6 +4086,23 @@ def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_pension_credit_child_addition_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claimant_responsible_child_or_qualifying_young_person_count": int(
+            money(row_value(row, "pc_child_addition_child_count", 0))
+        ),
+        "claimant_responsible_disabled_not_severely_disabled_child_or_qualifying_young_person_count": int(
+            money(row_value(row, "pc_child_addition_standard_disabled_child_count", 0))
+        ),
+        "claimant_responsible_severely_disabled_child_or_qualifying_young_person_count": int(
+            money(row_value(row, "pc_child_addition_severely_disabled_child_count", 0))
+        ),
+        "eldest_child_or_qualifying_young_person_born_before_6_april_2017": bool(
+            row_value(row, "pc_child_addition_any_pre_2017_child", False)
+        ),
+    }
+
+
 def project_state_pension_credit_guarantee_credit_inputs(
     row: Any,
 ) -> dict[str, Any]:
@@ -4186,6 +4334,12 @@ def compare_outputs(
             "divided by num_carers and 52. The EFRS oracle has no positive "
             "severe-disability addition rows, so that branch is currently a "
             "zero-row guard rather than a positive-eligibility validation.",
+            "Pension Credit Schedule IIA child-addition comparison projects "
+            "PolicyEngine person-level child-or-qualifying-young-person, "
+            "birth-year, and disability-benefit outputs into benefit-unit "
+            "counts and the eldest-child-before-6-April-2017 flag, then "
+            "compares the weekly RuleSpec aggregate against PolicyEngine's "
+            "annual child_minimum_guarantee_addition divided by 52.",
             "State Pension Credit Act section 1 qualifying-age comparison "
             "queries RuleSpec's day-level qualifying_age on a representative "
             "day and supplies PolicyEngine's annual state_pension_age for both "
