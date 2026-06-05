@@ -102,6 +102,7 @@ from axiom_encode.cli import (
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
+    _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
@@ -4549,6 +4550,486 @@ rules:
                 "us-co:statutes/39/39-22-123.5#credit_excluded_from_income"
             ]
             == "holds"
+        )
+
+    def test_source_relation_delegation_repair_fills_implementation_basis(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/42/1396a/xx#state_must_apply_community_engagement_requirement
+      reason: Requires implementing regulations.
+rules: []
+"""
+        )
+        rules_file = (
+            output_root / "runner" / "regulations" / "42-cfr" / "435" / "550.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: sections_435_550_through_435_563_implement_section_1902_xx
+  kind: source_relation
+  source: 42 CFR 435.550
+  source_relation:
+    type: implements
+    target: us:statutes/42/1396a/xx
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation "
+                "`sections_435_550_through_435_563_implement_section_1902_xx` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == [
+            "sections_435_550_through_435_563_implement_section_1902_xx"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        source_relation = payload["rules"][0]["source_relation"]
+        assert (
+            source_relation["basis"]["delegation"]
+            == "us:statutes/42/1396a/xx#state_must_apply_community_engagement_requirement"
+        )
+
+    def test_source_relation_delegation_repair_skips_sets_without_basis(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: sets_state_allowance
+  kind: source_relation
+  source: State Rule
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#state_option
+    value: us-ny:regulations/18-nycrr/387/12/f/3/v/c#allowance
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "RuleSpec source relation `sets_state_allowance` with type "
+                "`sets` must declare source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_source_relation_delegation_repair_prefers_single_delegate_rule(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+      reason: Implemented by state policy.
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "`source_relation.basis.delegation`"
+            ],
+        )
+
+        assert repaired == ["implements_federal_snap_option"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        )
+
+    def test_source_relation_delegation_repair_resolves_sibling_target_repo(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        state_repo = tmp_path / "rulespec-us-ny"
+        federal_repo = tmp_path / "rulespec-us"
+        target_file = federal_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=state_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_federal_snap_option"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        )
+
+    def test_source_relation_delegation_repair_resolves_configured_repo_root(
+        self, tmp_path, monkeypatch
+    ):
+        output_root = tmp_path / "out"
+        state_repo = tmp_path / "worktrees" / "rulespec-us-ny"
+        configured_parent = tmp_path / "configured"
+        federal_repo = configured_parent / "rulespec-us"
+        target_file = federal_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        )
+        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=state_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_federal_snap_option"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        )
+
+    def test_source_relation_delegation_repair_resolves_symbol_target_to_delegation(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9.yaml#snap_individual_utility_allowance_state_option
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_federal_snap_option"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        )
+
+    def test_source_relation_delegation_repair_normalizes_delegate_yaml_target(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9.yaml#snap_individual_utility_allowance_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_federal_snap_option"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        )
+
+    def test_source_relation_delegation_repair_skips_ambiguous_delegations(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_first_state_option_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_first_state_option
+- name: snap_second_state_option_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_second_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_source_relation_delegation_repair_skips_symbol_target_mismatch(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_other_state_option_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_other_state_option
+"""
+        )
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: implements_federal_snap_option
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_federal_snap_option` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_source_relation_delegation_repair_resolves_explicit_yaml_target(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: medicaid_community_engagement_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:statutes/42/1396a/xx#community_engagement_requirement
+"""
+        )
+        rules_file = output_root / "runner" / "regulation.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: implements_medicaid_community_engagement
+  kind: source_relation
+  source_relation:
+    type: implements
+    target: us:statutes/42/1396a/xx.yaml
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `implements_medicaid_community_engagement` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == ["implements_medicaid_community_engagement"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["rules"][0]["source_relation"]["basis"]["delegation"]
+            == "us:statutes/42/1396a/xx#medicaid_community_engagement_delegation"
         )
 
     def test_boolean_comparison_repair_skips_ambiguous_unnamed_error(self, tmp_path):
