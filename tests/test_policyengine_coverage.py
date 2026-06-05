@@ -201,6 +201,63 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_new_york_tanf_state_plan_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ny"
+        / "policies/otda/tanf-state-plan-2024-2026"
+        / "financial-eligibility-and-income-disregards.yaml",
+        """format: rulespec/v1
+rules:
+  - name: application_resource_limit
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        value: 2000
+  - name: earned_income_disregard_rate
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        value: 0.5
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ny"
+        / "policies/otda/tanf-state-plan-2024-2026"
+        / "standard-of-need-and-monthly-grant.yaml",
+        """format: rulespec/v1
+rules:
+  - name: regular_recurring_monthly_need
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: need_schedule_amount
+  - name: monthly_grant_and_allowance_with_home_energy
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: grant_and_allowance_amount
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["total_outputs"] == 4
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert report["untested_comparable"] == 0
+    assert {item["program"] for item in report["items"]} == {"tanf"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
+    assert all(
+        "New York TANF State Plan outputs are source-specific OTDA"
+        in str(item["rationale"])
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_infers_health_programs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "regulations/hcpf/health-coverage.yaml",
