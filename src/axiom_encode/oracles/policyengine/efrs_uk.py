@@ -38,6 +38,8 @@ POLICYENGINE_UK_VERSION = "2.88.43"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
+NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH = Path("statutes/ukpga/1992/4/15.yaml")
+NATIONAL_INSURANCE_SECTION_15_BASE = "uk:statutes/ukpga/1992/4/15"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
@@ -166,6 +168,13 @@ INCOME_TAX_INCOME_BASE_OUTPUTS = {
     "income_tax_liability": {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
         "pe": "income_tax",
+    },
+}
+
+NATIONAL_INSURANCE_CLASS_4_OUTPUTS = {
+    "main_class_4_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_15_BASE}#main_class_4_contribution",
+        "pe": "ni_class_4_main",
     },
 }
 
@@ -638,6 +647,17 @@ SURFACE_SPECS = {
             "ni_liable",
         ),
     ),
+    "national-insurance-class-4": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
+        pe_variables=(
+            "ni_class_1_employee",
+            "ni_class_4_main",
+            "ni_liable",
+            "self_employment_income",
+        ),
+    ),
     "personal-allowance": UKEFRSSurfaceSpec(
         program=PERSONAL_ALLOWANCE_PROGRAM_PATH,
         entity="person",
@@ -1032,9 +1052,9 @@ HBAI_COMPONENT_COVERAGE = {
     },
     "national_insurance": {
         "status": "partial",
-        "surfaces": ("national-insurance-class-1",),
-        "covered_outputs": ("ni_employee",),
-        "rationale": "Axiom covers employee Class 1 National Insurance; HBAI national_insurance also includes non-Class-1 components.",
+        "surfaces": ("national-insurance-class-1", "national-insurance-class-4"),
+        "covered_outputs": ("ni_employee", "ni_class_4_main"),
+        "rationale": "Axiom covers employee Class 1 National Insurance and the main-rate Class 4 self-employed contribution; HBAI national_insurance also includes the Class 4 annual maximum/final amount and any other non-Class-1 components.",
     },
     "child_benefit": {
         "status": "partial",
@@ -3380,6 +3400,8 @@ def build_axiom_request(
 ) -> dict[str, Any]:
     if surface == "national-insurance-class-1":
         return build_national_insurance_class_1_request(pe_data=pe_data, year=year)
+    if surface == "national-insurance-class-4":
+        return build_national_insurance_class_4_request(pe_data=pe_data, year=year)
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
@@ -3530,6 +3552,41 @@ def build_national_insurance_class_1_request(
                 "outputs": [
                     spec["axiom"]
                     for spec in NATIONAL_INSURANCE_CLASS_1_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_national_insurance_class_4_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-class-4"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_national_insurance_class_4_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_INSURANCE_CLASS_4_OUTPUTS.values()
                 ],
             }
         )
@@ -4641,6 +4698,18 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_national_insurance_class_4_inputs(row: Any) -> dict[str, Any]:
+    profits = money(row_value(row, "self_employment_income", 0)) - money(
+        row_value(row, "ni_class_1_employee", 0)
+    )
+    return {
+        "class_4_contributions_payable_under_section_15": bool(
+            row_value(row, "ni_liable", True)
+        ),
+        "profits_chargeable_to_class_4_contributions": profits,
+    }
+
+
 def project_benefit_cap_relevant_amount_inputs(row: Any) -> dict[str, Any]:
     num_adults = int(money(row_value(row, "num_adults", 0)))
     num_children = int(money(row_value(row, "num_children", 0)))
@@ -5033,6 +5102,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             row
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
+        ]
+    if surface == "national-insurance-class-4":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "self_employment_income", 0)) > 0
+            or money(row_value(row, "ni_class_4_main", 0)) > 0
         ]
     benunits = pe_data.get("benunits", [])
     if surface == "benefit-cap-relevant-amount":

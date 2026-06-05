@@ -33,7 +33,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     JSA_REGULATION_116_BASE,
     JSA_TARIFF_INCOME_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
+    NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
+    NATIONAL_INSURANCE_SECTION_15_BASE,
     PENSION_CREDIT_BASE,
     PENSION_CREDIT_CHILD_ADDITION_OUTPUTS,
     PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
@@ -82,6 +84,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_13_request,
     build_jsa_income_tariff_income_request,
     build_national_insurance_class_1_request,
+    build_national_insurance_class_4_request,
     build_pension_credit_child_addition_request,
     build_pension_credit_deemed_income_request,
     build_pension_credit_request,
@@ -118,6 +121,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_jsa_income_tariff_income_inputs,
+    project_national_insurance_class_4_inputs,
     project_pension_credit_child_addition_inputs,
     project_pension_credit_deemed_income_inputs,
     project_pension_credit_inputs,
@@ -203,6 +207,69 @@ def test_national_insurance_class_1_request_projects_weekly_inputs(monkeypatch):
     assert inputs[
         f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.current_upper_earnings_limit_or_prescribed_equivalent:person_7"
     ] == {"kind": "decimal", "value": "966.73"}
+
+
+def test_national_insurance_class_4_projection_uses_pe_profit_base():
+    assert project_national_insurance_class_4_inputs(
+        {
+            "self_employment_income": 60_000,
+            "ni_class_1_employee": 3_000,
+            "ni_liable": True,
+        }
+    ) == {
+        "class_4_contributions_payable_under_section_15": True,
+        "profits_chargeable_to_class_4_contributions": 57_000,
+    }
+
+
+def test_national_insurance_class_4_request_projects_annual_inputs():
+    request = build_national_insurance_class_4_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "self_employment_income": 0,
+                    "ni_class_1_employee": 0,
+                    "ni_class_4_main": 0,
+                    "ni_liable": True,
+                },
+                {
+                    "person_id": 8,
+                    "self_employment_income": 60_000,
+                    "ni_class_1_employee": 3_000,
+                    "ni_class_4_main": 2_262,
+                    "ni_liable": True,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_8",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                output["axiom"]
+                for output in NATIONAL_INSURANCE_CLASS_4_OUTPUTS.values()
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.class_4_contributions_payable_under_section_15:person_8"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.profits_chargeable_to_class_4_contributions:person_8"
+    ] == {"kind": "decimal", "value": "57000.0"}
 
 
 class FakePolicyEngineVariable:
@@ -2561,6 +2628,14 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "ni_liable",
     )
     assert policyengine_person_variables_for_surfaces(
+        ["national-insurance-class-4"]
+    ) == (
+        "ni_class_1_employee",
+        "ni_class_4_main",
+        "ni_liable",
+        "self_employment_income",
+    )
+    assert policyengine_person_variables_for_surfaces(
         ["state-pension-credit-qualifying-age"]
     ) == (
         "age",
@@ -2977,6 +3052,15 @@ class hbai_household_net_income(Variable):
     assert by_name["healthy_start_vouchers"].policy_component is False
     assert by_name["income_tax"].status == "exact"
     assert by_name["income_tax"].policy_component is True
+    assert by_name["national_insurance"].status == "partial"
+    assert by_name["national_insurance"].surfaces == (
+        "national-insurance-class-1",
+        "national-insurance-class-4",
+    )
+    assert by_name["national_insurance"].covered_outputs == (
+        "ni_employee",
+        "ni_class_4_main",
+    )
     assert by_name["student_loan_repayments"].status == "partial"
     assert by_name["universal_credit"].status == "partial"
     assert by_name["working_tax_credit"].status == "partial"
