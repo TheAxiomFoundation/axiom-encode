@@ -1162,6 +1162,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("sda",),
         "rationale": "Axiom covers the Severe Disablement Allowance basic row and maximum weekly rate, not reported receipt or all age-related addition branches in the final SDA amount.",
     },
+    "ssmg": {
+        "status": "partial",
+        "surfaces": ("sure-start-maternity-grant-rate",),
+        "covered_outputs": ("ssmg",),
+        "rationale": "Axiom covers the Sure Start Maternity Grant amount, not the qualifying-benefit, pregnancy, child, prescribed-time, residence, or reported-receipt conditions feeding the final SSMG amount.",
+    },
     "winter_fuel_allowance": {
         "status": "partial",
         "surfaces": ("winter-fuel-payment-rates",),
