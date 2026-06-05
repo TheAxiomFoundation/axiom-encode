@@ -1011,6 +1011,17 @@ mappings:
     mapping_type: not_comparable
     rationale: Colorado initial-month proration output; PolicyEngine SNAP does not expose Colorado initial-month proration.
 
+  - legal_id: us-ny:policies/tax/it-201-instructions/nyc-school-tax-credit-rate-reduction#nyc_school_tax_credit_rate_reduction_amount
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: nyc_school_tax_credit_rate_reduction_amount
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same annual NYC school tax credit rate-reduction amount. The RuleSpec exposes the IT-201 rate-reduction worksheet amount once the filing-status table is selected; PolicyEngine computes the same amount from NYC taxable income and filing status.
+
   - legal_id: us-co:statutes/39/39-22-104/1.7/c#individual_estate_trust_income_tax_rate
     country: us
     program: tax
@@ -14412,6 +14423,44 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: New York TANF State Plan outputs are source-specific OTDA cash-assistance eligibility, income-disregard, standard-of-need, grant, home-energy, and shelter schedule mechanics. PolicyEngine-US does not expose these State Plan provision boundaries as one-to-one TANF oracle outputs; direct comparison should wait for a New York TANF adapter that targets the same state source slices.
+
+  - legal_id_prefix: us-ny:policies/tax/it-201-instructions/nyc-school-tax-credit-rate-reduction#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: NYC IT-201 school tax credit rate-reduction table parameters and row helpers are worksheet internals. PolicyEngine exposes the final rate-reduction amount, not these individual table bounds, rates, or base-amount intermediates.
+
+  - legal_id_prefix: us-ny:policies/tax/it-216-instructions/nyc-child-dependent-care-credit#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: nyc_cdcc
+    candidate_priority: P4
+    rationale: NYC IT-216 outputs are form-line and worksheet components, including child-under-four expense ratios, state-credit proration, limitation-table inputs, part-year resident allocation, and nonrefundable/refundable split. PolicyEngine exposes full-year NYC CDCC and related tax-unit component variables, but not this exact form-line surface.
+
+  - legal_id_prefix: us-ny:statutes/NYC/11-1701#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: nyc_income_tax_before_credits
+    candidate_priority: P4
+    rationale: NYC Administrative Code section 11-1701 outputs are source-specific bracket tables and filing-status-specific component taxes. PolicyEngine exposes selected NYC income tax before credits, not each statutory status table, bracket index, base tax, or bracket-rate helper as a one-to-one variable.
+
+  - legal_id_prefix: us-ny:statutes/NYC/11-1704/1#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: nyc_income_tax_before_credits
+    candidate_priority: P4
+    rationale: NYC Administrative Code section 11-1704.1 outputs are temporary additional-tax rates, thresholds, and status-specific add-on tax components. PolicyEngine rolls NYC rates into the final NYC tax calculation and does not expose these historical temporary components separately.
+
+  - legal_id_prefix: us-ny:statutes/NYC/11-1706#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: NYC Administrative Code section 11-1706 pass-through entity tax credit outputs depend on reported direct-share facts, identifying-information conditions, and overpayment mechanics. PolicyEngine does not expose a matching NYC pass-through entity tax credit or overpayment variable.
 
   - legal_id_prefix: us:policies/usda/snap/fy-2026-cola/
     country: us
