@@ -1742,6 +1742,24 @@ prefixes:
     mapping_type: not_comparable
     rationale: Universal Credit regulation 48 schedule 10 capital disregard period helpers are source-level disregard mechanics not exposed as one-to-one PolicyEngine UK variables.
 
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/4/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 4 renter housing-cost helper outputs are source-level rent payment, bedroom allocation, housing cost contribution, private and social rent calculation, under-occupancy, and specified-renter mechanics; PolicyEngine UK exposes downstream Universal Credit housing outcomes rather than these schedule-level legal helpers one-to-one.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/5/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 5 owner-occupier housing-cost helper outputs are source-level relevant-payment, qualifying-period, earned-income exclusion, and service-charge monthly-equivalent mechanics; PolicyEngine UK exposes downstream Universal Credit housing outcomes rather than these schedule-level legal helpers one-to-one.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/schedule/10/
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit Schedule 10 capital-disregard premises helpers are source-level capital disregard mechanics not exposed as one-to-one PolicyEngine UK oracle variables or parameters.
+
   - legal_id_prefix: uk:regulations/uksi/2013/376/54#
     country: uk
     program: universal_credit
