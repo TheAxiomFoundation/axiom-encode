@@ -1174,6 +1174,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("scottish_child_payment",),
         "rationale": "Axiom covers the Scottish Child Payment weekly amount and child age threshold, not the qualifying benefits, residence, responsibility, application, take-up, or final annual amount.",
     },
+    "carer_support_payment": {
+        "status": "partial",
+        "surfaces": ("carer-support-payment-parameters",),
+        "covered_outputs": ("carer_support_payment",),
+        "rationale": "Axiom covers the Carer Support Payment care-hours threshold, weekly rate, and Scottish Carer Supplement amount, not residence, cared-for-person, overlapping-benefit, or final annual amount rules.",
+    },
     "winter_fuel_allowance": {
         "status": "partial",
         "surfaces": ("winter-fuel-payment-rates",),

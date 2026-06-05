@@ -716,6 +716,36 @@ mappings:
     comparison: number
     rationale: Regulation 18 requires the child to be under 16; PolicyEngine stores the same threshold as the maximum child age parameter.
 
+  - legal_id: uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
+    country: uk
+    program: carer_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.social_security_scotland.carer_support_payment.min_hours
+    period: week
+    unit: hour
+    comparison: number
+    rationale: Regulation 5(2) treats regular and substantial care as at least 35 hours in an award week; PolicyEngine stores the same weekly care-hours threshold.
+
+  - legal_id: uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate
+    country: uk
+    program: carer_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.social_security_scotland.carer_support_payment.rate
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Carer Support Payment rate payable before any overlapping-benefit reduction.
+
+  - legal_id: uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate
+    country: uk
+    program: carer_support_payment
+    mapping_type: parameter_value
+    policyengine_parameter: gov.social_security_scotland.carer_support_payment.supplement
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same weekly Scottish Carer Supplement amount paid on top of Carer Support Payment.
+
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
     program: pip
