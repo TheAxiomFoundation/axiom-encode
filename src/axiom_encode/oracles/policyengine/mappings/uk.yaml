@@ -659,6 +659,33 @@ mappings:
     comparison: money
     rationale: Same annual additional Child Tax Credit severe-disabled-child layer after deriving the PolicyEngine-shape value as the severe-disabled total rate minus the disabled-child element.
 
+  - legal_id: uk:statutes/ukpga/2014/28/1#tax_free_childcare_top_up_payment_rate
+    country: uk
+    program: tax_free_childcare
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.rate
+    candidate_priority: P2
+    rationale: Section 1 states the top-up payment as 25 percent of a qualifying payment, while PolicyEngine stores the government's 20 percent share of total household plus government contributions.
+
+  - legal_id: uk:statutes/ukpga/2014/28/21#tax_free_childcare_top_up_element_rate
+    country: uk
+    program: tax_free_childcare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.rate
+    period: year
+    comparison: rate
+    rationale: Same Tax-Free Childcare government contribution share after deriving the PolicyEngine-shape top-up element from Section 21.
+
+  - legal_id: uk:regulations/uksi/2015/448/15#tax_free_childcare_maximum_adjusted_net_income
+    country: uk
+    program: tax_free_childcare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.tax_free_childcare.income.income_limit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual individual adjusted-net-income limit for Tax-Free Childcare eligibility.
+
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
     program: pip

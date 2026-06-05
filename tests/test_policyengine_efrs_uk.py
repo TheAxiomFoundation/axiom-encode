@@ -2736,6 +2736,7 @@ class hbai_household_net_income(Variable):
         "universal_credit",
         "working_tax_credit",
         "child_tax_credit",
+        "tax_free_childcare",
         "pip",
         "dla",
         "attendance_allowance",
@@ -2762,6 +2763,7 @@ class hbai_household_net_income(Variable):
         "universal_credit",
         "working_tax_credit",
         "child_tax_credit",
+        "tax_free_childcare",
         "pip",
         "dla",
         "attendance_allowance",
@@ -2783,6 +2785,7 @@ class hbai_household_net_income(Variable):
     assert by_name["universal_credit"].status == "partial"
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
+    assert by_name["tax_free_childcare"].status == "partial"
     assert by_name["pip"].status == "partial"
     assert by_name["dla"].status == "partial"
     assert by_name["attendance_allowance"].status == "partial"
@@ -2791,11 +2794,11 @@ class hbai_household_net_income(Variable):
     assert by_name["state_pension"].status == "partial"
     assert by_name["winter_fuel_allowance"].status == "partial"
     assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 14
-    assert report.covered_policy_component_count == 13
+    assert report.policy_component_count == 15
+    assert report.covered_policy_component_count == 14
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 13 / 14)
-    assert math.isclose(report.exact_policy_component_share, 1 / 14)
+    assert math.isclose(report.covered_policy_component_share, 14 / 15)
+    assert math.isclose(report.exact_policy_component_share, 1 / 15)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(

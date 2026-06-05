@@ -1888,6 +1888,102 @@ rules:
     assert daily_standard["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_tax_free_childcare_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2014/28/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tax_free_childcare_top_up_payment_rate
+    kind: parameter
+    dtype: Decimal
+    period: Year
+    versions:
+      - effective_from: '2017-04-21'
+        formula: '0.25'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2014/28/21.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tax_free_childcare_top_up_element_rate
+    kind: derived
+    dtype: Decimal
+    period: Year
+    versions:
+      - effective_from: '2017-04-21'
+        formula: '0.2'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2015/448/15.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tax_free_childcare_maximum_adjusted_net_income
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2015-01-01'
+        formula: 100000
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2014/28/1.test.yaml",
+        """- name: section_1_top_up_payment_rate
+  output:
+    uk:statutes/ukpga/2014/28/1#tax_free_childcare_top_up_payment_rate: 0.25
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2014/28/21.test.yaml",
+        """- name: section_21_top_up_element_rate
+  output:
+    uk:statutes/ukpga/2014/28/21#tax_free_childcare_top_up_element_rate: 0.2
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2015/448/15.test.yaml",
+        """- name: regulation_15_maximum_adjusted_net_income
+  output:
+    uk:regulations/uksi/2015/448/15#tax_free_childcare_maximum_adjusted_net_income: 100000
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="tax_free_childcare",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 1,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    payment_rate = items_by_id[
+        "uk:statutes/ukpga/2014/28/1#tax_free_childcare_top_up_payment_rate"
+    ]
+    element_rate = items_by_id[
+        "uk:statutes/ukpga/2014/28/21#tax_free_childcare_top_up_element_rate"
+    ]
+    income_limit = items_by_id[
+        "uk:regulations/uksi/2015/448/15#tax_free_childcare_maximum_adjusted_net_income"
+    ]
+
+    assert payment_rate["status"] == "known_not_comparable"
+    assert (
+        element_rate["policyengine_parameter"]
+        == "gov.hmrc.tax_free_childcare.contribution.rate"
+    )
+    assert (
+        income_limit["policyengine_parameter"]
+        == "gov.hmrc.tax_free_childcare.income.income_limit"
+    )
+    assert element_rate["mapping_type"] == "parameter_value"
+    assert income_limit["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_schedule_1_benefit_rate_outputs(
     tmp_path,
 ):
