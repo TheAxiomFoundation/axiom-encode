@@ -2768,12 +2768,12 @@ class hbai_household_net_income(Variable):
     assert by_name["income_tax"].policy_component is True
     assert by_name["universal_credit"].status == "partial"
     assert by_name["working_tax_credit"].status == "partial"
-    assert by_name["child_tax_credit"].status == "missing"
+    assert by_name["child_tax_credit"].status == "partial"
     assert by_name["council_tax"].status == "missing"
     assert report.policy_component_count == 7
-    assert report.covered_policy_component_count == 5
+    assert report.covered_policy_component_count == 6
     assert report.exact_policy_component_count == 1
-    assert math.isclose(report.covered_policy_component_share, 5 / 7)
+    assert math.isclose(report.covered_policy_component_share, 6 / 7)
     assert math.isclose(report.exact_policy_component_share, 1 / 7)
 
 

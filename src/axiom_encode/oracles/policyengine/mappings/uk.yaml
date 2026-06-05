@@ -583,6 +583,82 @@ mappings:
     comparison: money
     rationale: Same annual Working Tax Credit severe disability element maximum rate in Schedule 2.
 
+  - legal_id: uk:regulations/uksi/2002/2007/7#ctc_family_element_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.family_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Child Tax Credit family element amount in Regulation 7.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_individual_element_substituted_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.child_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Child Tax Credit individual child or qualifying young person element amount substituted into Regulation 7 by the 2024 up-rating regulations.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_individual_element_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.child_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Child Tax Credit individual child or qualifying young person element amount after applying the 2024 up-rating substitution.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_disabled_child_element_substituted_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.dis_child_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Child Tax Credit disabled-child element amount substituted into Regulation 7 by the 2024 up-rating regulations.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_disabled_child_element_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.dis_child_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Child Tax Credit disabled-child element amount after applying the 2024 up-rating substitution.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_rate_substituted_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.severe_dis_child_element
+    candidate_priority: P2
+    rationale: Regulation 7 states a total severe-disabled-child rate, while PolicyEngine stores only the additional severe-disabled layer paid on top of the disabled-child element.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_rate_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.severe_dis_child_element
+    candidate_priority: P2
+    rationale: Regulation 7 states a total severe-disabled-child rate, while PolicyEngine stores only the additional severe-disabled layer paid on top of the disabled-child element.
+
+  - legal_id: uk:regulations/uksi/2024/247/3#ctc_severely_disabled_child_additional_amount
+    country: uk
+    program: child_tax_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.tax_credits.child_tax_credit.elements.severe_dis_child_element
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual additional Child Tax Credit severe-disabled-child layer after deriving the PolicyEngine-shape value as the severe-disabled total rate minus the disabled-child element.
+
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
     program: pension_credit
