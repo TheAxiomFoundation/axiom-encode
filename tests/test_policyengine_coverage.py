@@ -692,6 +692,69 @@ rules:
     assert "community-engagement" in str(disenrollment_output["rationale"])
 
 
+def test_policyengine_coverage_classifies_medicaid_magi_prefixes(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/110.yaml",
+        """format: rulespec/v1
+rules:
+  - name: parent_or_caretaker_relative_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: parent_or_caretaker_relative and household_income_within_limit
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/116.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pregnant_woman_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: is_pregnant and income_within_standard
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/118.yaml",
+        """format: rulespec/v1
+rules:
+  - name: infants_and_children_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: child_under_age_19 and income_within_standard
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/119.yaml",
+        """format: rulespec/v1
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adult_group_age_eligible and income_within_limit
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="medicaid")
+
+    assert report["total_outputs"] == 4
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    expected_legal_ids = [
+        "us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible",
+        "us:regulations/42-cfr/435/116#pregnant_woman_eligible",
+        "us:regulations/42-cfr/435/118#infants_and_children_eligible",
+        "us:regulations/42-cfr/435/119#adult_group_eligible",
+    ]
+    for legal_id in expected_legal_ids:
+        output = items_by_id[legal_id]
+        assert output["mapping_type"] == "not_comparable"
+        assert "MAGI" in str(output["rationale"])
+
+
 def test_policyengine_coverage_classifies_nc_and_sc_snap_manual_prefixes(tmp_path):
     _write_rulespec_file(
         tmp_path

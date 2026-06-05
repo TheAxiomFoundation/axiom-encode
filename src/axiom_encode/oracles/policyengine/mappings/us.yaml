@@ -15602,6 +15602,30 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
 
+  - legal_id_prefix: us:regulations/42-cfr/435/110#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.110 parent/caretaker-relative MAGI eligibility outputs are federal source-level eligibility predicates and income-limit applications; PolicyEngine US exposes broader Medicaid eligibility variables, but not this CFR section's one-to-one output surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/116#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.116 pregnant-woman MAGI eligibility, coverage-scope, and income-standard predicates are federal source-level Medicaid rules that PolicyEngine US does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/118#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.118 infant and child MAGI eligibility, age-band, and income-standard predicates are source-specific federal Medicaid outputs; PolicyEngine US does not expose the same CFR-level helper and final-decision surface as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/119#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.119 adult-group MAGI eligibility outputs include source-level age, income-limit, parent/caretaker, and dependent-child conditions; PolicyEngine US has broader Medicaid parameters, but not this exact CFR-level output surface.
+
   - legal_id_prefix: us:regulations/42-cfr/435/550#
     country: us
     program: medicaid
