@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -62,6 +62,18 @@ PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 PENSION_CREDIT_REGULATION_15_PROGRAM_PATH = Path("regulations/uksi/2002/1792/15.yaml")
 PENSION_CREDIT_REGULATION_15_BASE = "uk:regulations/uksi/2002/1792/15"
+ESA_REGULATION_118_PROGRAM_PATH = Path("regulations/uksi/2008/794/118.yaml")
+ESA_REGULATION_118_BASE = "uk:regulations/uksi/2008/794/118"
+JSA_REGULATION_116_PROGRAM_PATH = Path("regulations/uksi/1996/207/116.yaml")
+JSA_REGULATION_116_BASE = "uk:regulations/uksi/1996/207/116"
+INCOME_SUPPORT_REGULATION_53_PROGRAM_PATH = Path("regulations/uksi/1987/1967/53.yaml")
+INCOME_SUPPORT_REGULATION_53_BASE = "uk:regulations/uksi/1987/1967/53"
+HOUSING_BENEFIT_REGULATION_52_PROGRAM_PATH = Path("regulations/uksi/2006/213/52.yaml")
+HOUSING_BENEFIT_REGULATION_52_BASE = "uk:regulations/uksi/2006/213/52"
+HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_PROGRAM_PATH = Path(
+    "regulations/uksi/2006/214/29.yaml"
+)
+HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE = "uk:regulations/uksi/2006/214/29"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 UNIVERSAL_CREDIT_REGULATION_18_PROGRAM_PATH = Path("regulations/uksi/2013/376/18.yaml")
@@ -307,6 +319,58 @@ PENSION_CREDIT_DEEMED_INCOME_OUTPUTS = {
         "pe": "pension_credit_deemed_income",
         "pe_transform": "annual_to_weekly",
         "tolerance": 0.01,
+    },
+}
+
+ESA_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_weekly_income": {
+        "axiom": f"{ESA_REGULATION_118_BASE}#capital_tariff_weekly_income",
+        "pe": "esa_income_tariff_income",
+        "pe_transform": "annual_to_weekly",
+        "capital_pe": "esa_income_assessable_capital",
+        "applies": "legacy_capital_tariff_income_defined",
+    },
+}
+
+JSA_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_weekly_income": {
+        "axiom": f"{JSA_REGULATION_116_BASE}#capital_tariff_weekly_income",
+        "pe": "jsa_income_tariff_income",
+        "pe_transform": "annual_to_weekly",
+        "capital_pe": "jsa_income_assessable_capital",
+        "applies": "legacy_capital_tariff_income_defined",
+    },
+}
+
+INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_weekly_income": {
+        "axiom": f"{INCOME_SUPPORT_REGULATION_53_BASE}#capital_tariff_weekly_income",
+        "pe": "income_support_tariff_income",
+        "pe_transform": "annual_to_weekly",
+        "capital_pe": "income_support_assessable_capital",
+        "applies": "legacy_capital_tariff_income_defined",
+    },
+}
+
+HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_weekly_income": {
+        "axiom": f"{HOUSING_BENEFIT_REGULATION_52_BASE}#capital_tariff_weekly_income",
+        "pe": "housing_benefit_tariff_income",
+        "pe_transform": "annual_to_weekly",
+        "capital_pe": "housing_benefit_assessable_capital",
+        "applies": "housing_benefit_working_age_tariff_income_defined",
+    },
+}
+
+HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS = {
+    "capital_tariff_weekly_income": {
+        "axiom": (
+            f"{HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE}"
+            "#capital_tariff_weekly_income"
+        ),
+        "pe": "housing_benefit_tariff_income",
+        "pe_transform": "annual_to_weekly",
+        "applies": "housing_benefit_pension_age_tariff_income_defined",
     },
 }
 
@@ -698,6 +762,55 @@ SURFACE_SPECS = {
             "pension_credit_assessable_capital",
             "pension_credit_deemed_income",
         ),
+    ),
+    "esa-income-tariff-income": UKEFRSSurfaceSpec(
+        program=ESA_REGULATION_118_PROGRAM_PATH,
+        entity="benunit",
+        outputs=ESA_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "esa_income_assessable_capital",
+            "esa_income_tariff_income",
+        ),
+    ),
+    "jsa-income-tariff-income": UKEFRSSurfaceSpec(
+        program=JSA_REGULATION_116_PROGRAM_PATH,
+        entity="benunit",
+        outputs=JSA_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "jsa_income_assessable_capital",
+            "jsa_income_tariff_income",
+        ),
+    ),
+    "income-support-tariff-income": UKEFRSSurfaceSpec(
+        program=INCOME_SUPPORT_REGULATION_53_PROGRAM_PATH,
+        entity="benunit",
+        outputs=INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "income_support_assessable_capital",
+            "income_support_tariff_income",
+        ),
+    ),
+    "housing-benefit-working-age-tariff-income": UKEFRSSurfaceSpec(
+        program=HOUSING_BENEFIT_REGULATION_52_PROGRAM_PATH,
+        entity="benunit",
+        outputs=HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "guarantee_credit",
+            "housing_benefit_assessable_capital",
+            "housing_benefit_tariff_income",
+        ),
+        projection_person_variables=("is_SP_age",),
+    ),
+    "housing-benefit-pension-age-tariff-income": UKEFRSSurfaceSpec(
+        program=HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_PROGRAM_PATH,
+        entity="benunit",
+        outputs=HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
+        pe_variables=(
+            "guarantee_credit",
+            "housing_benefit_assessable_capital",
+            "housing_benefit_tariff_income",
+        ),
+        projection_person_variables=("is_SP_age",),
     ),
     "universal-credit-standard-allowance": UKEFRSSurfaceSpec(
         program=UNIVERSAL_CREDIT_PROGRAM_PATH,
@@ -1333,6 +1446,10 @@ def load_local_policyengine_uk_data(
             merged_benunits,
             merged,
         )
+        merged_benunits = add_housing_benefit_age_projection_columns(
+            merged_benunits,
+            merged,
+        )
         benunit_records = table_records(merged_benunits)
         selected_benunit_ids = ()
         if person_ids:
@@ -1443,6 +1560,32 @@ def add_universal_credit_childcare_work_projection_columns(
     merged["uc_childcare_all_adults_in_work"] = merged[
         "uc_childcare_all_adults_in_work"
     ].fillna(True)
+    return merged
+
+
+def add_housing_benefit_age_projection_columns(
+    benunit: Any,
+    person: Any,
+) -> Any:
+    required = {"person_benunit_id", "is_SP_age"}
+    if not required.issubset(set(person.columns)):
+        return benunit
+    projection = person[["person_benunit_id"]].copy()
+    projection["housing_benefit_sp_age_count"] = person["is_SP_age"].astype(int)
+    by_benunit = projection.groupby("person_benunit_id", dropna=False).sum()
+    by_benunit["housing_benefit_any_over_sp_age"] = (
+        by_benunit["housing_benefit_sp_age_count"] > 0
+    )
+    by_benunit = by_benunit[["housing_benefit_any_over_sp_age"]].reset_index()
+    merged = benunit.merge(
+        by_benunit,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    ).drop(columns=["person_benunit_id"], errors="ignore")
+    merged["housing_benefit_any_over_sp_age"] = merged[
+        "housing_benefit_any_over_sp_age"
+    ].fillna(False)
     return merged
 
 
@@ -2359,6 +2502,25 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "esa-income-tariff-income":
+        return build_esa_income_tariff_income_request(pe_data=pe_data, year=year)
+    if surface == "jsa-income-tariff-income":
+        return build_jsa_income_tariff_income_request(pe_data=pe_data, year=year)
+    if surface == "income-support-tariff-income":
+        return build_income_support_tariff_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "housing-benefit-working-age-tariff-income":
+        return build_housing_benefit_working_age_tariff_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "housing-benefit-pension-age-tariff-income":
+        return build_housing_benefit_pension_age_tariff_income_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-childcare-element":
         return build_universal_credit_childcare_element_request(
             pe_data=pe_data,
@@ -2839,6 +3001,109 @@ def build_pension_credit_deemed_income_request(
         "dataset": {"inputs": inputs, "relations": []},
         "queries": queries,
     }
+
+
+def build_legacy_weekly_tariff_income_request(
+    *,
+    pe_data: dict[str, Any],
+    year: int,
+    surface: str,
+    base: str,
+    outputs: dict[str, dict[str, Any]],
+    project_inputs: Callable[[Any], dict[str, Any]],
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, surface):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{base}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in outputs.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_esa_income_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    return build_legacy_weekly_tariff_income_request(
+        pe_data=pe_data,
+        year=year,
+        surface="esa-income-tariff-income",
+        base=ESA_REGULATION_118_BASE,
+        outputs=ESA_TARIFF_INCOME_OUTPUTS,
+        project_inputs=project_esa_income_tariff_income_inputs,
+    )
+
+
+def build_jsa_income_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    return build_legacy_weekly_tariff_income_request(
+        pe_data=pe_data,
+        year=year,
+        surface="jsa-income-tariff-income",
+        base=JSA_REGULATION_116_BASE,
+        outputs=JSA_TARIFF_INCOME_OUTPUTS,
+        project_inputs=project_jsa_income_tariff_income_inputs,
+    )
+
+
+def build_income_support_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    return build_legacy_weekly_tariff_income_request(
+        pe_data=pe_data,
+        year=year,
+        surface="income-support-tariff-income",
+        base=INCOME_SUPPORT_REGULATION_53_BASE,
+        outputs=INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS,
+        project_inputs=project_income_support_tariff_income_inputs,
+    )
+
+
+def build_housing_benefit_working_age_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    return build_legacy_weekly_tariff_income_request(
+        pe_data=pe_data,
+        year=year,
+        surface="housing-benefit-working-age-tariff-income",
+        base=HOUSING_BENEFIT_REGULATION_52_BASE,
+        outputs=HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS,
+        project_inputs=project_housing_benefit_working_age_tariff_income_inputs,
+    )
+
+
+def build_housing_benefit_pension_age_tariff_income_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    return build_legacy_weekly_tariff_income_request(
+        pe_data=pe_data,
+        year=year,
+        surface="housing-benefit-pension-age-tariff-income",
+        base=HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
+        outputs=HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
+        project_inputs=project_housing_benefit_pension_age_tariff_income_inputs,
+    )
 
 
 def build_state_pension_credit_guarantee_credit_request(
@@ -3586,6 +3851,51 @@ def project_pension_credit_deemed_income_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_esa_income_tariff_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(row_value(row, "esa_income_assessable_capital", 0)),
+        "claimant_in_prescribed_accommodation_under_regulation_118_3": False,
+    }
+
+
+def project_jsa_income_tariff_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(row_value(row, "jsa_income_assessable_capital", 0)),
+        "claimant_in_prescribed_accommodation_under_regulation_116_1B": False,
+    }
+
+
+def project_income_support_tariff_income_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(
+            row_value(row, "income_support_assessable_capital", 0)
+        ),
+        "claimant_in_prescribed_accommodation_under_regulation_53_1B": False,
+    }
+
+
+def project_housing_benefit_working_age_tariff_income_inputs(
+    row: Any,
+) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(
+            row_value(row, "housing_benefit_assessable_capital", 0)
+        ),
+        "claimant_in_prescribed_circumstances_under_regulation_52_4": False,
+    }
+
+
+def project_housing_benefit_pension_age_tariff_income_inputs(
+    row: Any,
+) -> dict[str, Any]:
+    return {
+        "claimant_capital": money(
+            row_value(row, "housing_benefit_assessable_capital", 0)
+        ),
+        "capital_disregarded_under_regulation_44_2": False,
+    }
+
+
 def project_universal_credit_assessable_capital_inputs(row: Any) -> dict[str, Any]:
     return {
         "claim_is_for_joint_claimants": False,
@@ -3953,6 +4263,22 @@ def compare_outputs(
             "exclusions upstream, and compares weekly RuleSpec deemed income "
             "against PolicyEngine's annual pension_credit_deemed_income "
             "divided by 52.",
+            "ESA, JSA, Income Support, and working-age Housing Benefit "
+            "tariff-income comparisons project PolicyEngine's corresponding "
+            "assessable-capital stock into the claimant-capital leaf, project "
+            "the prescribed-accommodation or prescribed-circumstances branch "
+            "false because PE does not expose those legal predicates, and "
+            "compare only rows at or below the GBP 16,000 statutory capital "
+            "limit. PolicyEngine computes its internal tariff variable beyond "
+            "that limit, but those rows are outside the direct tariff-income "
+            "oracle surface.",
+            "Pension-age Housing Benefit tariff-income comparison projects "
+            "PolicyEngine's housing_benefit_assessable_capital into the "
+            "claimant-capital leaf, projects the regulation 44(2) "
+            "capital-disregard exception false because PE applies capital "
+            "exclusions upstream, and compares non-guarantee-credit "
+            "pension-age rows against PolicyEngine's annual "
+            "housing_benefit_tariff_income divided by 52.",
             "Universal Credit Regulation 34 childcare-costs element comparison "
             "projects PolicyEngine's annual uc_childcare_element into monthly "
             "relevant childcare charges by reversing the statutory 85 percent "
@@ -4087,6 +4413,16 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         )
     if applies == "uc_tariff_income_defined":
         return bool(row_value(row, "is_uc_eligible", False))
+    if applies == "legacy_capital_tariff_income_defined":
+        return money(row_value(row, spec["capital_pe"], 0)) <= 16_000
+    if applies == "housing_benefit_working_age_tariff_income_defined":
+        return not bool(row_value(row, "housing_benefit_any_over_sp_age", False)) and (
+            money(row_value(row, spec["capital_pe"], 0)) <= 16_000
+        )
+    if applies == "housing_benefit_pension_age_tariff_income_defined":
+        return bool(row_value(row, "housing_benefit_any_over_sp_age", False)) and (
+            money(row_value(row, "guarantee_credit", 0)) <= 0
+        )
     if isinstance(applies, tuple) and len(applies) == 2:
         name, expected = applies
         value = row_value(row, name)

@@ -1396,6 +1396,115 @@ rules:
     assert helper["status"] == "known_not_comparable"
 
 
+@pytest.mark.parametrize(
+    (
+        "path",
+        "legal_base",
+        "program",
+        "policyengine_variable",
+        "helper_name",
+    ),
+    [
+        (
+            "regulations/uksi/2008/794/118",
+            "uk:regulations/uksi/2008/794/118",
+            "employment_and_support_allowance",
+            "esa_income_tariff_income",
+            "capital_treated_as_yielding_weekly_income",
+        ),
+        (
+            "regulations/uksi/1996/207/116",
+            "uk:regulations/uksi/1996/207/116",
+            "jobseekers_allowance",
+            "jsa_income_tariff_income",
+            "capital_treated_as_yielding_weekly_income",
+        ),
+        (
+            "regulations/uksi/1987/1967/53",
+            "uk:regulations/uksi/1987/1967/53",
+            "income_support",
+            "income_support_tariff_income",
+            "capital_treated_as_yielding_weekly_income",
+        ),
+        (
+            "regulations/uksi/2006/213/52",
+            "uk:regulations/uksi/2006/213/52",
+            "housing_benefit",
+            "housing_benefit_tariff_income",
+            "capital_treated_as_yielding_weekly_tariff_income",
+        ),
+        (
+            "regulations/uksi/2006/214/29",
+            "uk:regulations/uksi/2006/214/29",
+            "housing_benefit",
+            "housing_benefit_tariff_income",
+            "capital_treated_as_yielding_weekly_income",
+        ),
+    ],
+)
+def test_policyengine_coverage_classifies_uk_legacy_tariff_income_outputs(
+    tmp_path,
+    path,
+    legal_base,
+    program,
+    policyengine_variable,
+    helper_name,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / f"{path}.yaml",
+        f"""format: rulespec/v1
+rules:
+  - name: {helper_name}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-01-01'
+        formula: claimant_capital > capital_tariff_income_lower_threshold
+  - name: capital_tariff_weekly_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: capital_tariff_income_weekly_amount_per_band
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / f"{path}.test.yaml",
+        f"""- name: tariff income
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {{}}
+  output:
+    {legal_base}#{helper_name}: holds
+    {legal_base}#capital_tariff_weekly_income: 2
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program=program)
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    tariff_income = items_by_id[f"{legal_base}#capital_tariff_weekly_income"]
+    helper = items_by_id[f"{legal_base}#{helper_name}"]
+
+    assert tariff_income["policyengine_variable"] == policyengine_variable
+    assert tariff_income["status"] == "comparable"
+    assert tariff_income["mapping_type"] == "direct_variable"
+    assert tariff_income["tested"] is True
+    assert helper["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",

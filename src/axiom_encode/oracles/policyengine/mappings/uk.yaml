@@ -476,6 +476,61 @@ mappings:
     comparison: money
     rationale: Same Pension Credit deemed income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit pension_credit_assessable_capital into the Regulation 15 claimant-capital leaf and converts PolicyEngine's annual output to a weekly amount.
 
+  - legal_id: uk:regulations/uksi/2008/794/118#capital_tariff_weekly_income
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: direct_variable
+    policyengine_variable: esa_income_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same income-related ESA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit esa_income_assessable_capital into the Regulation 118 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/1996/207/116#capital_tariff_weekly_income
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: direct_variable
+    policyengine_variable: jsa_income_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same income-based JSA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit jsa_income_assessable_capital into the Regulation 116 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/1987/1967/53#capital_tariff_weekly_income
+    country: uk
+    program: income_support
+    mapping_type: direct_variable
+    policyengine_variable: income_support_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Income Support tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit income_support_assessable_capital into the Regulation 53 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/2006/213/52#capital_tariff_weekly_income
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same working-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 52 claimant-capital leaf, sets the prescribed-circumstances branch false because PolicyEngine does not expose that legal predicate, limits comparison to non-pension-age rows with capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:regulations/uksi/2006/214/29#capital_tariff_weekly_income
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit_tariff_income
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same pension-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 29 claimant-capital leaf, projects the regulation 44(2) capital-disregard exception false because PolicyEngine applies capital exclusions upstream, limits comparison to pension-age rows without guarantee credit, and converts PolicyEngine's annual output to a weekly amount.
+
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk
     program: pension_credit
@@ -777,6 +832,36 @@ prefixes:
     program: pension_credit
     mapping_type: not_comparable
     rationale: Pension Credit Regulation 15 helper outputs not listed above are capital-to-deemed-income parameters or branch-control predicates that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2008/794/118#
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: not_comparable
+    rationale: ESA Regulation 118 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/1996/207/116#
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: not_comparable
+    rationale: JSA Regulation 116 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/1987/1967/53#
+    country: uk
+    program: income_support
+    mapping_type: not_comparable
+    rationale: Income Support Regulation 53 helper outputs not listed above are capital-to-tariff-income parameters, upper-limit predicates, or prescribed-accommodation branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2006/213/52#
+    country: uk
+    program: housing_benefit
+    mapping_type: not_comparable
+    rationale: Housing Benefit Regulation 52 helper outputs not listed above are working-age capital-to-tariff-income parameters, upper-limit predicates, or prescribed-circumstances branch controls that PolicyEngine UK does not expose as one-to-one oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2006/214/29#
+    country: uk
+    program: housing_benefit
+    mapping_type: not_comparable
+    rationale: Pension-age Housing Benefit Regulation 29 helper outputs not listed above are capital-to-tariff-income parameters or capital-disregard predicates that PolicyEngine UK does not expose as one-to-one oracle variables.
 
   - legal_id_prefix: uk:regulations/uksi/2013/376/36#
     country: uk

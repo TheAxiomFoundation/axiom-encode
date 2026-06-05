@@ -11,6 +11,14 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
     CHILD_BENEFIT_BASE,
     CHILD_BENEFIT_OUTPUTS,
+    ESA_REGULATION_118_BASE,
+    ESA_TARIFF_INCOME_OUTPUTS,
+    HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
+    HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
+    HOUSING_BENEFIT_REGULATION_52_BASE,
+    HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS,
+    INCOME_SUPPORT_REGULATION_53_BASE,
+    INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS,
     INCOME_TAX_INCOME_BASE_COMPONENTS,
     INCOME_TAX_INCOME_BASE_OUTPUTS,
     INCOME_TAX_SECTION_10_BASE,
@@ -22,6 +30,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
     INCOME_TAX_SECTION_23_BASE,
     INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
+    JSA_REGULATION_116_BASE,
+    JSA_TARIFF_INCOME_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
     PENSION_CREDIT_BASE,
@@ -58,10 +68,15 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WELFARE_REFORM_ACT_SECTION_11_BASE,
     build_benefit_cap_relevant_amount_request,
     build_child_benefit_request,
+    build_esa_income_tariff_income_request,
+    build_housing_benefit_pension_age_tariff_income_request,
+    build_housing_benefit_working_age_tariff_income_request,
+    build_income_support_tariff_income_request,
     build_income_tax_income_base_request,
     build_income_tax_section_10_request,
     build_income_tax_section_11d_request,
     build_income_tax_section_13_request,
+    build_jsa_income_tariff_income_request,
     build_national_insurance_class_1_request,
     build_pension_credit_deemed_income_request,
     build_pension_credit_request,
@@ -86,11 +101,16 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     policyengine_person_variables_for_surfaces,
     project_benefit_cap_relevant_amount_inputs,
     project_child_benefit_inputs,
+    project_esa_income_tariff_income_inputs,
+    project_housing_benefit_pension_age_tariff_income_inputs,
+    project_housing_benefit_working_age_tariff_income_inputs,
+    project_income_support_tariff_income_inputs,
     project_income_tax_income_base_components,
     project_income_tax_section_10_inputs,
     project_income_tax_section_11d_inputs,
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
+    project_jsa_income_tariff_income_inputs,
     project_pension_credit_deemed_income_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
@@ -1084,6 +1104,156 @@ def test_pension_credit_deemed_income_request_projects_regulation_15_inputs():
         f"{PENSION_CREDIT_REGULATION_15_BASE}"
         "#input.capital_disregarded_under_regulation_17_8"
     ] == {
+        "kind": "bool",
+        "value": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("project", "row", "expected"),
+    [
+        (
+            project_esa_income_tariff_income_inputs,
+            {"esa_income_assessable_capital": 6_251},
+            {
+                "claimant_capital": 6_251,
+                "claimant_in_prescribed_accommodation_under_regulation_118_3": False,
+            },
+        ),
+        (
+            project_jsa_income_tariff_income_inputs,
+            {"jsa_income_assessable_capital": 6_251},
+            {
+                "claimant_capital": 6_251,
+                "claimant_in_prescribed_accommodation_under_regulation_116_1B": False,
+            },
+        ),
+        (
+            project_income_support_tariff_income_inputs,
+            {"income_support_assessable_capital": 6_251},
+            {
+                "claimant_capital": 6_251,
+                "claimant_in_prescribed_accommodation_under_regulation_53_1B": False,
+            },
+        ),
+        (
+            project_housing_benefit_working_age_tariff_income_inputs,
+            {"housing_benefit_assessable_capital": 6_251},
+            {
+                "claimant_capital": 6_251,
+                "claimant_in_prescribed_circumstances_under_regulation_52_4": False,
+            },
+        ),
+        (
+            project_housing_benefit_pension_age_tariff_income_inputs,
+            {"housing_benefit_assessable_capital": 10_501},
+            {
+                "claimant_capital": 10_501,
+                "capital_disregarded_under_regulation_44_2": False,
+            },
+        ),
+    ],
+)
+def test_legacy_tariff_income_projections_use_assessable_capital(
+    project,
+    row,
+    expected,
+):
+    assert project(row) == expected
+
+
+@pytest.mark.parametrize(
+    ("build", "base", "outputs", "row", "branch_leaf"),
+    [
+        (
+            build_esa_income_tariff_income_request,
+            ESA_REGULATION_118_BASE,
+            ESA_TARIFF_INCOME_OUTPUTS,
+            {
+                "esa_income_assessable_capital": 6_251,
+                "esa_income_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            "claimant_in_prescribed_accommodation_under_regulation_118_3",
+        ),
+        (
+            build_jsa_income_tariff_income_request,
+            JSA_REGULATION_116_BASE,
+            JSA_TARIFF_INCOME_OUTPUTS,
+            {
+                "jsa_income_assessable_capital": 6_251,
+                "jsa_income_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            "claimant_in_prescribed_accommodation_under_regulation_116_1B",
+        ),
+        (
+            build_income_support_tariff_income_request,
+            INCOME_SUPPORT_REGULATION_53_BASE,
+            INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS,
+            {
+                "income_support_assessable_capital": 6_251,
+                "income_support_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            "claimant_in_prescribed_accommodation_under_regulation_53_1B",
+        ),
+        (
+            build_housing_benefit_working_age_tariff_income_request,
+            HOUSING_BENEFIT_REGULATION_52_BASE,
+            HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS,
+            {
+                "housing_benefit_assessable_capital": 6_251,
+                "housing_benefit_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            "claimant_in_prescribed_circumstances_under_regulation_52_4",
+        ),
+        (
+            build_housing_benefit_pension_age_tariff_income_request,
+            HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
+            HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
+            {
+                "housing_benefit_assessable_capital": 10_501,
+                "housing_benefit_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            "capital_disregarded_under_regulation_44_2",
+        ),
+    ],
+)
+def test_legacy_tariff_income_requests_project_benefit_week_inputs(
+    build,
+    base,
+    outputs,
+    row,
+    branch_leaf,
+):
+    request = build(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [{"benunit_id": 11, **row}],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": [output["axiom"] for output in outputs.values()],
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[f"{base}#input.claimant_capital"] == {
+        "kind": "decimal",
+        "value": str(float(row[next(key for key in row if key.endswith("_capital"))])),
+    }
+    assert inputs_by_name[f"{base}#input.{branch_leaf}"] == {
         "kind": "bool",
         "value": False,
     }
@@ -3367,6 +3537,190 @@ def test_compare_outputs_transforms_pension_credit_deemed_income_weekly():
     assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []
+
+
+@pytest.mark.parametrize(
+    ("surface", "outputs", "output_name", "row", "axiom_value"),
+    [
+        (
+            "esa-income-tariff-income",
+            ESA_TARIFF_INCOME_OUTPUTS,
+            "capital_tariff_weekly_income",
+            {
+                "benunit_id": 11,
+                "esa_income_assessable_capital": 6_251,
+                "esa_income_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            2,
+        ),
+        (
+            "jsa-income-tariff-income",
+            JSA_TARIFF_INCOME_OUTPUTS,
+            "capital_tariff_weekly_income",
+            {
+                "benunit_id": 11,
+                "jsa_income_assessable_capital": 6_251,
+                "jsa_income_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            2,
+        ),
+        (
+            "income-support-tariff-income",
+            INCOME_SUPPORT_TARIFF_INCOME_OUTPUTS,
+            "capital_tariff_weekly_income",
+            {
+                "benunit_id": 11,
+                "income_support_assessable_capital": 6_251,
+                "income_support_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            2,
+        ),
+        (
+            "housing-benefit-working-age-tariff-income",
+            HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS,
+            "capital_tariff_weekly_income",
+            {
+                "benunit_id": 11,
+                "guarantee_credit": 0,
+                "housing_benefit_any_over_sp_age": False,
+                "housing_benefit_assessable_capital": 6_251,
+                "housing_benefit_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            2,
+        ),
+        (
+            "housing-benefit-pension-age-tariff-income",
+            HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
+            "capital_tariff_weekly_income",
+            {
+                "benunit_id": 11,
+                "guarantee_credit": 0,
+                "housing_benefit_any_over_sp_age": True,
+                "housing_benefit_assessable_capital": 10_501,
+                "housing_benefit_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+            2,
+        ),
+    ],
+)
+def test_compare_outputs_transforms_legacy_tariff_income_weekly(
+    surface,
+    outputs,
+    output_name,
+    row,
+    axiom_value,
+):
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [row],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            surface: [
+                {
+                    "outputs": {
+                        outputs[output_name]["axiom"]: decimal_output(axiom_value),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_skips_legacy_tariff_income_above_capital_limit():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "esa_income_assessable_capital": 16_001,
+                    "esa_income_tariff_income": 29 * WEEKS_IN_YEAR,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "esa-income-tariff-income": [
+                {
+                    "outputs": {
+                        ESA_TARIFF_INCOME_OUTPUTS["capital_tariff_weekly_income"][
+                            "axiom"
+                        ]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 0
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_splits_housing_benefit_tariff_income_age_surfaces():
+    pe_data = {
+        "persons": [],
+        "person_ids": [],
+        "benunits": [
+            {
+                "benunit_id": 11,
+                "guarantee_credit": 0,
+                "housing_benefit_any_over_sp_age": True,
+                "housing_benefit_assessable_capital": 10_501,
+                "housing_benefit_tariff_income": 2 * WEEKS_IN_YEAR,
+            },
+        ],
+        "benunit_ids": [11],
+    }
+
+    working_age_report = compare_outputs(
+        pe_data=pe_data,
+        axiom_outputs_by_surface={
+            "housing-benefit-working-age-tariff-income": [
+                {
+                    "outputs": {
+                        HOUSING_BENEFIT_WORKING_AGE_TARIFF_INCOME_OUTPUTS[
+                            "capital_tariff_weekly_income"
+                        ]["axiom"]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+    pension_age_report = compare_outputs(
+        pe_data=pe_data,
+        axiom_outputs_by_surface={
+            "housing-benefit-pension-age-tariff-income": [
+                {
+                    "outputs": {
+                        HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS[
+                            "capital_tariff_weekly_income"
+                        ]["axiom"]: decimal_output(2),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert working_age_report.compared_values == 0
+    assert pension_age_report.compared_values == 1
+    assert pension_age_report.mismatches == []
 
 
 def test_compare_outputs_skips_undefined_universal_credit_tariff_income():
