@@ -410,6 +410,28 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 15 aggregate Class 4 contribution before Regulation 100's annual maximum; PolicyEngine UK exposes final ni_class_4 after the annual maximum rather than this pre-maximum subtotal.
 
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ni_class_4_maximum
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Regulation 100 Class 4 annual maximum after the UK EFRS adapter projects annual primary Class 1, Class 4 main-rate, and profits inputs.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_contribution_after_annual_maximum
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ni_class_4
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final Class 4 NI contribution after applying Regulation 100's annual maximum.
+
   - legal_id: uk:policies/govuk/student-loan-repayments#plan_1_annual_income_threshold
     country: uk
     program: tax

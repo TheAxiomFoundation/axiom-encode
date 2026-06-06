@@ -34,6 +34,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     JSA_TARIFF_INCOME_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
+    NATIONAL_INSURANCE_REGULATION_100_BASE,
+    NATIONAL_INSURANCE_REGULATION_100_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
     NATIONAL_INSURANCE_SECTION_15_BASE,
     PENSION_CREDIT_BASE,
@@ -84,6 +86,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_13_request,
     build_jsa_income_tariff_income_request,
     build_national_insurance_class_1_request,
+    build_national_insurance_class_4_final_request,
     build_national_insurance_class_4_request,
     build_pension_credit_child_addition_request,
     build_pension_credit_deemed_income_request,
@@ -121,6 +124,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_jsa_income_tariff_income_inputs,
+    project_national_insurance_class_4_final_inputs,
     project_national_insurance_class_4_inputs,
     project_pension_credit_child_addition_inputs,
     project_pension_credit_deemed_income_inputs,
@@ -270,6 +274,107 @@ def test_national_insurance_class_4_request_projects_annual_inputs():
     assert inputs[
         f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.profits_chargeable_to_class_4_contributions:person_8"
     ] == {"kind": "decimal", "value": "57000.0"}
+
+
+def test_national_insurance_class_4_final_projection_uses_regulation_100_inputs():
+    assert project_national_insurance_class_4_final_inputs(
+        {
+            "self_employment_income": 100_000,
+            "ni_class_1_employee": 3_000,
+            "ni_class_1_employee_primary": 6_000,
+            "ni_class_4_main": 2_262,
+            "ni_liable": True,
+        },
+        parameters={
+            "lower_profits_limit": 12_570,
+            "upper_profits_limit": 50_270,
+            "main_class_4_percentage": 0.06,
+            "additional_class_4_percentage": 0.02,
+        },
+    ) == {
+        "primary_class_1_contributions_paid_at_main_primary_percentage": 6_000,
+        "primary_class_1_contributions_payable_at_main_primary_percentage": 6_000,
+        "class_4_contributions_payable_at_main_class_4_percentage": 2_262,
+        "class_4_contribution_before_annual_maximum": 3_196.6,
+        "class_4_contributions_payable_under_section_15_for_year": True,
+        "profits_and_gains_for_year": 100_000,
+        "lower_profits_limit": 12_570,
+        "upper_profits_limit": 50_270,
+        "main_class_4_percentage": 0.06,
+        "additional_class_4_percentage": 0.02,
+    }
+
+
+def test_national_insurance_class_4_final_request_projects_annual_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_class_4_parameters",
+        lambda year: {
+            "lower_profits_limit": 12_570,
+            "upper_profits_limit": 50_270,
+            "main_class_4_percentage": 0.06,
+            "additional_class_4_percentage": 0.02,
+        },
+    )
+    request = build_national_insurance_class_4_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "self_employment_income": 0,
+                    "ni_class_1_employee": 0,
+                    "ni_class_1_employee_primary": 0,
+                    "ni_class_4": 0,
+                    "ni_class_4_main": 0,
+                    "ni_class_4_maximum": 0,
+                    "ni_liable": True,
+                },
+                {
+                    "person_id": 8,
+                    "self_employment_income": 100_000,
+                    "ni_class_1_employee": 3_000,
+                    "ni_class_1_employee_primary": 6_000,
+                    "ni_class_4": 1_748.6,
+                    "ni_class_4_main": 2_262,
+                    "ni_class_4_maximum": 1_748.6,
+                    "ni_liable": True,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_8",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                output["axiom"]
+                for output in NATIONAL_INSURANCE_REGULATION_100_OUTPUTS.values()
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#input.primary_class_1_contributions_paid_at_main_primary_percentage:person_8"
+    ] == {"kind": "decimal", "value": "6000.0"}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#input.class_4_contribution_before_annual_maximum:person_8"
+    ] == {"kind": "decimal", "value": "3196.6"}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#input.class_4_contributions_payable_under_section_15_for_year:person_8"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#input.profits_and_gains_for_year:person_8"
+    ] == {"kind": "decimal", "value": "100000.0"}
 
 
 class FakePolicyEngineVariable:
@@ -3056,10 +3161,12 @@ class hbai_household_net_income(Variable):
     assert by_name["national_insurance"].surfaces == (
         "national-insurance-class-1",
         "national-insurance-class-4",
+        "national-insurance-class-4-final",
     )
     assert by_name["national_insurance"].covered_outputs == (
         "ni_employee",
         "ni_class_4_main",
+        "ni_class_4",
     )
     assert by_name["student_loan_repayments"].status == "partial"
     assert by_name["universal_credit"].status == "partial"
@@ -3169,7 +3276,7 @@ def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-uk==2.88.43 required"):
+    with pytest.raises(SystemExit, match="policyengine-uk==2.88.56 required"):
         require_policyengine_uk_versions()
 
 
