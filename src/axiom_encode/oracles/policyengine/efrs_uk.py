@@ -1141,6 +1141,12 @@ HBAI_COMPONENT_COVERAGE = {
         "covered_outputs": ("tax_free_childcare",),
         "rationale": "Axiom covers the Tax-Free Childcare contribution rate and income cap, not the child/provider eligibility tests, expenses, annual caps, or final aggregate amount.",
     },
+    "free_tv_licence_value": {
+        "status": "partial",
+        "surfaces": ("tv-licence-fee",),
+        "covered_outputs": ("colour_tv_licence_general_form_issue_fee",),
+        "rationale": "Axiom covers the statutory colour TV licence fee feeding PolicyEngine UK's free_tv_licence_value; TV ownership, evasion, and aged or blind discount eligibility remain outside this fee surface.",
+    },
     "pip": {
         "status": "exact",
         "surfaces": ("personal-independence-payment-rates",),
