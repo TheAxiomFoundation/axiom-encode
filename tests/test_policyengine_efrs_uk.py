@@ -10,7 +10,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     BENEFIT_CAP_REGULATION_80A_BASE,
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
     CHILD_BENEFIT_BASE,
+    CHILD_BENEFIT_FINAL_BASE,
+    CHILD_BENEFIT_FINAL_OUTPUTS,
     CHILD_BENEFIT_OUTPUTS,
+    CHILD_BENEFIT_SECTION_141_BASE,
     ESA_REGULATION_118_BASE,
     ESA_TARIFF_INCOME_OUTPUTS,
     HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
@@ -75,6 +78,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WELFARE_REFORM_ACT_SECTION_8_BASE,
     WELFARE_REFORM_ACT_SECTION_11_BASE,
     build_benefit_cap_relevant_amount_request,
+    build_child_benefit_final_request,
     build_child_benefit_request,
     build_esa_income_tariff_income_request,
     build_housing_benefit_pension_age_tariff_income_request,
@@ -1122,6 +1126,104 @@ def test_child_benefit_request_filters_to_positive_respective_amount_rows():
     ]
     assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
         f"{CHILD_BENEFIT_BASE}#input.child_or_qualifying_young_person_is_only_elder_or_eldest_for_payee"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+
+
+def test_child_benefit_final_request_projects_family_relation_and_claim_gate():
+    request = build_child_benefit_final_request(
+        pe_data={
+            "all_persons": [
+                {
+                    "person_id": 7,
+                    "person_benunit_id": 3,
+                    "child_benefit_child_index": -1,
+                    "child_benefit_respective_amount": 0,
+                },
+                {
+                    "person_id": 8,
+                    "person_benunit_id": 3,
+                    "child_benefit_child_index": 1,
+                    "child_benefit_respective_amount": 27.05 * WEEKS_IN_YEAR,
+                },
+                {
+                    "person_id": 9,
+                    "person_benunit_id": 3,
+                    "child_benefit_child_index": 2,
+                    "child_benefit_respective_amount": 17.90 * WEEKS_IN_YEAR,
+                },
+            ],
+            "persons": [],
+            "benunits": [
+                {
+                    "benunit_id": 3,
+                    "child_benefit": 0,
+                    "child_benefit_entitlement": 44.95 * WEEKS_IN_YEAR,
+                    "would_claim_child_benefit": False,
+                }
+            ],
+            "person_ids": [],
+            "benunit_ids": [3],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_3",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": [
+                CHILD_BENEFIT_FINAL_OUTPUTS["child_benefit_weekly_amount"]["axiom"]
+            ],
+        }
+    ]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": (
+                f"{CHILD_BENEFIT_SECTION_141_BASE}#relation."
+                "child_benefit_children_or_qualifying_young_persons_for_whom_person_responsible"
+            ),
+            "tuple": ["person_8", "benunit_3"],
+            "interval": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+        },
+        {
+            "name": (
+                f"{CHILD_BENEFIT_SECTION_141_BASE}#relation."
+                "child_benefit_children_or_qualifying_young_persons_for_whom_person_responsible"
+            ),
+            "tuple": ["person_9", "benunit_3"],
+            "interval": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+        },
+    ]
+    inputs = {
+        f"{record['name']}:{record['entity_id']}": record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{CHILD_BENEFIT_FINAL_BASE}#input.would_claim_child_benefit:benunit_3"
+    ] == {
+        "kind": "bool",
+        "value": False,
+    }
+    assert inputs[
+        f"{CHILD_BENEFIT_SECTION_141_BASE}#input.is_child_or_qualifying_young_person_for_child_benefit:person_8"
     ] == {
         "kind": "bool",
         "value": True,
@@ -3135,6 +3237,16 @@ class hbai_household_net_income(Variable):
     assert by_name["free_school_milk"].policy_component is False
     assert by_name["free_tv_licence_value"].status == "partial"
     assert by_name["free_tv_licence_value"].policy_component is True
+    assert by_name["child_benefit"].status == "exact"
+    assert by_name["child_benefit"].surfaces == (
+        "child-benefit",
+        "child-benefit-final",
+    )
+    assert by_name["child_benefit"].covered_outputs == (
+        "child_benefit_respective_amount",
+        "child_benefit_entitlement",
+        "child_benefit",
+    )
     assert by_name["esa_contrib"].status == "fixed_input"
     assert by_name["esa_contrib"].policy_component is False
     assert by_name["afcs"].status == "fixed_input"
@@ -3190,9 +3302,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert report.policy_component_count == 20
     assert report.covered_policy_component_count == 20
-    assert report.exact_policy_component_count == 2
+    assert report.exact_policy_component_count == 3
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 2 / 20)
+    assert math.isclose(report.exact_policy_component_share, 3 / 20)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -3256,11 +3368,10 @@ class hbai_household_net_income(Variable):
 
     assert payload["policy_component_count"] == 2
     assert payload["covered_policy_component_count"] == 2
-    assert payload["exact_policy_component_count"] == 1
+    assert payload["exact_policy_component_count"] == 2
     assert payload["status_counts"] == {
-        "exact": 1,
+        "exact": 2,
         "fixed_input": 1,
-        "partial": 1,
     }
     assert payload["activity_totals"] is None
     assert payload["components"][0]["name"] == "employment_income"
@@ -3422,6 +3533,43 @@ def test_compare_outputs_compares_child_benefit_weekly_rate():
     )
 
     assert report.compared_persons == 2
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+    assert report.output_summary[0]["compared"] == 1
+
+
+def test_compare_outputs_compares_child_benefit_final_weekly_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 3,
+                    "child_benefit": 0,
+                    "child_benefit_entitlement": 44.95 * WEEKS_IN_YEAR,
+                    "would_claim_child_benefit": False,
+                }
+            ],
+            "benunit_ids": [3],
+        },
+        axiom_outputs_by_surface={
+            "child-benefit-final": [
+                {
+                    "outputs": {
+                        CHILD_BENEFIT_FINAL_OUTPUTS["child_benefit_weekly_amount"][
+                            "axiom"
+                        ]: decimal_output(0)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_benunits == 1
     assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []
