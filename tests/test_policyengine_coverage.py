@@ -3603,6 +3603,103 @@ rules:
     assert final_amount["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_esa_income_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/esa-income.yaml",
+        """format: rulespec/v1
+rules:
+  - name: income_related_esa_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if income_related_esa_eligible: max(0, reported_income_related_esa_for_year - income_related_esa_tariff_income_for_year) else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/esa-income.test.yaml",
+        """- name: income related ESA final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/esa-income#input.reported_income_related_esa_for_year: 2600.00
+    uk:policies/govuk/esa-income#input.income_related_esa_tariff_income_for_year: 520.00
+    uk:policies/govuk/esa-income#input.income_related_esa_eligible: true
+  output:
+    uk:policies/govuk/esa-income#income_related_esa_annual_amount: 2080.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="employment_and_support_allowance",
+    )
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/esa-income#income_related_esa_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "esa_income"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_housing_benefit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/housing-benefit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: housing_benefit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if would_claim_housing_benefit: max(0, housing_benefit_pre_benefit_cap_for_year - benefit_cap_reduction_for_year) else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/housing-benefit.test.yaml",
+        """- name: housing benefit final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/housing-benefit#input.housing_benefit_pre_benefit_cap_for_year: 5200.00
+    uk:policies/govuk/housing-benefit#input.benefit_cap_reduction_for_year: 1040.00
+    uk:policies/govuk/housing-benefit#input.would_claim_housing_benefit: true
+  output:
+    uk:policies/govuk/housing-benefit#housing_benefit_annual_amount: 4160.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="housing_benefit")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/housing-benefit#housing_benefit_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "housing_benefit"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

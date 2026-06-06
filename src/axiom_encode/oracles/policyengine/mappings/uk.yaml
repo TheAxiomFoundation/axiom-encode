@@ -1645,6 +1645,17 @@ mappings:
     comparison: money
     rationale: Same income-related ESA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit esa_income_assessable_capital into the Regulation 118 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
 
+  - legal_id: uk:policies/govuk/esa-income#income_related_esa_annual_amount
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: direct_variable
+    policyengine_variable: esa_income
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual income-related ESA amount after PolicyEngine UK's capital-test eligibility gate and tariff-income reduction over reported ESA.
+
   - legal_id: uk:regulations/uksi/1996/207/116#capital_tariff_weekly_income
     country: uk
     program: jobseekers_allowance
@@ -1688,6 +1699,17 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same pension-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 29 claimant-capital leaf, projects the regulation 44(2) capital-disregard exception false because PolicyEngine applies capital exclusions upstream, limits comparison to pension-age rows without guarantee credit, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:policies/govuk/housing-benefit#housing_benefit_annual_amount
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Housing Benefit amount after PolicyEngine UK's would-claim gate and benefit-cap reduction over pre-cap Housing Benefit.
 
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk

@@ -84,6 +84,8 @@ PENSION_CREDIT_FINAL_PROGRAM_PATH = Path("policies/govuk/pension-credit.yaml")
 PENSION_CREDIT_FINAL_BASE = "uk:policies/govuk/pension-credit"
 ESA_REGULATION_118_PROGRAM_PATH = Path("regulations/uksi/2008/794/118.yaml")
 ESA_REGULATION_118_BASE = "uk:regulations/uksi/2008/794/118"
+ESA_FINAL_PROGRAM_PATH = Path("policies/govuk/esa-income.yaml")
+ESA_FINAL_BASE = "uk:policies/govuk/esa-income"
 JSA_REGULATION_116_PROGRAM_PATH = Path("regulations/uksi/1996/207/116.yaml")
 JSA_REGULATION_116_BASE = "uk:regulations/uksi/1996/207/116"
 INCOME_SUPPORT_REGULATION_53_PROGRAM_PATH = Path("regulations/uksi/1987/1967/53.yaml")
@@ -94,6 +96,8 @@ HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_PROGRAM_PATH = Path(
     "regulations/uksi/2006/214/29.yaml"
 )
 HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE = "uk:regulations/uksi/2006/214/29"
+HOUSING_BENEFIT_FINAL_PROGRAM_PATH = Path("policies/govuk/housing-benefit.yaml")
+HOUSING_BENEFIT_FINAL_BASE = "uk:policies/govuk/housing-benefit"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 UNIVERSAL_CREDIT_REGULATION_18_PROGRAM_PATH = Path("regulations/uksi/2013/376/18.yaml")
@@ -423,6 +427,14 @@ ESA_TARIFF_INCOME_OUTPUTS = {
     },
 }
 
+ESA_FINAL_OUTPUTS = {
+    "income_related_esa_annual_amount": {
+        "axiom": f"{ESA_FINAL_BASE}#income_related_esa_annual_amount",
+        "pe": "esa_income",
+        "tolerance": 0.01,
+    },
+}
+
 JSA_TARIFF_INCOME_OUTPUTS = {
     "capital_tariff_weekly_income": {
         "axiom": f"{JSA_REGULATION_116_BASE}#capital_tariff_weekly_income",
@@ -462,6 +474,14 @@ HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS = {
         "pe": "housing_benefit_tariff_income",
         "pe_transform": "annual_to_weekly",
         "applies": "housing_benefit_pension_age_tariff_income_defined",
+    },
+}
+
+HOUSING_BENEFIT_FINAL_OUTPUTS = {
+    "housing_benefit_annual_amount": {
+        "axiom": f"{HOUSING_BENEFIT_FINAL_BASE}#housing_benefit_annual_amount",
+        "pe": "housing_benefit",
+        "tolerance": 0.01,
     },
 }
 
@@ -970,6 +990,17 @@ SURFACE_SPECS = {
             "esa_income_tariff_income",
         ),
     ),
+    "esa-income-final": UKEFRSSurfaceSpec(
+        program=ESA_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=ESA_FINAL_OUTPUTS,
+        pe_variables=(
+            "esa_income",
+            "esa_income_eligible",
+            "esa_income_tariff_income",
+        ),
+        projection_person_variables=("esa_income_reported",),
+    ),
     "jsa-income-tariff-income": UKEFRSSurfaceSpec(
         program=JSA_REGULATION_116_PROGRAM_PATH,
         entity="benunit",
@@ -1009,6 +1040,17 @@ SURFACE_SPECS = {
             "housing_benefit_tariff_income",
         ),
         projection_person_variables=("is_SP_age",),
+    ),
+    "housing-benefit-final": UKEFRSSurfaceSpec(
+        program=HOUSING_BENEFIT_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=HOUSING_BENEFIT_FINAL_OUTPUTS,
+        pe_variables=(
+            "benefit_cap_reduction",
+            "housing_benefit",
+            "housing_benefit_pre_benefit_cap",
+            "would_claim_housing_benefit",
+        ),
     ),
     "universal-credit-standard-allowance": UKEFRSSurfaceSpec(
         program=UNIVERSAL_CREDIT_PROGRAM_PATH,
@@ -1239,19 +1281,23 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers per-child Child Benefit rates, section 141 weekly entitlement, and the final gross benefit-unit Child Benefit receipt after PolicyEngine UK's would_claim_child_benefit gate.",
     },
     "esa_income": {
-        "status": "partial",
-        "surfaces": ("esa-income-tariff-income",),
-        "covered_outputs": ("esa_income_tariff_income",),
-        "rationale": "Axiom covers capital tariff income used inside income-related ESA, not the final ESA HBAI amount.",
+        "status": "exact",
+        "surfaces": ("esa-income-tariff-income", "esa-income-final"),
+        "covered_outputs": ("esa_income_tariff_income", "esa_income"),
+        "rationale": "Axiom covers capital tariff income used inside income-related ESA and the final annual PolicyEngine UK esa_income wrapper over reported ESA, tariff income, and the eligibility gate.",
     },
     "housing_benefit": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": (
             "housing-benefit-working-age-tariff-income",
             "housing-benefit-pension-age-tariff-income",
+            "housing-benefit-final",
         ),
-        "covered_outputs": ("housing_benefit_tariff_income",),
-        "rationale": "Axiom covers Housing Benefit capital tariff income branches, not the final Housing Benefit HBAI amount.",
+        "covered_outputs": (
+            "housing_benefit_tariff_income",
+            "housing_benefit",
+        ),
+        "rationale": "Axiom covers Housing Benefit capital tariff income branches and the final annual PolicyEngine UK housing_benefit wrapper after the claim gate and benefit-cap reduction.",
     },
     "income_support": {
         "status": "partial",
@@ -2167,6 +2213,10 @@ def load_local_policyengine_uk_data(
             merged_benunits,
             merged,
         )
+        merged_benunits = add_esa_income_reported_projection_columns(
+            merged_benunits,
+            merged,
+        )
         merged_benunits = add_housing_benefit_age_projection_columns(
             merged_benunits,
             merged,
@@ -2313,6 +2363,31 @@ def add_housing_benefit_age_projection_columns(
     merged["housing_benefit_any_over_sp_age"] = merged[
         "housing_benefit_any_over_sp_age"
     ].fillna(False)
+    return merged
+
+
+def add_esa_income_reported_projection_columns(
+    benunit: Any,
+    person: Any,
+) -> Any:
+    required = {"person_benunit_id", "esa_income_reported"}
+    if not required.issubset(set(person.columns)):
+        return benunit
+    projection = person[["person_benunit_id"]].copy()
+    projection["esa_income_reported_for_year"] = (
+        person["esa_income_reported"].fillna(0).astype(float)
+    )
+    by_benunit = projection.groupby("person_benunit_id", dropna=False).sum()
+    by_benunit = by_benunit[["esa_income_reported_for_year"]].reset_index()
+    merged = benunit.merge(
+        by_benunit,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    ).drop(columns=["person_benunit_id"], errors="ignore")
+    merged["esa_income_reported_for_year"] = merged[
+        "esa_income_reported_for_year"
+    ].fillna(0)
     return merged
 
 
@@ -3652,6 +3727,8 @@ def build_axiom_request(
         return build_pension_credit_final_request(pe_data=pe_data, year=year)
     if surface == "esa-income-tariff-income":
         return build_esa_income_tariff_income_request(pe_data=pe_data, year=year)
+    if surface == "esa-income-final":
+        return build_esa_income_final_request(pe_data=pe_data, year=year)
     if surface == "jsa-income-tariff-income":
         return build_jsa_income_tariff_income_request(pe_data=pe_data, year=year)
     if surface == "income-support-tariff-income":
@@ -3669,6 +3746,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "housing-benefit-final":
+        return build_housing_benefit_final_request(pe_data=pe_data, year=year)
     if surface == "universal-credit-childcare-element":
         return build_universal_credit_childcare_element_request(
             pe_data=pe_data,
@@ -4496,6 +4575,38 @@ def build_esa_income_tariff_income_request(
     )
 
 
+def build_esa_income_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "esa-income-final"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_esa_income_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{ESA_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in ESA_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_jsa_income_tariff_income_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -4546,6 +4657,40 @@ def build_housing_benefit_pension_age_tariff_income_request(
         outputs=HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
         project_inputs=project_housing_benefit_pension_age_tariff_income_inputs,
     )
+
+
+def build_housing_benefit_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "housing-benefit-final"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_housing_benefit_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{HOUSING_BENEFIT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in HOUSING_BENEFIT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
 
 
 def build_state_pension_credit_guarantee_credit_request(
@@ -5560,6 +5705,20 @@ def project_housing_benefit_pension_age_tariff_income_inputs(
     }
 
 
+def project_housing_benefit_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "housing_benefit_pre_benefit_cap_for_year": money(
+            row_value(row, "housing_benefit_pre_benefit_cap", 0)
+        ),
+        "benefit_cap_reduction_for_year": money(
+            row_value(row, "benefit_cap_reduction", 0)
+        ),
+        "would_claim_housing_benefit": bool_row_value(
+            row, "would_claim_housing_benefit", False
+        ),
+    }
+
+
 def project_universal_credit_assessable_capital_inputs(row: Any) -> dict[str, Any]:
     return {
         "claim_is_for_joint_claimants": False,
@@ -5636,6 +5795,20 @@ def project_pension_credit_final_inputs(row: Any) -> dict[str, Any]:
         ),
         "person_or_partner_would_claim_pension_credit": bool_row_value(
             row, "would_claim_pc", False
+        ),
+    }
+
+
+def project_esa_income_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "reported_income_related_esa_for_year": money(
+            row_value(row, "esa_income_reported_for_year", 0)
+        ),
+        "income_related_esa_tariff_income_for_year": money(
+            row_value(row, "esa_income_tariff_income", 0)
+        ),
+        "income_related_esa_eligible": bool_row_value(
+            row, "esa_income_eligible", False
         ),
     }
 
@@ -5807,6 +5980,22 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in benunits
             if money(row_value(row, "pension_credit", 0)) > 0
             or money(row_value(row, "pension_credit_entitlement", 0)) > 0
+        ]
+    if surface == "esa-income-final":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "esa_income", 0)) > 0
+            or money(row_value(row, "esa_income_reported_for_year", 0)) > 0
+            or money(row_value(row, "esa_income_tariff_income", 0)) > 0
+        ]
+    if surface == "housing-benefit-final":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "housing_benefit", 0)) > 0
+            or money(row_value(row, "housing_benefit_pre_benefit_cap", 0)) > 0
+            or money(row_value(row, "benefit_cap_reduction", 0)) > 0
         ]
     if surface == "universal-credit-lcwra-element":
         return [

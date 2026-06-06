@@ -16,8 +16,12 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_FINAL_OUTPUTS,
     CHILD_BENEFIT_OUTPUTS,
     CHILD_BENEFIT_SECTION_141_BASE,
+    ESA_FINAL_BASE,
+    ESA_FINAL_OUTPUTS,
     ESA_REGULATION_118_BASE,
     ESA_TARIFF_INCOME_OUTPUTS,
+    HOUSING_BENEFIT_FINAL_BASE,
+    HOUSING_BENEFIT_FINAL_OUTPUTS,
     HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
     HOUSING_BENEFIT_PENSION_AGE_TARIFF_INCOME_OUTPUTS,
     HOUSING_BENEFIT_REGULATION_52_BASE,
@@ -91,7 +95,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_carers_allowance_final_request,
     build_child_benefit_final_request,
     build_child_benefit_request,
+    build_esa_income_final_request,
     build_esa_income_tariff_income_request,
+    build_housing_benefit_final_request,
     build_housing_benefit_pension_age_tariff_income_request,
     build_housing_benefit_working_age_tariff_income_request,
     build_income_support_tariff_income_request,
@@ -134,7 +140,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_benefit_cap_relevant_amount_inputs,
     project_carers_allowance_final_inputs,
     project_child_benefit_inputs,
+    project_esa_income_final_inputs,
     project_esa_income_tariff_income_inputs,
+    project_housing_benefit_final_inputs,
     project_housing_benefit_pension_age_tariff_income_inputs,
     project_housing_benefit_working_age_tariff_income_inputs,
     project_income_support_tariff_income_inputs,
@@ -2355,6 +2363,158 @@ def test_pension_credit_final_request_projects_final_inputs():
     ] == {"kind": "bool", "value": True}
 
 
+def test_esa_income_final_projection_uses_reported_award_and_tariff_income():
+    assert project_esa_income_final_inputs(
+        {
+            "esa_income_reported_for_year": 2_600,
+            "esa_income_tariff_income": 520,
+            "esa_income_eligible": True,
+        }
+    ) == {
+        "reported_income_related_esa_for_year": 2_600.0,
+        "income_related_esa_tariff_income_for_year": 520.0,
+        "income_related_esa_eligible": True,
+    }
+    assert project_esa_income_final_inputs(
+        {
+            "esa_income_reported_for_year": 2_600,
+            "esa_income_tariff_income": 0,
+            "esa_income_eligible": float("nan"),
+        }
+    )["income_related_esa_eligible"] is False
+
+
+def test_esa_income_final_request_projects_final_inputs():
+    request = build_esa_income_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "esa_income_reported_for_year": 2_600,
+                    "esa_income_tariff_income": 520,
+                    "esa_income_eligible": True,
+                    "esa_income": 2_080,
+                },
+                {
+                    "benunit_id": 12,
+                    "esa_income_reported_for_year": 0,
+                    "esa_income_tariff_income": 0,
+                    "esa_income_eligible": False,
+                    "esa_income": 0,
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                ESA_FINAL_OUTPUTS["income_related_esa_annual_amount"]["axiom"]
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{ESA_FINAL_BASE}#input.reported_income_related_esa_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "2600.0"}
+    assert inputs[
+        f"{ESA_FINAL_BASE}#input.income_related_esa_tariff_income_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "520.0"}
+    assert inputs[
+        f"{ESA_FINAL_BASE}#input.income_related_esa_eligible:benunit_11"
+    ] == {"kind": "bool", "value": True}
+
+
+def test_housing_benefit_final_projection_uses_pre_cap_and_cap_reduction():
+    assert project_housing_benefit_final_inputs(
+        {
+            "housing_benefit_pre_benefit_cap": 5_200,
+            "benefit_cap_reduction": 1_040,
+            "would_claim_housing_benefit": True,
+        }
+    ) == {
+        "housing_benefit_pre_benefit_cap_for_year": 5_200.0,
+        "benefit_cap_reduction_for_year": 1_040.0,
+        "would_claim_housing_benefit": True,
+    }
+    assert project_housing_benefit_final_inputs(
+        {
+            "housing_benefit_pre_benefit_cap": 5_200,
+            "benefit_cap_reduction": 0,
+            "would_claim_housing_benefit": float("nan"),
+        }
+    )["would_claim_housing_benefit"] is False
+
+
+def test_housing_benefit_final_request_projects_final_inputs():
+    request = build_housing_benefit_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "housing_benefit_pre_benefit_cap": 5_200,
+                    "benefit_cap_reduction": 1_040,
+                    "would_claim_housing_benefit": True,
+                    "housing_benefit": 4_160,
+                },
+                {
+                    "benunit_id": 12,
+                    "housing_benefit_pre_benefit_cap": 0,
+                    "benefit_cap_reduction": 0,
+                    "would_claim_housing_benefit": False,
+                    "housing_benefit": 0,
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                HOUSING_BENEFIT_FINAL_OUTPUTS["housing_benefit_annual_amount"][
+                    "axiom"
+                ]
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{HOUSING_BENEFIT_FINAL_BASE}#input.housing_benefit_pre_benefit_cap_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "5200.0"}
+    assert inputs[
+        f"{HOUSING_BENEFIT_FINAL_BASE}#input.benefit_cap_reduction_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "1040.0"}
+    assert inputs[
+        f"{HOUSING_BENEFIT_FINAL_BASE}#input.would_claim_housing_benefit:benunit_11"
+    ] == {"kind": "bool", "value": True}
+
+
 def test_universal_credit_childcare_element_projection_reverses_rate_and_cap():
     projected = project_universal_credit_childcare_element_inputs(
         {
@@ -3274,6 +3434,9 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "state_pension_reported",
         "state_pension_type",
     )
+    assert policyengine_person_variables_for_surfaces(["esa-income-final"]) == (
+        "esa_income_reported",
+    )
     assert policyengine_person_variables_for_surfaces(["student-loan-repayment"]) == (
         "adjusted_net_income",
         "student_loan_plan",
@@ -3313,6 +3476,17 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "pension_credit",
         "pension_credit_entitlement",
         "would_claim_pc",
+    )
+    assert policyengine_benunit_variables_for_surfaces(["esa-income-final"]) == (
+        "esa_income",
+        "esa_income_eligible",
+        "esa_income_tariff_income",
+    )
+    assert policyengine_benunit_variables_for_surfaces(["housing-benefit-final"]) == (
+        "benefit_cap_reduction",
+        "housing_benefit",
+        "housing_benefit_pre_benefit_cap",
+        "would_claim_housing_benefit",
     )
     assert policyengine_benunit_variables_for_surfaces(["state-pension-final"]) == ()
     assert policyengine_benunit_variables_for_surfaces(
@@ -3579,7 +3753,9 @@ class hbai_household_net_income(Variable):
         "free_school_milk",
         "free_tv_licence_value",
         "child_benefit",
+        "esa_income",
         "esa_contrib",
+        "housing_benefit",
         "universal_credit",
         "pension_credit",
         "working_tax_credit",
@@ -3628,7 +3804,9 @@ class hbai_household_net_income(Variable):
         "free_school_milk",
         "free_tv_licence_value",
         "child_benefit",
+        "esa_income",
         "esa_contrib",
+        "housing_benefit",
         "universal_credit",
         "pension_credit",
         "working_tax_credit",
@@ -3773,6 +3951,25 @@ class hbai_household_net_income(Variable):
         "pension_credit_deemed_income",
         "pension_credit",
     )
+    assert by_name["esa_income"].status == "exact"
+    assert by_name["esa_income"].surfaces == (
+        "esa-income-tariff-income",
+        "esa-income-final",
+    )
+    assert by_name["esa_income"].covered_outputs == (
+        "esa_income_tariff_income",
+        "esa_income",
+    )
+    assert by_name["housing_benefit"].status == "exact"
+    assert by_name["housing_benefit"].surfaces == (
+        "housing-benefit-working-age-tariff-income",
+        "housing-benefit-pension-age-tariff-income",
+        "housing-benefit-final",
+    )
+    assert by_name["housing_benefit"].covered_outputs == (
+        "housing_benefit_tariff_income",
+        "housing_benefit",
+    )
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["tax_free_childcare"].status == "partial"
@@ -3799,11 +3996,11 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
-    assert report.policy_component_count == 21
-    assert report.covered_policy_component_count == 21
-    assert report.exact_policy_component_count == 8
+    assert report.policy_component_count == 23
+    assert report.covered_policy_component_count == 23
+    assert report.exact_policy_component_count == 10
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 8 / 21)
+    assert math.isclose(report.exact_policy_component_share, 10 / 23)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4391,6 +4588,72 @@ def test_compare_outputs_compares_pension_credit_final_annual_amount():
                         PENSION_CREDIT_FINAL_OUTPUTS[
                             "pension_credit_annual_amount"
                         ]["axiom"]: decimal_output(3_400),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_esa_income_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "esa_income": 2_080,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "esa-income-final": [
+                {
+                    "outputs": {
+                        ESA_FINAL_OUTPUTS["income_related_esa_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(2_080),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_housing_benefit_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "housing_benefit": 4_160,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "housing-benefit-final": [
+                {
+                    "outputs": {
+                        HOUSING_BENEFIT_FINAL_OUTPUTS[
+                            "housing_benefit_annual_amount"
+                        ]["axiom"]: decimal_output(4_160),
                     }
                 }
             ]
