@@ -1399,6 +1399,39 @@ mappings:
     comparison: money
     rationale: Same weekly Disability Living Allowance lower-rate mobility component amount after applying the Article 14 substitution.
 
+  - legal_id: uk:policies/govuk/disability-living-allowance#disability_living_allowance_self_care_weekly_amount
+    country: uk
+    program: dla
+    mapping_type: direct_variable
+    policyengine_variable: dla_sc
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Disability Living Allowance self-care component after selecting the higher, middle, lower, or nil category; the UK oracle converts PolicyEngine UK's annual value to a weekly amount for comparison.
+
+  - legal_id: uk:policies/govuk/disability-living-allowance#disability_living_allowance_mobility_weekly_amount
+    country: uk
+    program: dla
+    mapping_type: direct_variable
+    policyengine_variable: dla_m
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Disability Living Allowance mobility component after selecting the higher, lower, or nil category; the UK oracle converts PolicyEngine UK's annual value to a weekly amount for comparison.
+
+  - legal_id: uk:policies/govuk/disability-living-allowance#disability_living_allowance_annual_amount
+    country: uk
+    program: dla
+    mapping_type: direct_variable
+    policyengine_variable: dla
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Disability Living Allowance total as the sum of annual self-care and mobility components.
+
   - legal_id: uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_substituted_amount
     country: uk
     program: state_pension

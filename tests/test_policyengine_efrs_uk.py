@@ -2,6 +2,7 @@ import argparse
 import math
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_FINAL_OUTPUTS,
     CHILD_BENEFIT_OUTPUTS,
     CHILD_BENEFIT_SECTION_141_BASE,
+    DLA_FINAL_BASE,
+    DLA_FINAL_OUTPUTS,
     ESA_FINAL_BASE,
     ESA_FINAL_OUTPUTS,
     ESA_REGULATION_118_BASE,
@@ -97,11 +100,13 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WEEKS_IN_YEAR,
     WELFARE_REFORM_ACT_SECTION_8_BASE,
     WELFARE_REFORM_ACT_SECTION_11_BASE,
+    add_policyengine_uk_disability_categories_from_reported_amounts,
     build_benefit_cap_relevant_amount_request,
     build_carer_support_payment_final_request,
     build_carers_allowance_final_request,
     build_child_benefit_final_request,
     build_child_benefit_request,
+    build_dla_final_request,
     build_esa_income_final_request,
     build_esa_income_tariff_income_request,
     build_housing_benefit_final_request,
@@ -143,6 +148,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_work_allowance_request,
     compare_outputs,
     compare_uk_efrs,
+    disability_category_from_reported_amounts,
     normalize_policyengine_entity,
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
@@ -150,6 +156,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_carer_support_payment_final_inputs,
     project_carers_allowance_final_inputs,
     project_child_benefit_inputs,
+    project_dla_final_inputs,
     project_esa_income_final_inputs,
     project_esa_income_tariff_income_inputs,
     project_housing_benefit_final_inputs,
@@ -197,6 +204,96 @@ def decimal_output(value):
 
 def judgment_output(holds):
     return {"kind": "judgment", "outcome": "holds" if holds else "not_holds"}
+
+
+class FakePersonFrame:
+    def __init__(self, data):
+        self.data = {key: list(value) for key, value in data.items()}
+
+    @property
+    def columns(self):
+        return self.data.keys()
+
+    def copy(self):
+        return FakePersonFrame(self.data)
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+    def __setitem__(self, key, value):
+        self.data[key] = list(value)
+
+
+def test_disability_category_from_reported_amounts_uses_weekly_thresholds():
+    assert disability_category_from_reported_amounts(
+        [
+            0,
+            29.0 * WEEKS_IN_YEAR,
+            29.5 * WEEKS_IN_YEAR,
+            75.8 * WEEKS_IN_YEAR,
+            114.0 * WEEKS_IN_YEAR,
+            float("nan"),
+        ],
+        (
+            ("LOWER", 30.30),
+            ("MIDDLE", 76.70),
+            ("HIGHER", 114.60),
+        ),
+    ) == [
+        "NONE",
+        "NONE",
+        "LOWER",
+        "MIDDLE",
+        "HIGHER",
+        "NONE",
+    ]
+
+
+def test_add_policyengine_uk_disability_categories_backfills_stale_local_h5(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_disability_category_thresholds",
+        lambda year: (
+            (
+                "dla_sc_reported",
+                "dla_sc_category",
+                (
+                    ("LOWER", 30.30),
+                    ("MIDDLE", 76.70),
+                    ("HIGHER", 114.60),
+                ),
+            ),
+            (
+                "pip_dl_reported",
+                "pip_dl_category",
+                (
+                    ("STANDARD", 73.90),
+                    ("ENHANCED", 110.40),
+                ),
+            ),
+        ),
+    )
+    original_person = FakePersonFrame(
+        {
+            "person_id": [1, 2],
+            "dla_sc_reported": [0, 76.7 * WEEKS_IN_YEAR],
+            "pip_dl_reported": [110.4 * WEEKS_IN_YEAR, 0],
+        }
+    )
+    dataset = SimpleNamespace(person=original_person)
+
+    added = add_policyengine_uk_disability_categories_from_reported_amounts(
+        dataset,
+        year=2026,
+    )
+
+    assert added == ("dla_sc_category", "pip_dl_category")
+    assert dataset.person is not original_person
+    assert dataset.person.data["dla_sc_category"] == ["NONE", "MIDDLE"]
+    assert dataset.person.data["pip_dl_category"] == ["ENHANCED", "NONE"]
+    assert "dla_sc_category" not in original_person.data
 
 
 def test_national_insurance_class_1_request_projects_weekly_inputs(monkeypatch):
@@ -2511,6 +2608,80 @@ def test_sda_final_request_projects_final_inputs():
     ] == {"kind": "decimal", "value": "6206.2"}
 
 
+def test_dla_final_projection_uses_category_inputs():
+    assert project_dla_final_inputs(
+        {
+            "dla_sc_category": "MIDDLE",
+            "dla_m_category": "HIGHER",
+        }
+    ) == {
+        "person_has_higher_rate_dla_self_care_category": False,
+        "person_has_middle_rate_dla_self_care_category": True,
+        "person_has_lower_rate_dla_self_care_category": False,
+        "person_has_higher_rate_dla_mobility_category": True,
+        "person_has_lower_rate_dla_mobility_category": False,
+    }
+
+
+def test_dla_final_request_projects_final_inputs():
+    request = build_dla_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "dla": 0,
+                    "dla_sc": 0,
+                    "dla_m": 0,
+                    "dla_sc_category": "NONE",
+                    "dla_m_category": "NONE",
+                },
+                {
+                    "person_id": 2,
+                    "dla": 8_148.40,
+                    "dla_sc": 3_988.40,
+                    "dla_m": 4_160.00,
+                    "dla_sc_category": "MIDDLE",
+                    "dla_m_category": "HIGHER",
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                DLA_FINAL_OUTPUTS[
+                    "disability_living_allowance_self_care_weekly_amount"
+                ]["axiom"],
+                DLA_FINAL_OUTPUTS["disability_living_allowance_mobility_weekly_amount"][
+                    "axiom"
+                ],
+                DLA_FINAL_OUTPUTS["disability_living_allowance_annual_amount"]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{DLA_FINAL_BASE}#input.person_has_middle_rate_dla_self_care_category:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{DLA_FINAL_BASE}#input.person_has_higher_rate_dla_mobility_category:person_2"
+    ] == {"kind": "bool", "value": True}
+
+
 def test_pension_credit_final_projection_uses_entitlement_components():
     assert project_pension_credit_final_inputs(
         {
@@ -4031,6 +4202,7 @@ class hbai_household_net_income(Variable):
         "council_tax",
         "domestic_rates",
         "maintenance_expenses",
+        "LVT",
     ]
 """.strip()
     )
@@ -4082,6 +4254,7 @@ class hbai_household_net_income(Variable):
         "council_tax",
         "domestic_rates",
         "maintenance_expenses",
+        "LVT",
     )
     assert by_name["employment_income"].status == "fixed_input"
     assert by_name["employment_income"].policy_component is False
@@ -4216,7 +4389,16 @@ class hbai_household_net_income(Variable):
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["tax_free_childcare"].status == "partial"
     assert by_name["pip"].status == "exact"
-    assert by_name["dla"].status == "partial"
+    assert by_name["dla"].status == "exact"
+    assert by_name["dla"].surfaces == (
+        "disability-living-allowance-rates",
+        "disability-living-allowance-final",
+    )
+    assert by_name["dla"].covered_outputs == (
+        "dla_sc",
+        "dla_m",
+        "dla",
+    )
     assert by_name["attendance_allowance"].status == "partial"
     assert by_name["carers_allowance"].status == "exact"
     assert by_name["carers_allowance"].surfaces == (
@@ -4257,11 +4439,13 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
+    assert by_name["LVT"].status == "out_of_scope"
+    assert by_name["LVT"].policy_component is False
     assert report.policy_component_count == 23
     assert report.covered_policy_component_count == 23
-    assert report.exact_policy_component_count == 13
+    assert report.exact_policy_component_count == 14
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 13 / 23)
+    assert math.isclose(report.exact_policy_component_share, 14 / 23)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4297,13 +4481,12 @@ class hbai_household_net_income(Variable):
     assert report.adds == ("employment_income", "dla")
     assert report.subtracts == ("income_tax",)
     assert report.status_counts == {
-        "exact": 1,
+        "exact": 2,
         "fixed_input": 1,
-        "partial": 1,
     }
     assert report.policy_component_count == 2
     assert report.covered_policy_component_count == 2
-    assert report.exact_policy_component_count == 1
+    assert report.exact_policy_component_count == 2
 
 
 def test_uk_hbai_policy_coverage_report_serializes_json(tmp_path):
@@ -4924,6 +5107,49 @@ def test_compare_outputs_compares_sda_final_annual_amount():
     )
 
     assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_dla_final_components_and_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "dla": 8_148.40,
+                    "dla_sc": 3_988.40,
+                    "dla_m": 4_160.00,
+                    "dla_sc_category": "MIDDLE",
+                    "dla_m_category": "HIGHER",
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "disability-living-allowance-final": [
+                {
+                    "outputs": {
+                        DLA_FINAL_OUTPUTS[
+                            "disability_living_allowance_self_care_weekly_amount"
+                        ]["axiom"]: decimal_output(76.70),
+                        DLA_FINAL_OUTPUTS[
+                            "disability_living_allowance_mobility_weekly_amount"
+                        ]["axiom"]: decimal_output(80.00),
+                        DLA_FINAL_OUTPUTS["disability_living_allowance_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(8_148.40),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 3
     assert report.mismatches == []
     assert report.oracle_divergences == []
 

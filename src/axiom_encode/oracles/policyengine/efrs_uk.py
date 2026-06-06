@@ -35,6 +35,7 @@ DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
 POLICYENGINE_UK_VERSION = "2.88.56"
+CATEGORY_THRESHOLD_WEEKLY_TOLERANCE = 1.0
 
 NATIONAL_INSURANCE_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/1992/4/1.yaml")
 NATIONAL_INSURANCE_SECTION_1_BASE = "uk:statutes/ukpga/1992/4/1"
@@ -132,6 +133,8 @@ SCOTTISH_CHILD_PAYMENT_FINAL_PROGRAM_PATH = Path(
 SCOTTISH_CHILD_PAYMENT_FINAL_BASE = "uk:policies/govuk/scottish-child-payment"
 SDA_FINAL_PROGRAM_PATH = Path("policies/govuk/severe-disablement-allowance.yaml")
 SDA_FINAL_BASE = "uk:policies/govuk/severe-disablement-allowance"
+DLA_FINAL_PROGRAM_PATH = Path("policies/govuk/disability-living-allowance.yaml")
+DLA_FINAL_BASE = "uk:policies/govuk/disability-living-allowance"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -758,6 +761,30 @@ SDA_FINAL_OUTPUTS = {
     },
 }
 
+DLA_FINAL_OUTPUTS = {
+    "disability_living_allowance_self_care_weekly_amount": {
+        "axiom": (
+            f"{DLA_FINAL_BASE}#disability_living_allowance_self_care_weekly_amount"
+        ),
+        "pe": "dla_sc",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
+    },
+    "disability_living_allowance_mobility_weekly_amount": {
+        "axiom": (
+            f"{DLA_FINAL_BASE}#disability_living_allowance_mobility_weekly_amount"
+        ),
+        "pe": "dla_m",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
+    },
+    "disability_living_allowance_annual_amount": {
+        "axiom": f"{DLA_FINAL_BASE}#disability_living_allowance_annual_amount",
+        "pe": "dla",
+        "tolerance": 0.01,
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -1276,6 +1303,18 @@ SURFACE_SPECS = {
             "sda_reported",
         ),
     ),
+    "disability-living-allowance-final": UKEFRSSurfaceSpec(
+        program=DLA_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=DLA_FINAL_OUTPUTS,
+        pe_variables=(
+            "dla",
+            "dla_m",
+            "dla_m_category",
+            "dla_sc",
+            "dla_sc_category",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1311,6 +1350,14 @@ HBAI_FIXED_INPUT_COMPONENTS = frozenset(
         "statutory_sick_pay",
     }
 )
+
+HBAI_OUT_OF_SCOPE_COMPONENTS = {
+    "LVT": (
+        "PolicyEngine UK's LVT placeholder is outside the current Axiom UK "
+        "tax-benefit law encoding scope, so it is excluded from policy "
+        "alignment coverage."
+    ),
+}
 
 HBAI_COMPONENT_COVERAGE = {
     "income_tax": {
@@ -1497,14 +1544,17 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers PolicyEngine UK's category-input Personal Independence Payment mechanics, including daily-living, mobility, enhanced daily-living receipt, and the final aggregate PIP amount; descriptor scoring and residence, age, care-home, and hospital exclusions remain held as inputs or outside PolicyEngine's current PIP formula.",
     },
     "dla": {
-        "status": "partial",
-        "surfaces": ("disability-living-allowance-rates",),
+        "status": "exact",
+        "surfaces": (
+            "disability-living-allowance-rates",
+            "disability-living-allowance-final",
+        ),
         "covered_outputs": (
             "dla_sc",
             "dla_m",
             "dla",
         ),
-        "rationale": "Axiom covers Disability Living Allowance care and mobility weekly rates, not the category assignment or final aggregate DLA amount.",
+        "rationale": "Axiom covers Disability Living Allowance weekly self-care and mobility rates plus the final annual PolicyEngine UK DLA wrapper using PE's category inputs.",
     },
     "attendance_allowance": {
         "status": "partial",
@@ -2182,6 +2232,121 @@ def compare_uk_efrs(
     )
 
 
+def disability_category_from_reported_amounts(
+    reported_amounts: Any,
+    thresholds: tuple[tuple[str, float], ...],
+) -> list[str]:
+    """Map annual reported disability amounts to PE-UK category inputs."""
+
+    categories: list[str] = []
+    for raw_value in reported_amounts:
+        try:
+            annual_amount = float(raw_value)
+        except (TypeError, ValueError):
+            annual_amount = 0.0
+        if not math.isfinite(annual_amount):
+            annual_amount = 0.0
+        weekly_amount = annual_amount / WEEKS_IN_YEAR
+        category = "NONE"
+        for category_name, weekly_rate in thresholds:
+            threshold = max(
+                0.0,
+                float(weekly_rate) - CATEGORY_THRESHOLD_WEEKLY_TOLERANCE,
+            )
+            if weekly_amount >= threshold:
+                category = category_name
+        categories.append(category)
+    return categories
+
+
+def policyengine_uk_disability_category_thresholds(
+    year: int,
+) -> tuple[tuple[str, str, tuple[tuple[str, float], ...]], ...]:
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    dwp = CountryTaxBenefitSystem().parameters(year).baseline.gov.dwp
+    return (
+        (
+            "attendance_allowance_reported",
+            "aa_category",
+            (
+                ("LOWER", dwp.attendance_allowance.lower),
+                ("HIGHER", dwp.attendance_allowance.higher),
+            ),
+        ),
+        (
+            "dla_sc_reported",
+            "dla_sc_category",
+            (
+                ("LOWER", dwp.dla.self_care.lower),
+                ("MIDDLE", dwp.dla.self_care.middle),
+                ("HIGHER", dwp.dla.self_care.higher),
+            ),
+        ),
+        (
+            "dla_m_reported",
+            "dla_m_category",
+            (
+                ("LOWER", dwp.dla.mobility.lower),
+                ("HIGHER", dwp.dla.mobility.higher),
+            ),
+        ),
+        (
+            "pip_m_reported",
+            "pip_m_category",
+            (
+                ("STANDARD", dwp.pip.mobility.standard),
+                ("ENHANCED", dwp.pip.mobility.enhanced),
+            ),
+        ),
+        (
+            "pip_dl_reported",
+            "pip_dl_category",
+            (
+                ("STANDARD", dwp.pip.daily_living.standard),
+                ("ENHANCED", dwp.pip.daily_living.enhanced),
+            ),
+        ),
+    )
+
+
+def add_policyengine_uk_disability_categories_from_reported_amounts(
+    dataset: Any,
+    *,
+    year: int,
+) -> tuple[str, ...]:
+    """Backfill post-migration disability category inputs for stale local H5s."""
+
+    person = getattr(dataset, "person", None)
+    if person is None:
+        return ()
+
+    columns = set(person.columns)
+    missing_category_mappings = [
+        (reported_column, category_column, thresholds)
+        for reported_column, category_column, thresholds in (
+            policyengine_uk_disability_category_thresholds(year)
+        )
+        if reported_column in columns and category_column not in columns
+    ]
+    if not missing_category_mappings:
+        return ()
+
+    person = person.copy()
+    added_columns: list[str] = []
+    for reported_column, category_column, thresholds in missing_category_mappings:
+        person[category_column] = disability_category_from_reported_amounts(
+            person[reported_column],
+            thresholds,
+        )
+        added_columns.append(category_column)
+    dataset.person = person
+    return tuple(added_columns)
+
+
 def load_policyengine_uk_data(
     *,
     year: int,
@@ -2230,6 +2395,17 @@ def load_local_policyengine_uk_data(
 
     log("Loading local PolicyEngine UK EFRS...")
     pe_dataset = UKSingleYearDataset(file_path=str(local_path))
+    added_disability_categories = (
+        add_policyengine_uk_disability_categories_from_reported_amounts(
+            pe_dataset,
+            year=year,
+        )
+    )
+    if added_disability_categories:
+        log(
+            "Derived local EFRS disability category inputs from reported amounts: "
+            + ", ".join(added_disability_categories)
+        )
     sim = Microsimulation(dataset=pe_dataset)
     data_year = min(sim.dataset.years)
 
@@ -2840,6 +3016,17 @@ def classify_hbai_component(
             ),
             activity=activity,
         )
+    if name in HBAI_OUT_OF_SCOPE_COMPONENTS:
+        return UKEFRSHBAIComponentCoverage(
+            name=name,
+            direction=direction,
+            status="out_of_scope",
+            policy_component=False,
+            surfaces=(),
+            covered_outputs=(),
+            rationale=HBAI_OUT_OF_SCOPE_COMPONENTS[name],
+            activity=activity,
+        )
     coverage = HBAI_COMPONENT_COVERAGE.get(name)
     if coverage is not None:
         return UKEFRSHBAIComponentCoverage(
@@ -2894,6 +3081,17 @@ def policyengine_uk_hbai_activity(
 
     log("Loading local PolicyEngine UK EFRS for HBAI activity...")
     pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    added_disability_categories = (
+        add_policyengine_uk_disability_categories_from_reported_amounts(
+            pe_dataset,
+            year=year,
+        )
+    )
+    if added_disability_categories:
+        log(
+            "Derived local EFRS disability category inputs from reported amounts: "
+            + ", ".join(added_disability_categories)
+        )
     sim = Microsimulation(dataset=pe_dataset)
 
     activity: dict[str, UKEFRSHBAIComponentActivity] = {}
@@ -3246,6 +3444,17 @@ def policyengine_uk_efrs_activity(
 
     log("Loading local PolicyEngine UK EFRS for coverage activity...")
     pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    added_disability_categories = (
+        add_policyengine_uk_disability_categories_from_reported_amounts(
+            pe_dataset,
+            year=year,
+        )
+    )
+    if added_disability_categories:
+        log(
+            "Derived local EFRS disability category inputs from reported amounts: "
+            + ", ".join(added_disability_categories)
+        )
     sim = Microsimulation(dataset=pe_dataset)
     with pd.HDFStore(local_dataset, mode="r") as store:
         raw_person = store["person"].copy()
@@ -3877,6 +4086,8 @@ def build_axiom_request(
         )
     if surface == "severe-disablement-allowance-final":
         return build_sda_final_request(pe_data=pe_data, year=year)
+    if surface == "disability-living-allowance-final":
+        return build_dla_final_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -5376,6 +5587,36 @@ def build_sda_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, 
     }
 
 
+def build_dla_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "disability-living-allowance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_dla_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{DLA_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in DLA_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -6016,6 +6257,18 @@ def project_sda_final_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_dla_final_inputs(row: Any) -> dict[str, Any]:
+    self_care_category = enum_name(row_value(row, "dla_sc_category", "NONE")).upper()
+    mobility_category = enum_name(row_value(row, "dla_m_category", "NONE")).upper()
+    return {
+        "person_has_higher_rate_dla_self_care_category": self_care_category == "HIGHER",
+        "person_has_middle_rate_dla_self_care_category": self_care_category == "MIDDLE",
+        "person_has_lower_rate_dla_self_care_category": self_care_category == "LOWER",
+        "person_has_higher_rate_dla_mobility_category": mobility_category == "HIGHER",
+        "person_has_lower_rate_dla_mobility_category": mobility_category == "LOWER",
+    }
+
+
 def project_pension_credit_final_inputs(row: Any) -> dict[str, Any]:
     return {
         "pension_credit_entitlement_for_year": money(
@@ -6229,6 +6482,16 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "sda", 0)) > 0
             or money(row_value(row, "sda_reported", 0)) > 0
+        ]
+    if surface == "disability-living-allowance-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "dla", 0)) > 0
+            or money(row_value(row, "dla_sc", 0)) > 0
+            or money(row_value(row, "dla_m", 0)) > 0
+            or enum_name(row_value(row, "dla_sc_category", "NONE")).upper() != "NONE"
+            or enum_name(row_value(row, "dla_m_category", "NONE")).upper() != "NONE"
         ]
     if surface == "pension-credit-final":
         return [
@@ -6464,6 +6727,15 @@ def compare_outputs(
             "Carer's Allowance receipt, and Scotland replacement gate into a "
             "final annual wrapper that uses the RuleSpec weekly rate and "
             "35-hour care threshold.",
+            "PolicyEngine-aligned Disability Living Allowance final comparison "
+            "projects PolicyEngine UK's DLA self-care and mobility category "
+            "enums into boolean category leaves, then compares selected weekly "
+            "components and the final annual aggregate.",
+            "When a local EFRS .h5 predates the PolicyEngine UK disability "
+            "category-input migration, the oracle derives PIP, DLA, and "
+            "Attendance Allowance category inputs in memory from reported "
+            "amount columns using the policyengine-uk-data category threshold "
+            "rule; it does not rewrite the local dataset.",
             "Welfare Reform Act 2012 section 11 Universal Credit housing-costs "
             "comparison projects PolicyEngine's annual uc_housing_costs_element "
             "into the monthly amount determined or calculated by regulations, "
