@@ -3491,6 +3491,14 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: 35
+  - name: carers_allowance_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
   - name: carers_allowance_annual_amount
     kind: derived
     entity: Person
@@ -3500,7 +3508,7 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if not (person_is_in_scotland and carer_support_payment_replaces_carers_allowance) and (weekly_care_hours >= carers_allowance_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): carers_allowance_weekly_rate * 52 else: 0
+          if not (person_is_in_scotland and carer_support_payment_replaces_carers_allowance) and (weekly_care_hours >= carers_allowance_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): carers_allowance_weekly_rate * carers_allowance_weeks_in_year else: 0
 """,
     )
     _write_rulespec_file(
@@ -3523,11 +3531,17 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="carers_allowance")
 
-    assert report["status_counts"] == {"comparable": 2}
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 1,
+    }
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     min_hours = items_by_id[
         "uk:policies/govuk/carers-allowance#carers_allowance_minimum_weekly_care_hours"
+    ]
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/carers-allowance#carers_allowance_weeks_in_year"
     ]
     annual_amount = items_by_id[
         "uk:policies/govuk/carers-allowance#carers_allowance_annual_amount"
@@ -3536,6 +3550,8 @@ rules:
     assert min_hours["policyengine_parameter"] == "gov.dwp.carers_allowance.min_hours"
     assert min_hours["mapping_type"] == "parameter_value"
     assert min_hours["tested"] is True
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
     assert annual_amount["policyengine_variable"] == "carers_allowance"
     assert annual_amount["mapping_type"] == "direct_variable"
     assert annual_amount["tested"] is True
