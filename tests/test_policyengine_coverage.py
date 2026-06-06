@@ -3557,6 +3557,350 @@ rules:
     assert annual_amount["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/pension-credit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pension_credit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/pension-credit.test.yaml",
+        """- name: pension credit final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/pension-credit#input.pension_credit_entitlement_for_year: 3400.00
+    uk:policies/govuk/pension-credit#input.person_or_partner_would_claim_pension_credit: true
+  output:
+    uk:policies/govuk/pension-credit#pension_credit_annual_amount: 3400.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/pension-credit#pension_credit_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "pension_credit"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_esa_income_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/esa-income.yaml",
+        """format: rulespec/v1
+rules:
+  - name: income_related_esa_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if income_related_esa_eligible: max(0, reported_income_related_esa_for_year - income_related_esa_tariff_income_for_year) else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/esa-income.test.yaml",
+        """- name: income related ESA final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/esa-income#input.reported_income_related_esa_for_year: 2600.00
+    uk:policies/govuk/esa-income#input.income_related_esa_tariff_income_for_year: 520.00
+    uk:policies/govuk/esa-income#input.income_related_esa_eligible: true
+  output:
+    uk:policies/govuk/esa-income#income_related_esa_annual_amount: 2080.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="employment_and_support_allowance",
+    )
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/esa-income#income_related_esa_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "esa_income"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_housing_benefit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/housing-benefit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: housing_benefit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if would_claim_housing_benefit: max(0, housing_benefit_pre_benefit_cap_for_year - benefit_cap_reduction_for_year) else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/housing-benefit.test.yaml",
+        """- name: housing benefit final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/housing-benefit#input.housing_benefit_pre_benefit_cap_for_year: 5200.00
+    uk:policies/govuk/housing-benefit#input.benefit_cap_reduction_for_year: 1040.00
+    uk:policies/govuk/housing-benefit#input.would_claim_housing_benefit: true
+  output:
+    uk:policies/govuk/housing-benefit#housing_benefit_annual_amount: 4160.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="housing_benefit")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/housing-benefit#housing_benefit_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "housing_benefit"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_carer_support_payment_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carer-support-payment.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carer_support_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: carer_support_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if person_is_in_scotland and carer_support_payment_in_effect and (weekly_care_hours >= 35 or reported_carers_allowance_for_year > 0): 98.15 * carer_support_payment_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carer-support-payment.test.yaml",
+        """- name: carer support payment final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/carer-support-payment#input.person_is_in_scotland: true
+    uk:policies/govuk/carer-support-payment#input.carer_support_payment_in_effect: true
+    uk:policies/govuk/carer-support-payment#input.weekly_care_hours: 35
+    uk:policies/govuk/carer-support-payment#input.reported_carers_allowance_for_year: 0
+  output:
+    uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year: 52
+    uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount: 5103.80
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="carer_support_payment",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "carer_support_payment"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_scottish_child_payment_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/scottish-child-payment.yaml",
+        """format: rulespec/v1
+rules:
+  - name: scottish_child_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: scottish_child_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if is_scottish_child_payment_eligible and would_claim_scottish_child_payment: 28.20 * scottish_child_payment_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/scottish-child-payment.test.yaml",
+        """- name: scottish child payment final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/scottish-child-payment#input.is_scottish_child_payment_eligible: true
+    uk:policies/govuk/scottish-child-payment#input.would_claim_scottish_child_payment: true
+  output:
+    uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year: 52
+    uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount: 1466.40
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="scottish_child_payment",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "scottish_child_payment"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_sda_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/severe-disablement-allowance.yaml",
+        """format: rulespec/v1
+rules:
+  - name: severe_disablement_allowance_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: severe_disablement_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if reported_severe_disablement_allowance_for_year > 0: 119.35 * severe_disablement_allowance_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk"
+        / "policies/govuk/severe-disablement-allowance.test.yaml",
+        """- name: severe disablement allowance final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/severe-disablement-allowance#input.reported_severe_disablement_allowance_for_year: 6206.20
+  output:
+    uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year: 52
+    uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount: 6206.20
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="sda")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "sda"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

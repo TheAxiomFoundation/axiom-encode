@@ -709,6 +709,17 @@ mappings:
     comparison: money
     rationale: Same final annual Universal Credit receipt for the benefit unit after PolicyEngine UK's would_claim_uc gate and benefit-cap reduction.
 
+  - legal_id: uk:policies/govuk/pension-credit#pension_credit_annual_amount
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: pension_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Pension Credit receipt for the benefit unit after PolicyEngine UK's would_claim_pc gate over pension_credit_entitlement.
+
   - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner
     country: uk
     program: pension_credit
@@ -1051,6 +1062,24 @@ mappings:
     comparison: number
     rationale: Regulation 18 requires the child to be under 16; PolicyEngine stores the same threshold as the maximum child age parameter.
 
+  - legal_id: uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year
+    country: uk
+    program: scottish_child_payment
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Scottish Child Payment variable and the weekly amount parameter, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount
+    country: uk
+    program: scottish_child_payment
+    mapping_type: direct_variable
+    policyengine_variable: scottish_child_payment
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Scottish Child Payment output is the same PolicyEngine UK variable after eligibility and take-up gates.
+
   - legal_id: uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
     country: uk
     program: carer_support_payment
@@ -1080,6 +1109,24 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same weekly Scottish Carer Supplement amount paid on top of Carer Support Payment.
+
+  - legal_id: uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year
+    country: uk
+    program: carer_support_payment
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Carer Support Payment variable and the weekly rate parameters, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount
+    country: uk
+    program: carer_support_payment
+    mapping_type: direct_variable
+    policyengine_variable: carer_support_payment
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Carer Support Payment output is the same PolicyEngine UK variable after Scotland, effective-date, and care/reporting gates.
 
   - legal_id: uk:statutes/ukpga/2022/38/1#means_tested_additional_payment_total
     country: uk
@@ -1487,6 +1534,24 @@ mappings:
     comparison: money
     rationale: Same weekly maximum Severe Disablement Allowance rate after deriving PolicyEngine's maximum-rate shape as the basic SDA row plus the highest age-related addition.
 
+  - legal_id: uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Severe Disablement Allowance variable and the weekly maximum rate parameter, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount
+    country: uk
+    program: sda
+    mapping_type: direct_variable
+    policyengine_variable: sda
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Severe Disablement Allowance output is the same PolicyEngine UK variable over reported SDA receipt.
+
   - legal_id: uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
     country: uk
     program: carers_allowance
@@ -1634,6 +1699,17 @@ mappings:
     comparison: money
     rationale: Same income-related ESA tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit esa_income_assessable_capital into the Regulation 118 claimant-capital leaf, sets the prescribed-accommodation branch false because PolicyEngine does not expose that legal predicate, limits comparison to capital at or below GBP 16,000, and converts PolicyEngine's annual output to a weekly amount.
 
+  - legal_id: uk:policies/govuk/esa-income#income_related_esa_annual_amount
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: direct_variable
+    policyengine_variable: esa_income
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual income-related ESA amount after PolicyEngine UK's capital-test eligibility gate and tariff-income reduction over reported ESA.
+
   - legal_id: uk:regulations/uksi/1996/207/116#capital_tariff_weekly_income
     country: uk
     program: jobseekers_allowance
@@ -1677,6 +1753,17 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same pension-age Housing Benefit tariff income from capital after the UK EFRS adapter projects PolicyEngine's benefit-unit housing_benefit_assessable_capital into the Regulation 29 claimant-capital leaf, projects the regulation 44(2) capital-disregard exception false because PolicyEngine applies capital exclusions upstream, limits comparison to pension-age rows without guarantee credit, and converts PolicyEngine's annual output to a weekly amount.
+
+  - legal_id: uk:policies/govuk/housing-benefit#housing_benefit_annual_amount
+    country: uk
+    program: housing_benefit
+    mapping_type: direct_variable
+    policyengine_variable: housing_benefit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Housing Benefit amount after PolicyEngine UK's would-claim gate and benefit-cap reduction over pre-cap Housing Benefit.
 
   - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
     country: uk
