@@ -104,6 +104,8 @@ UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH = Path("regulations/uksi/2013/376/34
 UNIVERSAL_CREDIT_REGULATION_34_BASE = "uk:regulations/uksi/2013/376/34"
 UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH = Path("regulations/uksi/2013/376/72.yaml")
 UNIVERSAL_CREDIT_REGULATION_72_BASE = "uk:regulations/uksi/2013/376/72"
+UNIVERSAL_CREDIT_FINAL_PROGRAM_PATH = Path("policies/govuk/universal-credit.yaml")
+UNIVERSAL_CREDIT_FINAL_BASE = "uk:policies/govuk/universal-credit"
 WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
 WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
@@ -583,6 +585,14 @@ UNIVERSAL_CREDIT_AWARD_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_FINAL_OUTPUTS = {
+    "universal_credit_annual_amount": {
+        "axiom": f"{UNIVERSAL_CREDIT_FINAL_BASE}#universal_credit_annual_amount",
+        "pe": "universal_credit",
+        "tolerance": 0.01,
+    },
+}
+
 UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS = {
     "section_11_amount_for_accommodation_payments": {
         "axiom": (
@@ -1048,6 +1058,17 @@ SURFACE_SPECS = {
             "uc_standard_allowance",
         ),
     ),
+    "universal-credit-final": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_FINAL_OUTPUTS,
+        pe_variables=(
+            "benefit_cap_reduction",
+            "universal_credit",
+            "universal_credit_pre_benefit_cap",
+            "would_claim_uc",
+        ),
+    ),
     "universal-credit-housing-costs": UKEFRSSurfaceSpec(
         program=WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH,
         entity="benunit",
@@ -1235,7 +1256,7 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the basic and full new State Pension weekly rates plus the final PolicyEngine UK state_pension receipt wrapper, which prorates reported dataset-year State Pension by current and data-year basic or new State Pension flat-rate ceilings.",
     },
     "universal_credit": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": (
             "universal-credit-standard-allowance",
             "universal-credit-child-element",
@@ -1250,6 +1271,7 @@ HBAI_COMPONENT_COVERAGE = {
             "universal-credit-income-deduction",
             "universal-credit-assessable-capital",
             "universal-credit-tariff-income",
+            "universal-credit-final",
         ),
         "covered_outputs": (
             "uc_standard_allowance",
@@ -1265,8 +1287,9 @@ HBAI_COMPONENT_COVERAGE = {
             "uc_work_allowance",
             "uc_assessable_capital",
             "uc_tariff_income",
+            "universal_credit",
         ),
-        "rationale": "Axiom covers many Universal Credit legal elements and the award-before-take-up expression, not the final HBAI universal_credit aggregate.",
+        "rationale": "Axiom covers many Universal Credit legal elements, the award-before-take-up expression, and the final annual PolicyEngine UK universal_credit wrapper after the would_claim_uc gate and benefit-cap reduction.",
     },
     "student_loan_repayments": {
         "status": "partial",
@@ -3614,6 +3637,8 @@ def build_axiom_request(
         )
     if surface == "universal-credit-award":
         return build_universal_credit_award_request(pe_data=pe_data, year=year)
+    if surface == "universal-credit-final":
+        return build_universal_credit_final_request(pe_data=pe_data, year=year)
     if surface == "universal-credit-housing-costs":
         return build_universal_credit_housing_costs_request(
             pe_data=pe_data,
@@ -4653,6 +4678,40 @@ def build_universal_credit_award_request(
     }
 
 
+def build_universal_credit_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-final"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in UNIVERSAL_CREDIT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_housing_costs_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -5186,6 +5245,17 @@ def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_universal_credit_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "universal_credit_pre_benefit_cap_for_year": money(
+            row_value(row, "universal_credit_pre_benefit_cap", 0)
+        ),
+        "benefit_cap_reduction_for_year": money(
+            row_value(row, "benefit_cap_reduction", 0)
+        ),
+    }
+
+
 def project_universal_credit_childcare_element_inputs(row: Any) -> dict[str, Any]:
     monthly_childcare_element = money(row_value(row, "uc_childcare_element", 0)) / (
         MONTHS_IN_YEAR
@@ -5575,6 +5645,14 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in benunits
             if money(row_value(row, "uc_standard_allowance", 0)) > 0
         ]
+    if surface == "universal-credit-final":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "universal_credit", 0)) > 0
+            or money(row_value(row, "universal_credit_pre_benefit_cap", 0)) > 0
+            or money(row_value(row, "benefit_cap_reduction", 0)) > 0
+        ]
     if surface == "universal-credit-lcwra-element":
         return [
             row for row in benunits if money(row_value(row, "uc_LCWRA_element", 0)) > 0
@@ -5776,6 +5854,11 @@ def compare_outputs(
             "The final section 8 award amount is compared against "
             "max(uc_maximum_amount - uc_income_reduction, 0), before "
             "PolicyEngine's would_claim_uc take-up gate.",
+            "PolicyEngine-aligned Universal Credit final comparison projects "
+            "annual universal_credit_pre_benefit_cap and annual "
+            "benefit_cap_reduction into a final annual wrapper matching "
+            "PolicyEngine UK's universal_credit amount after the would_claim_uc "
+            "gate and benefit-cap reduction.",
             "Welfare Reform Act 2012 section 11 Universal Credit housing-costs "
             "comparison projects PolicyEngine's annual uc_housing_costs_element "
             "into the monthly amount determined or calculated by regulations, "
