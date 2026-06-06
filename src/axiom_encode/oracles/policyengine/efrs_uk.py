@@ -68,6 +68,8 @@ STATE_PENSION_CREDIT_SECTION_2_PROGRAM_PATH = Path("statutes/ukpga/2002/16/2.yam
 STATE_PENSION_CREDIT_SECTION_2_BASE = "uk:statutes/ukpga/2002/16/2"
 STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH = Path("statutes/ukpga/2002/16/3.yaml")
 STATE_PENSION_CREDIT_SECTION_3_BASE = "uk:statutes/ukpga/2002/16/3"
+STATE_PENSION_FINAL_PROGRAM_PATH = Path("policies/govuk/state-pension.yaml")
+STATE_PENSION_FINAL_BASE = "uk:policies/govuk/state-pension"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 PENSION_CREDIT_SCHEDULE_IIA_PROGRAM_PATH = Path(
@@ -339,6 +341,15 @@ STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS = {
         "axiom": f"{STATE_PENSION_CREDIT_SECTION_3_BASE}#savings_credit",
         "pe": "savings_credit",
         "tolerance": 0.1,
+    },
+}
+
+STATE_PENSION_FINAL_OUTPUTS = {
+    "state_pension_weekly_amount": {
+        "axiom": f"{STATE_PENSION_FINAL_BASE}#state_pension_weekly_amount",
+        "pe": "state_pension",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
     },
 }
 
@@ -843,6 +854,16 @@ SURFACE_SPECS = {
             "standard_minimum_guarantee",
         ),
     ),
+    "state-pension-final": UKEFRSSurfaceSpec(
+        program=STATE_PENSION_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=STATE_PENSION_FINAL_OUTPUTS,
+        pe_variables=(
+            "state_pension",
+            "state_pension_reported",
+            "state_pension_type",
+        ),
+    ),
     "pension-credit": UKEFRSSurfaceSpec(
         program=PENSION_CREDIT_PROGRAM_PATH,
         entity="benunit",
@@ -1176,14 +1197,14 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers major Pension Credit rates, additions, and deemed-income components, not the final aggregate pension_credit variable.",
     },
     "state_pension": {
-        "status": "partial",
-        "surfaces": ("state-pension-rates",),
+        "status": "exact",
+        "surfaces": ("state-pension-rates", "state-pension-final"),
         "covered_outputs": (
             "basic_state_pension",
             "new_state_pension",
             "state_pension",
         ),
-        "rationale": "Axiom covers the basic and full new State Pension weekly rates, not person-specific entitlement, deferral, inherited, or transitional amount rules feeding the final state_pension variable.",
+        "rationale": "Axiom covers the basic and full new State Pension weekly rates plus the final PolicyEngine UK state_pension receipt wrapper, which prorates reported dataset-year State Pension by current and data-year basic or new State Pension flat-rate ceilings.",
     },
     "universal_credit": {
         "status": "partial",
@@ -1997,6 +2018,7 @@ def load_local_policyengine_uk_data(
     log("Loading local PolicyEngine UK EFRS...")
     pe_dataset = UKSingleYearDataset(file_path=str(local_path))
     sim = Microsimulation(dataset=pe_dataset)
+    data_year = min(sim.dataset.years)
 
     with pd.HDFStore(local_path, mode="r") as store:
         raw_person = store["person"].copy()
@@ -2013,6 +2035,17 @@ def load_local_policyengine_uk_data(
         merged[variable] = sim.calculate(
             variable,
             period=year,
+            map_to="person",
+        ).values
+    if {"state_pension_reported", "state_pension_type"} & set(person_variables):
+        merged["state_pension_reported_data_year"] = sim.calculate(
+            "state_pension_reported",
+            period=data_year,
+            map_to="person",
+        ).values
+        merged["state_pension_type_data_year"] = sim.calculate(
+            "state_pension_type",
+            period=data_year,
             map_to="person",
         ).values
     records = table_records(merged)
@@ -2068,6 +2101,7 @@ def load_local_policyengine_uk_data(
             benunit_records[index] for index in selected_benunit_indices
         ]
     return {
+        "data_year": data_year,
         "all_persons": records,
         "persons": selected,
         "person_ids": [int(row_value(row, "person_id")) for row in selected],
@@ -3508,6 +3542,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "state-pension-final":
+        return build_state_pension_final_request(pe_data=pe_data, year=year)
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
     if surface == "pension-credit-child-addition":
@@ -4086,6 +4122,47 @@ def build_state_pension_credit_qualifying_age_request(
                 "outputs": [
                     spec["axiom"]
                     for spec in STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_state_pension_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    parameters = policyengine_uk_state_pension_parameters(
+        year=year,
+        data_year=int(pe_data.get("data_year") or year),
+    )
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "state-pension-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_state_pension_final_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STATE_PENSION_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in STATE_PENSION_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -4972,6 +5049,37 @@ def project_state_pension_credit_qualifying_age_inputs(row: Any) -> dict[str, An
     }
 
 
+def project_state_pension_final_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    current_type = enum_name(row_value(row, "state_pension_type", "")).upper()
+    data_year_type = enum_name(
+        row_value(row, "state_pension_type_data_year", "")
+    ).upper()
+    return {
+        "current_state_pension_type_is_basic": current_type == "BASIC",
+        "current_state_pension_type_is_new": current_type == "NEW",
+        "data_year_state_pension_type_is_basic": data_year_type == "BASIC",
+        "data_year_state_pension_type_is_new": data_year_type == "NEW",
+        "reported_state_pension_weekly_amount_in_data_year": money(
+            row_value(row, "state_pension_reported_data_year", 0)
+        )
+        / WEEKS_IN_YEAR,
+        "data_year_basic_state_pension_weekly_rate": parameters[
+            "data_year_basic_state_pension_weekly_rate"
+        ],
+        "data_year_full_new_state_pension_weekly_rate": parameters[
+            "data_year_full_new_state_pension_weekly_rate"
+        ],
+        "state_pension_abolished_by_policy": False,
+        "state_pension_policy_uprating_factor": parameters[
+            "state_pension_policy_uprating_factor"
+        ],
+    }
+
+
 def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
     is_uc_eligible = bool(row_value(row, "is_uc_eligible", False))
 
@@ -5344,6 +5452,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in pe_data.get("benunits", [])
             if money(row_value(row, "child_benefit_entitlement", 0)) > 0
             or money(row_value(row, "child_benefit", 0)) > 0
+        ]
+    if surface == "state-pension-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "state_pension", 0)) > 0
+            or money(row_value(row, "state_pension_reported_data_year", 0)) > 0
         ]
     if surface in {"national-insurance-class-4", "national-insurance-class-4-final"}:
         return [
@@ -6127,6 +6242,27 @@ def policyengine_uk_class_4_parameters(year: int) -> dict[str, float]:
         "upper_profits_limit": money(class_4.thresholds.upper_profits_limit),
         "main_class_4_percentage": float(class_4.rates.main),
         "additional_class_4_percentage": float(class_4.rates.additional),
+    }
+
+
+def policyengine_uk_state_pension_parameters(
+    *, year: int, data_year: int
+) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    state_pension = CountryTaxBenefitSystem().parameters.gov.dwp.state_pension
+    return {
+        "data_year_basic_state_pension_weekly_rate": money(
+            state_pension.basic_state_pension.amount(data_year)
+        ),
+        "data_year_full_new_state_pension_weekly_rate": money(
+            state_pension.new_state_pension.amount(data_year)
+        ),
+        "state_pension_policy_uprating_factor": 1.0,
     }
 
 
