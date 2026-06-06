@@ -2736,6 +2736,7 @@ class hbai_household_net_income(Variable):
         "free_school_meals",
         "free_school_fruit_veg",
         "free_school_milk",
+        "free_tv_licence_value",
         "child_benefit",
         "esa_contrib",
         "universal_credit",
@@ -2782,6 +2783,7 @@ class hbai_household_net_income(Variable):
         "free_school_meals",
         "free_school_fruit_veg",
         "free_school_milk",
+        "free_tv_licence_value",
         "child_benefit",
         "esa_contrib",
         "universal_credit",
@@ -2826,6 +2828,8 @@ class hbai_household_net_income(Variable):
     assert by_name["free_school_fruit_veg"].policy_component is False
     assert by_name["free_school_milk"].status == "fixed_input"
     assert by_name["free_school_milk"].policy_component is False
+    assert by_name["free_tv_licence_value"].status == "partial"
+    assert by_name["free_tv_licence_value"].policy_component is True
     assert by_name["esa_contrib"].status == "fixed_input"
     assert by_name["esa_contrib"].policy_component is False
     assert by_name["afcs"].status == "fixed_input"
@@ -2867,11 +2871,11 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
-    assert report.policy_component_count == 18
-    assert report.covered_policy_component_count == 18
+    assert report.policy_component_count == 19
+    assert report.covered_policy_component_count == 19
     assert report.exact_policy_component_count == 2
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 2 / 18)
+    assert math.isclose(report.exact_policy_component_share, 2 / 19)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(

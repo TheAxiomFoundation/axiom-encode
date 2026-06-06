@@ -696,6 +696,16 @@ mappings:
     comparison: money
     rationale: Same Sure Start Maternity Grant amount payable when the regulation's entitlement conditions are satisfied.
 
+  - legal_id: uk:regulations/uksi/2004/692/schedule/1#colour_tv_licence_general_form_issue_fee
+    country: uk
+    program: tv_licence
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dcms.bbc.tv_licence.colour
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual colour TV licence General Form issue fee used by PolicyEngine UK's TV licence and free-TV-licence-value formulas.
+
   - legal_id: uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
     country: uk
     program: scottish_child_payment

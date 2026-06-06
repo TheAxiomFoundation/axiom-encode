@@ -3178,6 +3178,47 @@ rules:
     assert all(item["tested"] is True for item in report["items"])
 
 
+def test_policyengine_coverage_classifies_uk_tv_licence_fee_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2004/692/schedule/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: colour_tv_licence_general_form_issue_fee
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-04-01'
+        formula: 180.00
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2004/692/schedule/1.test.yaml",
+        """- name: tv licence fee
+  period:
+    period_kind: custom
+    name: licence_year
+    start: '2026-04-01'
+    end: '2027-03-31'
+  input: {}
+  output:
+    uk:regulations/uksi/2004/692/schedule/1#colour_tv_licence_general_form_issue_fee: 180.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tv_licence")
+
+    assert report["status_counts"] == {"comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "uk:regulations/uksi/2004/692/schedule/1#colour_tv_licence_general_form_issue_fee"
+    )
+    assert item["policyengine_parameter"] == "gov.dcms.bbc.tv_licence.colour"
+    assert item["mapping_type"] == "parameter_value"
+    assert item["tested"] is True
+
+
 def test_policyengine_coverage_classifies_uk_state_pension_rate_outputs(
     tmp_path,
 ):
