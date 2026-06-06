@@ -12274,6 +12274,57 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_prefers_current_repo_corpus_artifact(
+    tmp_path,
+    monkeypatch,
+):
+    workspace = tmp_path / "rulespec-uk"
+    workspace_provisions = (
+        workspace / "data" / "corpus" / "provisions" / "uk" / "regulation"
+    )
+    workspace_provisions.mkdir(parents=True)
+    (workspace_provisions / "local.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "uk/regulation/example/schedule/1",
+                "body": "Local source states the issue fee is GBP 180.00.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    external_corpus = tmp_path / "axiom-corpus"
+    external_provisions = (
+        external_corpus / "data" / "corpus" / "provisions" / "uk" / "regulation"
+    )
+    external_provisions.mkdir(parents=True)
+    (external_provisions / "external.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "uk/regulation/example/schedule/1",
+                "body": "External source states the issue fee is GBP 999.00.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(external_corpus))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    assert (
+        validator_pipeline._fetch_local_corpus_source_text(
+            "uk/regulation/example/schedule/1"
+        )
+        == "Local source states the issue fee is GBP 180.00."
+    )
+
+
 def test_source_verification_resolves_compact_uk_statute_corpus_path(
     tmp_path,
     monkeypatch,
