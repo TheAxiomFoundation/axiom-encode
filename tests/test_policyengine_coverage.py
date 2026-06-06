@@ -3700,6 +3700,207 @@ rules:
     assert final_amount["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_carer_support_payment_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carer-support-payment.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carer_support_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: carer_support_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if person_is_in_scotland and carer_support_payment_in_effect and (weekly_care_hours >= 35 or reported_carers_allowance_for_year > 0): 98.15 * carer_support_payment_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carer-support-payment.test.yaml",
+        """- name: carer support payment final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/carer-support-payment#input.person_is_in_scotland: true
+    uk:policies/govuk/carer-support-payment#input.carer_support_payment_in_effect: true
+    uk:policies/govuk/carer-support-payment#input.weekly_care_hours: 35
+    uk:policies/govuk/carer-support-payment#input.reported_carers_allowance_for_year: 0
+  output:
+    uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year: 52
+    uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount: 5103.80
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="carer_support_payment",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "carer_support_payment"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_scottish_child_payment_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/scottish-child-payment.yaml",
+        """format: rulespec/v1
+rules:
+  - name: scottish_child_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: scottish_child_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if is_scottish_child_payment_eligible and would_claim_scottish_child_payment: 28.20 * scottish_child_payment_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/scottish-child-payment.test.yaml",
+        """- name: scottish child payment final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/scottish-child-payment#input.is_scottish_child_payment_eligible: true
+    uk:policies/govuk/scottish-child-payment#input.would_claim_scottish_child_payment: true
+  output:
+    uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year: 52
+    uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount: 1466.40
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="scottish_child_payment",
+    )
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "scottish_child_payment"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
+def test_policyengine_coverage_classifies_uk_sda_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/severe-disablement-allowance.yaml",
+        """format: rulespec/v1
+rules:
+  - name: severe_disablement_allowance_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: severe_disablement_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if reported_severe_disablement_allowance_for_year > 0: 119.35 * severe_disablement_allowance_weeks_in_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk"
+        / "policies/govuk/severe-disablement-allowance.test.yaml",
+        """- name: severe disablement allowance final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/severe-disablement-allowance#input.reported_severe_disablement_allowance_for_year: 6206.20
+  output:
+    uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year: 52
+    uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount: 6206.20
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="sda")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    weeks_in_year = items_by_id[
+        "uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year"
+    ]
+    final_amount = items_by_id[
+        "uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount"
+    ]
+
+    assert weeks_in_year["status"] == "known_not_comparable"
+    assert weeks_in_year["mapping_type"] == "not_comparable"
+    assert final_amount["policyengine_variable"] == "sda"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

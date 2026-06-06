@@ -9,6 +9,8 @@ import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
     BENEFIT_CAP_REGULATION_80A_BASE,
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
+    CARER_SUPPORT_PAYMENT_FINAL_BASE,
+    CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS,
     CARERS_ALLOWANCE_FINAL_BASE,
     CARERS_ALLOWANCE_FINAL_OUTPUTS,
     CHILD_BENEFIT_BASE,
@@ -60,6 +62,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
+    SCOTTISH_CHILD_PAYMENT_FINAL_BASE,
+    SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS,
+    SDA_FINAL_BASE,
+    SDA_FINAL_OUTPUTS,
     STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS,
     STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
     STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS,
@@ -92,6 +98,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WELFARE_REFORM_ACT_SECTION_8_BASE,
     WELFARE_REFORM_ACT_SECTION_11_BASE,
     build_benefit_cap_relevant_amount_request,
+    build_carer_support_payment_final_request,
     build_carers_allowance_final_request,
     build_child_benefit_final_request,
     build_child_benefit_request,
@@ -115,6 +122,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_pension_credit_final_request,
     build_pension_credit_request,
     build_personal_allowance_request,
+    build_scottish_child_payment_final_request,
+    build_sda_final_request,
     build_state_pension_credit_guarantee_credit_request,
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
@@ -138,6 +147,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
     project_benefit_cap_relevant_amount_inputs,
+    project_carer_support_payment_final_inputs,
     project_carers_allowance_final_inputs,
     project_child_benefit_inputs,
     project_esa_income_final_inputs,
@@ -160,6 +170,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_pension_credit_final_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
+    project_scottish_child_payment_final_inputs,
+    project_sda_final_inputs,
     project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
@@ -2296,6 +2308,209 @@ def test_carers_allowance_final_request_projects_final_inputs():
     ] == {"kind": "decimal", "value": "0.0"}
 
 
+def test_carer_support_payment_final_projection_uses_pe_boundary_facts():
+    assert project_carer_support_payment_final_inputs(
+        {
+            "country": "SCOTLAND",
+            "care_hours": 40,
+            "carers_allowance_reported": 0,
+        },
+        year=2026,
+    ) == {
+        "person_is_in_scotland": True,
+        "carer_support_payment_in_effect": True,
+        "weekly_care_hours": 40.0,
+        "reported_carers_allowance_for_year": 0.0,
+    }
+
+
+def test_carer_support_payment_final_request_projects_final_inputs():
+    request = build_carer_support_payment_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "country": "ENGLAND",
+                    "care_hours": 35,
+                    "carer_support_payment": 0,
+                    "carers_allowance_reported": 0,
+                },
+                {
+                    "person_id": 2,
+                    "country": "SCOTLAND",
+                    "care_hours": 35,
+                    "carer_support_payment": 5_103.80,
+                    "carers_allowance_reported": 0,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS[
+                    "carer_support_payment_annual_amount"
+                ]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.person_is_in_scotland:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.carer_support_payment_in_effect:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.weekly_care_hours:person_2"
+    ] == {"kind": "decimal", "value": "35.0"}
+    assert inputs[
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.reported_carers_allowance_for_year:person_2"
+    ] == {"kind": "decimal", "value": "0.0"}
+
+
+def test_scottish_child_payment_final_projection_uses_pe_boundary_facts():
+    assert project_scottish_child_payment_final_inputs(
+        {
+            "is_scp_eligible": True,
+            "would_claim_scp": False,
+        }
+    ) == {
+        "is_scottish_child_payment_eligible": True,
+        "would_claim_scottish_child_payment": False,
+    }
+    assert (
+        project_scottish_child_payment_final_inputs(
+            {
+                "is_scp_eligible": float("nan"),
+                "would_claim_scp": True,
+            }
+        )["is_scottish_child_payment_eligible"]
+        is False
+    )
+
+
+def test_scottish_child_payment_final_request_projects_final_inputs():
+    request = build_scottish_child_payment_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "is_scp_eligible": False,
+                    "would_claim_scp": False,
+                    "scottish_child_payment": 0,
+                },
+                {
+                    "person_id": 2,
+                    "is_scp_eligible": True,
+                    "would_claim_scp": True,
+                    "scottish_child_payment": 1_466.40,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS[
+                    "scottish_child_payment_annual_amount"
+                ]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.is_scottish_child_payment_eligible:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.would_claim_scottish_child_payment:person_2"
+    ] == {"kind": "bool", "value": True}
+
+
+def test_sda_final_projection_uses_reported_receipt():
+    assert project_sda_final_inputs(
+        {
+            "sda_reported": 6_206.20,
+        }
+    ) == {
+        "reported_severe_disablement_allowance_for_year": 6_206.20,
+    }
+
+
+def test_sda_final_request_projects_final_inputs():
+    request = build_sda_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "sda": 0,
+                    "sda_reported": 0,
+                },
+                {
+                    "person_id": 2,
+                    "sda": 6_206.20,
+                    "sda_reported": 6_206.20,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                SDA_FINAL_OUTPUTS["severe_disablement_allowance_annual_amount"][
+                    "axiom"
+                ],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{SDA_FINAL_BASE}#input.reported_severe_disablement_allowance_for_year:person_2"
+    ] == {"kind": "decimal", "value": "6206.2"}
+
+
 def test_pension_credit_final_projection_uses_entitlement_components():
     assert project_pension_credit_final_inputs(
         {
@@ -2306,12 +2521,15 @@ def test_pension_credit_final_projection_uses_entitlement_components():
         "pension_credit_entitlement_for_year": 2_825.0,
         "person_or_partner_would_claim_pension_credit": False,
     }
-    assert project_pension_credit_final_inputs(
-        {
-            "pension_credit_entitlement": 2_825,
-            "would_claim_pc": float("nan"),
-        }
-    )["person_or_partner_would_claim_pension_credit"] is False
+    assert (
+        project_pension_credit_final_inputs(
+            {
+                "pension_credit_entitlement": 2_825,
+                "would_claim_pc": float("nan"),
+            }
+        )["person_or_partner_would_claim_pension_credit"]
+        is False
+    )
 
 
 def test_pension_credit_final_request_projects_final_inputs():
@@ -2375,13 +2593,16 @@ def test_esa_income_final_projection_uses_reported_award_and_tariff_income():
         "income_related_esa_tariff_income_for_year": 520.0,
         "income_related_esa_eligible": True,
     }
-    assert project_esa_income_final_inputs(
-        {
-            "esa_income_reported_for_year": 2_600,
-            "esa_income_tariff_income": 0,
-            "esa_income_eligible": float("nan"),
-        }
-    )["income_related_esa_eligible"] is False
+    assert (
+        project_esa_income_final_inputs(
+            {
+                "esa_income_reported_for_year": 2_600,
+                "esa_income_tariff_income": 0,
+                "esa_income_eligible": float("nan"),
+            }
+        )["income_related_esa_eligible"]
+        is False
+    )
 
 
 def test_esa_income_final_request_projects_final_inputs():
@@ -2418,9 +2639,7 @@ def test_esa_income_final_request_projects_final_inputs():
                 "start": "2026-01-01",
                 "end": "2026-12-31",
             },
-            "outputs": [
-                ESA_FINAL_OUTPUTS["income_related_esa_annual_amount"]["axiom"]
-            ],
+            "outputs": [ESA_FINAL_OUTPUTS["income_related_esa_annual_amount"]["axiom"]],
         }
     ]
     inputs = {
@@ -2433,9 +2652,10 @@ def test_esa_income_final_request_projects_final_inputs():
     assert inputs[
         f"{ESA_FINAL_BASE}#input.income_related_esa_tariff_income_for_year:benunit_11"
     ] == {"kind": "decimal", "value": "520.0"}
-    assert inputs[
-        f"{ESA_FINAL_BASE}#input.income_related_esa_eligible:benunit_11"
-    ] == {"kind": "bool", "value": True}
+    assert inputs[f"{ESA_FINAL_BASE}#input.income_related_esa_eligible:benunit_11"] == {
+        "kind": "bool",
+        "value": True,
+    }
 
 
 def test_housing_benefit_final_projection_uses_pre_cap_and_cap_reduction():
@@ -2450,13 +2670,16 @@ def test_housing_benefit_final_projection_uses_pre_cap_and_cap_reduction():
         "benefit_cap_reduction_for_year": 1_040.0,
         "would_claim_housing_benefit": True,
     }
-    assert project_housing_benefit_final_inputs(
-        {
-            "housing_benefit_pre_benefit_cap": 5_200,
-            "benefit_cap_reduction": 0,
-            "would_claim_housing_benefit": float("nan"),
-        }
-    )["would_claim_housing_benefit"] is False
+    assert (
+        project_housing_benefit_final_inputs(
+            {
+                "housing_benefit_pre_benefit_cap": 5_200,
+                "benefit_cap_reduction": 0,
+                "would_claim_housing_benefit": float("nan"),
+            }
+        )["would_claim_housing_benefit"]
+        is False
+    )
 
 
 def test_housing_benefit_final_request_projects_final_inputs():
@@ -2494,9 +2717,7 @@ def test_housing_benefit_final_request_projects_final_inputs():
                 "end": "2026-12-31",
             },
             "outputs": [
-                HOUSING_BENEFIT_FINAL_OUTPUTS["housing_benefit_annual_amount"][
-                    "axiom"
-                ]
+                HOUSING_BENEFIT_FINAL_OUTPUTS["housing_benefit_annual_amount"]["axiom"]
             ],
         }
     ]
@@ -3434,6 +3655,27 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "state_pension_reported",
         "state_pension_type",
     )
+    assert policyengine_person_variables_for_surfaces(
+        ["carer-support-payment-final"]
+    ) == (
+        "care_hours",
+        "carer_support_payment",
+        "carers_allowance_reported",
+        "country",
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["scottish-child-payment-final"]
+    ) == (
+        "is_scp_eligible",
+        "scottish_child_payment",
+        "would_claim_scp",
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["severe-disablement-allowance-final"]
+    ) == (
+        "sda",
+        "sda_reported",
+    )
     assert policyengine_person_variables_for_surfaces(["esa-income-final"]) == (
         "esa_income_reported",
     )
@@ -3981,10 +4223,29 @@ class hbai_household_net_income(Variable):
         "carers-allowance-rate",
         "carers-allowance-final",
     )
-    assert by_name["sda"].status == "partial"
+    assert by_name["sda"].status == "exact"
+    assert by_name["sda"].surfaces == (
+        "severe-disablement-allowance-rates",
+        "severe-disablement-allowance-final",
+    )
+    assert by_name["sda"].covered_outputs == ("sda",)
     assert by_name["ssmg"].status == "partial"
-    assert by_name["scottish_child_payment"].status == "partial"
-    assert by_name["carer_support_payment"].status == "partial"
+    assert by_name["scottish_child_payment"].status == "exact"
+    assert by_name["scottish_child_payment"].surfaces == (
+        "scottish-child-payment-parameters",
+        "scottish-child-payment-final",
+    )
+    assert by_name["scottish_child_payment"].covered_outputs == (
+        "scottish_child_payment",
+    )
+    assert by_name["carer_support_payment"].status == "exact"
+    assert by_name["carer_support_payment"].surfaces == (
+        "carer-support-payment-parameters",
+        "carer-support-payment-final",
+    )
+    assert by_name["carer_support_payment"].covered_outputs == (
+        "carer_support_payment",
+    )
     assert by_name["cost_of_living_support_payment"].status == "partial"
     assert by_name["state_pension"].status == "exact"
     assert by_name["state_pension"].surfaces == (
@@ -3998,9 +4259,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert report.policy_component_count == 23
     assert report.covered_policy_component_count == 23
-    assert report.exact_policy_component_count == 10
+    assert report.exact_policy_component_count == 13
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 10 / 23)
+    assert math.isclose(report.exact_policy_component_share, 13 / 23)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4568,6 +4829,105 @@ def test_compare_outputs_compares_carers_allowance_final_annual_amount():
     assert report.oracle_divergences == []
 
 
+def test_compare_outputs_compares_carer_support_payment_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "carer_support_payment": 5_103.80,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "carer-support-payment-final": [
+                {
+                    "outputs": {
+                        CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS[
+                            "carer_support_payment_annual_amount"
+                        ]["axiom"]: decimal_output(5_103.80),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_scottish_child_payment_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "scottish_child_payment": 1_466.40,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "scottish-child-payment-final": [
+                {
+                    "outputs": {
+                        SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS[
+                            "scottish_child_payment_annual_amount"
+                        ]["axiom"]: decimal_output(1_466.40),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_sda_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "sda": 6_206.20,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "severe-disablement-allowance-final": [
+                {
+                    "outputs": {
+                        SDA_FINAL_OUTPUTS["severe_disablement_allowance_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(6_206.20),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
 def test_compare_outputs_compares_pension_credit_final_annual_amount():
     report = compare_outputs(
         pe_data={
@@ -4585,9 +4945,9 @@ def test_compare_outputs_compares_pension_credit_final_annual_amount():
             "pension-credit-final": [
                 {
                     "outputs": {
-                        PENSION_CREDIT_FINAL_OUTPUTS[
-                            "pension_credit_annual_amount"
-                        ]["axiom"]: decimal_output(3_400),
+                        PENSION_CREDIT_FINAL_OUTPUTS["pension_credit_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(3_400),
                     }
                 }
             ]
@@ -4651,9 +5011,9 @@ def test_compare_outputs_compares_housing_benefit_final_annual_amount():
             "housing-benefit-final": [
                 {
                     "outputs": {
-                        HOUSING_BENEFIT_FINAL_OUTPUTS[
-                            "housing_benefit_annual_amount"
-                        ]["axiom"]: decimal_output(4_160),
+                        HOUSING_BENEFIT_FINAL_OUTPUTS["housing_benefit_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(4_160),
                     }
                 }
             ]

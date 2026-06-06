@@ -122,6 +122,16 @@ STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
 STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
 CARERS_ALLOWANCE_FINAL_PROGRAM_PATH = Path("policies/govuk/carers-allowance.yaml")
 CARERS_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/carers-allowance"
+CARER_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/carer-support-payment.yaml"
+)
+CARER_SUPPORT_PAYMENT_FINAL_BASE = "uk:policies/govuk/carer-support-payment"
+SCOTTISH_CHILD_PAYMENT_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/scottish-child-payment.yaml"
+)
+SCOTTISH_CHILD_PAYMENT_FINAL_BASE = "uk:policies/govuk/scottish-child-payment"
+SDA_FINAL_PROGRAM_PATH = Path("policies/govuk/severe-disablement-allowance.yaml")
+SDA_FINAL_BASE = "uk:policies/govuk/severe-disablement-allowance"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -723,6 +733,31 @@ CARERS_ALLOWANCE_FINAL_OUTPUTS = {
     },
 }
 
+CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS = {
+    "carer_support_payment_annual_amount": {
+        "axiom": (
+            f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#carer_support_payment_annual_amount"
+        ),
+        "pe": "carer_support_payment",
+    },
+}
+
+SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS = {
+    "scottish_child_payment_annual_amount": {
+        "axiom": (
+            f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#scottish_child_payment_annual_amount"
+        ),
+        "pe": "scottish_child_payment",
+    },
+}
+
+SDA_FINAL_OUTPUTS = {
+    "severe_disablement_allowance_annual_amount": {
+        "axiom": (f"{SDA_FINAL_BASE}#severe_disablement_allowance_annual_amount"),
+        "pe": "sda",
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -1211,6 +1246,36 @@ SURFACE_SPECS = {
             "country",
         ),
     ),
+    "carer-support-payment-final": UKEFRSSurfaceSpec(
+        program=CARER_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS,
+        pe_variables=(
+            "care_hours",
+            "carer_support_payment",
+            "carers_allowance_reported",
+            "country",
+        ),
+    ),
+    "scottish-child-payment-final": UKEFRSSurfaceSpec(
+        program=SCOTTISH_CHILD_PAYMENT_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS,
+        pe_variables=(
+            "is_scp_eligible",
+            "scottish_child_payment",
+            "would_claim_scp",
+        ),
+    ),
+    "severe-disablement-allowance-final": UKEFRSSurfaceSpec(
+        program=SDA_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=SDA_FINAL_OUTPUTS,
+        pe_variables=(
+            "sda",
+            "sda_reported",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1454,10 +1519,13 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the weekly Carer's Allowance rate and the final annual PolicyEngine UK carers_allowance wrapper, including the care-hours or reported-receipt gate and the Scotland Carer Support Payment replacement gate.",
     },
     "sda": {
-        "status": "partial",
-        "surfaces": ("severe-disablement-allowance-rates",),
+        "status": "exact",
+        "surfaces": (
+            "severe-disablement-allowance-rates",
+            "severe-disablement-allowance-final",
+        ),
         "covered_outputs": ("sda",),
-        "rationale": "Axiom covers the Severe Disablement Allowance basic row and maximum weekly rate, not reported receipt or all age-related addition branches in the final SDA amount.",
+        "rationale": "Axiom covers the Severe Disablement Allowance maximum weekly rate and the final annual PolicyEngine UK sda wrapper over reported receipt.",
     },
     "ssmg": {
         "status": "partial",
@@ -1466,16 +1534,22 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the Sure Start Maternity Grant amount, not the qualifying-benefit, pregnancy, child, prescribed-time, residence, or reported-receipt conditions feeding the final SSMG amount.",
     },
     "scottish_child_payment": {
-        "status": "partial",
-        "surfaces": ("scottish-child-payment-parameters",),
+        "status": "exact",
+        "surfaces": (
+            "scottish-child-payment-parameters",
+            "scottish-child-payment-final",
+        ),
         "covered_outputs": ("scottish_child_payment",),
-        "rationale": "Axiom covers the Scottish Child Payment weekly amount and child age threshold, not the qualifying benefits, residence, responsibility, application, take-up, or final annual amount.",
+        "rationale": "Axiom covers the Scottish Child Payment weekly amount, child age threshold, and final annual PolicyEngine UK scottish_child_payment wrapper after the eligibility and take-up gates.",
     },
     "carer_support_payment": {
-        "status": "partial",
-        "surfaces": ("carer-support-payment-parameters",),
+        "status": "exact",
+        "surfaces": (
+            "carer-support-payment-parameters",
+            "carer-support-payment-final",
+        ),
         "covered_outputs": ("carer_support_payment",),
-        "rationale": "Axiom covers the Carer Support Payment care-hours threshold, weekly rate, and Scottish Carer Supplement amount, not residence, cared-for-person, overlapping-benefit, or final annual amount rules.",
+        "rationale": "Axiom covers the Carer Support Payment care-hours threshold, weekly rate, Scottish Carer Supplement amount, and final annual PolicyEngine UK carer_support_payment wrapper after Scotland, effective-date, and care/reporting gates.",
     },
     "cost_of_living_support_payment": {
         "status": "partial",
@@ -3791,6 +3865,18 @@ def build_axiom_request(
         return build_student_loan_repayment_request(pe_data=pe_data, year=year)
     if surface == "carers-allowance-final":
         return build_carers_allowance_final_request(pe_data=pe_data, year=year)
+    if surface == "carer-support-payment-final":
+        return build_carer_support_payment_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "scottish-child-payment-final":
+        return build_scottish_child_payment_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "severe-disablement-allowance-final":
+        return build_sda_final_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -5187,6 +5273,109 @@ def build_carers_allowance_final_request(
     }
 
 
+def build_carer_support_payment_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "carer-support-payment-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_carer_support_payment_final_inputs(
+            row,
+            year=year,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_scottish_child_payment_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "scottish-child-payment-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_scottish_child_payment_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_sda_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "severe-disablement-allowance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_sda_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{SDA_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in SDA_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -5788,6 +5977,45 @@ def project_carers_allowance_final_inputs(row: Any, *, year: int) -> dict[str, A
     }
 
 
+def project_carer_support_payment_final_inputs(
+    row: Any,
+    *,
+    year: int,
+) -> dict[str, Any]:
+    country = enum_name(row_value(row, "country", "")).upper()
+    return {
+        "person_is_in_scotland": country == "SCOTLAND",
+        "carer_support_payment_in_effect": year >= 2025,
+        "weekly_care_hours": money(row_value(row, "care_hours", 0)),
+        "reported_carers_allowance_for_year": money(
+            row_value(row, "carers_allowance_reported", 0)
+        ),
+    }
+
+
+def project_scottish_child_payment_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "is_scottish_child_payment_eligible": bool_row_value(
+            row,
+            "is_scp_eligible",
+            False,
+        ),
+        "would_claim_scottish_child_payment": bool_row_value(
+            row,
+            "would_claim_scp",
+            False,
+        ),
+    }
+
+
+def project_sda_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "reported_severe_disablement_allowance_for_year": money(
+            row_value(row, "sda_reported", 0)
+        ),
+    }
+
+
 def project_pension_credit_final_inputs(row: Any) -> dict[str, Any]:
     return {
         "pension_credit_entitlement_for_year": money(
@@ -5973,6 +6201,34 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             if money(row_value(row, "carers_allowance", 0)) > 0
             or money(row_value(row, "carers_allowance_reported", 0)) > 0
             or money(row_value(row, "care_hours", 0)) >= 35
+        ]
+    if surface == "carer-support-payment-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "carer_support_payment", 0)) > 0
+            or (
+                enum_name(row_value(row, "country", "")).upper() == "SCOTLAND"
+                and (
+                    money(row_value(row, "carers_allowance_reported", 0)) > 0
+                    or money(row_value(row, "care_hours", 0)) >= 35
+                )
+            )
+        ]
+    if surface == "scottish-child-payment-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "scottish_child_payment", 0)) > 0
+            or bool_row_value(row, "is_scp_eligible", False)
+            or bool_row_value(row, "would_claim_scp", False)
+        ]
+    if surface == "severe-disablement-allowance-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "sda", 0)) > 0
+            or money(row_value(row, "sda_reported", 0)) > 0
         ]
     if surface == "pension-credit-final":
         return [

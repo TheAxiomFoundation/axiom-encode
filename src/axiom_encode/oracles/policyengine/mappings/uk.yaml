@@ -1062,6 +1062,24 @@ mappings:
     comparison: number
     rationale: Regulation 18 requires the child to be under 16; PolicyEngine stores the same threshold as the maximum child age parameter.
 
+  - legal_id: uk:policies/govuk/scottish-child-payment#scottish_child_payment_weeks_in_year
+    country: uk
+    program: scottish_child_payment
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Scottish Child Payment variable and the weekly amount parameter, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/scottish-child-payment#scottish_child_payment_annual_amount
+    country: uk
+    program: scottish_child_payment
+    mapping_type: direct_variable
+    policyengine_variable: scottish_child_payment
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Scottish Child Payment output is the same PolicyEngine UK variable after eligibility and take-up gates.
+
   - legal_id: uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
     country: uk
     program: carer_support_payment
@@ -1091,6 +1109,24 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same weekly Scottish Carer Supplement amount paid on top of Carer Support Payment.
+
+  - legal_id: uk:policies/govuk/carer-support-payment#carer_support_payment_weeks_in_year
+    country: uk
+    program: carer_support_payment
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Carer Support Payment variable and the weekly rate parameters, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/carer-support-payment#carer_support_payment_annual_amount
+    country: uk
+    program: carer_support_payment
+    mapping_type: direct_variable
+    policyengine_variable: carer_support_payment
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Carer Support Payment output is the same PolicyEngine UK variable after Scotland, effective-date, and care/reporting gates.
 
   - legal_id: uk:statutes/ukpga/2022/38/1#means_tested_additional_payment_total
     country: uk
@@ -1497,6 +1533,24 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same weekly maximum Severe Disablement Allowance rate after deriving PolicyEngine's maximum-rate shape as the basic SDA row plus the highest age-related addition.
+
+  - legal_id: uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_weeks_in_year
+    country: uk
+    program: sda
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Severe Disablement Allowance variable and the weekly maximum rate parameter, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/severe-disablement-allowance#severe_disablement_allowance_annual_amount
+    country: uk
+    program: sda
+    mapping_type: direct_variable
+    policyengine_variable: sda
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual Severe Disablement Allowance output is the same PolicyEngine UK variable over reported SDA receipt.
 
   - legal_id: uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
     country: uk
