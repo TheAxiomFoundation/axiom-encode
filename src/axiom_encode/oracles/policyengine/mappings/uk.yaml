@@ -1507,6 +1507,14 @@ mappings:
     comparison: count
     rationale: Same minimum weekly care-hours threshold for Carer's Allowance.
 
+  - legal_id: uk:policies/govuk/carers-allowance#carers_allowance_weeks_in_year
+    country: uk
+    program: carers_allowance
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Carer's Allowance variable and the weekly rate parameter, not this multiplication factor as a separate oracle target.
+
   - legal_id: uk:policies/govuk/carers-allowance#carers_allowance_annual_amount
     country: uk
     program: carers_allowance
