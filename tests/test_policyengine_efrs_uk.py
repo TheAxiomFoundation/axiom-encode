@@ -2732,27 +2732,42 @@ class hbai_household_net_income(Variable):
     entity = Household
     adds = [
         "employment_income",
+        "council_tax_benefit",
+        "free_school_meals",
+        "free_school_fruit_veg",
+        "free_school_milk",
         "child_benefit",
+        "esa_contrib",
         "universal_credit",
         "working_tax_credit",
         "child_tax_credit",
         "tax_free_childcare",
+        "afcs",
+        "bsp",
         "pip",
         "dla",
+        "iidb",
+        "incapacity_benefit",
         "attendance_allowance",
         "carers_allowance",
+        "jsa_contrib",
+        "maternity_allowance",
         "sda",
         "ssmg",
         "scottish_child_payment",
         "carer_support_payment",
         "cost_of_living_support_payment",
         "state_pension",
+        "statutory_sick_pay",
+        "statutory_maternity_pay",
+        "healthy_start_vouchers",
         "winter_fuel_allowance",
     ]
     subtracts = [
         "income_tax",
         "national_insurance",
         "council_tax",
+        "domestic_rates",
         "maintenance_expenses",
     ]
 """.strip()
@@ -2763,31 +2778,74 @@ class hbai_household_net_income(Variable):
 
     assert report.adds == (
         "employment_income",
+        "council_tax_benefit",
+        "free_school_meals",
+        "free_school_fruit_veg",
+        "free_school_milk",
         "child_benefit",
+        "esa_contrib",
         "universal_credit",
         "working_tax_credit",
         "child_tax_credit",
         "tax_free_childcare",
+        "afcs",
+        "bsp",
         "pip",
         "dla",
+        "iidb",
+        "incapacity_benefit",
         "attendance_allowance",
         "carers_allowance",
+        "jsa_contrib",
+        "maternity_allowance",
         "sda",
         "ssmg",
         "scottish_child_payment",
         "carer_support_payment",
         "cost_of_living_support_payment",
         "state_pension",
+        "statutory_sick_pay",
+        "statutory_maternity_pay",
+        "healthy_start_vouchers",
         "winter_fuel_allowance",
     )
     assert report.subtracts == (
         "income_tax",
         "national_insurance",
         "council_tax",
+        "domestic_rates",
         "maintenance_expenses",
     )
     assert by_name["employment_income"].status == "fixed_input"
     assert by_name["employment_income"].policy_component is False
+    assert by_name["council_tax_benefit"].status == "fixed_input"
+    assert by_name["council_tax_benefit"].policy_component is False
+    assert by_name["free_school_meals"].status == "fixed_input"
+    assert by_name["free_school_meals"].policy_component is False
+    assert by_name["free_school_fruit_veg"].status == "fixed_input"
+    assert by_name["free_school_fruit_veg"].policy_component is False
+    assert by_name["free_school_milk"].status == "fixed_input"
+    assert by_name["free_school_milk"].policy_component is False
+    assert by_name["esa_contrib"].status == "fixed_input"
+    assert by_name["esa_contrib"].policy_component is False
+    assert by_name["afcs"].status == "fixed_input"
+    assert by_name["afcs"].policy_component is False
+    assert by_name["bsp"].status == "fixed_input"
+    assert by_name["bsp"].policy_component is False
+    assert by_name["iidb"].status == "fixed_input"
+    assert by_name["iidb"].policy_component is False
+    assert by_name["incapacity_benefit"].status == "fixed_input"
+    assert by_name["incapacity_benefit"].policy_component is False
+    assert by_name["jsa_contrib"].status == "fixed_input"
+    assert by_name["jsa_contrib"].policy_component is False
+    assert by_name["maternity_allowance"].status == "fixed_input"
+    assert by_name["maternity_allowance"].policy_component is False
+    assert by_name["statutory_sick_pay"].status == "fixed_input"
+    assert by_name["statutory_sick_pay"].policy_component is False
+    assert by_name["statutory_maternity_pay"].status == "fixed_input"
+    assert by_name["statutory_maternity_pay"].policy_component is False
+    assert by_name["healthy_start_vouchers"].status == "fixed_input"
+    assert by_name["healthy_start_vouchers"].policy_component is False
     assert by_name["income_tax"].status == "exact"
     assert by_name["income_tax"].policy_component is True
     assert by_name["universal_credit"].status == "partial"
@@ -2805,12 +2863,15 @@ class hbai_household_net_income(Variable):
     assert by_name["cost_of_living_support_payment"].status == "partial"
     assert by_name["state_pension"].status == "partial"
     assert by_name["winter_fuel_allowance"].status == "partial"
-    assert by_name["council_tax"].status == "missing"
-    assert report.policy_component_count == 19
+    assert by_name["council_tax"].status == "fixed_input"
+    assert by_name["council_tax"].policy_component is False
+    assert by_name["domestic_rates"].status == "fixed_input"
+    assert by_name["domestic_rates"].policy_component is False
+    assert report.policy_component_count == 18
     assert report.covered_policy_component_count == 18
     assert report.exact_policy_component_count == 2
-    assert math.isclose(report.covered_policy_component_share, 18 / 19)
-    assert math.isclose(report.exact_policy_component_share, 2 / 19)
+    assert report.covered_policy_component_share == 1
+    assert math.isclose(report.exact_policy_component_share, 2 / 18)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
