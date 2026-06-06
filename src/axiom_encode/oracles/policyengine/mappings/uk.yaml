@@ -349,6 +349,179 @@ mappings:
     comparison: money
     rationale: Same additional-band employee Class 1 NI component after the UK EFRS adapter projects weekly section 8 inputs and compares on PolicyEngine ni_liable rows.
 
+  - legal_id: uk:statutes/ukpga/1992/4/15#lower_profits_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_4.thresholds.lower_profits_limit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Class 4 lower profits limit for self-employed profits.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#upper_profits_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_4.thresholds.upper_profits_limit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Class 4 upper profits limit for self-employed profits.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#main_class_4_percentage
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_4.rates.main
+    period: year
+    comparison: rate
+    rationale: Same Class 4 main contribution percentage.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#additional_class_4_percentage
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_4.rates.additional
+    period: year
+    comparison: rate
+    rationale: Same Class 4 additional contribution percentage.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#main_class_4_contribution
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ni_class_4_main
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same main-band Class 4 NI component after the UK EFRS adapter projects annual section 15 profits and compares on PolicyEngine ni_liable rows.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#additional_class_4_contribution
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 15 additional-band Class 4 contribution before the annual maximum; PolicyEngine UK exposes ni_class_4_main and final ni_class_4, but not a separate additional-band component.
+
+  - legal_id: uk:statutes/ukpga/1992/4/15#class_4_contribution_before_annual_maximum
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 15 aggregate Class 4 contribution before Regulation 100's annual maximum; PolicyEngine UK exposes final ni_class_4 after the annual maximum rather than this pre-maximum subtotal.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#plan_1_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.thresholds.plan_1
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Plan 1 annual student-loan repayment threshold.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#plan_2_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.thresholds.plan_2
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Plan 2 annual student-loan repayment threshold.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#plan_4_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.thresholds.plan_4
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Plan 4 annual student-loan repayment threshold.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#plan_5_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.thresholds.plan_5
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Plan 5 annual student-loan repayment threshold.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#postgraduate_loan_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.thresholds.postgraduate
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Postgraduate Loan annual repayment threshold.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#undergraduate_plan_repayment_rate
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.repayment_rate
+    period: year
+    comparison: rate
+    rationale: Same student-loan repayment rate for undergraduate Plans 1, 2, 4, and 5.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#postgraduate_loan_repayment_rate
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.student_loans.postgraduate_repayment_rate
+    period: year
+    comparison: rate
+    rationale: Same Postgraduate Loan repayment rate.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#student_loan_repayment_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: student_loan_repayment_rate
+    entity: person
+    period: year
+    comparison: rate
+    rationale: Same person-level student-loan repayment rate selected from the person's loan plan.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#student_loan_repayment
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: student_loan_repayment
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same modelled annual student-loan repayment from adjusted net income, loan plan, threshold, and rate.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#student_loan_repayments
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: student_loan_repayments
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same wrapper variable for annual student-loan repayments; in local EFRS this may be supplied as reported input data, but the PolicyEngine formula delegates to student_loan_repayment.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#listed_student_loan_plan_applies
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom helper indicating whether a statutory repayment-plan branch applies; PolicyEngine UK exposes the student_loan_plan enum input rather than this boolean predicate.
+
+  - legal_id: uk:policies/govuk/student-loan-repayments#student_loan_annual_income_threshold
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom helper selecting the applicable repayment threshold from the person's loan plan; PolicyEngine UK applies the same parameter selection inside student_loan_repayment rather than exposing this selected threshold as a variable.
+
   - legal_id: uk:regulations/uksi/2006/965/2#child_benefit_enhanced_weekly_rate
     country: uk
     program: child_benefit

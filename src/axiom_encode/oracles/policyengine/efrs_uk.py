@@ -38,6 +38,8 @@ POLICYENGINE_UK_VERSION = "2.88.43"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
+NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH = Path("statutes/ukpga/1992/4/15.yaml")
+NATIONAL_INSURANCE_SECTION_15_BASE = "uk:statutes/ukpga/1992/4/15"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
@@ -94,6 +96,10 @@ WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
 WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
 WELFARE_REFORM_ACT_SECTION_11_BASE = "uk:statutes/ukpga/2012/5/11"
+STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
+    "policies/govuk/student-loan-repayments.yaml"
+)
+STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -162,6 +168,13 @@ INCOME_TAX_INCOME_BASE_OUTPUTS = {
     "income_tax_liability": {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
         "pe": "income_tax",
+    },
+}
+
+NATIONAL_INSURANCE_CLASS_4_OUTPUTS = {
+    "main_class_4_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_15_BASE}#main_class_4_contribution",
+        "pe": "ni_class_4_main",
     },
 }
 
@@ -603,6 +616,13 @@ UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "earned_income_taper_rate": 0.55,
 }
 
+STUDENT_LOAN_REPAYMENT_OUTPUTS = {
+    "student_loan_repayment": {
+        "axiom": f"{STUDENT_LOAN_REPAYMENT_BASE}#student_loan_repayment",
+        "pe": "student_loan_repayment",
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -625,6 +645,17 @@ SURFACE_SPECS = {
             "ni_class_1_income",
             "ni_employee",
             "ni_liable",
+        ),
+    ),
+    "national-insurance-class-4": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
+        pe_variables=(
+            "ni_class_1_employee",
+            "ni_class_4_main",
+            "ni_liable",
+            "self_employment_income",
         ),
     ),
     "personal-allowance": UKEFRSSurfaceSpec(
@@ -966,6 +997,16 @@ SURFACE_SPECS = {
             "uc_tariff_income",
         ),
     ),
+    "student-loan-repayment": UKEFRSSurfaceSpec(
+        program=STUDENT_LOAN_REPAYMENT_PROGRAM_PATH,
+        entity="person",
+        outputs=STUDENT_LOAN_REPAYMENT_OUTPUTS,
+        pe_variables=(
+            "adjusted_net_income",
+            "student_loan_plan",
+            "student_loan_repayment",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1011,9 +1052,9 @@ HBAI_COMPONENT_COVERAGE = {
     },
     "national_insurance": {
         "status": "partial",
-        "surfaces": ("national-insurance-class-1",),
-        "covered_outputs": ("ni_employee",),
-        "rationale": "Axiom covers employee Class 1 National Insurance; HBAI national_insurance also includes non-Class-1 components.",
+        "surfaces": ("national-insurance-class-1", "national-insurance-class-4"),
+        "covered_outputs": ("ni_employee", "ni_class_4_main"),
+        "rationale": "Axiom covers employee Class 1 National Insurance and the main-rate Class 4 self-employed contribution; HBAI national_insurance also includes the Class 4 annual maximum/final amount and any other non-Class-1 components.",
     },
     "child_benefit": {
         "status": "partial",
@@ -1111,6 +1152,12 @@ HBAI_COMPONENT_COVERAGE = {
             "uc_tariff_income",
         ),
         "rationale": "Axiom covers many Universal Credit legal elements and the award-before-take-up expression, not the final HBAI universal_credit aggregate.",
+    },
+    "student_loan_repayments": {
+        "status": "partial",
+        "surfaces": ("student-loan-repayment",),
+        "covered_outputs": ("student_loan_repayment",),
+        "rationale": "Axiom covers PolicyEngine UK's modelled student_loan_repayment formula by plan-specific threshold and repayment rate. The HBAI student_loan_repayments component remains partial because local EFRS supplies it as reported input data even when student_loan_plan is NONE, overriding PolicyEngine UK's wrapper formula.",
     },
     "working_tax_credit": {
         "status": "partial",
@@ -3339,6 +3386,9 @@ def rule_base_from_program(program: Path) -> str:
     if "statutes" in parts:
         index = parts.index("statutes")
         return "uk:" + "/".join(parts[index:])
+    if "policies" in parts:
+        index = parts.index("policies")
+        return "uk:" + "/".join(parts[index:])
     raise ValueError(f"cannot infer UK RuleSpec base from {program}")
 
 
@@ -3350,6 +3400,8 @@ def build_axiom_request(
 ) -> dict[str, Any]:
     if surface == "national-insurance-class-1":
         return build_national_insurance_class_1_request(pe_data=pe_data, year=year)
+    if surface == "national-insurance-class-4":
+        return build_national_insurance_class_4_request(pe_data=pe_data, year=year)
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
@@ -3447,6 +3499,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "student-loan-repayment":
+        return build_student_loan_repayment_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -3498,6 +3552,41 @@ def build_national_insurance_class_1_request(
                 "outputs": [
                     spec["axiom"]
                     for spec in NATIONAL_INSURANCE_CLASS_1_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_national_insurance_class_4_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-class-4"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_national_insurance_class_4_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_INSURANCE_CLASS_4_OUTPUTS.values()
                 ],
             }
         )
@@ -4419,6 +4508,40 @@ def build_universal_credit_work_allowance_request(
     }
 
 
+def build_student_loan_repayment_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "student-loan-repayment"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_student_loan_repayment_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{STUDENT_LOAN_REPAYMENT_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in STUDENT_LOAN_REPAYMENT_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -4572,6 +4695,18 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
         "child_or_qualifying_young_person_is_elder_or_eldest_among_paragraph_2_children": is_eldest,
         "payee_is_voluntary_organisation": False,
         "payee_resides_with_parent_otherwise_than_paragraph_2_a": False,
+    }
+
+
+def project_national_insurance_class_4_inputs(row: Any) -> dict[str, Any]:
+    profits = money(row_value(row, "self_employment_income", 0)) - money(
+        row_value(row, "ni_class_1_employee", 0)
+    )
+    return {
+        "class_4_contributions_payable_under_section_15": bool(
+            row_value(row, "ni_liable", True)
+        ),
+        "profits_chargeable_to_class_4_contributions": profits,
     }
 
 
@@ -4858,6 +4993,25 @@ def project_universal_credit_work_allowance_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_student_loan_repayment_inputs(row: Any) -> dict[str, Any]:
+    plan = enum_name(row_value(row, "student_loan_plan", "NONE")).upper()
+    return {
+        "loan_plan_is_plan_1": plan == "PLAN_1",
+        "loan_plan_is_plan_2": plan == "PLAN_2",
+        "loan_plan_is_plan_4": plan == "PLAN_4",
+        "loan_plan_is_plan_5": plan == "PLAN_5",
+        "loan_plan_is_postgraduate": plan
+        in {
+            "POSTGRADUATE",
+            "POSTGRADUATE_LOAN",
+            "PLAN_3",
+        },
+        "annual_income_before_tax_and_other_deductions": money(
+            row_value(row, "adjusted_net_income", 0)
+        ),
+    }
+
+
 def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     relation_type = str(row_value(row, "relation_type", "")).upper()
     is_couple = bool(row_value(row, "is_couple", False)) or relation_type == "COUPLE"
@@ -4948,6 +5102,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             row
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
+        ]
+    if surface == "national-insurance-class-4":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "self_employment_income", 0)) > 0
+            or money(row_value(row, "ni_class_4_main", 0)) > 0
         ]
     benunits = pe_data.get("benunits", [])
     if surface == "benefit-cap-relevant-amount":
@@ -5594,6 +5755,14 @@ def tax_year_interval(year: int) -> dict[str, str]:
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
+    }
+
+
+def uk_tax_year_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year + 1:04d}-04-05",
     }
 
 

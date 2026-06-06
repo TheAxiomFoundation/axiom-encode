@@ -33,7 +33,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     JSA_REGULATION_116_BASE,
     JSA_TARIFF_INCOME_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
+    NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
+    NATIONAL_INSURANCE_SECTION_15_BASE,
     PENSION_CREDIT_BASE,
     PENSION_CREDIT_CHILD_ADDITION_OUTPUTS,
     PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
@@ -49,6 +51,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_CREDIT_SECTION_1_BASE,
     STATE_PENSION_CREDIT_SECTION_2_BASE,
     STATE_PENSION_CREDIT_SECTION_3_BASE,
+    STUDENT_LOAN_REPAYMENT_BASE,
+    STUDENT_LOAN_REPAYMENT_OUTPUTS,
     UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
@@ -80,6 +84,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_13_request,
     build_jsa_income_tariff_income_request,
     build_national_insurance_class_1_request,
+    build_national_insurance_class_4_request,
     build_pension_credit_child_addition_request,
     build_pension_credit_deemed_income_request,
     build_pension_credit_request,
@@ -87,6 +92,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_guarantee_credit_request,
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
+    build_student_loan_repayment_request,
     build_uk_efrs_coverage_report,
     build_uk_hbai_policy_coverage_report,
     build_universal_credit_assessable_capital_request,
@@ -115,6 +121,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_jsa_income_tariff_income_inputs,
+    project_national_insurance_class_4_inputs,
     project_pension_credit_child_addition_inputs,
     project_pension_credit_deemed_income_inputs,
     project_pension_credit_inputs,
@@ -122,6 +129,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
+    project_student_loan_repayment_inputs,
     project_universal_credit_assessable_capital_inputs,
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
@@ -201,6 +209,69 @@ def test_national_insurance_class_1_request_projects_weekly_inputs(monkeypatch):
     ] == {"kind": "decimal", "value": "966.73"}
 
 
+def test_national_insurance_class_4_projection_uses_pe_profit_base():
+    assert project_national_insurance_class_4_inputs(
+        {
+            "self_employment_income": 60_000,
+            "ni_class_1_employee": 3_000,
+            "ni_liable": True,
+        }
+    ) == {
+        "class_4_contributions_payable_under_section_15": True,
+        "profits_chargeable_to_class_4_contributions": 57_000,
+    }
+
+
+def test_national_insurance_class_4_request_projects_annual_inputs():
+    request = build_national_insurance_class_4_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "self_employment_income": 0,
+                    "ni_class_1_employee": 0,
+                    "ni_class_4_main": 0,
+                    "ni_liable": True,
+                },
+                {
+                    "person_id": 8,
+                    "self_employment_income": 60_000,
+                    "ni_class_1_employee": 3_000,
+                    "ni_class_4_main": 2_262,
+                    "ni_liable": True,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_8",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                output["axiom"]
+                for output in NATIONAL_INSURANCE_CLASS_4_OUTPUTS.values()
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.class_4_contributions_payable_under_section_15:person_8"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_15_BASE}#input.profits_chargeable_to_class_4_contributions:person_8"
+    ] == {"kind": "decimal", "value": "57000.0"}
+
+
 class FakePolicyEngineVariable:
     def __init__(self, name, entity, *, adds=None, subtracts=None):
         self.name = name
@@ -275,6 +346,119 @@ def test_personal_allowance_request_projects_efrs_people():
             "kind": "decimal",
             "value": "20000.0",
         },
+    }
+
+
+def test_student_loan_repayment_projection_uses_policyengine_plan_enum():
+    assert project_student_loan_repayment_inputs(
+        {
+            "student_loan_plan": "StudentLoanPlan.PLAN_4",
+            "adjusted_net_income": 40_000,
+        }
+    ) == {
+        "loan_plan_is_plan_1": False,
+        "loan_plan_is_plan_2": False,
+        "loan_plan_is_plan_4": True,
+        "loan_plan_is_plan_5": False,
+        "loan_plan_is_postgraduate": False,
+        "annual_income_before_tax_and_other_deductions": 40_000,
+    }
+
+    assert project_student_loan_repayment_inputs(
+        {
+            "student_loan_plan": "StudentLoanPlan.POSTGRADUATE",
+            "adjusted_net_income": 35_000,
+        }
+    ) == {
+        "loan_plan_is_plan_1": False,
+        "loan_plan_is_plan_2": False,
+        "loan_plan_is_plan_4": False,
+        "loan_plan_is_plan_5": False,
+        "loan_plan_is_postgraduate": True,
+        "annual_income_before_tax_and_other_deductions": 35_000,
+    }
+
+    assert project_student_loan_repayment_inputs(
+        {
+            "student_loan_plan": "StudentLoanPlan.NONE",
+            "adjusted_net_income": 100_000,
+        }
+    ) == {
+        "loan_plan_is_plan_1": False,
+        "loan_plan_is_plan_2": False,
+        "loan_plan_is_plan_4": False,
+        "loan_plan_is_plan_5": False,
+        "loan_plan_is_postgraduate": False,
+        "annual_income_before_tax_and_other_deductions": 100_000,
+    }
+
+
+def test_student_loan_repayment_request_projects_plan_inputs():
+    request = build_student_loan_repayment_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "student_loan_plan": "StudentLoanPlan.PLAN_1",
+                    "adjusted_net_income": 40_000,
+                    "student_loan_repayment": 1_179,
+                    "student_loan_repayments": 1_179,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    period = {
+        "period_kind": "tax_year",
+        "start": "2026-04-06",
+        "end": "2027-04-05",
+    }
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": period,
+            "outputs": [
+                output["axiom"] for output in STUDENT_LOAN_REPAYMENT_OUTPUTS.values()
+            ],
+        }
+    ]
+    assert {
+        record["name"]: (record["entity_id"], record["interval"], record["value"])
+        for record in request["dataset"]["inputs"]
+    } == {
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.loan_plan_is_plan_1": (
+            "person_7",
+            period,
+            {"kind": "bool", "value": True},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.loan_plan_is_plan_2": (
+            "person_7",
+            period,
+            {"kind": "bool", "value": False},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.loan_plan_is_plan_4": (
+            "person_7",
+            period,
+            {"kind": "bool", "value": False},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.loan_plan_is_plan_5": (
+            "person_7",
+            period,
+            {"kind": "bool", "value": False},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.loan_plan_is_postgraduate": (
+            "person_7",
+            period,
+            {"kind": "bool", "value": False},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.annual_income_before_tax_and_other_deductions": (
+            "person_7",
+            period,
+            {"kind": "decimal", "value": "40000.0"},
+        ),
     }
 
 
@@ -2444,12 +2628,25 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "ni_liable",
     )
     assert policyengine_person_variables_for_surfaces(
+        ["national-insurance-class-4"]
+    ) == (
+        "ni_class_1_employee",
+        "ni_class_4_main",
+        "ni_liable",
+        "self_employment_income",
+    )
+    assert policyengine_person_variables_for_surfaces(
         ["state-pension-credit-qualifying-age"]
     ) == (
         "age",
         "gender",
         "is_SP_age",
         "state_pension_age",
+    )
+    assert policyengine_person_variables_for_surfaces(["student-loan-repayment"]) == (
+        "adjusted_net_income",
+        "student_loan_plan",
+        "student_loan_repayment",
     )
     assert policyengine_benunit_variables_for_surfaces(
         ["personal-allowance", "pension-credit"]
@@ -2569,6 +2766,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_assessable_capital",
         "uc_tariff_income",
     )
+    assert policyengine_benunit_variables_for_surfaces(["student-loan-repayment"]) == ()
     assert policyengine_person_variables_for_surfaces(
         ["income-tax-section-11d-savings-income"]
     ) == (
@@ -2767,6 +2965,7 @@ class hbai_household_net_income(Variable):
     subtracts = [
         "income_tax",
         "national_insurance",
+        "student_loan_repayments",
         "council_tax",
         "domestic_rates",
         "maintenance_expenses",
@@ -2814,6 +3013,7 @@ class hbai_household_net_income(Variable):
     assert report.subtracts == (
         "income_tax",
         "national_insurance",
+        "student_loan_repayments",
         "council_tax",
         "domestic_rates",
         "maintenance_expenses",
@@ -2852,6 +3052,16 @@ class hbai_household_net_income(Variable):
     assert by_name["healthy_start_vouchers"].policy_component is False
     assert by_name["income_tax"].status == "exact"
     assert by_name["income_tax"].policy_component is True
+    assert by_name["national_insurance"].status == "partial"
+    assert by_name["national_insurance"].surfaces == (
+        "national-insurance-class-1",
+        "national-insurance-class-4",
+    )
+    assert by_name["national_insurance"].covered_outputs == (
+        "ni_employee",
+        "ni_class_4_main",
+    )
+    assert by_name["student_loan_repayments"].status == "partial"
     assert by_name["universal_credit"].status == "partial"
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
@@ -2871,11 +3081,11 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
-    assert report.policy_component_count == 19
-    assert report.covered_policy_component_count == 19
+    assert report.policy_component_count == 20
+    assert report.covered_policy_component_count == 20
     assert report.exact_policy_component_count == 2
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 2 / 19)
+    assert math.isclose(report.exact_policy_component_share, 2 / 20)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
