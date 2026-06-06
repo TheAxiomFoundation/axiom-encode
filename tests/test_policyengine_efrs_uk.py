@@ -48,6 +48,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PENSION_CREDIT_BASE,
     PENSION_CREDIT_CHILD_ADDITION_OUTPUTS,
     PENSION_CREDIT_DEEMED_INCOME_OUTPUTS,
+    PENSION_CREDIT_FINAL_BASE,
+    PENSION_CREDIT_FINAL_OUTPUTS,
     PENSION_CREDIT_OUTPUTS,
     PENSION_CREDIT_REGULATION_15_BASE,
     PENSION_CREDIT_SCHEDULE_IIA_BASE,
@@ -104,6 +106,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_national_insurance_final_request,
     build_pension_credit_child_addition_request,
     build_pension_credit_deemed_income_request,
+    build_pension_credit_final_request,
     build_pension_credit_request,
     build_personal_allowance_request,
     build_state_pension_credit_guarantee_credit_request,
@@ -146,6 +149,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_national_insurance_final_inputs,
     project_pension_credit_child_addition_inputs,
     project_pension_credit_deemed_income_inputs,
+    project_pension_credit_final_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     project_state_pension_credit_guarantee_credit_inputs,
@@ -2284,6 +2288,73 @@ def test_carers_allowance_final_request_projects_final_inputs():
     ] == {"kind": "decimal", "value": "0.0"}
 
 
+def test_pension_credit_final_projection_uses_entitlement_components():
+    assert project_pension_credit_final_inputs(
+        {
+            "pension_credit_entitlement": 2_825,
+            "would_claim_pc": False,
+        }
+    ) == {
+        "pension_credit_entitlement_for_year": 2_825.0,
+        "person_or_partner_would_claim_pension_credit": False,
+    }
+    assert project_pension_credit_final_inputs(
+        {
+            "pension_credit_entitlement": 2_825,
+            "would_claim_pc": float("nan"),
+        }
+    )["person_or_partner_would_claim_pension_credit"] is False
+
+
+def test_pension_credit_final_request_projects_final_inputs():
+    request = build_pension_credit_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "pension_credit_entitlement": 3_400,
+                    "pension_credit": 3_400,
+                    "would_claim_pc": True,
+                },
+                {
+                    "benunit_id": 12,
+                    "pension_credit_entitlement": 0,
+                    "pension_credit": 0,
+                    "would_claim_pc": False,
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                PENSION_CREDIT_FINAL_OUTPUTS["pension_credit_annual_amount"]["axiom"]
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{PENSION_CREDIT_FINAL_BASE}#input.pension_credit_entitlement_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "3400.0"}
+    assert inputs[
+        f"{PENSION_CREDIT_FINAL_BASE}#input.person_or_partner_would_claim_pension_credit:benunit_11"
+    ] == {"kind": "bool", "value": True}
+
+
 def test_universal_credit_childcare_element_projection_reverses_rate_and_cap():
     projected = project_universal_credit_childcare_element_inputs(
         {
@@ -3238,6 +3309,11 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "pension_credit_income",
         "standard_minimum_guarantee",
     )
+    assert policyengine_benunit_variables_for_surfaces(["pension-credit-final"]) == (
+        "pension_credit",
+        "pension_credit_entitlement",
+        "would_claim_pc",
+    )
     assert policyengine_benunit_variables_for_surfaces(["state-pension-final"]) == ()
     assert policyengine_benunit_variables_for_surfaces(
         ["benefit-cap-relevant-amount"]
@@ -3505,6 +3581,7 @@ class hbai_household_net_income(Variable):
         "child_benefit",
         "esa_contrib",
         "universal_credit",
+        "pension_credit",
         "working_tax_credit",
         "child_tax_credit",
         "tax_free_childcare",
@@ -3553,6 +3630,7 @@ class hbai_household_net_income(Variable):
         "child_benefit",
         "esa_contrib",
         "universal_credit",
+        "pension_credit",
         "working_tax_credit",
         "child_tax_credit",
         "tax_free_childcare",
@@ -3676,6 +3754,25 @@ class hbai_household_net_income(Variable):
         "uc_tariff_income",
         "universal_credit",
     )
+    assert by_name["pension_credit"].status == "exact"
+    assert by_name["pension_credit"].surfaces == (
+        "state-pension-credit-guarantee-credit",
+        "state-pension-credit-savings-credit",
+        "pension-credit",
+        "pension-credit-child-addition",
+        "pension-credit-deemed-income",
+        "pension-credit-final",
+    )
+    assert by_name["pension_credit"].covered_outputs == (
+        "guarantee_credit",
+        "savings_credit",
+        "standard_minimum_guarantee",
+        "severe_disability_minimum_guarantee_addition",
+        "carer_minimum_guarantee_addition",
+        "child_minimum_guarantee_addition",
+        "pension_credit_deemed_income",
+        "pension_credit",
+    )
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["tax_free_childcare"].status == "partial"
@@ -3702,11 +3799,11 @@ class hbai_household_net_income(Variable):
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
-    assert report.policy_component_count == 20
-    assert report.covered_policy_component_count == 20
-    assert report.exact_policy_component_count == 7
+    assert report.policy_component_count == 21
+    assert report.covered_policy_component_count == 21
+    assert report.exact_policy_component_count == 8
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 7 / 20)
+    assert math.isclose(report.exact_policy_component_share, 8 / 21)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4261,6 +4358,39 @@ def test_compare_outputs_compares_carers_allowance_final_annual_amount():
                         CARERS_ALLOWANCE_FINAL_OUTPUTS[
                             "carers_allowance_annual_amount"
                         ]["axiom"]: decimal_output(4_495.40),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_pension_credit_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "pension_credit": 3_400,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit-final": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_FINAL_OUTPUTS[
+                            "pension_credit_annual_amount"
+                        ]["axiom"]: decimal_output(3_400),
                     }
                 }
             ]

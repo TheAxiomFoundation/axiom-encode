@@ -80,6 +80,8 @@ PENSION_CREDIT_SCHEDULE_IIA_PROGRAM_PATH = Path(
 PENSION_CREDIT_SCHEDULE_IIA_BASE = "uk:regulations/uksi/2002/1792/schedule/IIA"
 PENSION_CREDIT_REGULATION_15_PROGRAM_PATH = Path("regulations/uksi/2002/1792/15.yaml")
 PENSION_CREDIT_REGULATION_15_BASE = "uk:regulations/uksi/2002/1792/15"
+PENSION_CREDIT_FINAL_PROGRAM_PATH = Path("policies/govuk/pension-credit.yaml")
+PENSION_CREDIT_FINAL_BASE = "uk:policies/govuk/pension-credit"
 ESA_REGULATION_118_PROGRAM_PATH = Path("regulations/uksi/2008/794/118.yaml")
 ESA_REGULATION_118_BASE = "uk:regulations/uksi/2008/794/118"
 JSA_REGULATION_116_PROGRAM_PATH = Path("regulations/uksi/1996/207/116.yaml")
@@ -399,6 +401,14 @@ PENSION_CREDIT_DEEMED_INCOME_OUTPUTS = {
         "axiom": f"{PENSION_CREDIT_REGULATION_15_BASE}#capital_deemed_weekly_income",
         "pe": "pension_credit_deemed_income",
         "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
+    },
+}
+
+PENSION_CREDIT_FINAL_OUTPUTS = {
+    "pension_credit_annual_amount": {
+        "axiom": f"{PENSION_CREDIT_FINAL_BASE}#pension_credit_annual_amount",
+        "pe": "pension_credit",
         "tolerance": 0.01,
     },
 }
@@ -941,6 +951,16 @@ SURFACE_SPECS = {
             "pension_credit_deemed_income",
         ),
     ),
+    "pension-credit-final": UKEFRSSurfaceSpec(
+        program=PENSION_CREDIT_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=PENSION_CREDIT_FINAL_OUTPUTS,
+        pe_variables=(
+            "pension_credit",
+            "pension_credit_entitlement",
+            "would_claim_pc",
+        ),
+    ),
     "esa-income-tariff-income": UKEFRSSurfaceSpec(
         program=ESA_REGULATION_118_PROGRAM_PATH,
         entity="benunit",
@@ -1246,13 +1266,14 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers capital tariff income used inside income-based JSA, not the final JSA HBAI amount.",
     },
     "pension_credit": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": (
             "state-pension-credit-guarantee-credit",
             "state-pension-credit-savings-credit",
             "pension-credit",
             "pension-credit-child-addition",
             "pension-credit-deemed-income",
+            "pension-credit-final",
         ),
         "covered_outputs": (
             "guarantee_credit",
@@ -1262,8 +1283,9 @@ HBAI_COMPONENT_COVERAGE = {
             "carer_minimum_guarantee_addition",
             "child_minimum_guarantee_addition",
             "pension_credit_deemed_income",
+            "pension_credit",
         ),
-        "rationale": "Axiom covers major Pension Credit rates, additions, and deemed-income components, not the final aggregate pension_credit variable.",
+        "rationale": "Axiom covers major Pension Credit rates, additions, deemed-income components, and the final annual PolicyEngine UK pension_credit wrapper after the would_claim_pc gate.",
     },
     "state_pension": {
         "status": "exact",
@@ -3626,6 +3648,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "pension-credit-final":
+        return build_pension_credit_final_request(pe_data=pe_data, year=year)
     if surface == "esa-income-tariff-income":
         return build_esa_income_tariff_income_request(pe_data=pe_data, year=year)
     if surface == "jsa-income-tariff-income":
@@ -4415,6 +4439,40 @@ def build_legacy_weekly_tariff_income_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in outputs.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_pension_credit_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "pension-credit-final"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_pension_credit_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{PENSION_CREDIT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in PENSION_CREDIT_FINAL_OUTPUTS.values()
+                ],
             }
         )
 
@@ -5571,6 +5629,17 @@ def project_carers_allowance_final_inputs(row: Any, *, year: int) -> dict[str, A
     }
 
 
+def project_pension_credit_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "pension_credit_entitlement_for_year": money(
+            row_value(row, "pension_credit_entitlement", 0)
+        ),
+        "person_or_partner_would_claim_pension_credit": bool_row_value(
+            row, "would_claim_pc", False
+        ),
+    }
+
+
 def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     relation_type = str(row_value(row, "relation_type", "")).upper()
     is_couple = bool(row_value(row, "is_couple", False)) or relation_type == "COUPLE"
@@ -5731,6 +5800,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             if money(row_value(row, "carers_allowance", 0)) > 0
             or money(row_value(row, "carers_allowance_reported", 0)) > 0
             or money(row_value(row, "care_hours", 0)) >= 35
+        ]
+    if surface == "pension-credit-final":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "pension_credit", 0)) > 0
+            or money(row_value(row, "pension_credit_entitlement", 0)) > 0
         ]
     if surface == "universal-credit-lcwra-element":
         return [
@@ -6363,6 +6439,28 @@ def row_value(row: Any, name: str, default: Any = None) -> Any:
     if hasattr(row, "get"):
         return row.get(name, default)
     return getattr(row, name, default)
+
+
+def bool_row_value(row: Any, name: str, default: bool = False) -> bool:
+    value = row_value(row, name, default)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "nan", "none", "null"}:
+            return default
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+    try:
+        if math.isnan(value):
+            return default
+    except TypeError:
+        pass
+    return bool(value)
 
 
 def tax_year_interval(year: int) -> dict[str, str]:

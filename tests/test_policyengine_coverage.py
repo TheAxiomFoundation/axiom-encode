@@ -3557,6 +3557,52 @@ rules:
     assert annual_amount["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/pension-credit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pension_credit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/pension-credit.test.yaml",
+        """- name: pension credit final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/pension-credit#input.pension_credit_entitlement_for_year: 3400.00
+    uk:policies/govuk/pension-credit#input.person_or_partner_would_claim_pension_credit: true
+  output:
+    uk:policies/govuk/pension-credit#pension_credit_annual_amount: 3400.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/pension-credit#pension_credit_annual_amount"
+    ]
+
+    assert final_amount["policyengine_variable"] == "pension_credit"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",
