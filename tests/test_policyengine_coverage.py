@@ -3387,6 +3387,48 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_uk_national_insurance_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: national_insurance_contribution
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-04-06'
+        formula: primary_class_1_contribution_for_year + class_4_contribution_for_year
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/1.test.yaml",
+        """- name: national insurance final aggregate
+  period:
+    period_kind: tax_year
+    start: '2026-04-06'
+    end: '2027-04-05'
+  input: {}
+  output:
+    uk:statutes/ukpga/1992/4/1#national_insurance_contribution: 2900.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"comparable": 1}
+    assert report["untested_comparable"] == 0
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "uk:statutes/ukpga/1992/4/1#national_insurance_contribution"
+    )
+    assert item["policyengine_variable"] == "national_insurance"
+    assert item["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",

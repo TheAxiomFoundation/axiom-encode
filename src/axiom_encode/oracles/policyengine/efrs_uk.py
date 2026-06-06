@@ -36,6 +36,8 @@ WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
 POLICYENGINE_UK_VERSION = "2.88.56"
 
+NATIONAL_INSURANCE_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/1992/4/1.yaml")
+NATIONAL_INSURANCE_SECTION_1_BASE = "uk:statutes/ukpga/1992/4/1"
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
 NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH = Path("statutes/ukpga/1992/4/15.yaml")
@@ -199,6 +201,14 @@ NATIONAL_INSURANCE_REGULATION_100_OUTPUTS = {
             "#class_4_contribution_after_annual_maximum"
         ),
         "pe": "ni_class_4",
+    },
+}
+
+NATIONAL_INSURANCE_FINAL_OUTPUTS = {
+    "national_insurance_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_1_BASE}#national_insurance_contribution",
+        "pe": "national_insurance",
+        "tolerance": 0.01,
     },
 }
 
@@ -713,6 +723,18 @@ SURFACE_SPECS = {
             "self_employment_income",
         ),
     ),
+    "national-insurance-final": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_SECTION_1_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "national_insurance",
+            "ni_class_1_employee",
+            "ni_class_2",
+            "ni_class_3",
+            "ni_class_4",
+        ),
+    ),
     "personal-allowance": UKEFRSSurfaceSpec(
         program=PERSONAL_ALLOWANCE_PROGRAM_PATH,
         entity="person",
@@ -1130,14 +1152,20 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom compares the Section 23 income tax liability output directly to PolicyEngine UK's income_tax variable.",
     },
     "national_insurance": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": (
             "national-insurance-class-1",
             "national-insurance-class-4",
             "national-insurance-class-4-final",
+            "national-insurance-final",
         ),
-        "covered_outputs": ("ni_employee", "ni_class_4_main", "ni_class_4"),
-        "rationale": "Axiom covers employee Class 1 National Insurance, the main-rate Class 4 self-employed contribution, and final Class 4 after Regulation 100's annual maximum; HBAI national_insurance also includes Class 2 and Class 3 components that are not encoded here.",
+        "covered_outputs": (
+            "ni_employee",
+            "ni_class_4_main",
+            "ni_class_4",
+            "national_insurance",
+        ),
+        "rationale": "Axiom covers employee Class 1 National Insurance, the main-rate Class 4 self-employed contribution, final Class 4 after Regulation 100's annual maximum, and the final annual PolicyEngine UK national_insurance aggregate of Class 1, Class 2, Class 3, and Class 4 contributions.",
     },
     "child_benefit": {
         "status": "exact",
@@ -3508,6 +3536,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "national-insurance-final":
+        return build_national_insurance_final_request(pe_data=pe_data, year=year)
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
@@ -3737,6 +3767,40 @@ def build_national_insurance_class_4_final_request(
                 "outputs": [
                     spec["axiom"]
                     for spec in NATIONAL_INSURANCE_REGULATION_100_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_national_insurance_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_national_insurance_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_SECTION_1_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in NATIONAL_INSURANCE_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -5080,6 +5144,17 @@ def project_state_pension_final_inputs(
     }
 
 
+def project_national_insurance_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "primary_class_1_contribution_for_year": money(
+            row_value(row, "ni_class_1_employee", 0)
+        ),
+        "class_2_contribution_for_year": money(row_value(row, "ni_class_2", 0)),
+        "class_3_contribution_for_year": money(row_value(row, "ni_class_3", 0)),
+        "class_4_contribution_for_year": money(row_value(row, "ni_class_4", 0)),
+    }
+
+
 def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
     is_uc_eligible = bool(row_value(row, "is_uc_eligible", False))
 
@@ -5466,6 +5541,16 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "self_employment_income", 0)) > 0
             or money(row_value(row, "ni_class_4_main", 0)) > 0
+            or money(row_value(row, "ni_class_4", 0)) > 0
+        ]
+    if surface == "national-insurance-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "national_insurance", 0)) > 0
+            or money(row_value(row, "ni_class_1_employee", 0)) > 0
+            or money(row_value(row, "ni_class_2", 0)) > 0
+            or money(row_value(row, "ni_class_3", 0)) > 0
             or money(row_value(row, "ni_class_4", 0)) > 0
         ]
     benunits = pe_data.get("benunits", [])

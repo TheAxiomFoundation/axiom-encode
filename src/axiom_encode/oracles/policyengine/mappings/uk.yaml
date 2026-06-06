@@ -316,6 +316,17 @@ mappings:
     comparison: rate
     rationale: Same Class 1 employee additional primary contribution percentage.
 
+  - legal_id: uk:statutes/ukpga/1992/4/1#national_insurance_contribution
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: national_insurance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual person-level National Insurance contribution aggregate after the UK EFRS adapter supplies PolicyEngine UK's Class 1, Class 2, Class 3, and final Class 4 contribution amounts.
+
   - legal_id: uk:statutes/ukpga/1992/4/8#primary_class_1_contribution
     country: uk
     program: tax
