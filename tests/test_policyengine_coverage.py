@@ -3474,6 +3474,93 @@ rules:
     assert enhanced_rate["test_output_count"] == 1
 
 
+def test_policyengine_coverage_classifies_uk_child_benefit_entitlement_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/141.yaml",
+        """format: rulespec/v1
+rules:
+  - name: entitled_to_child_benefit_for_week
+    kind: derived
+    entity: Family
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-01-01'
+        formula: child_count > 0
+  - name: child_benefit_weekly_rate_for_responsible_child_or_qualifying_young_person
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: child_benefit_weekly_rate
+  - name: child_or_qualifying_young_person_counts_for_child_benefit_weekly_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    versions:
+      - effective_from: '2026-01-01'
+        formula: is_child_or_qualifying_young_person
+  - name: child_benefit_weekly_entitlement
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: weekly_rate_sum
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/141.test.yaml",
+        """- name: child benefit entitlement
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-01-05'
+    end: '2026-01-11'
+  input: {}
+  output:
+    uk:statutes/ukpga/1992/4/141#entitled_to_child_benefit_for_week: holds
+    uk:statutes/ukpga/1992/4/141#child_benefit_weekly_rate_for_responsible_child_or_qualifying_young_person: 27.05
+    uk:statutes/ukpga/1992/4/141#child_or_qualifying_young_person_counts_for_child_benefit_weekly_entitlement: holds
+    uk:statutes/ukpga/1992/4/141#child_benefit_weekly_entitlement: 44.95
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="child_benefit")
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 2,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    entitlement = items_by_id[
+        "uk:statutes/ukpga/1992/4/141#child_benefit_weekly_entitlement"
+    ]
+    rate = items_by_id[
+        "uk:statutes/ukpga/1992/4/141#child_benefit_weekly_rate_for_responsible_child_or_qualifying_young_person"
+    ]
+    entitled = items_by_id[
+        "uk:statutes/ukpga/1992/4/141#entitled_to_child_benefit_for_week"
+    ]
+
+    assert entitlement["status"] == "comparable"
+    assert entitlement["policyengine_variable"] == "child_benefit_entitlement"
+    assert entitlement["mapping_type"] == "direct_variable"
+    assert entitlement["tested"] is True
+    assert rate["status"] == "comparable"
+    assert rate["policyengine_variable"] == "child_benefit_respective_amount"
+    assert entitled["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_arizona_snap_medical_and_child_support(
     tmp_path,
 ):
