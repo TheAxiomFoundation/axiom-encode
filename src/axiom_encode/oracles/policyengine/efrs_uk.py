@@ -34,12 +34,16 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.43"
+POLICYENGINE_UK_VERSION = "2.88.56"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
 NATIONAL_INSURANCE_SECTION_15_PROGRAM_PATH = Path("statutes/ukpga/1992/4/15.yaml")
 NATIONAL_INSURANCE_SECTION_15_BASE = "uk:statutes/ukpga/1992/4/15"
+NATIONAL_INSURANCE_REGULATION_100_PROGRAM_PATH = Path(
+    "regulations/uksi/2001/1004/100.yaml"
+)
+NATIONAL_INSURANCE_REGULATION_100_BASE = "uk:regulations/uksi/2001/1004/100"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 INCOME_TAX_SECTION_10_PROGRAM_PATH = Path("statutes/ukpga/2007/3/10.yaml")
@@ -175,6 +179,20 @@ NATIONAL_INSURANCE_CLASS_4_OUTPUTS = {
     "main_class_4_contribution": {
         "axiom": f"{NATIONAL_INSURANCE_SECTION_15_BASE}#main_class_4_contribution",
         "pe": "ni_class_4_main",
+    },
+}
+
+NATIONAL_INSURANCE_REGULATION_100_OUTPUTS = {
+    "class_4_annual_maximum": {
+        "axiom": f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#class_4_annual_maximum",
+        "pe": "ni_class_4_maximum",
+    },
+    "class_4_contribution_after_annual_maximum": {
+        "axiom": (
+            f"{NATIONAL_INSURANCE_REGULATION_100_BASE}"
+            "#class_4_contribution_after_annual_maximum"
+        ),
+        "pe": "ni_class_4",
     },
 }
 
@@ -658,6 +676,20 @@ SURFACE_SPECS = {
             "self_employment_income",
         ),
     ),
+    "national-insurance-class-4-final": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_REGULATION_100_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_REGULATION_100_OUTPUTS,
+        pe_variables=(
+            "ni_class_1_employee",
+            "ni_class_1_employee_primary",
+            "ni_class_4",
+            "ni_class_4_main",
+            "ni_class_4_maximum",
+            "ni_liable",
+            "self_employment_income",
+        ),
+    ),
     "personal-allowance": UKEFRSSurfaceSpec(
         program=PERSONAL_ALLOWANCE_PROGRAM_PATH,
         entity="person",
@@ -1052,9 +1084,13 @@ HBAI_COMPONENT_COVERAGE = {
     },
     "national_insurance": {
         "status": "partial",
-        "surfaces": ("national-insurance-class-1", "national-insurance-class-4"),
-        "covered_outputs": ("ni_employee", "ni_class_4_main"),
-        "rationale": "Axiom covers employee Class 1 National Insurance and the main-rate Class 4 self-employed contribution; HBAI national_insurance also includes the Class 4 annual maximum/final amount and any other non-Class-1 components.",
+        "surfaces": (
+            "national-insurance-class-1",
+            "national-insurance-class-4",
+            "national-insurance-class-4-final",
+        ),
+        "covered_outputs": ("ni_employee", "ni_class_4_main", "ni_class_4"),
+        "rationale": "Axiom covers employee Class 1 National Insurance, the main-rate Class 4 self-employed contribution, and final Class 4 after Regulation 100's annual maximum; HBAI national_insurance also includes Class 2 and Class 3 components that are not encoded here.",
     },
     "child_benefit": {
         "status": "partial",
@@ -3402,6 +3438,11 @@ def build_axiom_request(
         return build_national_insurance_class_1_request(pe_data=pe_data, year=year)
     if surface == "national-insurance-class-4":
         return build_national_insurance_class_4_request(pe_data=pe_data, year=year)
+    if surface == "national-insurance-class-4-final":
+        return build_national_insurance_class_4_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
@@ -3587,6 +3628,46 @@ def build_national_insurance_class_4_request(
                 "outputs": [
                     spec["axiom"]
                     for spec in NATIONAL_INSURANCE_CLASS_4_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_national_insurance_class_4_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    parameters = policyengine_uk_class_4_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-class-4-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        projected = project_national_insurance_class_4_final_inputs(
+            row,
+            parameters=parameters,
+        )
+        for name, value in projected.items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_REGULATION_100_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_INSURANCE_REGULATION_100_OUTPUTS.values()
                 ],
             }
         )
@@ -4710,6 +4791,37 @@ def project_national_insurance_class_4_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_national_insurance_class_4_final_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    self_employment_income = money(row_value(row, "self_employment_income", 0))
+    employee_ni = money(row_value(row, "ni_class_1_employee", 0))
+    profits = self_employment_income - employee_ni
+    additional_band_profits = max(0, profits - parameters["upper_profits_limit"])
+    pre_maximum_amount = money(row_value(row, "ni_class_4_main", 0)) + (
+        additional_band_profits * parameters["additional_class_4_percentage"]
+    )
+    primary_class_1 = money(row_value(row, "ni_class_1_employee_primary", 0))
+    return {
+        "primary_class_1_contributions_paid_at_main_primary_percentage": primary_class_1,
+        "primary_class_1_contributions_payable_at_main_primary_percentage": primary_class_1,
+        "class_4_contributions_payable_at_main_class_4_percentage": money(
+            row_value(row, "ni_class_4_main", 0)
+        ),
+        "class_4_contribution_before_annual_maximum": pre_maximum_amount,
+        "class_4_contributions_payable_under_section_15_for_year": bool(
+            row_value(row, "ni_liable", True)
+        ),
+        "profits_and_gains_for_year": self_employment_income,
+        "lower_profits_limit": parameters["lower_profits_limit"],
+        "upper_profits_limit": parameters["upper_profits_limit"],
+        "main_class_4_percentage": parameters["main_class_4_percentage"],
+        "additional_class_4_percentage": parameters["additional_class_4_percentage"],
+    }
+
+
 def project_benefit_cap_relevant_amount_inputs(row: Any) -> dict[str, Any]:
     num_adults = int(money(row_value(row, "num_adults", 0)))
     num_children = int(money(row_value(row, "num_children", 0)))
@@ -5103,12 +5215,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
         ]
-    if surface == "national-insurance-class-4":
+    if surface in {"national-insurance-class-4", "national-insurance-class-4-final"}:
         return [
             row
             for row in persons
             if money(row_value(row, "self_employment_income", 0)) > 0
             or money(row_value(row, "ni_class_4_main", 0)) > 0
+            or money(row_value(row, "ni_class_4", 0)) > 0
         ]
     benunits = pe_data.get("benunits", [])
     if surface == "benefit-cap-relevant-amount":
@@ -5859,6 +5972,26 @@ def policyengine_uk_class_1_weekly_parameters(year: int) -> dict[str, float]:
     return {
         "primary_threshold": money(class_1.thresholds.primary_threshold),
         "upper_earnings_limit": money(class_1.thresholds.upper_earnings_limit),
+    }
+
+
+def policyengine_uk_class_4_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    class_4 = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.national_insurance.class_4
+    )
+    return {
+        "lower_profits_limit": money(class_4.thresholds.lower_profits_limit),
+        "upper_profits_limit": money(class_4.thresholds.upper_profits_limit),
+        "main_class_4_percentage": float(class_4.rates.main),
+        "additional_class_4_percentage": float(class_4.rates.additional),
     }
 
 

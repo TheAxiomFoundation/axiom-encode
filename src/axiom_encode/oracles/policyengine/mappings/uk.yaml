@@ -410,6 +410,100 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 15 aggregate Class 4 contribution before Regulation 100's annual maximum; PolicyEngine UK exposes final ni_class_4 after the annual maximum rather than this pre-maximum subtotal.
 
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_one
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step One is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_two
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Two is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_four_value
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Four's raw value is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_four_amount
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Four's nonnegative amount is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_case_1_applies
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Case 1 is a statutory branch predicate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this legal judgment output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_case_2_applies
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Case 2 is a statutory branch predicate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this legal judgment output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_case_3_applies
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Case 3 is a statutory branch predicate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this legal judgment output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_five
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Five is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_six
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Six is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_seven
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Seven is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_eight
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Eight is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum_step_nine
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 100 Step Nine is a statutory intermediate for calculating the Class 4 annual maximum; PolicyEngine UK exposes the final annual maximum, not this step output.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_annual_maximum
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ni_class_4_maximum
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same Regulation 100 Class 4 annual maximum after the UK EFRS adapter projects annual primary Class 1, Class 4 main-rate, and profits inputs.
+
+  - legal_id: uk:regulations/uksi/2001/1004/100#class_4_contribution_after_annual_maximum
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ni_class_4
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final Class 4 NI contribution after applying Regulation 100's annual maximum.
+
   - legal_id: uk:policies/govuk/student-loan-repayments#plan_1_annual_income_threshold
     country: uk
     program: tax
