@@ -970,12 +970,26 @@ SURFACE_SPECS = {
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
     {
+        "afcs",
+        "bsp",
+        "council_tax",
+        "council_tax_benefit",
         "dividend_income",
+        "domestic_rates",
         "employee_pension_contributions",
         "employment_income",
+        "esa_contrib",
         "external_child_payments",
+        "free_school_fruit_veg",
+        "free_school_meals",
+        "free_school_milk",
+        "healthy_start_vouchers",
+        "iidb",
+        "incapacity_benefit",
+        "jsa_contrib",
         "maintenance_expenses",
         "maintenance_income",
+        "maternity_allowance",
         "miscellaneous_income",
         "personal_pension_contributions",
         "private_pension_income",
@@ -983,6 +997,8 @@ HBAI_FIXED_INPUT_COMPONENTS = frozenset(
         "property_income",
         "savings_interest_income",
         "self_employment_income",
+        "statutory_maternity_pay",
+        "statutory_sick_pay",
     }
 )
 
@@ -2423,8 +2439,8 @@ def classify_hbai_component(
             surfaces=(),
             covered_outputs=(),
             rationale=(
-                "Private, market, maintenance, or pension-contribution input held "
-                "fixed when measuring policy alignment."
+                "Private, market, reported, or PolicyEngine input-only component "
+                "held fixed when measuring policy alignment."
             ),
             activity=activity,
         )
