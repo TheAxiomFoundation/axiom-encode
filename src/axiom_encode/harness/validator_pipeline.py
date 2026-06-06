@@ -16525,6 +16525,11 @@ def _uk_legislation_gov_source_path_aliases(citation_path: str) -> tuple[str, ..
 
 def _local_corpus_provisions_roots() -> tuple[Path, ...]:
     roots: list[Path] = []
+    cwd: Path | None = None
+    with contextlib.suppress(OSError):
+        cwd = Path.cwd().resolve()
+        roots.append(cwd)
+
     for env_name in (
         "AXIOM_CORPUS_ARTIFACT_ROOT",
         "AXIOM_CORPUS_LOCAL_ROOT",
@@ -16534,12 +16539,10 @@ def _local_corpus_provisions_roots() -> tuple[Path, ...]:
         if raw_root:
             roots.append(Path(raw_root).expanduser())
 
-    with contextlib.suppress(OSError):
-        cwd = Path.cwd().resolve()
+    if cwd is not None:
         for base in (cwd, *cwd.parents):
             roots.extend(
                 (
-                    base,
                     base / "axiom-corpus",
                     base / "TheAxiomFoundation" / "axiom-corpus",
                     base.parent / "axiom-corpus",
