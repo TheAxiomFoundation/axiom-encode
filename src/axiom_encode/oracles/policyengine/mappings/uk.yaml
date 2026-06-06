@@ -1421,6 +1421,14 @@ mappings:
     comparison: money
     rationale: Same Disability Living Allowance mobility component after selecting the higher, lower, or nil category; the UK oracle converts PolicyEngine UK's annual value to a weekly amount for comparison.
 
+  - legal_id: uk:policies/govuk/disability-living-allowance#disability_living_allowance_weeks_in_year
+    country: uk
+    program: dla
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Disability Living Allowance variable and weekly component rates, not this multiplication factor as a separate oracle target.
+
   - legal_id: uk:policies/govuk/disability-living-allowance#disability_living_allowance_annual_amount
     country: uk
     program: dla
