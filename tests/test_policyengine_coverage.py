@@ -3312,6 +3312,81 @@ rules:
     assert all(item["tested"] is True for item in report["items"])
 
 
+def test_policyengine_coverage_classifies_uk_state_pension_final_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/state-pension.yaml",
+        """format: rulespec/v1
+rules:
+  - name: current_state_pension_flat_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 184.90
+  - name: additional_state_pension_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: 15.10
+  - name: state_pension_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    versions:
+      - effective_from: '2026-04-06'
+        formula: current_state_pension_flat_weekly_amount + additional_state_pension_weekly_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/state-pension.test.yaml",
+        """- name: state pension final wrapper
+  period:
+    period_kind: week
+    start: '2026-04-06'
+    end: '2026-04-12'
+  input: {}
+  output:
+    uk:policies/govuk/state-pension#additional_state_pension_weekly_amount: 15.10
+    uk:policies/govuk/state-pension#state_pension_weekly_amount: 200.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="state_pension")
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 1,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "uk:policies/govuk/state-pension#additional_state_pension_weekly_amount"
+        ]["policyengine_variable"]
+        == "additional_state_pension"
+    )
+    assert (
+        items_by_id["uk:policies/govuk/state-pension#state_pension_weekly_amount"][
+            "policyengine_variable"
+        ]
+        == "state_pension"
+    )
+    assert (
+        items_by_id[
+            "uk:policies/govuk/state-pension#current_state_pension_flat_weekly_amount"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 @pytest.mark.parametrize(
     (
         "path",

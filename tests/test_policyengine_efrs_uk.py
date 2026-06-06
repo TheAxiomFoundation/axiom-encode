@@ -56,6 +56,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_CREDIT_SECTION_1_BASE,
     STATE_PENSION_CREDIT_SECTION_2_BASE,
     STATE_PENSION_CREDIT_SECTION_3_BASE,
+    STATE_PENSION_FINAL_BASE,
+    STATE_PENSION_FINAL_OUTPUTS,
     STUDENT_LOAN_REPAYMENT_BASE,
     STUDENT_LOAN_REPAYMENT_OUTPUTS,
     UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS,
@@ -99,6 +101,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_guarantee_credit_request,
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
+    build_state_pension_final_request,
     build_student_loan_repayment_request,
     build_uk_efrs_coverage_report,
     build_uk_hbai_policy_coverage_report,
@@ -137,6 +140,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
+    project_state_pension_final_inputs,
     project_student_loan_repayment_inputs,
     project_universal_credit_assessable_capital_inputs,
     project_universal_credit_award_inputs,
@@ -1396,6 +1400,120 @@ def test_state_pension_credit_qualifying_age_request_projects_people():
     ] == {
         "kind": "bool",
         "value": True,
+    }
+
+
+def test_state_pension_final_projection_uses_current_and_data_year_types():
+    projected = project_state_pension_final_inputs(
+        {
+            "state_pension_type": "NEW",
+            "state_pension_type_data_year": "BASIC",
+            "state_pension_reported_data_year": 10_400,
+        },
+        parameters={
+            "data_year_basic_state_pension_weekly_rate": 184.90,
+            "data_year_full_new_state_pension_weekly_rate": 241.30,
+            "state_pension_policy_uprating_factor": 1.0,
+        },
+    )
+
+    assert projected == {
+        "current_state_pension_type_is_basic": False,
+        "current_state_pension_type_is_new": True,
+        "data_year_state_pension_type_is_basic": True,
+        "data_year_state_pension_type_is_new": False,
+        "reported_state_pension_weekly_amount_in_data_year": 200,
+        "data_year_basic_state_pension_weekly_rate": 184.90,
+        "data_year_full_new_state_pension_weekly_rate": 241.30,
+        "state_pension_abolished_by_policy": False,
+        "state_pension_policy_uprating_factor": 1.0,
+    }
+
+
+def test_state_pension_final_request_projects_people(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_state_pension_parameters",
+        lambda *, year, data_year: {
+            "data_year_basic_state_pension_weekly_rate": 184.90,
+            "data_year_full_new_state_pension_weekly_rate": 241.30,
+            "state_pension_policy_uprating_factor": 1.0,
+        },
+    )
+
+    request = build_state_pension_final_request(
+        pe_data={
+            "data_year": 2023,
+            "persons": [
+                {
+                    "person_id": 7,
+                    "state_pension": 10_400,
+                    "state_pension_type": "BASIC",
+                    "state_pension_type_data_year": "BASIC",
+                    "state_pension_reported_data_year": 10_400,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": [
+                f"{STATE_PENSION_FINAL_BASE}#state_pension_weekly_amount",
+            ],
+        }
+    ]
+    values_by_name = {
+        item["name"]: item["value"] for item in request["dataset"]["inputs"]
+    }
+    assert values_by_name == {
+        f"{STATE_PENSION_FINAL_BASE}#input.current_state_pension_type_is_basic": {
+            "kind": "bool",
+            "value": True,
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.current_state_pension_type_is_new": {
+            "kind": "bool",
+            "value": False,
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.data_year_state_pension_type_is_basic": {
+            "kind": "bool",
+            "value": True,
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.data_year_state_pension_type_is_new": {
+            "kind": "bool",
+            "value": False,
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.reported_state_pension_weekly_amount_in_data_year": {
+            "kind": "decimal",
+            "value": "200.0",
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.data_year_basic_state_pension_weekly_rate": {
+            "kind": "decimal",
+            "value": "184.9",
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.data_year_full_new_state_pension_weekly_rate": {
+            "kind": "decimal",
+            "value": "241.3",
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.state_pension_abolished_by_policy": {
+            "kind": "bool",
+            "value": False,
+        },
+        f"{STATE_PENSION_FINAL_BASE}#input.state_pension_policy_uprating_factor": {
+            "kind": "decimal",
+            "value": "1.0",
+        },
     }
 
 
@@ -2850,6 +2968,11 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "is_SP_age",
         "state_pension_age",
     )
+    assert policyengine_person_variables_for_surfaces(["state-pension-final"]) == (
+        "state_pension",
+        "state_pension_reported",
+        "state_pension_type",
+    )
     assert policyengine_person_variables_for_surfaces(["student-loan-repayment"]) == (
         "adjusted_net_income",
         "student_loan_plan",
@@ -2885,6 +3008,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "pension_credit_income",
         "standard_minimum_guarantee",
     )
+    assert policyengine_benunit_variables_for_surfaces(["state-pension-final"]) == ()
     assert policyengine_benunit_variables_for_surfaces(
         ["benefit-cap-relevant-amount"]
     ) == (
@@ -3294,7 +3418,11 @@ class hbai_household_net_income(Variable):
     assert by_name["scottish_child_payment"].status == "partial"
     assert by_name["carer_support_payment"].status == "partial"
     assert by_name["cost_of_living_support_payment"].status == "partial"
-    assert by_name["state_pension"].status == "partial"
+    assert by_name["state_pension"].status == "exact"
+    assert by_name["state_pension"].surfaces == (
+        "state-pension-rates",
+        "state-pension-final",
+    )
     assert by_name["winter_fuel_allowance"].status == "partial"
     assert by_name["council_tax"].status == "fixed_input"
     assert by_name["council_tax"].policy_component is False
@@ -3302,9 +3430,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert report.policy_component_count == 20
     assert report.covered_policy_component_count == 20
-    assert report.exact_policy_component_count == 3
+    assert report.exact_policy_component_count == 4
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 3 / 20)
+    assert math.isclose(report.exact_policy_component_share, 4 / 20)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -3570,6 +3698,41 @@ def test_compare_outputs_compares_child_benefit_final_weekly_amount():
     )
 
     assert report.compared_benunits == 1
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+    assert report.output_summary[0]["compared"] == 1
+
+
+def test_compare_outputs_compares_state_pension_final_weekly_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 3,
+                    "state_pension": 200 * WEEKS_IN_YEAR,
+                }
+            ],
+            "person_ids": [3],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "state-pension-final": [
+                {
+                    "outputs": {
+                        STATE_PENSION_FINAL_OUTPUTS["state_pension_weekly_amount"][
+                            "axiom"
+                        ]: decimal_output(200)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_persons == 1
     assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []

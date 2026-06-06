@@ -1370,6 +1370,36 @@ mappings:
     comparison: money
     rationale: Same weekly full new State Pension amount after applying the Article 6 substitution.
 
+  - legal_id: uk:policies/govuk/state-pension#current_state_pension_flat_weekly_amount
+    country: uk
+    program: state_pension
+    mapping_type: not_comparable
+    rationale: PolicyEngine UK exposes basic_state_pension and new_state_pension separately; this policy wrapper output selects the current flat component for either current State Pension type and has no one-to-one PolicyEngine variable.
+
+  - legal_id: uk:policies/govuk/state-pension#additional_state_pension_weekly_amount
+    country: uk
+    program: state_pension
+    mapping_type: direct_variable
+    policyengine_variable: additional_state_pension
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same additional or protected State Pension amount above the dataset-year basic or new State Pension ceiling, with PolicyEngine UK's annual additional_state_pension converted to a weekly amount.
+
+  - legal_id: uk:policies/govuk/state-pension#state_pension_weekly_amount
+    country: uk
+    program: state_pension
+    mapping_type: direct_variable
+    policyengine_variable: state_pension
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same final gross State Pension receipt for the person, with PolicyEngine UK's annual state_pension converted to a weekly amount after the reported dataset-year pension and current-rate proration wrapper.
+
   - legal_id: uk:regulations/uksi/2026/148/schedule/1#attendance_allowance_higher_weekly_rate
     country: uk
     program: attendance_allowance
@@ -1898,6 +1928,12 @@ prefixes:
     program: child_benefit
     mapping_type: not_comparable
     rationale: Child Benefit final receipt helper outputs not listed above are Axiom-side period conversion and projected receipt-gate helpers rather than separate PolicyEngine UK oracle variables.
+
+  - legal_id_prefix: uk:policies/govuk/state-pension#
+    country: uk
+    program: state_pension
+    mapping_type: not_comparable
+    rationale: State Pension final receipt helper outputs not listed above are Axiom-side type-selection and dataset-year proration helpers rather than separate PolicyEngine UK oracle variables.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
     country: uk
