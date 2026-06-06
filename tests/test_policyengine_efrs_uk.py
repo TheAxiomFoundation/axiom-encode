@@ -9,6 +9,8 @@ import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
     BENEFIT_CAP_REGULATION_80A_BASE,
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
+    CARERS_ALLOWANCE_FINAL_BASE,
+    CARERS_ALLOWANCE_FINAL_OUTPUTS,
     CHILD_BENEFIT_BASE,
     CHILD_BENEFIT_FINAL_BASE,
     CHILD_BENEFIT_FINAL_OUTPUTS,
@@ -84,6 +86,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WELFARE_REFORM_ACT_SECTION_8_BASE,
     WELFARE_REFORM_ACT_SECTION_11_BASE,
     build_benefit_cap_relevant_amount_request,
+    build_carers_allowance_final_request,
     build_child_benefit_final_request,
     build_child_benefit_request,
     build_esa_income_tariff_income_request,
@@ -126,6 +129,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
     project_benefit_cap_relevant_amount_inputs,
+    project_carers_allowance_final_inputs,
     project_child_benefit_inputs,
     project_esa_income_tariff_income_inputs,
     project_housing_benefit_pension_age_tariff_income_inputs,
@@ -2205,6 +2209,81 @@ def test_universal_credit_final_request_projects_final_inputs():
     ] == {"kind": "decimal", "value": "1250.0"}
 
 
+def test_carers_allowance_final_projection_uses_pe_boundary_facts():
+    assert project_carers_allowance_final_inputs(
+        {
+            "country": "SCOTLAND",
+            "care_hours": 40,
+            "carers_allowance_reported": 0,
+        },
+        year=2026,
+    ) == {
+        "person_is_in_scotland": True,
+        "carer_support_payment_replaces_carers_allowance": True,
+        "weekly_care_hours": 40.0,
+        "reported_carers_allowance_for_year": 0.0,
+    }
+
+
+def test_carers_allowance_final_request_projects_final_inputs():
+    request = build_carers_allowance_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "country": "ENGLAND",
+                    "care_hours": 0,
+                    "carers_allowance": 0,
+                    "carers_allowance_reported": 0,
+                },
+                {
+                    "person_id": 2,
+                    "country": "ENGLAND",
+                    "care_hours": 35,
+                    "carers_allowance": 4_495.40,
+                    "carers_allowance_reported": 0,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                CARERS_ALLOWANCE_FINAL_OUTPUTS["carers_allowance_annual_amount"][
+                    "axiom"
+                ],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.person_is_in_scotland:person_2"
+    ] == {"kind": "bool", "value": False}
+    assert inputs[
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.carer_support_payment_replaces_carers_allowance:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.weekly_care_hours:person_2"
+    ] == {"kind": "decimal", "value": "35.0"}
+    assert inputs[
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.reported_carers_allowance_for_year:person_2"
+    ] == {"kind": "decimal", "value": "0.0"}
+
+
 def test_universal_credit_childcare_element_projection_reverses_rate_and_cap():
     projected = project_universal_credit_childcare_element_inputs(
         {
@@ -3603,7 +3682,11 @@ class hbai_household_net_income(Variable):
     assert by_name["pip"].status == "exact"
     assert by_name["dla"].status == "partial"
     assert by_name["attendance_allowance"].status == "partial"
-    assert by_name["carers_allowance"].status == "partial"
+    assert by_name["carers_allowance"].status == "exact"
+    assert by_name["carers_allowance"].surfaces == (
+        "carers-allowance-rate",
+        "carers-allowance-final",
+    )
     assert by_name["sda"].status == "partial"
     assert by_name["ssmg"].status == "partial"
     assert by_name["scottish_child_payment"].status == "partial"
@@ -3621,9 +3704,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert report.policy_component_count == 20
     assert report.covered_policy_component_count == 20
-    assert report.exact_policy_component_count == 6
+    assert report.exact_policy_component_count == 7
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 6 / 20)
+    assert math.isclose(report.exact_policy_component_share, 7 / 20)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4145,6 +4228,39 @@ def test_compare_outputs_compares_universal_credit_final_annual_amount():
                         UNIVERSAL_CREDIT_FINAL_OUTPUTS[
                             "universal_credit_annual_amount"
                         ]["axiom"]: decimal_output(10_750),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_carers_allowance_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "carers_allowance": 4_495.40,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "carers-allowance-final": [
+                {
+                    "outputs": {
+                        CARERS_ALLOWANCE_FINAL_OUTPUTS[
+                            "carers_allowance_annual_amount"
+                        ]["axiom"]: decimal_output(4_495.40),
                     }
                 }
             ]

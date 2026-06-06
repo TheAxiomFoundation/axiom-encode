@@ -1497,6 +1497,27 @@ mappings:
     comparison: money
     rationale: Same weekly Carer's Allowance rate in Schedule 1 Part III of the 2026 up-rating order.
 
+  - legal_id: uk:policies/govuk/carers-allowance#carers_allowance_minimum_weekly_care_hours
+    country: uk
+    program: carers_allowance
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.carers_allowance.min_hours
+    period: week
+    unit: hour
+    comparison: count
+    rationale: Same minimum weekly care-hours threshold for Carer's Allowance.
+
+  - legal_id: uk:policies/govuk/carers-allowance#carers_allowance_annual_amount
+    country: uk
+    program: carers_allowance
+    mapping_type: direct_variable
+    policyengine_variable: carers_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Carer's Allowance amount after PolicyEngine UK's care-hours or reported-receipt gate and Scotland Carer Support Payment replacement gate.
+
   - legal_id: uk:regulations/uksi/2025/969/3#winter_fuel_payment_under_80_standard_amount
     country: uk
     program: winter_fuel_allowance
