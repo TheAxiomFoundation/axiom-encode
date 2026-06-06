@@ -675,6 +675,18 @@ mappings:
     result_multiplier: 0.019230769230769232
     rationale: Same per-child Child Benefit weekly rate for a responsible child or qualifying young person, with PolicyEngine's annual child_benefit_respective_amount converted to a weekly amount.
 
+  - legal_id: uk:policies/govuk/child-benefit#child_benefit_weekly_amount
+    country: uk
+    program: child_benefit
+    mapping_type: direct_variable
+    policyengine_variable: child_benefit
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same final gross Child Benefit receipt for the benefit unit, with PolicyEngine UK's annual child_benefit converted to a weekly amount after the would_claim_child_benefit gate.
+
   - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner
     country: uk
     program: pension_credit
@@ -1880,6 +1892,12 @@ prefixes:
     program: child_benefit
     mapping_type: not_comparable
     rationale: Child Benefit section 141 helper outputs not listed above are responsibility, child-counting, or weekly entitlement predicates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:policies/govuk/child-benefit#
+    country: uk
+    program: child_benefit
+    mapping_type: not_comparable
+    rationale: Child Benefit final receipt helper outputs not listed above are Axiom-side period conversion and projected receipt-gate helpers rather than separate PolicyEngine UK oracle variables.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
     country: uk

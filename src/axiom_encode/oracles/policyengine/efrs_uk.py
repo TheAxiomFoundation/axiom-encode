@@ -56,6 +56,10 @@ INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
 INCOME_TAX_SECTION_23_BASE = "uk:statutes/ukpga/2007/3/23"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
+CHILD_BENEFIT_SECTION_141_PROGRAM_PATH = Path("statutes/ukpga/1992/4/141.yaml")
+CHILD_BENEFIT_SECTION_141_BASE = "uk:statutes/ukpga/1992/4/141"
+CHILD_BENEFIT_FINAL_PROGRAM_PATH = Path("policies/govuk/child-benefit.yaml")
+CHILD_BENEFIT_FINAL_BASE = "uk:policies/govuk/child-benefit"
 BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH = Path("regulations/uksi/2013/376/80A.yaml")
 BENEFIT_CAP_REGULATION_80A_BASE = "uk:regulations/uksi/2013/376/80A"
 STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/2002/16/1.yaml")
@@ -281,6 +285,14 @@ CHILD_BENEFIT_OUTPUTS = {
     "child_benefit_weekly_rate": {
         "axiom": f"{CHILD_BENEFIT_BASE}#child_benefit_weekly_rate",
         "pe": "child_benefit_respective_amount",
+        "pe_transform": "annual_to_weekly",
+    },
+}
+
+CHILD_BENEFIT_FINAL_OUTPUTS = {
+    "child_benefit_weekly_amount": {
+        "axiom": f"{CHILD_BENEFIT_FINAL_BASE}#child_benefit_weekly_amount",
+        "pe": "child_benefit",
         "pe_transform": "annual_to_weekly",
     },
 }
@@ -769,6 +781,20 @@ SURFACE_SPECS = {
             "child_benefit_respective_amount",
         ),
     ),
+    "child-benefit-final": UKEFRSSurfaceSpec(
+        program=CHILD_BENEFIT_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=CHILD_BENEFIT_FINAL_OUTPUTS,
+        pe_variables=(
+            "child_benefit",
+            "child_benefit_entitlement",
+            "would_claim_child_benefit",
+        ),
+        projection_person_variables=(
+            "child_benefit_child_index",
+            "child_benefit_respective_amount",
+        ),
+    ),
     "benefit-cap-relevant-amount": UKEFRSSurfaceSpec(
         program=BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH,
         entity="benunit",
@@ -1093,10 +1119,14 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers employee Class 1 National Insurance, the main-rate Class 4 self-employed contribution, and final Class 4 after Regulation 100's annual maximum; HBAI national_insurance also includes Class 2 and Class 3 components that are not encoded here.",
     },
     "child_benefit": {
-        "status": "partial",
-        "surfaces": ("child-benefit",),
-        "covered_outputs": ("child_benefit_respective_amount",),
-        "rationale": "Axiom covers the per-child weekly rates feeding Child Benefit, not the household aggregate HBAI component.",
+        "status": "exact",
+        "surfaces": ("child-benefit", "child-benefit-final"),
+        "covered_outputs": (
+            "child_benefit_respective_amount",
+            "child_benefit_entitlement",
+            "child_benefit",
+        ),
+        "rationale": "Axiom covers per-child Child Benefit rates, section 141 weekly entitlement, and the final gross benefit-unit Child Benefit receipt after PolicyEngine UK's would_claim_child_benefit gate.",
     },
     "esa_income": {
         "status": "partial",
@@ -2038,6 +2068,7 @@ def load_local_policyengine_uk_data(
             benunit_records[index] for index in selected_benunit_indices
         ]
     return {
+        "all_persons": records,
         "persons": selected,
         "person_ids": [int(row_value(row, "person_id")) for row in selected],
         "benunits": selected_benunits,
@@ -3455,6 +3486,8 @@ def build_axiom_request(
         return build_income_tax_section_13_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
+    if surface == "child-benefit-final":
+        return build_child_benefit_final_request(pe_data=pe_data, year=year)
     if surface == "benefit-cap-relevant-amount":
         return build_benefit_cap_relevant_amount_request(
             pe_data=pe_data,
@@ -3919,6 +3952,75 @@ def build_child_benefit_request(
     return {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_child_benefit_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    child_rows_by_benunit = child_benefit_person_rows_by_benunit(pe_data)
+    for row in rows_for_surface(pe_data, "child-benefit-final"):
+        benunit_id = int(row_value(row, "benunit_id"))
+        entity_id = benunit_entity_id(benunit_id)
+        inputs.append(
+            input_record(
+                f"{CHILD_BENEFIT_FINAL_BASE}#input.would_claim_child_benefit",
+                entity_id,
+                interval,
+                bool(row_value(row, "would_claim_child_benefit", True)),
+            )
+        )
+        for child_row in child_rows_by_benunit.get(benunit_id, []):
+            person_id = int(row_value(child_row, "person_id"))
+            person_id_text = person_entity_id(person_id)
+            relations.append(
+                {
+                    "name": (
+                        f"{CHILD_BENEFIT_SECTION_141_BASE}#relation."
+                        "child_benefit_children_or_qualifying_young_persons_for_whom_person_responsible"
+                    ),
+                    "tuple": [person_id_text, entity_id],
+                    "interval": interval,
+                }
+            )
+            inputs.append(
+                input_record(
+                    (
+                        f"{CHILD_BENEFIT_SECTION_141_BASE}"
+                        "#input.is_child_or_qualifying_young_person_for_child_benefit"
+                    ),
+                    person_id_text,
+                    interval,
+                    True,
+                )
+            )
+            for name, value in project_child_benefit_inputs(child_row).items():
+                inputs.append(
+                    input_record(
+                        f"{CHILD_BENEFIT_BASE}#input.{name}",
+                        person_id_text,
+                        interval,
+                        value,
+                    )
+                )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in CHILD_BENEFIT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
         "queries": queries,
     }
 
@@ -4779,6 +4881,27 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def child_benefit_person_rows_by_benunit(
+    pe_data: dict[str, Any],
+) -> dict[int, list[dict[str, Any]]]:
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in pe_data.get("all_persons") or pe_data["persons"]:
+        if money(row_value(row, "child_benefit_respective_amount", 0)) <= 0:
+            continue
+        benunit_id = row_value(row, "person_benunit_id")
+        if benunit_id is None:
+            continue
+        grouped.setdefault(int(benunit_id), []).append(row)
+    for rows in grouped.values():
+        rows.sort(
+            key=lambda item: (
+                int(row_value(item, "child_benefit_child_index", 999_999)),
+                int(row_value(item, "person_id")),
+            )
+        )
+    return grouped
+
+
 def project_national_insurance_class_4_inputs(row: Any) -> dict[str, Any]:
     profits = money(row_value(row, "self_employment_income", 0)) - money(
         row_value(row, "ni_class_1_employee", 0)
@@ -5215,6 +5338,13 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
         ]
+    if surface == "child-benefit-final":
+        return [
+            row
+            for row in pe_data.get("benunits", [])
+            if money(row_value(row, "child_benefit_entitlement", 0)) > 0
+            or money(row_value(row, "child_benefit", 0)) > 0
+        ]
     if surface in {"national-insurance-class-4", "national-insurance-class-4-final"}:
         return [
             row
@@ -5384,6 +5514,11 @@ def compare_outputs(
             "specified-benefit, and polygamous-marriage branches are projected "
             "false because PolicyEngine UK's child_benefit_respective_amount "
             "does not expose those legal predicates separately.",
+            "Final Child Benefit comparison builds the section 141 family-to-child "
+            "relation from positive PolicyEngine child_benefit_respective_amount "
+            "person rows, projects PolicyEngine UK's would_claim_child_benefit "
+            "receipt gate as an explicit input leaf, and compares the resulting "
+            "weekly amount with PolicyEngine's annual child_benefit divided by 52.",
             "Universal Credit Regulation 80A benefit-cap relevant-amount "
             "comparison filters to finite PolicyEngine benefit_cap rows, "
             "divides the annual PE cap by 12, and projects the annual-limit "

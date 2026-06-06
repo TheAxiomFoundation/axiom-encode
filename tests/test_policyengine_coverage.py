@@ -3561,6 +3561,69 @@ rules:
     assert entitled["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_uk_child_benefit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/child-benefit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: child_benefit_weekly_payment_periods_in_year
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 52
+  - name: child_benefit_weekly_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if would_claim_child_benefit: child_benefit_weekly_entitlement else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/child-benefit.test.yaml",
+        """- name: child benefit final amount
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-01-05'
+    end: '2026-01-11'
+  input:
+    uk:policies/govuk/child-benefit#input.would_claim_child_benefit: true
+  output:
+    uk:policies/govuk/child-benefit#child_benefit_weekly_payment_periods_in_year: 52
+    uk:policies/govuk/child-benefit#child_benefit_weekly_amount: 44.95
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="child_benefit")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_amount = items_by_id[
+        "uk:policies/govuk/child-benefit#child_benefit_weekly_amount"
+    ]
+    periods = items_by_id[
+        "uk:policies/govuk/child-benefit#child_benefit_weekly_payment_periods_in_year"
+    ]
+
+    assert final_amount["status"] == "comparable"
+    assert final_amount["policyengine_variable"] == "child_benefit"
+    assert final_amount["mapping_type"] == "direct_variable"
+    assert final_amount["tested"] is True
+    assert periods["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_arizona_snap_medical_and_child_support(
     tmp_path,
 ):
