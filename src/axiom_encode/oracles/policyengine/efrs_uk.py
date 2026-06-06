@@ -114,6 +114,8 @@ STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
     "policies/govuk/student-loan-repayments.yaml"
 )
 STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
+CARERS_ALLOWANCE_FINAL_PROGRAM_PATH = Path("policies/govuk/carers-allowance.yaml")
+CARERS_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/carers-allowance"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -684,6 +686,13 @@ STUDENT_LOAN_REPAYMENT_OUTPUTS = {
     },
 }
 
+CARERS_ALLOWANCE_FINAL_OUTPUTS = {
+    "carers_allowance_annual_amount": {
+        "axiom": f"{CARERS_ALLOWANCE_FINAL_BASE}#carers_allowance_annual_amount",
+        "pe": "carers_allowance",
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -1129,6 +1138,17 @@ SURFACE_SPECS = {
             "student_loan_repayment",
         ),
     ),
+    "carers-allowance-final": UKEFRSSurfaceSpec(
+        program=CARERS_ALLOWANCE_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=CARERS_ALLOWANCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "care_hours",
+            "carers_allowance",
+            "carers_allowance_reported",
+            "country",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1360,10 +1380,10 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers Attendance Allowance weekly higher and lower rates, not the category assignment or final aggregate Attendance Allowance amount.",
     },
     "carers_allowance": {
-        "status": "partial",
-        "surfaces": ("carers-allowance-rate",),
+        "status": "exact",
+        "surfaces": ("carers-allowance-rate", "carers-allowance-final"),
         "covered_outputs": ("carers_allowance",),
-        "rationale": "Axiom covers the weekly Carer's Allowance rate, not the care-hours, Scotland replacement, or final aggregate Carer's Allowance calculation.",
+        "rationale": "Axiom covers the weekly Carer's Allowance rate and the final annual PolicyEngine UK carers_allowance wrapper, including the care-hours or reported-receipt gate and the Scotland Carer Support Payment replacement gate.",
     },
     "sda": {
         "status": "partial",
@@ -3666,6 +3686,8 @@ def build_axiom_request(
         )
     if surface == "student-loan-repayment":
         return build_student_loan_repayment_request(pe_data=pe_data, year=year)
+    if surface == "carers-allowance-final":
+        return build_carers_allowance_final_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -4925,6 +4947,43 @@ def build_student_loan_repayment_request(
     }
 
 
+def build_carers_allowance_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "carers-allowance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_carers_allowance_final_inputs(
+            row,
+            year=year,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{CARERS_ALLOWANCE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in CARERS_ALLOWANCE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -5500,6 +5559,18 @@ def project_student_loan_repayment_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_carers_allowance_final_inputs(row: Any, *, year: int) -> dict[str, Any]:
+    country = enum_name(row_value(row, "country", "")).upper()
+    return {
+        "person_is_in_scotland": country == "SCOTLAND",
+        "carer_support_payment_replaces_carers_allowance": year >= 2025,
+        "weekly_care_hours": money(row_value(row, "care_hours", 0)),
+        "reported_carers_allowance_for_year": money(
+            row_value(row, "carers_allowance_reported", 0)
+        ),
+    }
+
+
 def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     relation_type = str(row_value(row, "relation_type", "")).upper()
     is_couple = bool(row_value(row, "is_couple", False)) or relation_type == "COUPLE"
@@ -5652,6 +5723,14 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             if money(row_value(row, "universal_credit", 0)) > 0
             or money(row_value(row, "universal_credit_pre_benefit_cap", 0)) > 0
             or money(row_value(row, "benefit_cap_reduction", 0)) > 0
+        ]
+    if surface == "carers-allowance-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "carers_allowance", 0)) > 0
+            or money(row_value(row, "carers_allowance_reported", 0)) > 0
+            or money(row_value(row, "care_hours", 0)) >= 35
         ]
     if surface == "universal-credit-lcwra-element":
         return [
@@ -5859,6 +5938,11 @@ def compare_outputs(
             "benefit_cap_reduction into a final annual wrapper matching "
             "PolicyEngine UK's universal_credit amount after the would_claim_uc "
             "gate and benefit-cap reduction.",
+            "PolicyEngine-aligned Carer's Allowance final comparison projects "
+            "PolicyEngine UK's person-level care hours, country, reported "
+            "Carer's Allowance receipt, and Scotland replacement gate into a "
+            "final annual wrapper that uses the RuleSpec weekly rate and "
+            "35-hour care threshold.",
             "Welfare Reform Act 2012 section 11 Universal Credit housing-costs "
             "comparison projects PolicyEngine's annual uc_housing_costs_element "
             "into the monthly amount determined or calculated by regulations, "

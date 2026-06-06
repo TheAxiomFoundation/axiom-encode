@@ -3475,6 +3475,72 @@ rules:
     assert item["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_carers_allowance_final_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carers-allowance.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carers_allowance_minimum_weekly_care_hours
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Week
+    unit: hour
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 35
+  - name: carers_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if not (person_is_in_scotland and carer_support_payment_replaces_carers_allowance) and (weekly_care_hours >= carers_allowance_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): carers_allowance_weekly_rate * 52 else: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/carers-allowance.test.yaml",
+        """- name: carers allowance final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/carers-allowance#input.person_is_in_scotland: false
+    uk:policies/govuk/carers-allowance#input.carer_support_payment_replaces_carers_allowance: true
+    uk:policies/govuk/carers-allowance#input.weekly_care_hours: 35
+    uk:policies/govuk/carers-allowance#input.reported_carers_allowance_for_year: 0
+  output:
+    uk:policies/govuk/carers-allowance#carers_allowance_minimum_weekly_care_hours: 35
+    uk:policies/govuk/carers-allowance#carers_allowance_annual_amount: 4495.40
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="carers_allowance")
+
+    assert report["status_counts"] == {"comparable": 2}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    min_hours = items_by_id[
+        "uk:policies/govuk/carers-allowance#carers_allowance_minimum_weekly_care_hours"
+    ]
+    annual_amount = items_by_id[
+        "uk:policies/govuk/carers-allowance#carers_allowance_annual_amount"
+    ]
+
+    assert min_hours["policyengine_parameter"] == "gov.dwp.carers_allowance.min_hours"
+    assert min_hours["mapping_type"] == "parameter_value"
+    assert min_hours["tested"] is True
+    assert annual_amount["policyengine_variable"] == "carers_allowance"
+    assert annual_amount["mapping_type"] == "direct_variable"
+    assert annual_amount["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",
