@@ -698,6 +698,17 @@ mappings:
     result_multiplier: 0.019230769230769232
     rationale: Same final gross Child Benefit receipt for the benefit unit, with PolicyEngine UK's annual child_benefit converted to a weekly amount after the would_claim_child_benefit gate.
 
+  - legal_id: uk:policies/govuk/universal-credit#universal_credit_annual_amount
+    country: uk
+    program: universal_credit
+    mapping_type: direct_variable
+    policyengine_variable: universal_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Universal Credit receipt for the benefit unit after PolicyEngine UK's would_claim_uc gate and benefit-cap reduction.
+
   - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner
     country: uk
     program: pension_credit

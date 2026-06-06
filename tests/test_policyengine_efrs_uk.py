@@ -67,6 +67,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS,
+    UNIVERSAL_CREDIT_FINAL_BASE,
+    UNIVERSAL_CREDIT_FINAL_OUTPUTS,
     UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
     UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
@@ -112,6 +114,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
     build_universal_credit_childcare_work_condition_request,
+    build_universal_credit_final_request,
     build_universal_credit_housing_costs_request,
     build_universal_credit_income_deduction_request,
     build_universal_credit_request,
@@ -150,6 +153,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
     project_universal_credit_childcare_work_condition_inputs,
+    project_universal_credit_final_inputs,
     project_universal_credit_housing_costs_inputs,
     project_universal_credit_income_deduction_inputs,
     project_universal_credit_tariff_income_inputs,
@@ -2138,6 +2142,69 @@ def test_universal_credit_award_request_projects_section_8_inputs():
     }
 
 
+def test_universal_credit_final_projection_uses_annual_pre_cap_and_cap_reduction():
+    assert project_universal_credit_final_inputs(
+        {
+            "universal_credit_pre_benefit_cap": 12_000,
+            "benefit_cap_reduction": 1_250,
+        }
+    ) == {
+        "universal_credit_pre_benefit_cap_for_year": 12_000.0,
+        "benefit_cap_reduction_for_year": 1_250.0,
+    }
+
+
+def test_universal_credit_final_request_projects_final_inputs():
+    request = build_universal_credit_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 10,
+                    "universal_credit": 0,
+                    "universal_credit_pre_benefit_cap": 0,
+                    "benefit_cap_reduction": 0,
+                },
+                {
+                    "benunit_id": 11,
+                    "universal_credit": 10_750,
+                    "universal_credit_pre_benefit_cap": 12_000,
+                    "benefit_cap_reduction": 1_250,
+                },
+            ],
+            "benunit_ids": [10, 11],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                UNIVERSAL_CREDIT_FINAL_OUTPUTS["universal_credit_annual_amount"][
+                    "axiom"
+                ],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{UNIVERSAL_CREDIT_FINAL_BASE}#input.universal_credit_pre_benefit_cap_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "12000.0"}
+    assert inputs[
+        f"{UNIVERSAL_CREDIT_FINAL_BASE}#input.benefit_cap_reduction_for_year:benunit_11"
+    ] == {"kind": "decimal", "value": "1250.0"}
+
+
 def test_universal_credit_childcare_element_projection_reverses_rate_and_cap():
     projected = project_universal_credit_childcare_element_inputs(
         {
@@ -3131,6 +3198,12 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_maximum_amount",
         "uc_standard_allowance",
     )
+    assert policyengine_benunit_variables_for_surfaces(["universal-credit-final"]) == (
+        "benefit_cap_reduction",
+        "universal_credit",
+        "universal_credit_pre_benefit_cap",
+        "would_claim_uc",
+    )
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-housing-costs"]
     ) == ("uc_housing_costs_element",)
@@ -3303,8 +3376,8 @@ class hbai_household_net_income(Variable):
 
     assert report.variables_total == 1
     assert report.computed_variables_total == 1
-    assert report.missing_variables_total == 1
-    assert report.missing_variables[0].name == "universal_credit"
+    assert report.missing_variables_total == 0
+    assert report.missing_variables == []
 
 
 def test_uk_efrs_coverage_report_serializes_json(tmp_path):
@@ -3491,7 +3564,39 @@ class hbai_household_net_income(Variable):
         "national_insurance",
     )
     assert by_name["student_loan_repayments"].status == "partial"
-    assert by_name["universal_credit"].status == "partial"
+    assert by_name["universal_credit"].status == "exact"
+    assert by_name["universal_credit"].surfaces == (
+        "universal-credit-standard-allowance",
+        "universal-credit-child-element",
+        "universal-credit-lcwra-element",
+        "universal-credit-carer-element",
+        "universal-credit-childcare-cap",
+        "universal-credit-childcare-work-condition",
+        "universal-credit-childcare-element",
+        "universal-credit-award",
+        "universal-credit-housing-costs",
+        "universal-credit-work-allowance",
+        "universal-credit-income-deduction",
+        "universal-credit-assessable-capital",
+        "universal-credit-tariff-income",
+        "universal-credit-final",
+    )
+    assert by_name["universal_credit"].covered_outputs == (
+        "uc_standard_allowance",
+        "uc_individual_child_element",
+        "uc_individual_disabled_child_element",
+        "uc_individual_severely_disabled_child_element",
+        "uc_LCWRA_element",
+        "uc_carer_element",
+        "uc_childcare_element",
+        "uc_maximum_amount",
+        "uc_income_reduction",
+        "uc_housing_costs_element",
+        "uc_work_allowance",
+        "uc_assessable_capital",
+        "uc_tariff_income",
+        "universal_credit",
+    )
     assert by_name["working_tax_credit"].status == "partial"
     assert by_name["child_tax_credit"].status == "partial"
     assert by_name["tax_free_childcare"].status == "partial"
@@ -3516,9 +3621,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert report.policy_component_count == 20
     assert report.covered_policy_component_count == 20
-    assert report.exact_policy_component_count == 5
+    assert report.exact_policy_component_count == 6
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 5 / 20)
+    assert math.isclose(report.exact_policy_component_share, 6 / 20)
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4018,6 +4123,39 @@ def test_compare_outputs_transforms_universal_credit_award_outputs_monthly():
 
     assert report.compared_values == 3
     assert report.mismatches == []
+
+
+def test_compare_outputs_compares_universal_credit_final_annual_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "universal_credit": 10_750,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-final": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_FINAL_OUTPUTS[
+                            "universal_credit_annual_amount"
+                        ]["axiom"]: decimal_output(10_750),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
 
 
 def test_compare_outputs_floors_universal_credit_award_expression():

@@ -3429,6 +3429,52 @@ rules:
     assert item["tested"] is True
 
 
+def test_policyengine_coverage_classifies_uk_universal_credit_final_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/universal-credit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: universal_credit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, universal_credit_pre_benefit_cap_for_year - benefit_cap_reduction_for_year)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "policies/govuk/universal-credit.test.yaml",
+        """- name: universal credit final annual amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    uk:policies/govuk/universal-credit#input.universal_credit_pre_benefit_cap_for_year: 12000.00
+    uk:policies/govuk/universal-credit#input.benefit_cap_reduction_for_year: 1250.00
+  output:
+    uk:policies/govuk/universal-credit#universal_credit_annual_amount: 10750.00
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="universal_credit")
+
+    assert report["status_counts"] == {"comparable": 1}
+    assert report["untested_comparable"] == 0
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "uk:policies/govuk/universal-credit#universal_credit_annual_amount"
+    )
+    assert item["policyengine_variable"] == "universal_credit"
+    assert item["mapping_type"] == "direct_variable"
+    assert item["tested"] is True
+
+
 @pytest.mark.parametrize(
     (
         "path",
