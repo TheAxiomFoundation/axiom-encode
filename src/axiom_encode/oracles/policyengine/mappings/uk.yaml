@@ -557,6 +557,30 @@ mappings:
     comparison: money
     rationale: Same branch-selected statutory child benefit weekly amount for a child or qualifying young person.
 
+  - legal_id: uk:statutes/ukpga/1992/4/141#child_benefit_weekly_entitlement
+    country: uk
+    program: child_benefit
+    mapping_type: direct_variable
+    policyengine_variable: child_benefit_entitlement
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same Child Benefit entitlement amount before PolicyEngine UK's would_claim_child_benefit take-up gate, with PolicyEngine's annual entitlement converted to a weekly amount.
+
+  - legal_id: uk:statutes/ukpga/1992/4/141#child_benefit_weekly_rate_for_responsible_child_or_qualifying_young_person
+    country: uk
+    program: child_benefit
+    mapping_type: direct_variable
+    policyengine_variable: child_benefit_respective_amount
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same per-child Child Benefit weekly rate for a responsible child or qualifying young person, with PolicyEngine's annual child_benefit_respective_amount converted to a weekly amount.
+
   - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner
     country: uk
     program: pension_credit
@@ -1756,6 +1780,12 @@ prefixes:
     program: child_benefit
     mapping_type: not_comparable
     rationale: Child Benefit helper outputs not listed above are payability, relationship-coordination, or specified-benefit predicates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:statutes/ukpga/1992/4/141#
+    country: uk
+    program: child_benefit
+    mapping_type: not_comparable
+    rationale: Child Benefit section 141 helper outputs not listed above are responsibility, child-counting, or weekly entitlement predicates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
     country: uk
