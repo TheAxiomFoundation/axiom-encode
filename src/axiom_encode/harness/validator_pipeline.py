@@ -2586,6 +2586,21 @@ def _iter_normalized_special_numeric_matches(
             sign = -1 if whole < 0 else 1
             matches.append((match.span(), (whole + sign * fraction) / 100))
 
+    for match in re.finditer(
+        r"(-?[\d,]+)\s+(\d+)\s*/\s*(\d+)"
+        r"(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+        text,
+        re.IGNORECASE,
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float(match.group(1).replace(",", ""))
+            numerator = float(match.group(2).replace(",", ""))
+            denominator = float(match.group(3).replace(",", ""))
+            sign = -1 if whole < 0 else 1
+            matches.append(
+                (match.span(), (whole + sign * numerator / denominator) / 100)
+            )
+
     for pattern in (
         re.compile(
             r"(\d+(?:\.\d+)?)(?:\s+|-)(?:percent|per\s*cent(?:um)?)",

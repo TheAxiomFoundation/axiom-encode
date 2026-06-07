@@ -20796,6 +20796,33 @@ rules:
     assert 0.075 in extract_numeric_occurrences_from_text(source_text)
 
 
+def test_ungrounded_numeric_accepts_source_mixed_ascii_fraction_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-28
+rules:
+  - name: council_tax_reduction_daily_excess_income_taper_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0.02857142857142857
+"""
+
+    source_text = (
+        "amount B is 2 6/7 per cent of the difference between his income "
+        "for the relevant week and his applicable amount"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert any(
+        math.isclose(value, 0.02857142857142857)
+        for value in extract_numeric_occurrences_from_text(source_text)
+    )
+
+
 def test_ungrounded_numeric_accepts_spelled_hundredths_percentage():
     content = """format: rulespec/v1
 module:
