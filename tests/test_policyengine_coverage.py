@@ -12148,6 +12148,33 @@ rules:
     assert capital_limit["mapping_type"] == "not_comparable"
 
 
+def test_kingston_council_tax_reduction_policy_surface_is_classified(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-uk-kingston-upon-thames"
+        / "policies/kingston-upon-thames/council-tax-reduction.yaml",
+        """format: rulespec/v1
+rules:
+  - name: kingston_upon_thames_council_tax_reduction_annual_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: simulated_kingston_upon_thames_council_tax_reduction_annual_amount
+  - name: simulated_kingston_upon_thames_council_tax_reduction_annual_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: council_tax_liability_for_year
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["program"] for item in report["items"]} == {"council_tax_reduction"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+
+
 def test_universal_credit_housing_schedule_prefixes_are_classified(tmp_path):
     _write_rulespec_file(
         tmp_path
