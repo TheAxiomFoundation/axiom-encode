@@ -8,8 +8,12 @@ import pytest
 
 import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
+    ATTENDANCE_ALLOWANCE_FINAL_BASE,
+    ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS,
     BENEFIT_CAP_REGULATION_80A_BASE,
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
+    CAPITAL_GAINS_TAX_FINAL_BASE,
+    CAPITAL_GAINS_TAX_FINAL_OUTPUTS,
     CARER_SUPPORT_PAYMENT_FINAL_BASE,
     CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS,
     CARERS_ALLOWANCE_FINAL_BASE,
@@ -19,12 +23,25 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_FINAL_OUTPUTS,
     CHILD_BENEFIT_OUTPUTS,
     CHILD_BENEFIT_SECTION_141_BASE,
+    CLOSED_LEGACY_BENEFITS_FINAL_BASE,
+    CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS,
+    COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE,
+    COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS,
+    DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE,
+    DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS,
+    DFE_PERSON_PROGRAMS_FINAL_BASE,
+    DFE_PERSON_PROGRAMS_FINAL_OUTPUTS,
     DLA_FINAL_BASE,
     DLA_FINAL_OUTPUTS,
+    ENERGY_BILLS_REBATE_FINAL_OUTPUTS,
+    ENERGY_PRICE_GUARANTEE_FINAL_BASE,
+    ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS,
     ESA_FINAL_BASE,
     ESA_FINAL_OUTPUTS,
     ESA_REGULATION_118_BASE,
     ESA_TARIFF_INCOME_OUTPUTS,
+    FUEL_DUTY_FINAL_BASE,
+    FUEL_DUTY_FINAL_OUTPUTS,
     HOUSING_BENEFIT_FINAL_BASE,
     HOUSING_BENEFIT_FINAL_OUTPUTS,
     HOUSING_BENEFIT_PENSION_AGE_REGULATION_29_BASE,
@@ -46,6 +63,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
     JSA_REGULATION_116_BASE,
     JSA_TARIFF_INCOME_OUTPUTS,
+    LBTT_FINAL_BASE,
+    LBTT_FINAL_OUTPUTS,
+    LTT_FINAL_BASE,
+    LTT_FINAL_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_CLASS_4_OUTPUTS,
     NATIONAL_INSURANCE_FINAL_OUTPUTS,
@@ -69,6 +90,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS,
     SDA_FINAL_BASE,
     SDA_FINAL_OUTPUTS,
+    SSMG_FINAL_BASE,
+    SSMG_FINAL_OUTPUTS,
+    STAMP_DUTY_LAND_TAX_FINAL_BASE,
+    STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS,
     STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS,
     STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
     STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS,
@@ -79,6 +104,10 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_FINAL_OUTPUTS,
     STUDENT_LOAN_REPAYMENT_BASE,
     STUDENT_LOAN_REPAYMENT_OUTPUTS,
+    TAX_FREE_CHILDCARE_FINAL_BASE,
+    TAX_FREE_CHILDCARE_FINAL_OUTPUTS,
+    TV_LICENCE_FINAL_BASE,
+    TV_LICENCE_FINAL_OUTPUTS,
     UNIVERSAL_CREDIT_ASSESSABLE_CAPITAL_OUTPUTS,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
@@ -97,18 +126,33 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     UNIVERSAL_CREDIT_TARIFF_INCOME_OUTPUTS,
     UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS,
+    VAT_FINAL_BASE,
+    VAT_FINAL_OUTPUTS,
     WEEKS_IN_YEAR,
     WELFARE_REFORM_ACT_SECTION_8_BASE,
     WELFARE_REFORM_ACT_SECTION_11_BASE,
+    WINTER_FUEL_ALLOWANCE_FINAL_BASE,
+    WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS,
+    UKEFRSVariableMetadata,
     add_policyengine_uk_disability_categories_from_reported_amounts,
+    build_attendance_allowance_final_request,
     build_benefit_cap_relevant_amount_request,
+    build_capital_gains_tax_final_request,
     build_carer_support_payment_final_request,
     build_carers_allowance_final_request,
     build_child_benefit_final_request,
     build_child_benefit_request,
+    build_closed_legacy_benefits_final_request,
+    build_cost_of_living_support_payment_final_request,
+    build_dfe_extended_childcare_entitlement_final_request,
+    build_dfe_person_programs_final_request,
     build_dla_final_request,
+    build_energy_bills_rebate_final_request,
+    build_energy_price_guarantee_final_request,
     build_esa_income_final_request,
     build_esa_income_tariff_income_request,
+    build_free_tv_licence_value_request,
+    build_fuel_duty_final_request,
     build_housing_benefit_final_request,
     build_housing_benefit_pension_age_tariff_income_request,
     build_housing_benefit_working_age_tariff_income_request,
@@ -118,6 +162,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_income_tax_section_11d_request,
     build_income_tax_section_13_request,
     build_jsa_income_tariff_income_request,
+    build_lbtt_final_request,
+    build_ltt_final_request,
     build_national_insurance_class_1_request,
     build_national_insurance_class_4_final_request,
     build_national_insurance_class_4_request,
@@ -129,13 +175,17 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_personal_allowance_request,
     build_scottish_child_payment_final_request,
     build_sda_final_request,
+    build_ssmg_final_request,
+    build_stamp_duty_land_tax_final_request,
     build_state_pension_credit_guarantee_credit_request,
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
     build_state_pension_final_request,
     build_student_loan_repayment_request,
+    build_tax_free_childcare_final_request,
     build_uk_efrs_coverage_report,
     build_uk_hbai_policy_coverage_report,
+    build_uk_national_policy_coverage_report,
     build_universal_credit_assessable_capital_request,
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
@@ -146,19 +196,30 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_request,
     build_universal_credit_tariff_income_request,
     build_universal_credit_work_allowance_request,
+    build_vat_final_request,
+    build_winter_fuel_allowance_final_request,
     compare_outputs,
     compare_uk_efrs,
     disability_category_from_reported_amounts,
     normalize_policyengine_entity,
     policyengine_benunit_variables_for_surfaces,
+    policyengine_household_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
+    project_attendance_allowance_final_inputs,
     project_benefit_cap_relevant_amount_inputs,
+    project_capital_gains_tax_final_inputs,
     project_carer_support_payment_final_inputs,
     project_carers_allowance_final_inputs,
     project_child_benefit_inputs,
+    project_closed_legacy_benefits_final_inputs,
+    project_cost_of_living_support_payment_final_inputs,
+    project_dfe_person_programs_final_inputs,
     project_dla_final_inputs,
+    project_energy_price_guarantee_final_inputs,
     project_esa_income_final_inputs,
     project_esa_income_tariff_income_inputs,
+    project_free_tv_licence_value_inputs,
+    project_fuel_duty_final_inputs,
     project_housing_benefit_final_inputs,
     project_housing_benefit_pension_age_tariff_income_inputs,
     project_housing_benefit_working_age_tariff_income_inputs,
@@ -169,6 +230,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_13_inputs,
     project_income_tax_section_23_inputs,
     project_jsa_income_tariff_income_inputs,
+    project_lbtt_final_inputs,
+    project_ltt_final_inputs,
     project_national_insurance_class_4_final_inputs,
     project_national_insurance_class_4_inputs,
     project_national_insurance_final_inputs,
@@ -179,11 +242,14 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_personal_allowance_inputs,
     project_scottish_child_payment_final_inputs,
     project_sda_final_inputs,
+    project_ssmg_final_inputs,
+    project_stamp_duty_land_tax_final_inputs,
     project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
     project_state_pension_final_inputs,
     project_student_loan_repayment_inputs,
+    project_tax_free_childcare_final_inputs,
     project_universal_credit_assessable_capital_inputs,
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
@@ -193,6 +259,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_universal_credit_income_deduction_inputs,
     project_universal_credit_tariff_income_inputs,
     project_universal_credit_work_allowance_inputs,
+    project_vat_final_inputs,
+    project_winter_fuel_allowance_final_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
 )
@@ -673,6 +741,7 @@ def test_student_loan_repayment_projection_uses_policyengine_plan_enum():
         {
             "student_loan_plan": "StudentLoanPlan.PLAN_4",
             "adjusted_net_income": 40_000,
+            "student_loan_balance": 500,
         }
     ) == {
         "loan_plan_is_plan_1": False,
@@ -681,6 +750,7 @@ def test_student_loan_repayment_projection_uses_policyengine_plan_enum():
         "loan_plan_is_plan_5": False,
         "loan_plan_is_postgraduate": False,
         "annual_income_before_tax_and_other_deductions": 40_000,
+        "outstanding_student_loan_balance": 500,
     }
 
     assert project_student_loan_repayment_inputs(
@@ -695,6 +765,7 @@ def test_student_loan_repayment_projection_uses_policyengine_plan_enum():
         "loan_plan_is_plan_5": False,
         "loan_plan_is_postgraduate": True,
         "annual_income_before_tax_and_other_deductions": 35_000,
+        "outstanding_student_loan_balance": 0,
     }
 
     assert project_student_loan_repayment_inputs(
@@ -709,6 +780,7 @@ def test_student_loan_repayment_projection_uses_policyengine_plan_enum():
         "loan_plan_is_plan_5": False,
         "loan_plan_is_postgraduate": False,
         "annual_income_before_tax_and_other_deductions": 100_000,
+        "outstanding_student_loan_balance": 0,
     }
 
 
@@ -720,6 +792,7 @@ def test_student_loan_repayment_request_projects_plan_inputs():
                     "person_id": 7,
                     "student_loan_plan": "StudentLoanPlan.PLAN_1",
                     "adjusted_net_income": 40_000,
+                    "student_loan_balance": 800,
                     "student_loan_repayment": 1_179,
                     "student_loan_repayments": 1_179,
                 }
@@ -777,6 +850,11 @@ def test_student_loan_repayment_request_projects_plan_inputs():
             "person_7",
             period,
             {"kind": "decimal", "value": "40000.0"},
+        ),
+        f"{STUDENT_LOAN_REPAYMENT_BASE}#input.outstanding_student_loan_balance": (
+            "person_7",
+            period,
+            {"kind": "decimal", "value": "800.0"},
         ),
     }
 
@@ -1979,6 +2057,83 @@ def test_legacy_tariff_income_requests_project_benefit_week_inputs(
     }
 
 
+def test_closed_legacy_benefits_final_request_compares_all_benunits():
+    request = build_closed_legacy_benefits_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "jsa_contrib": 0,
+                    "esa_income": 0,
+                    "esa_contrib": 0,
+                },
+                {
+                    "benunit_id": 12,
+                    "jsa_contrib": 125,
+                    "esa_income": 200,
+                    "esa_contrib": 450,
+                },
+            ],
+            "benunit_ids": [11, 12],
+        },
+        year=2026,
+    )
+
+    period = {
+        "period_kind": "tax_year",
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+    }
+    outputs = [
+        output["axiom"] for output in CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS.values()
+    ]
+    assert request == {
+        "mode": "explain",
+        "dataset": {
+            "inputs": request["dataset"]["inputs"],
+            "relations": [],
+        },
+        "queries": [
+            {
+                "entity_id": "benunit_11",
+                "period": period,
+                "outputs": outputs,
+            },
+            {
+                "entity_id": "benunit_12",
+                "period": period,
+                "outputs": outputs,
+            },
+        ],
+    }
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#input.contribution_based_jobseekers_allowance_reported_for_year:benunit_12"
+    ] == {"kind": "decimal", "value": "125.0"}
+    assert inputs[
+        f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#input.income_related_employment_and_support_allowance_for_year:benunit_12"
+    ] == {"kind": "decimal", "value": "200.0"}
+
+
+def test_closed_legacy_benefits_final_projection_uses_reported_inputs():
+    assert project_closed_legacy_benefits_final_inputs(
+        {
+            "jsa_contrib": 125,
+            "esa_income": 200,
+            "esa_contrib": 450,
+        }
+    ) == {
+        "contribution_based_jobseekers_allowance_reported_for_year": 125,
+        "income_related_employment_and_support_allowance_for_year": 200,
+        "contribution_based_employment_and_support_allowance_reported_for_year": 450,
+    }
+
+
 def test_state_pension_credit_guarantee_credit_projection_uses_section_2_inputs():
     projected = project_state_pension_credit_guarantee_credit_inputs(
         {
@@ -2680,6 +2835,1241 @@ def test_dla_final_request_projects_final_inputs():
     assert inputs[
         f"{DLA_FINAL_BASE}#input.person_has_higher_rate_dla_mobility_category:person_2"
     ] == {"kind": "bool", "value": True}
+
+
+def test_attendance_allowance_final_projection_uses_category_inputs():
+    assert project_attendance_allowance_final_inputs(
+        {
+            "aa_category": "HIGHER",
+        }
+    ) == {
+        "person_has_higher_rate_attendance_allowance_category": True,
+        "person_has_lower_rate_attendance_allowance_category": False,
+    }
+    assert project_attendance_allowance_final_inputs(
+        {
+            "aa_category": "LowerOrHigher.LOWER",
+        }
+    ) == {
+        "person_has_higher_rate_attendance_allowance_category": False,
+        "person_has_lower_rate_attendance_allowance_category": True,
+    }
+    assert project_attendance_allowance_final_inputs(
+        {
+            "aa_category": "NONE",
+        }
+    ) == {
+        "person_has_higher_rate_attendance_allowance_category": False,
+        "person_has_lower_rate_attendance_allowance_category": False,
+    }
+
+
+def test_attendance_allowance_final_request_projects_final_inputs():
+    request = build_attendance_allowance_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "attendance_allowance": 0,
+                    "aa_category": "NONE",
+                },
+                {
+                    "person_id": 2,
+                    "attendance_allowance": 5_959.20,
+                    "aa_category": "HIGHER",
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS[
+                    "attendance_allowance_weekly_amount"
+                ]["axiom"],
+                ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS[
+                    "attendance_allowance_annual_amount"
+                ]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{ATTENDANCE_ALLOWANCE_FINAL_BASE}#input.person_has_higher_rate_attendance_allowance_category:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{ATTENDANCE_ALLOWANCE_FINAL_BASE}#input.person_has_lower_rate_attendance_allowance_category:person_2"
+    ] == {"kind": "bool", "value": False}
+
+
+def test_winter_fuel_allowance_final_projection_uses_household_inputs():
+    assert project_winter_fuel_allowance_final_inputs(
+        {
+            "country": "Country.ENGLAND",
+            "pension_credit": 0,
+            "income_support": 0,
+            "esa_income": 0,
+            "jsa_income": 0,
+            "winter_fuel_payment_means_tested_benefits_required": True,
+            "household_meets_winter_fuel_payment_income_passport": True,
+            "household_has_state_pension_age_person": True,
+            "winter_fuel_payment_state_pension_age_required": True,
+            "oldest_household_member_age": 82,
+        }
+    ) == {
+        "household_is_in_scotland": False,
+        "household_receives_relevant_means_tested_benefit": False,
+        "winter_fuel_payment_means_tested_benefits_required": True,
+        "household_meets_winter_fuel_payment_income_passport": True,
+        "household_has_state_pension_age_person": True,
+        "winter_fuel_payment_state_pension_age_required": True,
+        "oldest_household_member_age": 82,
+    }
+    assert (
+        project_winter_fuel_allowance_final_inputs(
+            {
+                "country": "SCOTLAND",
+                "pension_credit": 10,
+                "income_support": 0,
+                "esa_income": 0,
+                "jsa_income": 0,
+            }
+        )["household_receives_relevant_means_tested_benefit"]
+        is True
+    )
+
+
+def test_winter_fuel_allowance_final_request_projects_final_inputs():
+    request = build_winter_fuel_allowance_final_request(
+        pe_data={
+            "households": [
+                {
+                    "household_id": 1,
+                    "household_weight": 1,
+                    "country": "ENGLAND",
+                    "winter_fuel_allowance": 0,
+                    "pension_credit": 0,
+                    "income_support": 0,
+                    "esa_income": 0,
+                    "jsa_income": 0,
+                    "household_has_state_pension_age_person": False,
+                    "household_meets_winter_fuel_payment_income_passport": False,
+                    "winter_fuel_payment_means_tested_benefits_required": True,
+                    "winter_fuel_payment_state_pension_age_required": True,
+                    "oldest_household_member_age": 45,
+                },
+                {
+                    "household_id": 2,
+                    "household_weight": 1,
+                    "country": "ENGLAND",
+                    "winter_fuel_allowance": 300,
+                    "pension_credit": 100,
+                    "income_support": 0,
+                    "esa_income": 0,
+                    "jsa_income": 0,
+                    "household_has_state_pension_age_person": True,
+                    "household_meets_winter_fuel_payment_income_passport": False,
+                    "winter_fuel_payment_means_tested_benefits_required": True,
+                    "winter_fuel_payment_state_pension_age_required": True,
+                    "oldest_household_member_age": 82,
+                },
+            ],
+            "household_ids": [1, 2],
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS[
+                    "winter_fuel_allowance_annual_amount"
+                ]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{WINTER_FUEL_ALLOWANCE_FINAL_BASE}#input.household_receives_relevant_means_tested_benefit:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{WINTER_FUEL_ALLOWANCE_FINAL_BASE}#input.oldest_household_member_age:household_2"
+    ] == {"kind": "decimal", "value": "82.0"}
+
+
+def test_tax_free_childcare_final_projection_uses_person_inputs():
+    assert project_tax_free_childcare_final_inputs(
+        {
+            "tax_free_childcare_eligible": True,
+            "tax_free_childcare_qualifying_child": True,
+            "is_disabled_for_benefits": False,
+            "is_blind": True,
+            "tax_free_childcare_uses_qualifying_provider": True,
+            "tax_free_childcare_eligible_declaration_periods": 2,
+            "childcare_expenses": 3_500,
+        }
+    ) == {
+        "tax_free_childcare_benefit_unit_is_eligible": True,
+        "tax_free_childcare_child_is_qualifying_child": True,
+        "tax_free_childcare_child_is_disabled_or_blind": True,
+        "tax_free_childcare_uses_qualifying_provider": True,
+        "tax_free_childcare_eligible_declaration_period_count": 2,
+        "tax_free_childcare_qualifying_childcare_payment_annual_amount": 3_500,
+    }
+
+
+def test_tax_free_childcare_final_request_projects_final_inputs():
+    request = build_tax_free_childcare_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "tax_free_childcare": 0,
+                    "tax_free_childcare_eligible": False,
+                    "tax_free_childcare_qualifying_child": True,
+                    "childcare_expenses": 9_000,
+                },
+                {
+                    "person_id": 2,
+                    "tax_free_childcare": 2_000,
+                    "tax_free_childcare_eligible": True,
+                    "tax_free_childcare_qualifying_child": True,
+                    "is_disabled_for_benefits": False,
+                    "is_blind": False,
+                    "tax_free_childcare_uses_qualifying_provider": True,
+                    "tax_free_childcare_eligible_declaration_periods": 4,
+                    "childcare_expenses": 9_000,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-04-06",
+                "end": "2027-04-05",
+            },
+            "outputs": [
+                TAX_FREE_CHILDCARE_FINAL_OUTPUTS["tax_free_childcare_annual_amount"][
+                    "axiom"
+                ],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{TAX_FREE_CHILDCARE_FINAL_BASE}#input.tax_free_childcare_benefit_unit_is_eligible:person_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{TAX_FREE_CHILDCARE_FINAL_BASE}#input.tax_free_childcare_qualifying_childcare_payment_annual_amount:person_2"
+    ] == {"kind": "decimal", "value": "9000.0"}
+
+
+def test_capital_gains_tax_final_projection_uses_person_inputs():
+    assert project_capital_gains_tax_final_inputs(
+        {
+            "capital_gains": 50_000,
+            "adjusted_net_income": 50_000,
+            "allowances": 12_570,
+            "gift_aid": 100,
+            "gift_aid_grossed_up": 125,
+            "personal_pension_contributions": 1_000,
+            "pension_contributions_relief": 800,
+        },
+        parameters={
+            "income_tax_basic_rate_limit": 37_700,
+            "income_tax_higher_rate_limit": 125_140,
+        },
+    ) == {
+        "capital_gains_for_year": 50000,
+        "adjusted_net_income_for_year": 50000,
+        "allowances_for_year": 12570,
+        "gift_aid_for_year": 100,
+        "gift_aid_grossed_up_for_year": 125,
+        "personal_pension_contributions_for_year": 1000,
+        "pension_contributions_relief_for_year": 800,
+        "income_tax_basic_rate_limit_for_year": 37700,
+        "income_tax_higher_rate_limit_for_year": 125140,
+    }
+
+
+def test_capital_gains_tax_final_request_projects_final_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_capital_gains_tax_parameters",
+        lambda year: {
+            "income_tax_basic_rate_limit": 37_700,
+            "income_tax_higher_rate_limit": 125_140,
+        },
+    )
+
+    request = build_capital_gains_tax_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "capital_gains": 0,
+                    "capital_gains_tax": 0,
+                    "gift_aid": 0,
+                    "gift_aid_grossed_up": 0,
+                    "personal_pension_contributions": 0,
+                    "pension_contributions_relief": 0,
+                },
+                {
+                    "person_id": 2,
+                    "capital_gains": 50_000,
+                    "capital_gains_tax": 11_263.8,
+                    "adjusted_net_income": 50_000,
+                    "allowances": 12_570,
+                    "gift_aid": 0,
+                    "gift_aid_grossed_up": 0,
+                    "personal_pension_contributions": 0,
+                    "pension_contributions_relief": 0,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                CAPITAL_GAINS_TAX_FINAL_OUTPUTS[
+                    "capital_gains_tax_annual_amount"
+                ]["axiom"]
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{CAPITAL_GAINS_TAX_FINAL_BASE}#input.capital_gains_for_year:person_2"
+    ] == {"kind": "decimal", "value": "50000.0"}
+    assert inputs[
+        f"{CAPITAL_GAINS_TAX_FINAL_BASE}#input.income_tax_basic_rate_limit_for_year:person_2"
+    ] == {"kind": "decimal", "value": "37700.0"}
+
+
+def test_stamp_duty_land_tax_final_projection_uses_household_inputs():
+    assert project_stamp_duty_land_tax_final_inputs(
+        {
+            "sdlt_liable": True,
+            "main_residential_property_purchased": 445_000,
+            "main_residential_property_purchased_is_first_home": True,
+            "additional_residential_property_purchased": 350_000,
+            "non_residential_property_purchased": 300_000,
+            "cumulative_residential_rent": 100_000,
+            "rent": 50_000,
+            "cumulative_non_residential_rent": 100_000,
+            "non_residential_rent": 200_000,
+        }
+    ) == {
+        "household_is_sdlt_liable": True,
+        "main_residential_property_purchased_for_year": 445000,
+        "main_residential_property_purchased_is_first_home": True,
+        "additional_residential_property_purchased_for_year": 350000,
+        "non_residential_property_purchased_for_year": 300000,
+        "cumulative_residential_rent_for_year": 100000,
+        "residential_rent_for_year": 50000,
+        "cumulative_non_residential_rent_for_year": 100000,
+        "non_residential_rent_for_year": 200000,
+    }
+
+
+def test_stamp_duty_land_tax_final_request_projects_final_inputs():
+    request = build_stamp_duty_land_tax_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "stamp_duty_land_tax": 0,
+                    "main_residential_property_purchased": 0,
+                    "additional_residential_property_purchased": 0,
+                    "non_residential_property_purchased": 0,
+                    "cumulative_residential_rent": 0,
+                    "rent": 0,
+                    "cumulative_non_residential_rent": 0,
+                    "non_residential_rent": 0,
+                },
+                {
+                    "household_id": 2,
+                    "stamp_duty_land_tax": 18_000,
+                    "sdlt_liable": True,
+                    "main_residential_property_purchased": 0,
+                    "main_residential_property_purchased_is_first_home": False,
+                    "additional_residential_property_purchased": 350_000,
+                    "non_residential_property_purchased": 0,
+                    "cumulative_residential_rent": 0,
+                    "rent": 0,
+                    "cumulative_non_residential_rent": 0,
+                    "non_residential_rent": 0,
+                },
+            ],
+            "household_ids": [1, 2],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS[
+                    "stamp_duty_land_tax_annual_amount"
+                ]["axiom"]
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}#input.household_is_sdlt_liable:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}#input.additional_residential_property_purchased_for_year:household_2"
+    ] == {"kind": "decimal", "value": "350000.0"}
+
+
+def test_lbtt_final_projection_uses_household_inputs():
+    assert project_lbtt_final_inputs(
+        {
+            "lbtt_liable": True,
+            "lbtt_on_transactions": 4_200,
+            "lbtt_on_rent": 125,
+        }
+    ) == {
+        "household_is_lbtt_liable": True,
+        "lbtt_on_transactions_for_year": 4200,
+        "lbtt_on_rent_for_year": 125,
+    }
+
+
+def test_lbtt_final_request_compares_all_households():
+    request = build_lbtt_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "land_and_buildings_transaction_tax": 0,
+                    "lbtt_liable": False,
+                    "lbtt_on_transactions": 0,
+                    "lbtt_on_rent": 0,
+                },
+                {
+                    "household_id": 2,
+                    "land_and_buildings_transaction_tax": 4325,
+                    "lbtt_liable": True,
+                    "lbtt_on_transactions": 4200,
+                    "lbtt_on_rent": 125,
+                },
+            ],
+            "household_ids": [1, 2],
+        },
+        year=2026,
+    )
+
+    assert [query["entity_id"] for query in request["queries"]] == [
+        "household_1",
+        "household_2",
+    ]
+    assert request["queries"][0]["outputs"] == [
+        LBTT_FINAL_OUTPUTS["land_and_buildings_transaction_tax_annual_amount"][
+            "axiom"
+        ]
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{LBTT_FINAL_BASE}#input.household_is_lbtt_liable:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{LBTT_FINAL_BASE}#input.lbtt_on_transactions_for_year:household_2"
+    ] == {"kind": "decimal", "value": "4200.0"}
+
+
+def test_ltt_final_projection_uses_household_inputs():
+    assert project_ltt_final_inputs(
+        {
+            "ltt_liable": True,
+            "ltt_on_transactions": 2_900,
+            "ltt_on_rent": 80,
+        }
+    ) == {
+        "household_is_ltt_liable": True,
+        "ltt_on_transactions_for_year": 2900,
+        "ltt_on_rent_for_year": 80,
+    }
+
+
+def test_ltt_final_request_compares_all_households():
+    request = build_ltt_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "land_transaction_tax": 0,
+                    "ltt_liable": False,
+                    "ltt_on_transactions": 0,
+                    "ltt_on_rent": 0,
+                },
+                {
+                    "household_id": 2,
+                    "land_transaction_tax": 2980,
+                    "ltt_liable": True,
+                    "ltt_on_transactions": 2900,
+                    "ltt_on_rent": 80,
+                },
+            ],
+            "household_ids": [1, 2],
+        },
+        year=2026,
+    )
+
+    assert [query["entity_id"] for query in request["queries"]] == [
+        "household_1",
+        "household_2",
+    ]
+    assert request["queries"][0]["outputs"] == [
+        LTT_FINAL_OUTPUTS["land_transaction_tax_annual_amount"]["axiom"]
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{LTT_FINAL_BASE}#input.household_is_ltt_liable:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{LTT_FINAL_BASE}#input.ltt_on_transactions_for_year:household_2"
+    ] == {"kind": "decimal", "value": "2900.0"}
+
+
+def test_vat_final_projection_uses_household_inputs():
+    assert project_vat_final_inputs(
+        {
+            "full_rate_vat_consumption": 1_000,
+            "reduced_rate_vat_consumption": 400,
+        },
+        parameters={"microdata_vat_coverage": 0.38},
+    ) == {
+        "full_rate_vat_consumption_for_year": 1000,
+        "reduced_rate_vat_consumption_for_year": 400,
+        "microdata_vat_coverage_fraction": 0.38,
+    }
+
+
+def test_vat_final_request_projects_final_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_vat_parameters",
+        lambda year: {"microdata_vat_coverage": 0.38},
+    )
+
+    request = build_vat_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "vat": 0,
+                    "full_rate_vat_consumption": 0,
+                    "reduced_rate_vat_consumption": 0,
+                },
+                {
+                    "household_id": 2,
+                    "vat": 1_000,
+                    "full_rate_vat_consumption": 1_000,
+                    "reduced_rate_vat_consumption": 400,
+                },
+            ],
+            "household_ids": [1, 2],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [VAT_FINAL_OUTPUTS["vat_annual_amount"]["axiom"]],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{VAT_FINAL_BASE}#input.full_rate_vat_consumption_for_year:household_2"
+    ] == {"kind": "decimal", "value": "1000.0"}
+    assert inputs[
+        f"{VAT_FINAL_BASE}#input.microdata_vat_coverage_fraction:household_2"
+    ] == {"kind": "decimal", "value": "0.38"}
+
+
+def test_fuel_duty_final_projection_uses_household_inputs():
+    assert project_fuel_duty_final_inputs(
+        {
+            "petrol_litres": 600,
+            "diesel_litres": 400,
+            "in_rural_fuel_duty_relief_area": True,
+        },
+        parameters={"petrol_and_diesel": 0.5345},
+    ) == {
+        "petrol_litres_for_year": 600,
+        "diesel_litres_for_year": 400,
+        "petrol_and_diesel_fuel_duty_rate_per_litre": 0.5345,
+        "fuel_is_purchased_in_rural_fuel_duty_relief_area": True,
+    }
+
+
+def test_fuel_duty_final_request_projects_final_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_fuel_duty_parameters",
+        lambda year: {"petrol_and_diesel": 0.5345},
+    )
+
+    request = build_fuel_duty_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "fuel_duty": 0,
+                    "petrol_litres": 0,
+                    "diesel_litres": 0,
+                },
+                {
+                    "household_id": 2,
+                    "fuel_duty": 534.5,
+                    "petrol_litres": 600,
+                    "diesel_litres": 400,
+                    "in_rural_fuel_duty_relief_area": True,
+                },
+            ],
+            "household_ids": [1, 2],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [FUEL_DUTY_FINAL_OUTPUTS["fuel_duty_annual_amount"]["axiom"]],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{FUEL_DUTY_FINAL_BASE}#input.petrol_litres_for_year:household_2"
+    ] == {"kind": "decimal", "value": "600.0"}
+    assert inputs[
+        f"{FUEL_DUTY_FINAL_BASE}#input.petrol_and_diesel_fuel_duty_rate_per_litre:household_2"
+    ] == {"kind": "decimal", "value": "0.5345"}
+    assert inputs[
+        f"{FUEL_DUTY_FINAL_BASE}#input.fuel_is_purchased_in_rural_fuel_duty_relief_area:household_2"
+    ] == {"kind": "bool", "value": True}
+
+
+def test_free_tv_licence_value_projection_uses_household_inputs():
+    assert project_free_tv_licence_value_inputs(
+        {
+            "household_owns_tv": True,
+            "would_evade_tv_licence_fee": False,
+            "tv_licence_discount": 0.5,
+        }
+    ) == {
+        "household_owns_tv": True,
+        "household_would_evade_tv_licence_fee": False,
+        "tv_licence_discount_fraction": 0.5,
+    }
+
+
+def test_free_tv_licence_value_request_projects_final_inputs():
+    request = build_free_tv_licence_value_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "free_tv_licence_value": 0,
+                    "tv_licence": 180,
+                    "household_owns_tv": True,
+                    "would_evade_tv_licence_fee": False,
+                    "tv_licence_discount": 0,
+                },
+                {
+                    "household_id": 2,
+                    "free_tv_licence_value": 90,
+                    "tv_licence": 90,
+                    "household_owns_tv": True,
+                    "would_evade_tv_licence_fee": False,
+                    "tv_licence_discount": 0.5,
+                },
+            ],
+            "household_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_1",
+            "period": {
+                "period_kind": "custom",
+                "name": "licence_year",
+                "start": "2026-04-01",
+                "end": "2027-03-31",
+            },
+            "outputs": [
+                TV_LICENCE_FINAL_OUTPUTS["free_tv_licence_value"]["axiom"],
+                TV_LICENCE_FINAL_OUTPUTS["tv_licence_annual_amount"]["axiom"],
+            ],
+        },
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "licence_year",
+                "start": "2026-04-01",
+                "end": "2027-03-31",
+            },
+            "outputs": [
+                TV_LICENCE_FINAL_OUTPUTS["free_tv_licence_value"]["axiom"],
+                TV_LICENCE_FINAL_OUTPUTS["tv_licence_annual_amount"]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[f"{TV_LICENCE_FINAL_BASE}#input.household_owns_tv:household_2"] == {
+        "kind": "bool",
+        "value": True,
+    }
+    assert inputs[
+        f"{TV_LICENCE_FINAL_BASE}#input.tv_licence_discount_fraction:household_2"
+    ] == {"kind": "decimal", "value": "0.5"}
+
+
+def test_cost_of_living_support_payment_final_projection_uses_household_inputs():
+    assert project_cost_of_living_support_payment_final_inputs(
+        {
+            "universal_credit": 0,
+            "pension_credit": 50,
+            "housing_benefit": 0,
+            "jsa_income": 0,
+            "income_support": 0,
+            "esa_income": 0,
+            "winter_fuel_allowance": 300,
+            "pip": 0,
+            "dla": 0,
+            "attendance_allowance": 114.60,
+            "armed_forces_independence_payment": 0,
+        }
+    ) == {
+        "household_receives_qualifying_means_tested_benefit_for_cost_of_living_payment": True,
+        "household_receives_winter_fuel_payment_for_cost_of_living_payment": True,
+        "household_receives_qualifying_disability_benefit_for_cost_of_living_payment": True,
+    }
+
+
+def test_cost_of_living_support_payment_final_request_compares_zero_rows():
+    request = build_cost_of_living_support_payment_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "cost_of_living_support_payment": 0,
+                    "universal_credit": 0,
+                    "pension_credit": 0,
+                    "housing_benefit": 0,
+                    "jsa_income": 0,
+                    "income_support": 0,
+                    "esa_income": 0,
+                    "winter_fuel_allowance": 0,
+                    "pip": 0,
+                    "dla": 0,
+                    "attendance_allowance": 0,
+                    "armed_forces_independence_payment": 0,
+                },
+                {
+                    "household_id": 2,
+                    "cost_of_living_support_payment": 0,
+                    "universal_credit": 2_000,
+                    "pension_credit": 0,
+                    "housing_benefit": 0,
+                    "jsa_income": 0,
+                    "income_support": 0,
+                    "esa_income": 0,
+                    "winter_fuel_allowance": 300,
+                    "pip": 750,
+                    "dla": 0,
+                    "attendance_allowance": 0,
+                    "armed_forces_independence_payment": 0,
+                },
+            ],
+            "household_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "household_1",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS[
+                    "cost_of_living_support_payment_annual_amount"
+                ]["axiom"],
+            ],
+        },
+        {
+            "entity_id": "household_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS[
+                    "cost_of_living_support_payment_annual_amount"
+                ]["axiom"],
+            ],
+        },
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}#input.household_receives_qualifying_means_tested_benefit_for_cost_of_living_payment:household_1"
+    ] == {"kind": "bool", "value": False}
+    assert inputs[
+        f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}#input.household_receives_qualifying_means_tested_benefit_for_cost_of_living_payment:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}#input.household_receives_winter_fuel_payment_for_cost_of_living_payment:household_2"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}#input.household_receives_qualifying_disability_benefit_for_cost_of_living_payment:household_2"
+    ] == {"kind": "bool", "value": True}
+
+
+def test_energy_bills_rebate_final_request_compares_all_households():
+    request = build_energy_bills_rebate_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "households": [
+                {"household_id": 1, "energy_bills_rebate": 0},
+                {"household_id": 2, "energy_bills_rebate": 0},
+            ],
+            "household_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    period = {
+        "period_kind": "custom",
+        "name": "calendar_year",
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+    }
+    outputs = [
+        output["axiom"] for output in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()
+    ]
+    assert request == {
+        "mode": "explain",
+        "dataset": {"inputs": [], "relations": []},
+        "queries": [
+            {"entity_id": "household_1", "period": period, "outputs": outputs},
+            {"entity_id": "household_2", "period": period, "outputs": outputs},
+        ],
+    }
+
+
+def test_energy_price_guarantee_final_projection_uses_energy_consumption():
+    assert project_energy_price_guarantee_final_inputs(
+        {"domestic_energy_consumption": 2_000}
+    ) == {"domestic_energy_consumption_for_year": 2000.0}
+
+
+def test_energy_price_guarantee_final_request_compares_all_households():
+    request = build_energy_price_guarantee_final_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "households": [
+                {
+                    "household_id": 1,
+                    "domestic_energy_consumption": 0,
+                    "epg_subsidy": 0,
+                },
+                {
+                    "household_id": 2,
+                    "domestic_energy_consumption": 2_000,
+                    "epg_subsidy": 0,
+                },
+            ],
+            "household_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    period = {
+        "period_kind": "custom",
+        "name": "calendar_year",
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+    }
+    outputs = [
+        output["axiom"] for output in ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS.values()
+    ]
+    assert request["queries"] == [
+        {"entity_id": "household_1", "period": period, "outputs": outputs},
+        {"entity_id": "household_2", "period": period, "outputs": outputs},
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{ENERGY_PRICE_GUARANTEE_FINAL_BASE}#input.domestic_energy_consumption_for_year:household_2"
+    ] == {"kind": "decimal", "value": "2000.0"}
+
+
+def test_dfe_person_programs_projection_uses_pe_leaf_inputs():
+    projected = project_dfe_person_programs_final_inputs(
+        {
+            "adult_dependants_grant_eligible": True,
+            "age": 19,
+            "bursary_fund_16_to_19_participation_costs": 1_500,
+            "bursary_fund_16_to_19_vulnerable_group_eligible": True,
+            "care_to_learn_eligible": True,
+            "childcare_expenses": 10_000,
+            "childcare_grant_eligible": True,
+            "childcare_grant_eligible_children": 1,
+            "disabled_students_allowance_eligible": True,
+            "disabled_students_allowance_eligible_expenses": 30_000,
+            "maintenance_loan_eligible": True,
+            "maintenance_loan_entitled_to_benefits": False,
+            "maintenance_loan_household_income": 25_000,
+            "maintenance_loan_living_arrangement": (
+                "MaintenanceLoanLivingArrangement.LIVING_WITH_PARENTS"
+            ),
+            "max_free_entitlement_hours_used": 20,
+            "parents_learning_allowance_eligible": True,
+            "region": "Region.LONDON",
+            "targeted_childcare_entitlement_eligible": True,
+            "travel_grant_eligible": True,
+            "travel_grant_eligible_expenses": 5_000,
+            "travel_grant_household_income": 39_796,
+            "universal_childcare_entitlement_eligible": True,
+        }
+    )
+
+    assert projected["person_age"] == 19.0
+    assert projected["household_region_is_london"] is True
+    assert projected["maintenance_loan_living_with_parents"] is True
+    assert projected["maintenance_loan_away_in_london"] is False
+    assert projected["childcare_grant_eligible_child_count"] == 1.0
+    assert projected["bursary_fund_16_to_19_participation_costs_for_year"] == 1500.0
+
+
+def test_dfe_person_programs_request_compares_person_outputs():
+    request = build_dfe_person_programs_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "age": 19,
+                    "region": "Region.LONDON",
+                    "maintenance_loan_living_arrangement": (
+                        "MaintenanceLoanLivingArrangement.LIVING_WITH_PARENTS"
+                    ),
+                    "max_free_entitlement_hours_used": 0,
+                }
+            ],
+            "person_ids": [1],
+            "households": [],
+            "household_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    period = {
+        "period_kind": "custom",
+        "name": "calendar_year",
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+    }
+    outputs = [
+        output["axiom"] for output in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()
+    ]
+    assert request["queries"] == [
+        {"entity_id": "person_1", "period": period, "outputs": outputs},
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.person_age:person_1"
+    ] == {"kind": "decimal", "value": "19.0"}
+    assert (
+        inputs[
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.household_region_is_london:person_1"
+        ]
+        == {"kind": "bool", "value": True}
+    )
+
+
+def test_dfe_extended_childcare_request_builds_child_relations():
+    request = build_dfe_extended_childcare_entitlement_final_request(
+        pe_data={
+            "all_persons": [
+                {
+                    "person_id": 1,
+                    "person_benunit_id": 10,
+                    "age": 3,
+                    "max_free_entitlement_hours_used": 30,
+                },
+                {
+                    "person_id": 2,
+                    "person_benunit_id": 10,
+                    "age": 5,
+                    "max_free_entitlement_hours_used": 30,
+                },
+            ],
+            "persons": [],
+            "person_ids": [],
+            "households": [],
+            "household_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 10,
+                    "extended_childcare_entitlement": 0,
+                    "extended_childcare_entitlement_eligible": True,
+                    "maximum_extended_childcare_hours_usage": 15,
+                }
+            ],
+            "benunit_ids": [10],
+        },
+        year=2026,
+    )
+
+    assert request["dataset"]["relations"] == [
+        {
+            "name": (
+                f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                "#relation.extended_childcare_entitlement_children"
+            ),
+            "tuple": ["person_1", "benunit_10"],
+            "interval": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
+            "name": (
+                f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                "#relation.extended_childcare_entitlement_children"
+            ),
+            "tuple": ["person_2", "benunit_10"],
+            "interval": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+    ]
+    outputs = [
+        output["axiom"]
+        for output in DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS.values()
+    ]
+    assert request["queries"][0]["outputs"] == outputs
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}#input.child_age:person_1"
+    ] == {"kind": "decimal", "value": "3.0"}
+    assert (
+        inputs[
+            (
+                f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                "#input.extended_childcare_child_counts_for_entitlement:person_1"
+            )
+        ]
+        == {"kind": "bool", "value": True}
+    )
+
+
+def test_ssmg_final_projection_uses_reported_receipt():
+    assert project_ssmg_final_inputs({"ssmg_reported": 500}) == {
+        "reported_sure_start_maternity_grant_for_year": 500.0,
+    }
+
+
+def test_ssmg_final_request_projects_final_inputs():
+    request = build_ssmg_final_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 1,
+                    "ssmg": 0,
+                    "ssmg_reported": 0,
+                },
+                {
+                    "person_id": 2,
+                    "ssmg": 500,
+                    "ssmg_reported": 500,
+                },
+            ],
+            "person_ids": [1, 2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_2",
+            "period": {
+                "period_kind": "custom",
+                "name": "calendar_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                SSMG_FINAL_OUTPUTS["sure_start_maternity_grant_annual_amount"]["axiom"],
+            ],
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{SSMG_FINAL_BASE}#input.reported_sure_start_maternity_grant_for_year:person_2"
+    ] == {"kind": "decimal", "value": "500.0"}
 
 
 def test_pension_credit_final_projection_uses_entitlement_components():
@@ -3852,6 +5242,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     )
     assert policyengine_person_variables_for_surfaces(["student-loan-repayment"]) == (
         "adjusted_net_income",
+        "student_loan_balance",
         "student_loan_plan",
         "student_loan_repayment",
     )
@@ -3964,6 +5355,22 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-childcare-work-condition"]
     ) == ("uc_childcare_work_condition",)
+    assert policyengine_person_variables_for_surfaces(["tax-free-childcare-final"]) == (
+        "childcare_expenses",
+        "is_blind",
+        "is_disabled_for_benefits",
+        "tax_free_childcare",
+        "tax_free_childcare_eligible",
+        "tax_free_childcare_eligible_declaration_periods",
+        "tax_free_childcare_qualifying_child",
+        "tax_free_childcare_uses_qualifying_provider",
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["sure-start-maternity-grant-final"]
+    ) == (
+        "ssmg",
+        "ssmg_reported",
+    )
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-work-allowance"]
     ) == (
@@ -3997,6 +5404,104 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_tariff_income",
     )
     assert policyengine_benunit_variables_for_surfaces(["student-loan-repayment"]) == ()
+    assert policyengine_benunit_variables_for_surfaces(
+        ["closed-legacy-benefits-final"]
+    ) == (
+        "child_tax_credit",
+        "esa",
+        "esa_contrib",
+        "esa_income",
+        "income_support",
+        "jsa",
+        "jsa_contrib",
+        "jsa_income",
+        "tax_credits",
+        "working_tax_credit",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["winter-fuel-allowance-final"]
+    ) == (
+        "country",
+        "esa_income",
+        "income_support",
+        "jsa_income",
+        "pension_credit",
+        "winter_fuel_allowance",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["stamp-duty-land-tax-final"]
+    ) == (
+        "additional_residential_property_purchased",
+        "country",
+        "cumulative_non_residential_rent",
+        "cumulative_residential_rent",
+        "main_residential_property_purchased",
+        "main_residential_property_purchased_is_first_home",
+        "non_residential_property_purchased",
+        "non_residential_rent",
+        "rent",
+        "sdlt_liable",
+        "stamp_duty_land_tax",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["land-and-buildings-transaction-tax-final"]
+    ) == (
+        "land_and_buildings_transaction_tax",
+        "lbtt_liable",
+        "lbtt_on_rent",
+        "lbtt_on_transactions",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["land-transaction-tax-final"]
+    ) == (
+        "land_transaction_tax",
+        "ltt_liable",
+        "ltt_on_rent",
+        "ltt_on_transactions",
+    )
+    assert policyengine_household_variables_for_surfaces(["free-tv-licence-value"]) == (
+        "free_tv_licence_value",
+        "household_owns_tv",
+        "tv_licence",
+        "tv_licence_discount",
+        "would_evade_tv_licence_fee",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["cost-of-living-support-payment-final"]
+    ) == (
+        "armed_forces_independence_payment",
+        "attendance_allowance",
+        "cost_of_living_support_payment",
+        "dla",
+        "esa_income",
+        "housing_benefit",
+        "income_support",
+        "jsa_income",
+        "pension_credit",
+        "pip",
+        "universal_credit",
+        "winter_fuel_allowance",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["energy-bills-rebate-final"]
+    ) == (
+        "ebr_council_tax_rebate",
+        "ebr_energy_bills_credit",
+        "energy_bills_rebate",
+    )
+    assert policyengine_household_variables_for_surfaces(
+        ["energy-price-guarantee-final"]
+    ) == (
+        "domestic_energy_consumption",
+        "epg_subsidy",
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["winter-fuel-allowance-final"]
+    ) == (
+        "age",
+        "is_SP_age",
+        "total_income",
+    )
     assert policyengine_person_variables_for_surfaces(
         ["income-tax-section-11d-savings-income"]
     ) == (
@@ -4169,6 +5674,8 @@ class hbai_household_net_income(Variable):
         "esa_income",
         "esa_contrib",
         "housing_benefit",
+        "income_support",
+        "jsa_income",
         "universal_credit",
         "pension_credit",
         "working_tax_credit",
@@ -4221,6 +5728,8 @@ class hbai_household_net_income(Variable):
         "esa_income",
         "esa_contrib",
         "housing_benefit",
+        "income_support",
+        "jsa_income",
         "universal_credit",
         "pension_credit",
         "working_tax_credit",
@@ -4266,8 +5775,16 @@ class hbai_household_net_income(Variable):
     assert by_name["free_school_fruit_veg"].policy_component is False
     assert by_name["free_school_milk"].status == "fixed_input"
     assert by_name["free_school_milk"].policy_component is False
-    assert by_name["free_tv_licence_value"].status == "partial"
+    assert by_name["free_tv_licence_value"].status == "exact"
     assert by_name["free_tv_licence_value"].policy_component is True
+    assert by_name["free_tv_licence_value"].surfaces == (
+        "tv-licence-fee",
+        "free-tv-licence-value",
+    )
+    assert by_name["free_tv_licence_value"].covered_outputs == (
+        "colour_tv_licence_general_form_issue_fee",
+        "free_tv_licence_value",
+    )
     assert by_name["child_benefit"].status == "exact"
     assert by_name["child_benefit"].surfaces == (
         "child-benefit",
@@ -4313,7 +5830,12 @@ class hbai_household_net_income(Variable):
         "ni_class_4",
         "national_insurance",
     )
-    assert by_name["student_loan_repayments"].status == "partial"
+    assert by_name["student_loan_repayments"].status == "exact"
+    assert by_name["student_loan_repayments"].surfaces == ("student-loan-repayment",)
+    assert by_name["student_loan_repayments"].covered_outputs == (
+        "student_loan_repayment",
+        "student_loan_repayments",
+    )
     assert by_name["universal_credit"].status == "exact"
     assert by_name["universal_credit"].surfaces == (
         "universal-credit-standard-allowance",
@@ -4385,9 +5907,55 @@ class hbai_household_net_income(Variable):
         "housing_benefit_tariff_income",
         "housing_benefit",
     )
-    assert by_name["working_tax_credit"].status == "partial"
-    assert by_name["child_tax_credit"].status == "partial"
-    assert by_name["tax_free_childcare"].status == "partial"
+    assert by_name["income_support"].status == "exact"
+    assert by_name["income_support"].surfaces == (
+        "income-support-tariff-income",
+        "closed-legacy-benefits-final",
+    )
+    assert by_name["income_support"].covered_outputs == (
+        "income_support_tariff_income",
+        "income_support",
+    )
+    assert by_name["jsa_income"].status == "exact"
+    assert by_name["jsa_income"].surfaces == (
+        "jsa-income-tariff-income",
+        "closed-legacy-benefits-final",
+    )
+    assert by_name["jsa_income"].covered_outputs == (
+        "jsa_income_tariff_income",
+        "jsa_income",
+    )
+    assert by_name["working_tax_credit"].status == "exact"
+    assert by_name["working_tax_credit"].surfaces == (
+        "working-tax-credit-elements",
+        "closed-legacy-benefits-final",
+    )
+    assert by_name["working_tax_credit"].covered_outputs == (
+        "wtc_basic_element",
+        "wtc_couple_element",
+        "wtc_lone_parent_element",
+        "wtc_disabled_worker_element",
+        "wtc_severely_disabled_worker_element",
+        "working_tax_credit",
+    )
+    assert by_name["child_tax_credit"].status == "exact"
+    assert by_name["child_tax_credit"].surfaces == (
+        "child-tax-credit-elements",
+        "closed-legacy-benefits-final",
+    )
+    assert by_name["child_tax_credit"].covered_outputs == (
+        "CTC_family_element",
+        "CTC_child_element",
+        "CTC_disabled_child_element",
+        "CTC_severely_disabled_child_element",
+        "child_tax_credit",
+    )
+    assert by_name["tax_free_childcare"].status == "exact"
+    assert by_name["tax_free_childcare"].surfaces == (
+        "tax-free-childcare-parameters",
+        "tax-free-childcare-final",
+    )
+    assert by_name["tax_free_childcare"].covered_outputs == ("tax_free_childcare",)
     assert by_name["pip"].status == "exact"
     assert by_name["dla"].status == "exact"
     assert by_name["dla"].surfaces == (
@@ -4399,7 +5967,12 @@ class hbai_household_net_income(Variable):
         "dla_m",
         "dla",
     )
-    assert by_name["attendance_allowance"].status == "partial"
+    assert by_name["attendance_allowance"].status == "exact"
+    assert by_name["attendance_allowance"].surfaces == (
+        "attendance-allowance-rates",
+        "attendance-allowance-final",
+    )
+    assert by_name["attendance_allowance"].covered_outputs == ("attendance_allowance",)
     assert by_name["carers_allowance"].status == "exact"
     assert by_name["carers_allowance"].surfaces == (
         "carers-allowance-rate",
@@ -4411,7 +5984,15 @@ class hbai_household_net_income(Variable):
         "severe-disablement-allowance-final",
     )
     assert by_name["sda"].covered_outputs == ("sda",)
-    assert by_name["ssmg"].status == "partial"
+    assert by_name["ssmg"].status == "exact"
+    assert by_name["ssmg"].surfaces == (
+        "sure-start-maternity-grant-rate",
+        "sure-start-maternity-grant-final",
+    )
+    assert by_name["ssmg"].covered_outputs == (
+        "sure_start_maternity_grant_amount",
+        "ssmg",
+    )
     assert by_name["scottish_child_payment"].status == "exact"
     assert by_name["scottish_child_payment"].surfaces == (
         "scottish-child-payment-parameters",
@@ -4428,24 +6009,35 @@ class hbai_household_net_income(Variable):
     assert by_name["carer_support_payment"].covered_outputs == (
         "carer_support_payment",
     )
-    assert by_name["cost_of_living_support_payment"].status == "partial"
+    assert by_name["cost_of_living_support_payment"].status == "exact"
+    assert by_name["cost_of_living_support_payment"].surfaces == (
+        "cost-of-living-support-payment-parameters",
+        "cost-of-living-support-payment-final",
+    )
+    assert by_name["cost_of_living_support_payment"].covered_outputs == (
+        "cost_of_living_support_payment",
+    )
     assert by_name["state_pension"].status == "exact"
     assert by_name["state_pension"].surfaces == (
         "state-pension-rates",
         "state-pension-final",
     )
-    assert by_name["winter_fuel_allowance"].status == "partial"
+    assert by_name["winter_fuel_allowance"].status == "exact"
+    assert by_name["winter_fuel_allowance"].surfaces == (
+        "winter-fuel-payment-rates",
+        "winter-fuel-allowance-final",
+    )
     assert by_name["council_tax"].status == "fixed_input"
     assert by_name["council_tax"].policy_component is False
     assert by_name["domestic_rates"].status == "fixed_input"
     assert by_name["domestic_rates"].policy_component is False
     assert by_name["LVT"].status == "out_of_scope"
     assert by_name["LVT"].policy_component is False
-    assert report.policy_component_count == 23
-    assert report.covered_policy_component_count == 23
-    assert report.exact_policy_component_count == 14
+    assert report.policy_component_count == 25
+    assert report.covered_policy_component_count == 25
+    assert report.exact_policy_component_count == 25
     assert report.covered_policy_component_share == 1
-    assert math.isclose(report.exact_policy_component_share, 14 / 23)
+    assert report.exact_policy_component_share == 1
 
 
 def test_uk_hbai_policy_coverage_report_reads_module_level_component_constants(
@@ -4515,6 +6107,197 @@ class hbai_household_net_income(Variable):
     }
     assert payload["activity_totals"] is None
     assert payload["components"][0]["name"] == "employment_income"
+
+
+def test_uk_national_policy_coverage_report_classifies_non_ctr_manifest(
+    monkeypatch,
+    tmp_path,
+):
+    variables = [
+        UKEFRSVariableMetadata(
+            name="income_tax",
+            entity="person",
+            domain="gov",
+            path="gov/hmrc/income_tax/income_tax.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=True,
+        ),
+        UKEFRSVariableMetadata(
+            name="fuel_duty",
+            entity="household",
+            domain="gov",
+            path="gov/hmrc/fuel_duty/fuel_duty.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="council_tax",
+            entity="household",
+            domain="input",
+            path="input/consumption/property/council_tax.py",
+            computed=False,
+            computation_kind="input",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="vat",
+            entity="household",
+            domain="gov",
+            path="gov/hmrc/vat/vat.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="capital_gains_tax",
+            entity="person",
+            domain="gov",
+            path="gov/hmrc/cgt/capital_gains_tax.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="stamp_duty_land_tax",
+            entity="household",
+            domain="gov",
+            path="gov/hmrc/stamp_duty/stamp_duty_land_tax.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="land_and_buildings_transaction_tax",
+            entity="household",
+            domain="gov",
+            path="gov/revenue_scotland/land_and_buildings_transaction_tax.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="land_transaction_tax",
+            entity="household",
+            domain="gov",
+            path="gov/wra/land_transaction_tax.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="tax_credits",
+            entity="benunit",
+            domain="gov",
+            path="gov/dwp/tax_credits.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="energy_bills_rebate",
+            entity="household",
+            domain="gov",
+            path="gov/treasury/energy_bills_rebate/energy_bills_rebate.py",
+            computed=True,
+            computation_kind="adds",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="epg_subsidy",
+            entity="household",
+            domain="gov",
+            path="gov/treasury/price_cap_subsidy/epg_subsidy.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+        UKEFRSVariableMetadata(
+            name="maintenance_loan",
+            entity="person",
+            domain="gov",
+            path="gov/dfe/maintenance_loan.py",
+            computed=True,
+            computation_kind="formula",
+            covered_output=False,
+        ),
+    ]
+
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_versions",
+        lambda: {
+            "policyengine": "test",
+            "policyengine-core": "test",
+            "policyengine-uk": "test",
+        },
+    )
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_variables_source_root",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        efrs_uk,
+        "discover_policyengine_uk_variables",
+        lambda **kwargs: variables,
+    )
+
+    report = build_uk_national_policy_coverage_report(source_root=tmp_path)
+    by_variable = {component.variable: component for component in report.components}
+
+    assert by_variable["income_tax"].status == "exact"
+    assert by_variable["income_tax"].policy_component is True
+    assert by_variable["fuel_duty"].status == "exact"
+    assert by_variable["fuel_duty"].surfaces == ("fuel-duty-final",)
+    assert by_variable["fuel_duty"].policy_component is True
+    assert by_variable["vat"].status == "exact"
+    assert by_variable["vat"].surfaces == ("vat-final",)
+    assert by_variable["vat"].policy_component is True
+    assert by_variable["capital_gains_tax"].status == "exact"
+    assert by_variable["capital_gains_tax"].surfaces == (
+        "capital-gains-tax-final",
+    )
+    assert by_variable["capital_gains_tax"].policy_component is True
+    assert by_variable["stamp_duty_land_tax"].status == "exact"
+    assert by_variable["stamp_duty_land_tax"].surfaces == (
+        "stamp-duty-land-tax-final",
+    )
+    assert by_variable["stamp_duty_land_tax"].policy_component is True
+    assert by_variable["land_and_buildings_transaction_tax"].status == "exact"
+    assert by_variable["land_and_buildings_transaction_tax"].surfaces == (
+        "land-and-buildings-transaction-tax-final",
+    )
+    assert by_variable["land_and_buildings_transaction_tax"].policy_component is True
+    assert by_variable["land_transaction_tax"].status == "exact"
+    assert by_variable["land_transaction_tax"].surfaces == (
+        "land-transaction-tax-final",
+    )
+    assert by_variable["land_transaction_tax"].policy_component is True
+    assert by_variable["tax_credits"].status == "exact"
+    assert by_variable["tax_credits"].surfaces == (
+        "working-tax-credit-elements",
+        "child-tax-credit-elements",
+        "closed-legacy-benefits-final",
+    )
+    assert by_variable["tax_credits"].policy_component is True
+    assert by_variable["energy_bills_rebate"].status == "exact"
+    assert by_variable["energy_bills_rebate"].surfaces == (
+        "energy-bills-rebate-final",
+    )
+    assert by_variable["energy_bills_rebate"].policy_component is True
+    assert by_variable["epg_subsidy"].status == "exact"
+    assert by_variable["epg_subsidy"].surfaces == (
+        "energy-price-guarantee-final",
+    )
+    assert by_variable["epg_subsidy"].policy_component is True
+    assert by_variable["maintenance_loan"].status == "exact"
+    assert by_variable["maintenance_loan"].surfaces == ("dfe-person-programs-final",)
+    assert by_variable["maintenance_loan"].policy_component is True
+    assert by_variable["council_tax"].status == "out_of_scope"
+    assert by_variable["council_tax"].policy_component is False
+    assert report.covered_policy_component_count == report.policy_component_count
 
 
 def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
@@ -4979,6 +6762,65 @@ def test_compare_outputs_compares_universal_credit_final_annual_amount():
     assert report.oracle_divergences == []
 
 
+def test_compare_outputs_compares_closed_legacy_benefits_final_amounts():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "households": [],
+            "household_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 2,
+                    "income_support": 0,
+                    "jsa_income": 0,
+                    "working_tax_credit": 0,
+                    "child_tax_credit": 0,
+                    "tax_credits": 0,
+                    "jsa": 125,
+                    "esa": 650,
+                },
+            ],
+            "benunit_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "closed-legacy-benefits-final": [
+                {
+                    "outputs": {
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["income_support"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["jsa_income"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["working_tax_credit"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["child_tax_credit"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["tax_credits"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["jsa"][
+                            "axiom"
+                        ]: decimal_output(125),
+                        CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS["esa"][
+                            "axiom"
+                        ]: decimal_output(650),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 7
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
 def test_compare_outputs_compares_carers_allowance_final_annual_amount():
     report = compare_outputs(
         pe_data={
@@ -5150,6 +6992,517 @@ def test_compare_outputs_compares_dla_final_components_and_annual_amount():
     )
 
     assert report.compared_values == 3
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_attendance_allowance_final_amounts():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "attendance_allowance": 5_959.20,
+                    "aa_category": "HIGHER",
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "attendance-allowance-final": [
+                {
+                    "outputs": {
+                        ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS[
+                            "attendance_allowance_weekly_amount"
+                        ]["axiom"]: decimal_output(114.60),
+                        ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS[
+                            "attendance_allowance_annual_amount"
+                        ]["axiom"]: decimal_output(5_959.20),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_winter_fuel_allowance_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 4,
+                    "winter_fuel_allowance": 300,
+                },
+            ],
+            "household_ids": [4],
+        },
+        axiom_outputs_by_surface={
+            "winter-fuel-allowance-final": [
+                {
+                    "outputs": {
+                        WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS[
+                            "winter_fuel_allowance_annual_amount"
+                        ]["axiom"]: decimal_output(300),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_tax_free_childcare_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "tax_free_childcare": 2_000,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "tax-free-childcare-final": [
+                {
+                    "outputs": {
+                        TAX_FREE_CHILDCARE_FINAL_OUTPUTS[
+                            "tax_free_childcare_annual_amount"
+                        ]["axiom"]: decimal_output(2_000),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_capital_gains_tax_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "capital_gains": 50_000,
+                    "capital_gains_tax": 11_263.8,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "capital-gains-tax-final": [
+                {
+                    "outputs": {
+                        CAPITAL_GAINS_TAX_FINAL_OUTPUTS[
+                            "capital_gains_tax_annual_amount"
+                        ]["axiom"]: decimal_output(11_263.8),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_stamp_duty_land_tax_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "stamp_duty_land_tax": 18_000,
+                    "additional_residential_property_purchased": 350_000,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "stamp-duty-land-tax-final": [
+                {
+                    "outputs": {
+                        STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS[
+                            "stamp_duty_land_tax_annual_amount"
+                        ]["axiom"]: decimal_output(18_000),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_lbtt_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "land_and_buildings_transaction_tax": 4_325,
+                    "lbtt_liable": True,
+                    "lbtt_on_transactions": 4_200,
+                    "lbtt_on_rent": 125,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "land-and-buildings-transaction-tax-final": [
+                {
+                    "outputs": {
+                        LBTT_FINAL_OUTPUTS[
+                            "land_and_buildings_transaction_tax_annual_amount"
+                        ]["axiom"]: decimal_output(4_325),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_ltt_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "land_transaction_tax": 2_980,
+                    "ltt_liable": True,
+                    "ltt_on_transactions": 2_900,
+                    "ltt_on_rent": 80,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "land-transaction-tax-final": [
+                {
+                    "outputs": {
+                        LTT_FINAL_OUTPUTS["land_transaction_tax_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(2_980),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_vat_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "vat": 578.95,
+                    "full_rate_vat_consumption": 1000,
+                    "reduced_rate_vat_consumption": 400,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "vat-final": [
+                {
+                    "outputs": {
+                        VAT_FINAL_OUTPUTS["vat_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(578.95),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_fuel_duty_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "fuel_duty": 534.5,
+                    "petrol_litres": 600,
+                    "diesel_litres": 400,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "fuel-duty-final": [
+                {
+                    "outputs": {
+                        FUEL_DUTY_FINAL_OUTPUTS["fuel_duty_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(534.5),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_tv_licence_outputs():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 2,
+                    "free_tv_licence_value": 90,
+                    "tv_licence": 90,
+                },
+            ],
+            "household_ids": [2],
+        },
+        axiom_outputs_by_surface={
+            "free-tv-licence-value": [
+                {
+                    "outputs": {
+                        TV_LICENCE_FINAL_OUTPUTS["free_tv_licence_value"][
+                            "axiom"
+                        ]: decimal_output(90),
+                        TV_LICENCE_FINAL_OUTPUTS["tv_licence_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(90),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_cost_of_living_support_payment_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 3,
+                    "cost_of_living_support_payment": 0,
+                },
+            ],
+            "household_ids": [3],
+        },
+        axiom_outputs_by_surface={
+            "cost-of-living-support-payment-final": [
+                {
+                    "outputs": {
+                        COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS[
+                            "cost_of_living_support_payment_annual_amount"
+                        ]["axiom"]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_energy_bills_rebate_final_amounts():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 3,
+                    "ebr_council_tax_rebate": 0,
+                    "ebr_energy_bills_credit": 0,
+                    "energy_bills_rebate": 0,
+                },
+            ],
+            "household_ids": [3],
+        },
+        axiom_outputs_by_surface={
+            "energy-bills-rebate-final": [
+                {
+                    "outputs": {
+                        ENERGY_BILLS_REBATE_FINAL_OUTPUTS[
+                            "energy_bills_rebate_council_tax_rebate"
+                        ]["axiom"]: decimal_output(0),
+                        ENERGY_BILLS_REBATE_FINAL_OUTPUTS[
+                            "energy_bills_rebate_energy_bills_credit"
+                        ]["axiom"]: decimal_output(0),
+                        ENERGY_BILLS_REBATE_FINAL_OUTPUTS[
+                            "energy_bills_rebate_annual_amount"
+                        ]["axiom"]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 3
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_energy_price_guarantee_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [],
+            "benunit_ids": [],
+            "households": [
+                {
+                    "household_id": 3,
+                    "epg_subsidy": 0,
+                },
+            ],
+            "household_ids": [3],
+        },
+        axiom_outputs_by_surface={
+            "energy-price-guarantee-final": [
+                {
+                    "outputs": {
+                        ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS[
+                            "energy_price_guarantee_subsidy_annual_amount"
+                        ]["axiom"]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_compares_ssmg_final_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 2,
+                    "ssmg": 500,
+                    "ssmg_reported": 500,
+                },
+            ],
+            "person_ids": [2],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "sure-start-maternity-grant-final": [
+                {
+                    "outputs": {
+                        SSMG_FINAL_OUTPUTS["sure_start_maternity_grant_annual_amount"][
+                            "axiom"
+                        ]: decimal_output(500),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
     assert report.mismatches == []
     assert report.oracle_divergences == []
 
@@ -6579,11 +8932,12 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
     monkeypatch.setattr(
         efrs_uk,
         "compare_uk_efrs",
-        lambda **_: efrs_uk.UKEFRSComparisonReport(
-            compared_persons=1,
-            compared_benunits=0,
-            compared_values=1,
-            mismatches=[
+            lambda **_: efrs_uk.UKEFRSComparisonReport(
+                compared_persons=1,
+                compared_benunits=0,
+                compared_households=0,
+                compared_values=1,
+                mismatches=[
                 efrs_uk.UKEFRSComparisonRow(
                     surface="personal-allowance",
                     entity_id="person_7",

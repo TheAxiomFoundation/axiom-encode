@@ -121,6 +121,22 @@ STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
     "policies/govuk/student-loan-repayments.yaml"
 )
 STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
+CAPITAL_GAINS_TAX_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/capital-gains-tax.yaml"
+)
+CAPITAL_GAINS_TAX_FINAL_BASE = "uk:policies/govuk/capital-gains-tax"
+STAMP_DUTY_LAND_TAX_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/stamp-duty-land-tax.yaml"
+)
+STAMP_DUTY_LAND_TAX_FINAL_BASE = "uk:policies/govuk/stamp-duty-land-tax"
+LBTT_FINAL_PROGRAM_PATH = Path("policies/govuk/land-and-buildings-transaction-tax.yaml")
+LBTT_FINAL_BASE = "uk:policies/govuk/land-and-buildings-transaction-tax"
+LTT_FINAL_PROGRAM_PATH = Path("policies/govuk/land-transaction-tax.yaml")
+LTT_FINAL_BASE = "uk:policies/govuk/land-transaction-tax"
+CLOSED_LEGACY_BENEFITS_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/closed-legacy-benefits.yaml"
+)
+CLOSED_LEGACY_BENEFITS_FINAL_BASE = "uk:policies/govuk/closed-legacy-benefits"
 CARERS_ALLOWANCE_FINAL_PROGRAM_PATH = Path("policies/govuk/carers-allowance.yaml")
 CARERS_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/carers-allowance"
 CARER_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH = Path(
@@ -135,6 +151,46 @@ SDA_FINAL_PROGRAM_PATH = Path("policies/govuk/severe-disablement-allowance.yaml"
 SDA_FINAL_BASE = "uk:policies/govuk/severe-disablement-allowance"
 DLA_FINAL_PROGRAM_PATH = Path("policies/govuk/disability-living-allowance.yaml")
 DLA_FINAL_BASE = "uk:policies/govuk/disability-living-allowance"
+ATTENDANCE_ALLOWANCE_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/attendance-allowance.yaml"
+)
+ATTENDANCE_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/attendance-allowance"
+WINTER_FUEL_ALLOWANCE_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/winter-fuel-allowance.yaml"
+)
+WINTER_FUEL_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/winter-fuel-allowance"
+TAX_FREE_CHILDCARE_FINAL_PROGRAM_PATH = Path("policies/govuk/tax-free-childcare.yaml")
+TAX_FREE_CHILDCARE_FINAL_BASE = "uk:policies/govuk/tax-free-childcare"
+VAT_FINAL_PROGRAM_PATH = Path("policies/govuk/vat.yaml")
+VAT_FINAL_BASE = "uk:policies/govuk/vat"
+FUEL_DUTY_FINAL_PROGRAM_PATH = Path("policies/govuk/fuel-duty.yaml")
+FUEL_DUTY_FINAL_BASE = "uk:policies/govuk/fuel-duty"
+TV_LICENCE_FINAL_PROGRAM_PATH = Path("policies/govuk/tv-licence.yaml")
+TV_LICENCE_FINAL_BASE = "uk:policies/govuk/tv-licence"
+SSMG_FINAL_PROGRAM_PATH = Path("policies/govuk/sure-start-maternity-grant.yaml")
+SSMG_FINAL_BASE = "uk:policies/govuk/sure-start-maternity-grant"
+COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/cost-of-living-support-payment.yaml"
+)
+COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE = (
+    "uk:policies/govuk/cost-of-living-support-payment"
+)
+ENERGY_BILLS_REBATE_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/energy-bills-rebate.yaml"
+)
+ENERGY_BILLS_REBATE_FINAL_BASE = "uk:policies/govuk/energy-bills-rebate"
+ENERGY_PRICE_GUARANTEE_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/energy-price-guarantee.yaml"
+)
+ENERGY_PRICE_GUARANTEE_FINAL_BASE = "uk:policies/govuk/energy-price-guarantee"
+DFE_PERSON_PROGRAMS_FINAL_PROGRAM_PATH = Path("policies/govuk/dfe-person-programs.yaml")
+DFE_PERSON_PROGRAMS_FINAL_BASE = "uk:policies/govuk/dfe-person-programs"
+DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/dfe-extended-childcare-entitlement.yaml"
+)
+DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE = (
+    "uk:policies/govuk/dfe-extended-childcare-entitlement"
+)
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -729,6 +785,37 @@ STUDENT_LOAN_REPAYMENT_OUTPUTS = {
     },
 }
 
+CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS = {
+    "income_support": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#income_support",
+        "pe": "income_support",
+    },
+    "jsa_income": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#jsa_income",
+        "pe": "jsa_income",
+    },
+    "working_tax_credit": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#working_tax_credit",
+        "pe": "working_tax_credit",
+    },
+    "child_tax_credit": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#child_tax_credit",
+        "pe": "child_tax_credit",
+    },
+    "tax_credits": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#tax_credits",
+        "pe": "tax_credits",
+    },
+    "jsa": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#jsa",
+        "pe": "jsa",
+    },
+    "esa": {
+        "axiom": f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#esa",
+        "pe": "esa",
+    },
+}
+
 CARERS_ALLOWANCE_FINAL_OUTPUTS = {
     "carers_allowance_annual_amount": {
         "axiom": f"{CARERS_ALLOWANCE_FINAL_BASE}#carers_allowance_annual_amount",
@@ -781,6 +868,243 @@ DLA_FINAL_OUTPUTS = {
     "disability_living_allowance_annual_amount": {
         "axiom": f"{DLA_FINAL_BASE}#disability_living_allowance_annual_amount",
         "pe": "dla",
+        "tolerance": 0.01,
+    },
+}
+
+ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS = {
+    "attendance_allowance_weekly_amount": {
+        "axiom": f"{ATTENDANCE_ALLOWANCE_FINAL_BASE}#attendance_allowance_weekly_amount",
+        "pe": "attendance_allowance",
+        "pe_transform": "annual_to_weekly",
+        "tolerance": 0.01,
+    },
+    "attendance_allowance_annual_amount": {
+        "axiom": f"{ATTENDANCE_ALLOWANCE_FINAL_BASE}#attendance_allowance_annual_amount",
+        "pe": "attendance_allowance",
+        "tolerance": 0.01,
+    },
+}
+
+WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS = {
+    "winter_fuel_allowance_annual_amount": {
+        "axiom": (
+            f"{WINTER_FUEL_ALLOWANCE_FINAL_BASE}#winter_fuel_allowance_annual_amount"
+        ),
+        "pe": "winter_fuel_allowance",
+        "tolerance": 0.01,
+    },
+}
+
+TAX_FREE_CHILDCARE_FINAL_OUTPUTS = {
+    "tax_free_childcare_annual_amount": {
+        "axiom": f"{TAX_FREE_CHILDCARE_FINAL_BASE}#tax_free_childcare_annual_amount",
+        "pe": "tax_free_childcare",
+        "tolerance": 0.01,
+    },
+}
+
+CAPITAL_GAINS_TAX_FINAL_OUTPUTS = {
+    "capital_gains_tax_annual_amount": {
+        "axiom": (
+            f"{CAPITAL_GAINS_TAX_FINAL_BASE}#capital_gains_tax_annual_amount"
+        ),
+        "pe": "capital_gains_tax",
+        "tolerance": 0.01,
+    },
+}
+
+STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS = {
+    "stamp_duty_land_tax_annual_amount": {
+        "axiom": (
+            f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}"
+            "#stamp_duty_land_tax_annual_amount"
+        ),
+        "pe": "stamp_duty_land_tax",
+        "tolerance": 0.01,
+    },
+}
+
+LBTT_FINAL_OUTPUTS = {
+    "land_and_buildings_transaction_tax_annual_amount": {
+        "axiom": (
+            f"{LBTT_FINAL_BASE}"
+            "#land_and_buildings_transaction_tax_annual_amount"
+        ),
+        "pe": "land_and_buildings_transaction_tax",
+        "tolerance": 0.01,
+    },
+}
+
+LTT_FINAL_OUTPUTS = {
+    "land_transaction_tax_annual_amount": {
+        "axiom": f"{LTT_FINAL_BASE}#land_transaction_tax_annual_amount",
+        "pe": "land_transaction_tax",
+        "tolerance": 0.01,
+    },
+}
+
+VAT_FINAL_OUTPUTS = {
+    "vat_annual_amount": {
+        "axiom": f"{VAT_FINAL_BASE}#vat_annual_amount",
+        "pe": "vat",
+        "tolerance": 0.01,
+    },
+}
+
+FUEL_DUTY_FINAL_OUTPUTS = {
+    "fuel_duty_annual_amount": {
+        "axiom": f"{FUEL_DUTY_FINAL_BASE}#fuel_duty_annual_amount",
+        "pe": "fuel_duty",
+        "tolerance": 0.01,
+    },
+}
+
+TV_LICENCE_FINAL_OUTPUTS = {
+    "free_tv_licence_value": {
+        "axiom": f"{TV_LICENCE_FINAL_BASE}#free_tv_licence_value",
+        "pe": "free_tv_licence_value",
+        "tolerance": 0.01,
+    },
+    "tv_licence_annual_amount": {
+        "axiom": f"{TV_LICENCE_FINAL_BASE}#tv_licence_annual_amount",
+        "pe": "tv_licence",
+        "tolerance": 0.01,
+    },
+}
+
+SSMG_FINAL_OUTPUTS = {
+    "sure_start_maternity_grant_annual_amount": {
+        "axiom": (f"{SSMG_FINAL_BASE}#sure_start_maternity_grant_annual_amount"),
+        "pe": "ssmg",
+        "tolerance": 0.01,
+    },
+}
+
+COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS = {
+    "cost_of_living_support_payment_annual_amount": {
+        "axiom": (
+            f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}"
+            "#cost_of_living_support_payment_annual_amount"
+        ),
+        "pe": "cost_of_living_support_payment",
+        "tolerance": 0.01,
+    },
+}
+
+ENERGY_BILLS_REBATE_FINAL_OUTPUTS = {
+    "energy_bills_rebate_council_tax_rebate": {
+        "axiom": (
+            f"{ENERGY_BILLS_REBATE_FINAL_BASE}"
+            "#energy_bills_rebate_council_tax_rebate"
+        ),
+        "pe": "ebr_council_tax_rebate",
+        "tolerance": 0.01,
+    },
+    "energy_bills_rebate_energy_bills_credit": {
+        "axiom": (
+            f"{ENERGY_BILLS_REBATE_FINAL_BASE}"
+            "#energy_bills_rebate_energy_bills_credit"
+        ),
+        "pe": "ebr_energy_bills_credit",
+        "tolerance": 0.01,
+    },
+    "energy_bills_rebate_annual_amount": {
+        "axiom": f"{ENERGY_BILLS_REBATE_FINAL_BASE}#energy_bills_rebate_annual_amount",
+        "pe": "energy_bills_rebate",
+        "tolerance": 0.01,
+    },
+}
+
+ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS = {
+    "energy_price_guarantee_subsidy_annual_amount": {
+        "axiom": (
+            f"{ENERGY_PRICE_GUARANTEE_FINAL_BASE}"
+            "#energy_price_guarantee_subsidy_annual_amount"
+        ),
+        "pe": "epg_subsidy",
+        "tolerance": 0.01,
+    },
+}
+
+DFE_PERSON_PROGRAMS_FINAL_OUTPUTS = {
+    "universal_childcare_entitlement_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#universal_childcare_entitlement_annual_amount"
+        ),
+        "pe": "universal_childcare_entitlement",
+        "tolerance": 0.01,
+    },
+    "targeted_childcare_entitlement_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#targeted_childcare_entitlement_annual_amount"
+        ),
+        "pe": "targeted_childcare_entitlement",
+        "tolerance": 0.01,
+    },
+    "childcare_grant_annual_amount": {
+        "axiom": f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#childcare_grant_annual_amount",
+        "pe": "childcare_grant",
+        "tolerance": 0.01,
+    },
+    "parents_learning_allowance_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#parents_learning_allowance_annual_amount"
+        ),
+        "pe": "parents_learning_allowance",
+        "tolerance": 0.01,
+    },
+    "adult_dependants_grant_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#adult_dependants_grant_annual_amount"
+        ),
+        "pe": "adult_dependants_grant",
+        "tolerance": 0.01,
+    },
+    "travel_grant_annual_amount": {
+        "axiom": f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#travel_grant_annual_amount",
+        "pe": "travel_grant",
+        "tolerance": 0.01,
+    },
+    "disabled_students_allowance_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#disabled_students_allowance_annual_amount"
+        ),
+        "pe": "disabled_students_allowance",
+        "tolerance": 0.01,
+    },
+    "care_to_learn_annual_amount": {
+        "axiom": f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#care_to_learn_annual_amount",
+        "pe": "care_to_learn",
+        "tolerance": 0.01,
+    },
+    "maintenance_loan_annual_amount": {
+        "axiom": f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#maintenance_loan_annual_amount",
+        "pe": "maintenance_loan",
+        "tolerance": 0.01,
+    },
+    "bursary_fund_16_to_19_annual_amount": {
+        "axiom": (
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
+            "#bursary_fund_16_to_19_annual_amount"
+        ),
+        "pe": "bursary_fund_16_to_19",
+        "tolerance": 0.01,
+    },
+}
+
+DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS = {
+    "extended_childcare_entitlement_annual_amount": {
+        "axiom": (
+            f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+            "#extended_childcare_entitlement_annual_amount"
+        ),
+        "pe": "extended_childcare_entitlement",
         "tolerance": 0.01,
     },
 }
@@ -1258,8 +1582,26 @@ SURFACE_SPECS = {
         outputs=STUDENT_LOAN_REPAYMENT_OUTPUTS,
         pe_variables=(
             "adjusted_net_income",
+            "student_loan_balance",
             "student_loan_plan",
             "student_loan_repayment",
+        ),
+    ),
+    "closed-legacy-benefits-final": UKEFRSSurfaceSpec(
+        program=CLOSED_LEGACY_BENEFITS_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS,
+        pe_variables=(
+            "child_tax_credit",
+            "esa",
+            "esa_contrib",
+            "esa_income",
+            "income_support",
+            "jsa",
+            "jsa_contrib",
+            "jsa_income",
+            "tax_credits",
+            "working_tax_credit",
         ),
     ),
     "carers-allowance-final": UKEFRSSurfaceSpec(
@@ -1313,6 +1655,236 @@ SURFACE_SPECS = {
             "dla_m_category",
             "dla_sc",
             "dla_sc_category",
+        ),
+    ),
+    "attendance-allowance-final": UKEFRSSurfaceSpec(
+        program=ATTENDANCE_ALLOWANCE_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "aa_category",
+            "attendance_allowance",
+        ),
+    ),
+    "winter-fuel-allowance-final": UKEFRSSurfaceSpec(
+        program=WINTER_FUEL_ALLOWANCE_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "country",
+            "esa_income",
+            "income_support",
+            "jsa_income",
+            "pension_credit",
+            "winter_fuel_allowance",
+        ),
+        projection_person_variables=(
+            "age",
+            "is_SP_age",
+            "total_income",
+        ),
+    ),
+    "tax-free-childcare-final": UKEFRSSurfaceSpec(
+        program=TAX_FREE_CHILDCARE_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=TAX_FREE_CHILDCARE_FINAL_OUTPUTS,
+        pe_variables=(
+            "childcare_expenses",
+            "is_blind",
+            "is_disabled_for_benefits",
+            "tax_free_childcare",
+            "tax_free_childcare_eligible",
+            "tax_free_childcare_eligible_declaration_periods",
+            "tax_free_childcare_qualifying_child",
+            "tax_free_childcare_uses_qualifying_provider",
+        ),
+    ),
+    "capital-gains-tax-final": UKEFRSSurfaceSpec(
+        program=CAPITAL_GAINS_TAX_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=CAPITAL_GAINS_TAX_FINAL_OUTPUTS,
+        pe_variables=(
+            "adjusted_net_income",
+            "allowances",
+            "capital_gains",
+            "capital_gains_tax",
+            "gift_aid",
+            "gift_aid_grossed_up",
+            "pension_contributions_relief",
+            "personal_pension_contributions",
+        ),
+    ),
+    "stamp-duty-land-tax-final": UKEFRSSurfaceSpec(
+        program=STAMP_DUTY_LAND_TAX_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS,
+        pe_variables=(
+            "additional_residential_property_purchased",
+            "country",
+            "cumulative_non_residential_rent",
+            "cumulative_residential_rent",
+            "main_residential_property_purchased",
+            "main_residential_property_purchased_is_first_home",
+            "non_residential_property_purchased",
+            "non_residential_rent",
+            "rent",
+            "sdlt_liable",
+            "stamp_duty_land_tax",
+        ),
+    ),
+    "land-and-buildings-transaction-tax-final": UKEFRSSurfaceSpec(
+        program=LBTT_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=LBTT_FINAL_OUTPUTS,
+        pe_variables=(
+            "land_and_buildings_transaction_tax",
+            "lbtt_liable",
+            "lbtt_on_rent",
+            "lbtt_on_transactions",
+        ),
+    ),
+    "land-transaction-tax-final": UKEFRSSurfaceSpec(
+        program=LTT_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=LTT_FINAL_OUTPUTS,
+        pe_variables=(
+            "land_transaction_tax",
+            "ltt_liable",
+            "ltt_on_rent",
+            "ltt_on_transactions",
+        ),
+    ),
+    "vat-final": UKEFRSSurfaceSpec(
+        program=VAT_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=VAT_FINAL_OUTPUTS,
+        pe_variables=(
+            "full_rate_vat_consumption",
+            "reduced_rate_vat_consumption",
+            "vat",
+        ),
+    ),
+    "fuel-duty-final": UKEFRSSurfaceSpec(
+        program=FUEL_DUTY_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=FUEL_DUTY_FINAL_OUTPUTS,
+        pe_variables=(
+            "diesel_litres",
+            "fuel_duty",
+            "in_rural_fuel_duty_relief_area",
+            "petrol_litres",
+        ),
+    ),
+    "free-tv-licence-value": UKEFRSSurfaceSpec(
+        program=TV_LICENCE_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=TV_LICENCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "free_tv_licence_value",
+            "household_owns_tv",
+            "tv_licence",
+            "tv_licence_discount",
+            "would_evade_tv_licence_fee",
+        ),
+    ),
+    "cost-of-living-support-payment-final": UKEFRSSurfaceSpec(
+        program=COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS,
+        pe_variables=(
+            "armed_forces_independence_payment",
+            "attendance_allowance",
+            "cost_of_living_support_payment",
+            "dla",
+            "esa_income",
+            "housing_benefit",
+            "income_support",
+            "jsa_income",
+            "pension_credit",
+            "pip",
+            "universal_credit",
+            "winter_fuel_allowance",
+        ),
+    ),
+    "energy-bills-rebate-final": UKEFRSSurfaceSpec(
+        program=ENERGY_BILLS_REBATE_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=ENERGY_BILLS_REBATE_FINAL_OUTPUTS,
+        pe_variables=(
+            "ebr_council_tax_rebate",
+            "ebr_energy_bills_credit",
+            "energy_bills_rebate",
+        ),
+    ),
+    "energy-price-guarantee-final": UKEFRSSurfaceSpec(
+        program=ENERGY_PRICE_GUARANTEE_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS,
+        pe_variables=(
+            "domestic_energy_consumption",
+            "epg_subsidy",
+        ),
+    ),
+    "dfe-person-programs-final": UKEFRSSurfaceSpec(
+        program=DFE_PERSON_PROGRAMS_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=DFE_PERSON_PROGRAMS_FINAL_OUTPUTS,
+        pe_variables=(
+            "adult_dependants_grant",
+            "adult_dependants_grant_eligible",
+            "age",
+            "bursary_fund_16_to_19",
+            "bursary_fund_16_to_19_participation_costs",
+            "bursary_fund_16_to_19_vulnerable_group_eligible",
+            "care_to_learn",
+            "care_to_learn_eligible",
+            "childcare_expenses",
+            "childcare_grant",
+            "childcare_grant_eligible",
+            "childcare_grant_eligible_children",
+            "disabled_students_allowance",
+            "disabled_students_allowance_eligible",
+            "disabled_students_allowance_eligible_expenses",
+            "maintenance_loan",
+            "maintenance_loan_eligible",
+            "maintenance_loan_entitled_to_benefits",
+            "maintenance_loan_household_income",
+            "maintenance_loan_living_arrangement",
+            "max_free_entitlement_hours_used",
+            "parents_learning_allowance",
+            "parents_learning_allowance_eligible",
+            "region",
+            "targeted_childcare_entitlement",
+            "targeted_childcare_entitlement_eligible",
+            "travel_grant",
+            "travel_grant_eligible",
+            "travel_grant_eligible_expenses",
+            "travel_grant_household_income",
+            "universal_childcare_entitlement",
+            "universal_childcare_entitlement_eligible",
+        ),
+    ),
+    "dfe-extended-childcare-entitlement-final": UKEFRSSurfaceSpec(
+        program=DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_PROGRAM_PATH,
+        entity="benunit",
+        outputs=DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS,
+        pe_variables=(
+            "extended_childcare_entitlement",
+            "extended_childcare_entitlement_eligible",
+            "maximum_extended_childcare_hours_usage",
+        ),
+        projection_person_variables=(
+            "age",
+            "max_free_entitlement_hours_used",
+        ),
+    ),
+    "sure-start-maternity-grant-final": UKEFRSSurfaceSpec(
+        program=SSMG_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=SSMG_FINAL_OUTPUTS,
+        pe_variables=(
+            "ssmg",
+            "ssmg_reported",
         ),
     ),
 }
@@ -1412,16 +1984,22 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers Housing Benefit capital tariff income branches and the final annual PolicyEngine UK housing_benefit wrapper after the claim gate and benefit-cap reduction.",
     },
     "income_support": {
-        "status": "partial",
-        "surfaces": ("income-support-tariff-income",),
-        "covered_outputs": ("income_support_tariff_income",),
-        "rationale": "Axiom covers Income Support capital tariff income, not the final Income Support HBAI amount.",
+        "status": "exact",
+        "surfaces": (
+            "income-support-tariff-income",
+            "closed-legacy-benefits-final",
+        ),
+        "covered_outputs": ("income_support_tariff_income", "income_support"),
+        "rationale": "Axiom covers Income Support capital tariff income and the current-law final nil amount after DWP closed the remaining Income Support legacy caseload through managed migration.",
     },
     "jsa_income": {
-        "status": "partial",
-        "surfaces": ("jsa-income-tariff-income",),
-        "covered_outputs": ("jsa_income_tariff_income",),
-        "rationale": "Axiom covers capital tariff income used inside income-based JSA, not the final JSA HBAI amount.",
+        "status": "exact",
+        "surfaces": (
+            "jsa-income-tariff-income",
+            "closed-legacy-benefits-final",
+        ),
+        "covered_outputs": ("jsa_income_tariff_income", "jsa_income"),
+        "rationale": "Axiom covers capital tariff income used inside income-based JSA and the current-law final nil amount after DWP closed the remaining income-related Jobseeker's Allowance legacy caseload through managed migration.",
     },
     "pension_credit": {
         "status": "exact",
@@ -1492,45 +2070,65 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers many Universal Credit legal elements, the award-before-take-up expression, and the final annual PolicyEngine UK universal_credit wrapper after the would_claim_uc gate and benefit-cap reduction.",
     },
     "student_loan_repayments": {
-        "status": "partial",
+        "status": "exact",
         "surfaces": ("student-loan-repayment",),
-        "covered_outputs": ("student_loan_repayment",),
-        "rationale": "Axiom covers PolicyEngine UK's modelled student_loan_repayment formula by plan-specific threshold and repayment rate. The HBAI student_loan_repayments component remains partial because local EFRS supplies it as reported input data even when student_loan_plan is NONE, overriding PolicyEngine UK's wrapper formula.",
+        "covered_outputs": (
+            "student_loan_repayment",
+            "student_loan_repayments",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's modeled student-loan repayment formula by plan-specific threshold, repayment rate, and outstanding-balance cap. PolicyEngine UK's HBAI student_loan_repayments wrapper delegates to that modeled formula, while the local EFRS may override the wrapper with reported survey repayments; that override is fixed data input rather than a remaining policy-rule gap.",
     },
     "working_tax_credit": {
-        "status": "partial",
-        "surfaces": ("working-tax-credit-elements",),
+        "status": "exact",
+        "surfaces": (
+            "working-tax-credit-elements",
+            "closed-legacy-benefits-final",
+        ),
         "covered_outputs": (
             "wtc_basic_element",
             "wtc_couple_element",
             "wtc_lone_parent_element",
             "wtc_disabled_worker_element",
             "wtc_severely_disabled_worker_element",
+            "working_tax_credit",
         ),
-        "rationale": "Axiom covers Schedule 2 element rates after the WTC encoding; it does not yet compute final Working Tax Credit entitlement.",
+        "rationale": "Axiom covers Schedule 2 element rates and the current-law final nil Working Tax Credit amount after tax credits ended on 5 April 2025.",
     },
     "child_tax_credit": {
-        "status": "partial",
-        "surfaces": ("child-tax-credit-elements",),
+        "status": "exact",
+        "surfaces": (
+            "child-tax-credit-elements",
+            "closed-legacy-benefits-final",
+        ),
         "covered_outputs": (
             "CTC_family_element",
             "CTC_child_element",
             "CTC_disabled_child_element",
             "CTC_severely_disabled_child_element",
+            "child_tax_credit",
         ),
-        "rationale": "Axiom covers Child Tax Credit family, child, disabled-child, and severe-disabled-child element rates; it does not yet compute final Child Tax Credit entitlement.",
+        "rationale": "Axiom covers Child Tax Credit family, child, disabled-child, and severe-disabled-child element rates plus the current-law final nil Child Tax Credit amount after tax credits ended on 5 April 2025.",
     },
     "tax_free_childcare": {
-        "status": "partial",
-        "surfaces": ("tax-free-childcare-parameters",),
+        "status": "exact",
+        "surfaces": (
+            "tax-free-childcare-parameters",
+            "tax-free-childcare-final",
+        ),
         "covered_outputs": ("tax_free_childcare",),
-        "rationale": "Axiom covers the Tax-Free Childcare contribution rate and income cap, not the child/provider eligibility tests, expenses, annual caps, or final aggregate amount.",
+        "rationale": "Axiom covers PolicyEngine UK's Tax-Free Childcare final person amount: the statutory top-up rate, standard and disabled-child annual caps, provider and child eligibility predicates, eligible declaration periods, and final aggregate amount. Upstream factual predicates such as valid declarations, work, income, UK connection, and qualifying provider status remain projected leaf inputs.",
     },
     "free_tv_licence_value": {
-        "status": "partial",
-        "surfaces": ("tv-licence-fee",),
-        "covered_outputs": ("colour_tv_licence_general_form_issue_fee",),
-        "rationale": "Axiom covers the statutory colour TV licence fee feeding PolicyEngine UK's free_tv_licence_value; TV ownership, evasion, and aged or blind discount eligibility remain outside this fee surface.",
+        "status": "exact",
+        "surfaces": (
+            "tv-licence-fee",
+            "free-tv-licence-value",
+        ),
+        "covered_outputs": (
+            "colour_tv_licence_general_form_issue_fee",
+            "free_tv_licence_value",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's free_tv_licence_value HBAI component: the statutory colour TV licence fee, household TV ownership, evasion, and the aged or blind discount fraction projected as leaf inputs.",
     },
     "pip": {
         "status": "exact",
@@ -1557,10 +2155,13 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers Disability Living Allowance weekly self-care and mobility rates plus the final annual PolicyEngine UK DLA wrapper using PE's category inputs.",
     },
     "attendance_allowance": {
-        "status": "partial",
-        "surfaces": ("attendance-allowance-rates",),
+        "status": "exact",
+        "surfaces": (
+            "attendance-allowance-rates",
+            "attendance-allowance-final",
+        ),
         "covered_outputs": ("attendance_allowance",),
-        "rationale": "Axiom covers Attendance Allowance weekly higher and lower rates, not the category assignment or final aggregate Attendance Allowance amount.",
+        "rationale": "Axiom covers Attendance Allowance weekly higher and lower rates plus the final annual PolicyEngine UK Attendance Allowance wrapper using PE's category input.",
     },
     "carers_allowance": {
         "status": "exact",
@@ -1578,10 +2179,16 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the Severe Disablement Allowance maximum weekly rate and the final annual PolicyEngine UK sda wrapper over reported receipt.",
     },
     "ssmg": {
-        "status": "partial",
-        "surfaces": ("sure-start-maternity-grant-rate",),
-        "covered_outputs": ("ssmg",),
-        "rationale": "Axiom covers the Sure Start Maternity Grant amount, not the qualifying-benefit, pregnancy, child, prescribed-time, residence, or reported-receipt conditions feeding the final SSMG amount.",
+        "status": "exact",
+        "surfaces": (
+            "sure-start-maternity-grant-rate",
+            "sure-start-maternity-grant-final",
+        ),
+        "covered_outputs": (
+            "sure_start_maternity_grant_amount",
+            "ssmg",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's Sure Start Maternity Grant final person amount: the statutory grant rate and the reported-receipt gate used by PolicyEngine. Upstream qualifying-benefit, pregnancy or child, claim-time, and residence conditions remain projected into the reported-receipt leaf input.",
     },
     "scottish_child_payment": {
         "status": "exact",
@@ -1602,17 +2209,628 @@ HBAI_COMPONENT_COVERAGE = {
         "rationale": "Axiom covers the Carer Support Payment care-hours threshold, weekly rate, Scottish Carer Supplement amount, and final annual PolicyEngine UK carer_support_payment wrapper after Scotland, effective-date, and care/reporting gates.",
     },
     "cost_of_living_support_payment": {
-        "status": "partial",
-        "surfaces": ("cost-of-living-support-payment-parameters",),
+        "status": "exact",
+        "surfaces": (
+            "cost-of-living-support-payment-parameters",
+            "cost-of-living-support-payment-final",
+        ),
         "covered_outputs": ("cost_of_living_support_payment",),
-        "rationale": "Axiom covers the statutory means-tested and disability Cost-of-Living Payment amounts, not the qualifying-period, benefit-receipt, tax-credit, pensioner-top-up, fraud, or final household aggregation rules.",
+        "rationale": "Axiom covers PolicyEngine UK's final annual household Cost-of-Living Support Payment: source-backed 2022 and 2023 payment amounts, the current no-further-payments zero amounts, and final means-tested, pensioner, and disability benefit receipt aggregation using PE's qualifying-benefit variables as projected leaf inputs.",
     },
     "winter_fuel_allowance": {
-        "status": "partial",
-        "surfaces": ("winter-fuel-payment-rates",),
+        "status": "exact",
+        "surfaces": (
+            "winter-fuel-payment-rates",
+            "winter-fuel-allowance-final",
+        ),
         "covered_outputs": ("winter_fuel_allowance",),
-        "rationale": "Axiom covers ordinary Winter Fuel Payment lower and higher annual amounts and the age-80 threshold, not the final household-level entitlement, shared-household branches, residential-care branches, Scotland replacement, or tax recovery mechanics.",
+        "rationale": "Axiom covers ordinary Winter Fuel Payment lower and higher annual amounts, the age-80 threshold, and the final PolicyEngine UK household-level Winter Fuel Allowance wrapper using PE's eligibility inputs.",
     },
+}
+
+NATIONAL_POLICY_COMPONENTS = (
+    {
+        "program_id": "income_tax",
+        "name": "Income tax",
+        "variable": "income_tax",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "national_insurance",
+        "name": "National Insurance",
+        "variable": "national_insurance",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "capital_gains_tax",
+        "name": "Capital gains tax",
+        "variable": "capital_gains_tax",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "child_benefit",
+        "name": "Child Benefit",
+        "variable": "child_benefit",
+        "category": "Benefits",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "stamp_duty_land_tax",
+        "name": "Stamp Duty Land Tax",
+        "variable": "stamp_duty_land_tax",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "England and Northern Ireland",
+    },
+    {
+        "program_id": "vat",
+        "name": "VAT",
+        "variable": "vat",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "fuel_duty",
+        "name": "Fuel duty",
+        "variable": "fuel_duty",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "student_loans",
+        "name": "Student loan repayments",
+        "variable": "student_loan_repayment",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "tax_free_childcare",
+        "name": "Tax-Free Childcare",
+        "variable": "tax_free_childcare",
+        "category": "Benefits",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "business_rates",
+        "name": "Business rates",
+        "variable": "business_rates",
+        "category": "Taxes",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "minimum_wage",
+        "name": "National Minimum Wage",
+        "variable": None,
+        "category": "Other",
+        "agency": "HMRC",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "universal_credit",
+        "name": "Universal Credit",
+        "variable": "universal_credit",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "pension_credit",
+        "name": "Pension Credit",
+        "variable": "pension_credit",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "state_pension",
+        "name": "State Pension",
+        "variable": "state_pension",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "housing_benefit",
+        "name": "Housing Benefit",
+        "variable": "housing_benefit",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "income_support",
+        "name": "Income Support",
+        "variable": "income_support",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "jsa",
+        "name": "Jobseeker's Allowance",
+        "variable": "jsa",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "esa",
+        "name": "Employment and Support Allowance",
+        "variable": "esa",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "attendance_allowance",
+        "name": "Attendance Allowance",
+        "variable": "attendance_allowance",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "carers_allowance",
+        "name": "Carer's Allowance",
+        "variable": "carers_allowance",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "dla",
+        "name": "Disability Living Allowance",
+        "variable": "dla",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "pip",
+        "name": "Personal Independence Payment",
+        "variable": "pip",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "benefit_cap",
+        "name": "Benefit cap",
+        "variable": "benefit_cap",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "tax_credits",
+        "name": "Tax credits",
+        "variable": "tax_credits",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "sda",
+        "name": "Severe Disablement Allowance",
+        "variable": "sda",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "winter_fuel_payment",
+        "name": "Winter Fuel Payment",
+        "variable": "winter_fuel_allowance",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "ssmg",
+        "name": "Sure Start Maternity Grant",
+        "variable": "ssmg",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "maternity_allowance",
+        "name": "Maternity Allowance",
+        "variable": "maternity_allowance",
+        "category": "Benefits",
+        "agency": "DWP",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "universal_childcare_entitlement",
+        "name": "Universal childcare entitlement",
+        "variable": "universal_childcare_entitlement",
+        "category": "Education",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "extended_childcare_entitlement",
+        "name": "Extended childcare entitlement",
+        "variable": "extended_childcare_entitlement",
+        "category": "Education",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "targeted_childcare_entitlement",
+        "name": "Targeted childcare entitlement",
+        "variable": "targeted_childcare_entitlement",
+        "category": "Education",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "childcare_grant",
+        "name": "Childcare Grant",
+        "variable": "childcare_grant",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "parents_learning_allowance",
+        "name": "Parents' Learning Allowance",
+        "variable": "parents_learning_allowance",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "adult_dependants_grant",
+        "name": "Adult Dependants' Grant",
+        "variable": "adult_dependants_grant",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "travel_grant",
+        "name": "Travel Grant",
+        "variable": "travel_grant",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "disabled_students_allowance",
+        "name": "Disabled Students' Allowance",
+        "variable": "disabled_students_allowance",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "care_to_learn",
+        "name": "Care to Learn",
+        "variable": "care_to_learn",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "maintenance_loan",
+        "name": "Maintenance Loan",
+        "variable": "maintenance_loan",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "bursary_fund_16_to_19",
+        "name": "16 to 19 Bursary Fund",
+        "variable": "bursary_fund_16_to_19",
+        "category": "Benefits",
+        "agency": "DfE",
+        "coverage": "England",
+    },
+    {
+        "program_id": "tv_licence",
+        "name": "TV Licence",
+        "variable": "tv_licence",
+        "category": "Taxes",
+        "agency": "DCMS",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "cost_of_living_support",
+        "name": "Cost of Living Support Payments",
+        "variable": "cost_of_living_support_payment",
+        "category": "Benefits",
+        "agency": "Treasury",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "energy_price_guarantee",
+        "name": "Energy Price Guarantee",
+        "variable": "epg_subsidy",
+        "category": "Benefits",
+        "agency": "Ofgem",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "energy_bills_rebate",
+        "name": "Energy Bills Rebate",
+        "variable": "energy_bills_rebate",
+        "category": "Benefits",
+        "agency": "Treasury",
+        "coverage": "UK",
+    },
+    {
+        "program_id": "land_and_buildings_transaction_tax",
+        "name": "Land and Buildings Transaction Tax",
+        "variable": "land_and_buildings_transaction_tax",
+        "category": "Taxes",
+        "agency": "Revenue Scotland",
+        "coverage": "Scotland",
+    },
+    {
+        "program_id": "land_transaction_tax",
+        "name": "Land Transaction Tax",
+        "variable": "land_transaction_tax",
+        "category": "Taxes",
+        "agency": "Welsh Revenue Authority",
+        "coverage": "Wales",
+    },
+    {
+        "program_id": "scottish_child_payment",
+        "name": "Scottish Child Payment",
+        "variable": "scottish_child_payment",
+        "category": "Benefits",
+        "agency": "Social Security Scotland",
+        "coverage": "Scotland",
+    },
+    {
+        "program_id": "carer_support_payment",
+        "name": "Carer Support Payment",
+        "variable": "carer_support_payment",
+        "category": "Benefits",
+        "agency": "Social Security Scotland",
+        "coverage": "Scotland",
+    },
+    {
+        "program_id": "council_tax",
+        "name": "Council Tax",
+        "variable": "council_tax",
+        "category": "Taxes",
+        "agency": "Local",
+        "coverage": "Local government",
+    },
+)
+
+NATIONAL_POLICY_COMPONENT_COVERAGE = {
+    "income_tax": HBAI_COMPONENT_COVERAGE["income_tax"],
+    "national_insurance": HBAI_COMPONENT_COVERAGE["national_insurance"],
+    "capital_gains_tax": {
+        "status": "exact",
+        "surfaces": ("capital-gains-tax-final",),
+        "covered_outputs": ("capital_gains_tax",),
+        "rationale": "Axiom covers PolicyEngine UK's person-level Capital Gains Tax surface from positive capital gains, the annual exempt amount, Gift Aid and pension basic-rate-band extensions, income-tax thresholds, and main CGT rates.",
+    },
+    "child_benefit": HBAI_COMPONENT_COVERAGE["child_benefit"],
+    "stamp_duty_land_tax": {
+        "status": "exact",
+        "surfaces": ("stamp-duty-land-tax-final",),
+        "covered_outputs": ("stamp_duty_land_tax",),
+        "rationale": "Axiom covers PolicyEngine UK's household Stamp Duty Land Tax surface over main residential purchases, first-time buyer relief, additional residential purchases, non-residential purchases, residential and non-residential rent, and the SDLT-liability gate.",
+    },
+    "vat": {
+        "status": "exact",
+        "surfaces": ("vat-final",),
+        "covered_outputs": ("vat",),
+        "rationale": "Axiom covers PolicyEngine UK's household VAT surface from full-rate and reduced-rate consumption, statutory VAT rates, and PE's microdata-coverage calibration scalar.",
+    },
+    "fuel_duty": {
+        "status": "exact",
+        "surfaces": ("fuel-duty-final",),
+        "covered_outputs": ("fuel_duty",),
+        "rationale": "Axiom covers PolicyEngine UK's household fuel_duty surface from petrol and diesel litres, the PE per-litre petrol/diesel duty rate, and rural fuel duty relief.",
+    },
+    "student_loan_repayment": HBAI_COMPONENT_COVERAGE["student_loan_repayments"],
+    "tax_free_childcare": HBAI_COMPONENT_COVERAGE["tax_free_childcare"],
+    "business_rates": {
+        "status": "out_of_scope",
+        "surfaces": (),
+        "covered_outputs": (),
+        "rationale": "PolicyEngine UK's business-rates program is marked partial with parameters needing updates beyond 2021, and it is outside the current household EFRS national tax-benefit validation scope.",
+    },
+    "universal_credit": HBAI_COMPONENT_COVERAGE["universal_credit"],
+    "pension_credit": HBAI_COMPONENT_COVERAGE["pension_credit"],
+    "state_pension": HBAI_COMPONENT_COVERAGE["state_pension"],
+    "housing_benefit": HBAI_COMPONENT_COVERAGE["housing_benefit"],
+    "income_support": HBAI_COMPONENT_COVERAGE["income_support"],
+    "jsa": {
+        "status": "exact",
+        "surfaces": (
+            "jsa-income-tariff-income",
+            "closed-legacy-benefits-final",
+        ),
+        "covered_outputs": ("jsa_income_tariff_income", "jsa_income", "jsa"),
+        "rationale": "Axiom covers PolicyEngine UK's Jobseeker's Allowance aggregate as current-law nil income-based JSA plus contribution-based JSA reported as a fixed leaf input.",
+    },
+    "esa": {
+        "status": "exact",
+        "surfaces": (
+            "esa-income-tariff-income",
+            "esa-income-final",
+            "closed-legacy-benefits-final",
+        ),
+        "covered_outputs": ("esa_income_tariff_income", "esa_income", "esa"),
+        "rationale": "Axiom covers PolicyEngine UK's Employment and Support Allowance aggregate as the separately compared income-related ESA amount plus contribution-based ESA reported as a fixed leaf input.",
+    },
+    "attendance_allowance": HBAI_COMPONENT_COVERAGE["attendance_allowance"],
+    "carers_allowance": HBAI_COMPONENT_COVERAGE["carers_allowance"],
+    "dla": HBAI_COMPONENT_COVERAGE["dla"],
+    "pip": HBAI_COMPONENT_COVERAGE["pip"],
+    "benefit_cap": {
+        "status": "exact",
+        "surfaces": ("benefit-cap-relevant-amount",),
+        "covered_outputs": ("benefit_cap",),
+        "rationale": "Axiom covers PolicyEngine UK's finite benefit_cap relevant-amount surface through Universal Credit Regulations 2013 regulation 80A.",
+    },
+    "tax_credits": {
+        "status": "exact",
+        "surfaces": (
+            "working-tax-credit-elements",
+            "child-tax-credit-elements",
+            "closed-legacy-benefits-final",
+        ),
+        "covered_outputs": (
+            "working_tax_credit",
+            "child_tax_credit",
+            "tax_credits",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's current-law final nil Tax Credits aggregate after Working Tax Credit and Child Tax Credit ended, alongside the historical WTC and CTC element parameters.",
+    },
+    "sda": HBAI_COMPONENT_COVERAGE["sda"],
+    "winter_fuel_allowance": HBAI_COMPONENT_COVERAGE["winter_fuel_allowance"],
+    "ssmg": HBAI_COMPONENT_COVERAGE["ssmg"],
+    "maternity_allowance": {
+        "status": "fixed_input",
+        "surfaces": (),
+        "covered_outputs": (),
+        "rationale": "PolicyEngine UK's maternity_allowance variable delegates to reported survey receipt in EFRS; it is held fixed rather than treated as a remaining policy-rule gap.",
+    },
+    "universal_childcare_entitlement": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("universal_childcare_entitlement",),
+        "rationale": "Axiom covers PolicyEngine UK's person-level universal childcare entitlement from the PE eligibility leaf, free-hours usage, child age, childcare weeks, annual hours cap, and DfE childcare funding-rate schedule.",
+    },
+    "extended_childcare_entitlement": {
+        "status": "exact",
+        "surfaces": ("dfe-extended-childcare-entitlement-final",),
+        "covered_outputs": ("extended_childcare_entitlement",),
+        "rationale": "Axiom covers PolicyEngine UK's benefit-unit extended childcare entitlement from the PE eligibility leaf, child age/free-hours relation rows, maximum extended-hours usage, childcare weeks, and DfE childcare funding-rate schedule.",
+    },
+    "targeted_childcare_entitlement": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("targeted_childcare_entitlement",),
+        "rationale": "Axiom covers PolicyEngine UK's person-level targeted childcare entitlement from the PE eligibility leaf, free-hours usage, child age, targeted age band, childcare weeks, annual hours cap, and DfE childcare funding-rate schedule.",
+    },
+    "childcare_grant": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("childcare_grant",),
+        "rationale": "Axiom covers PolicyEngine UK's Childcare Grant from the PE eligibility leaf, eligible-child count, annual childcare expenses, 85% coverage rate, and one-child/two-or-more weekly caps.",
+    },
+    "parents_learning_allowance": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("parents_learning_allowance",),
+        "rationale": "Axiom covers PolicyEngine UK's Parents' Learning Allowance as the PE eligibility leaf multiplied by the 2026 maximum award.",
+    },
+    "adult_dependants_grant": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("adult_dependants_grant",),
+        "rationale": "Axiom covers PolicyEngine UK's Adult Dependants' Grant as the PE eligibility leaf multiplied by the 2026 maximum award.",
+    },
+    "travel_grant": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("travel_grant",),
+        "rationale": "Axiom covers PolicyEngine UK's Travel Grant from the PE eligibility leaf, eligible expenses, initial contribution, and income-reduction threshold and rate.",
+    },
+    "disabled_students_allowance": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("disabled_students_allowance",),
+        "rationale": "Axiom covers PolicyEngine UK's Disabled Students' Allowance from the PE eligibility leaf, eligible expenses, and maximum award cap.",
+    },
+    "care_to_learn": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("care_to_learn",),
+        "rationale": "Axiom covers PolicyEngine UK's Care to Learn amount from the PE eligibility leaf, London region flag, weekly London/non-London maxima, and annual week multiplier.",
+    },
+    "maintenance_loan": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("maintenance_loan",),
+        "rationale": "Axiom covers PolicyEngine UK's maintenance loan from PE eligibility, household income, living arrangement, benefits entitlement, age, standard/benefits/over-60 schedules, tapers, floors, and nearest-pound rounding.",
+    },
+    "bursary_fund_16_to_19": {
+        "status": "exact",
+        "surfaces": ("dfe-person-programs-final",),
+        "covered_outputs": ("bursary_fund_16_to_19",),
+        "rationale": "Axiom covers PolicyEngine UK's 16 to 19 Bursary Fund from the PE vulnerable-group eligibility leaf, participation costs, and vulnerable-group maximum cap.",
+    },
+    "tv_licence": {
+        "status": "exact",
+        "surfaces": ("tv-licence-fee", "free-tv-licence-value"),
+        "covered_outputs": (
+            "colour_tv_licence_general_form_issue_fee",
+            "free_tv_licence_value",
+            "tv_licence",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's household TV licence tax and free-TV-licence value from the statutory colour licence fee, household TV ownership, evasion, and TV licence discount fraction.",
+    },
+    "cost_of_living_support_payment": HBAI_COMPONENT_COVERAGE[
+        "cost_of_living_support_payment"
+    ],
+    "epg_subsidy": {
+        "status": "exact",
+        "surfaces": ("energy-price-guarantee-final",),
+        "covered_outputs": ("epg_subsidy",),
+        "rationale": "Axiom covers PolicyEngine UK's 2026 Energy Price Guarantee subsidy from annual domestic energy consumption and the active PolicyEngine UK Ofgem price-cap and price-guarantee parameters; the subsidy floors to zero because the guarantee level is not below the cap.",
+    },
+    "energy_bills_rebate": {
+        "status": "exact",
+        "surfaces": ("energy-bills-rebate-final",),
+        "covered_outputs": (
+            "ebr_council_tax_rebate",
+            "ebr_energy_bills_credit",
+            "energy_bills_rebate",
+        ),
+        "rationale": "Axiom covers PolicyEngine UK's 2026 Energy Bills Rebate aggregate as the sum of the council-tax-rebate and energy-bills-credit components, both zeroed by the active PolicyEngine UK temporary energy-support parameters.",
+    },
+    "land_and_buildings_transaction_tax": {
+        "status": "exact",
+        "surfaces": ("land-and-buildings-transaction-tax-final",),
+        "covered_outputs": ("land_and_buildings_transaction_tax",),
+        "rationale": "Axiom covers PolicyEngine UK's final Scotland LBTT aggregate by summing the PE transaction and rent component amounts and applying the PE LBTT-liability gate.",
+    },
+    "land_transaction_tax": {
+        "status": "exact",
+        "surfaces": ("land-transaction-tax-final",),
+        "covered_outputs": ("land_transaction_tax",),
+        "rationale": "Axiom covers PolicyEngine UK's final Wales LTT aggregate by summing the PE transaction and rent component amounts and applying the PE LTT-liability gate.",
+    },
+    "scottish_child_payment": HBAI_COMPONENT_COVERAGE["scottish_child_payment"],
+    "carer_support_payment": HBAI_COMPONENT_COVERAGE["carer_support_payment"],
+    "council_tax": {
+        "status": "out_of_scope",
+        "surfaces": (),
+        "covered_outputs": (),
+        "rationale": "Council Tax and Council Tax Reduction are local-government surfaces. They are intentionally excluded from the national-program manifest until separate jurisdictional rulespec repos are introduced.",
+    },
+}
+
+NATIONAL_POLICY_PARAMETER_ONLY_COMPONENTS = {
+    "minimum_wage": (
+        "National Minimum Wage has PE parameters but no primary household EFRS "
+        "cash-output variable in programs.yaml, so it is tracked separately from "
+        "the current EFRS output-alignment queue."
+    ),
 }
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
@@ -1888,6 +3106,149 @@ class UKEFRSHBAICoverageReport:
 
 
 @dataclass(frozen=True)
+class UKEFRSNationalPolicyComponentCoverage:
+    program_id: str
+    name: str
+    variable: str | None
+    category: str
+    agency: str
+    coverage: str
+    status: str
+    policy_component: bool
+    surfaces: tuple[str, ...]
+    covered_outputs: tuple[str, ...]
+    rationale: str
+    entity: str | None = None
+    path: str | None = None
+    computed: bool | None = None
+    activity: UKEFRSVariableActivity | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "program_id": self.program_id,
+            "name": self.name,
+            "variable": self.variable,
+            "category": self.category,
+            "agency": self.agency,
+            "coverage": self.coverage,
+            "status": self.status,
+            "policy_component": self.policy_component,
+            "surfaces": list(self.surfaces),
+            "covered_outputs": list(self.covered_outputs),
+            "rationale": self.rationale,
+            "entity": self.entity,
+            "path": self.path,
+            "computed": self.computed,
+            "activity": self.activity.to_json() if self.activity else None,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSNationalPolicyCoverageReport:
+    policyengine_versions: dict[str, str]
+    source_root: str | None
+    year: int
+    dataset: str
+    components: list[UKEFRSNationalPolicyComponentCoverage]
+    activity_errors: list[dict[str, str]]
+
+    @property
+    def status_counts(self) -> dict[str, int]:
+        return dict(
+            sorted(Counter(component.status for component in self.components).items())
+        )
+
+    @property
+    def policy_component_count(self) -> int:
+        return sum(1 for component in self.components if component.policy_component)
+
+    @property
+    def covered_policy_component_count(self) -> int:
+        return sum(
+            1
+            for component in self.components
+            if component.policy_component and component.status in {"exact", "partial"}
+        )
+
+    @property
+    def exact_policy_component_count(self) -> int:
+        return sum(
+            1
+            for component in self.components
+            if component.policy_component and component.status == "exact"
+        )
+
+    @property
+    def covered_policy_component_share(self) -> float:
+        if self.policy_component_count == 0:
+            return 0.0
+        return self.covered_policy_component_count / self.policy_component_count
+
+    @property
+    def exact_policy_component_share(self) -> float:
+        if self.policy_component_count == 0:
+            return 0.0
+        return self.exact_policy_component_count / self.policy_component_count
+
+    @property
+    def activity_totals(self) -> dict[str, float] | None:
+        components_with_activity = [
+            component
+            for component in self.components
+            if component.policy_component and component.activity is not None
+        ]
+        if not components_with_activity:
+            return None
+        total = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None
+        )
+        covered = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None
+            and component.status in {"exact", "partial"}
+        )
+        exact = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None and component.status == "exact"
+        )
+        missing = sum(
+            component.activity.weighted_abs_total
+            for component in components_with_activity
+            if component.activity is not None and component.status == "missing"
+        )
+        return {
+            "policy_weighted_abs_total": total,
+            "covered_policy_weighted_abs_total": covered,
+            "exact_policy_weighted_abs_total": exact,
+            "missing_policy_weighted_abs_total": missing,
+            "covered_policy_weighted_abs_share": covered / total if total else 0.0,
+            "exact_policy_weighted_abs_share": exact / total if total else 0.0,
+            "missing_policy_weighted_abs_share": missing / total if total else 0.0,
+        }
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "policyengine_versions": self.policyengine_versions,
+            "source_root": self.source_root,
+            "year": self.year,
+            "dataset": self.dataset,
+            "status_counts": self.status_counts,
+            "policy_component_count": self.policy_component_count,
+            "covered_policy_component_count": self.covered_policy_component_count,
+            "exact_policy_component_count": self.exact_policy_component_count,
+            "covered_policy_component_share": self.covered_policy_component_share,
+            "exact_policy_component_share": self.exact_policy_component_share,
+            "activity_totals": self.activity_totals,
+            "components": [component.to_json() for component in self.components],
+            "activity_errors": self.activity_errors,
+        }
+
+
+@dataclass(frozen=True)
 class UKEFRSComparisonRow:
     surface: str
     entity_id: str
@@ -1907,6 +3268,7 @@ class UKEFRSOracleDivergence(UKEFRSComparisonRow):
 class UKEFRSComparisonReport:
     compared_persons: int
     compared_benunits: int
+    compared_households: int
     compared_values: int
     mismatches: list[UKEFRSComparisonRow]
     oracle_divergences: list[UKEFRSOracleDivergence]
@@ -1918,6 +3280,7 @@ class UKEFRSComparisonReport:
         return {
             "compared_persons": self.compared_persons,
             "compared_benunits": self.compared_benunits,
+            "compared_households": self.compared_households,
             "compared_values": self.compared_values,
             "mismatch_count": len(self.mismatches),
             "mismatches": [row.__dict__ for row in self.mismatches],
@@ -2140,6 +3503,48 @@ def configure_hbai_coverage_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
 
+def configure_national_coverage_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        help=(
+            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
+            "path for --with-efrs-activity"
+        ),
+    )
+    parser.add_argument(
+        "--data-folder",
+        type=Path,
+        default=Path(".axiom") / "policyengine-data",
+        help="PolicyEngine dataset cache folder",
+    )
+    parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=None,
+        help=(
+            "PolicyEngine UK variables source root; defaults to the installed "
+            "policyengine_uk package"
+        ),
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=50,
+        help="Maximum components to print in text mode",
+    )
+    parser.add_argument(
+        "--with-efrs-activity",
+        action="store_true",
+        help=(
+            "Run PolicyEngine over EFRS and rank national law components by "
+            "observed activity"
+        ),
+    )
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+
 def main_coverage(args: argparse.Namespace) -> int:
     report = build_uk_efrs_coverage_report(
         year=args.year,
@@ -2171,6 +3576,21 @@ def main_hbai_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def main_national_coverage(args: argparse.Namespace) -> int:
+    report = build_uk_national_policy_coverage_report(
+        year=args.year,
+        dataset=args.dataset,
+        data_folder=args.data_folder,
+        include_efrs_activity=args.with_efrs_activity,
+        source_root=args.source_root,
+    )
+    if args.json:
+        print(json.dumps(report.to_json(), indent=2, sort_keys=True))
+    else:
+        print_uk_national_policy_coverage_report(report, top=args.top)
+    return 0
+
+
 def compare_uk_efrs(
     *,
     workspace_root: Path,
@@ -2199,6 +3619,7 @@ def compare_uk_efrs(
         person_ids=person_ids,
         person_variables=policyengine_person_variables_for_surfaces(surfaces),
         benunit_variables=policyengine_benunit_variables_for_surfaces(surfaces),
+        household_variables=policyengine_household_variables_for_surfaces(surfaces),
     )
     surface_results: dict[str, list[dict[str, Any]]] = {}
     for selected_surface in surfaces:
@@ -2358,6 +3779,7 @@ def load_policyengine_uk_data(
         "personal-allowance"
     ].pe_variables,
     benunit_variables: tuple[str, ...] = (),
+    household_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     local_dataset = local_policyengine_uk_dataset_path(dataset)
     if local_dataset is not None:
@@ -2368,6 +3790,7 @@ def load_policyengine_uk_data(
             person_ids=person_ids,
             person_variables=person_variables,
             benunit_variables=benunit_variables,
+            household_variables=household_variables,
         )
 
     raise SystemExit(
@@ -2384,6 +3807,7 @@ def load_local_policyengine_uk_data(
     person_ids: tuple[int, ...],
     person_variables: tuple[str, ...],
     benunit_variables: tuple[str, ...],
+    household_variables: tuple[str, ...],
 ) -> dict[str, Any]:
     require_policyengine_uk_versions()
     try:
@@ -2418,6 +3842,8 @@ def load_local_policyengine_uk_data(
     person_columns = ["person_id", "person_weight"]
     if "person_benunit_id" in person.columns:
         person_columns.append("person_benunit_id")
+    if "person_household_id" in person.columns:
+        person_columns.append("person_household_id")
     merged = person[person_columns].copy()
     log("Running PolicyEngine UK person outputs...")
     for variable in person_variables:
@@ -2445,6 +3871,7 @@ def load_local_policyengine_uk_data(
     )
     selected = [records[index] for index in selected_indices]
     selected_benunits: list[dict[str, Any]] = []
+    selected_households: list[dict[str, Any]] = []
     if benunit_variables:
         benunit = add_policyengine_uk_benunit_weights(
             raw_benunit,
@@ -2493,6 +3920,38 @@ def load_local_policyengine_uk_data(
         selected_benunits = [
             benunit_records[index] for index in selected_benunit_indices
         ]
+    if household_variables:
+        merged_households = household[["household_id", "household_weight"]].copy()
+        log("Running PolicyEngine UK household outputs...")
+        for variable in household_variables:
+            merged_households[variable] = sim.calculate(
+                variable,
+                period=year,
+                map_to="household",
+            ).values
+        merged_households = add_winter_fuel_allowance_projection_columns(
+            merged_households,
+            merged,
+            year=year,
+        )
+        household_records = table_records(merged_households)
+        selected_household_ids = ()
+        if person_ids:
+            selected_household_ids = tuple(
+                dict.fromkeys(
+                    int(row_value(row, "person_household_id"))
+                    for row in selected
+                    if row_value(row, "person_household_id") is not None
+                )
+            )
+        selected_household_indices = select_household_indices(
+            household_records,
+            sample_size=sample_size,
+            household_ids=selected_household_ids,
+        )
+        selected_households = [
+            household_records[index] for index in selected_household_indices
+        ]
     return {
         "data_year": data_year,
         "all_persons": records,
@@ -2500,6 +3959,10 @@ def load_local_policyengine_uk_data(
         "person_ids": [int(row_value(row, "person_id")) for row in selected],
         "benunits": selected_benunits,
         "benunit_ids": [int(row_value(row, "benunit_id")) for row in selected_benunits],
+        "households": selected_households,
+        "household_ids": [
+            int(row_value(row, "household_id")) for row in selected_households
+        ],
     }
 
 
@@ -2704,6 +4167,144 @@ def add_pension_credit_child_addition_projection_columns(
     return merged
 
 
+def policyengine_uk_winter_fuel_payment_parameters(year: int) -> dict[str, Any]:
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    wfp = (
+        CountryTaxBenefitSystem().parameters(year).baseline.gov.dwp.winter_fuel_payment
+    )
+    return {
+        "maximum_taxable_income": float(
+            wfp.eligibility.taxable_income_test.maximum_taxable_income
+        ),
+        "require_benefits": bool(wfp.eligibility.require_benefits),
+        "state_pension_age_requirement": bool(
+            wfp.eligibility.state_pension_age_requirement
+        ),
+        "use_maximum_taxable_income": bool(
+            wfp.eligibility.taxable_income_test.use_maximum_taxable_income
+        ),
+    }
+
+
+def policyengine_uk_fuel_duty_parameters(year: int) -> dict[str, Any]:
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    fuel_duty = CountryTaxBenefitSystem().parameters(
+        year
+    ).baseline.gov.hmrc.fuel_duty
+    return {
+        "petrol_and_diesel": float(fuel_duty.petrol_and_diesel),
+    }
+
+
+def policyengine_uk_vat_parameters(year: int) -> dict[str, Any]:
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    parameters = CountryTaxBenefitSystem().parameters(year).baseline.gov
+    return {
+        "microdata_vat_coverage": float(parameters.simulation.microdata_vat_coverage),
+    }
+
+
+def policyengine_uk_capital_gains_tax_parameters(year: int) -> dict[str, Any]:
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    parameters = CountryTaxBenefitSystem().parameters(year).baseline.gov.hmrc
+    thresholds = parameters.income_tax.rates.uk.thresholds
+    return {
+        "annual_exempt_amount": float(parameters.cgt.annual_exempt_amount),
+        "basic_rate": float(parameters.cgt.basic_rate),
+        "higher_rate": float(parameters.cgt.higher_rate),
+        "additional_rate": float(parameters.cgt.additional_rate),
+        "income_tax_basic_rate_limit": float(thresholds[1]),
+        "income_tax_higher_rate_limit": float(thresholds[2]),
+    }
+
+
+def add_winter_fuel_allowance_projection_columns(
+    household: Any,
+    person: Any,
+    *,
+    year: int,
+) -> Any:
+    required = {"person_household_id", "age", "is_SP_age", "total_income"}
+    if not required.issubset(set(person.columns)):
+        return household
+
+    parameters = policyengine_uk_winter_fuel_payment_parameters(year)
+    projection = person[["person_household_id"]].copy()
+    age = person["age"].fillna(0).astype(float)
+    is_sp_age = person["is_SP_age"].fillna(False).astype(bool)
+    total_income = person["total_income"].fillna(0).astype(float)
+    projection["oldest_household_member_age"] = age
+    projection["household_has_state_pension_age_person"] = is_sp_age.astype(int)
+    projection["household_has_pensioner_below_wfp_income_limit"] = (
+        is_sp_age & (total_income < parameters["maximum_taxable_income"])
+    ).astype(int)
+    by_household = projection.groupby("person_household_id", dropna=False).agg(
+        {
+            "oldest_household_member_age": "max",
+            "household_has_state_pension_age_person": "max",
+            "household_has_pensioner_below_wfp_income_limit": "max",
+        }
+    )
+    by_household["household_has_state_pension_age_person"] = by_household[
+        "household_has_state_pension_age_person"
+    ].astype(bool)
+    by_household["household_has_pensioner_below_wfp_income_limit"] = by_household[
+        "household_has_pensioner_below_wfp_income_limit"
+    ].astype(bool)
+    by_household = by_household.reset_index()
+    merged = household.merge(
+        by_household,
+        left_on="household_id",
+        right_on="person_household_id",
+        how="left",
+    ).drop(columns=["person_household_id"], errors="ignore")
+    merged["oldest_household_member_age"] = merged[
+        "oldest_household_member_age"
+    ].fillna(0)
+    merged["household_has_state_pension_age_person"] = merged[
+        "household_has_state_pension_age_person"
+    ].fillna(False)
+    pensioner_below_income_limit = merged[
+        "household_has_pensioner_below_wfp_income_limit"
+    ].fillna(False)
+    if "country" in merged.columns:
+        country = merged["country"].astype(str).str.split(".").str[-1].str.upper()
+        country_is_england_or_wales = country.isin(["ENGLAND", "WALES"])
+    else:
+        country_is_england_or_wales = False
+    merged["household_meets_winter_fuel_payment_income_passport"] = (
+        parameters["use_maximum_taxable_income"]
+        & pensioner_below_income_limit
+        & country_is_england_or_wales
+    )
+    merged["winter_fuel_payment_means_tested_benefits_required"] = parameters[
+        "require_benefits"
+    ]
+    merged["winter_fuel_payment_state_pension_age_required"] = parameters[
+        "state_pension_age_requirement"
+    ]
+    return merged.drop(
+        columns=["household_has_pensioner_below_wfp_income_limit"],
+        errors="ignore",
+    )
+
+
 def resolve_policyengine_uk_dataset_reference(dataset: str) -> str:
     if "://" in dataset:
         return dataset
@@ -2820,6 +4421,12 @@ def policyengine_benunit_variables_for_surfaces(
     surfaces: list[str],
 ) -> tuple[str, ...]:
     return policyengine_variables_for_surfaces(surfaces, entity="benunit")
+
+
+def policyengine_household_variables_for_surfaces(
+    surfaces: list[str],
+) -> tuple[str, ...]:
+    return policyengine_variables_for_surfaces(surfaces, entity="household")
 
 
 def policyengine_variables_for_surfaces(
@@ -3047,6 +4654,128 @@ def classify_hbai_component(
         surfaces=(),
         covered_outputs=(),
         rationale="No current Axiom UK RuleSpec surface is classified as covering this HBAI policy component.",
+        activity=activity,
+    )
+
+
+def build_uk_national_policy_coverage_report(
+    *,
+    year: int = 2026,
+    dataset: str = DEFAULT_DATASET,
+    data_folder: Path = Path(".axiom") / "policyengine-data",
+    include_efrs_activity: bool = False,
+    source_root: Path | None = None,
+) -> UKEFRSNationalPolicyCoverageReport:
+    versions = policyengine_uk_versions()
+    resolved_source_root = source_root or policyengine_uk_variables_source_root()
+    variables = discover_policyengine_uk_variables(source_root=resolved_source_root)
+    variables_by_name = {variable.name: variable for variable in variables}
+
+    manifest_variables = [
+        variables_by_name[str(component["variable"])]
+        for component in NATIONAL_POLICY_COMPONENTS
+        if component.get("variable") in variables_by_name
+    ]
+    activity_by_name: dict[str, UKEFRSVariableActivity] = {}
+    activity_errors: list[dict[str, str]] = []
+    if include_efrs_activity and manifest_variables:
+        raw_activity, activity_errors = policyengine_uk_efrs_activity(
+            manifest_variables,
+            year=year,
+            dataset=dataset,
+            data_folder=data_folder,
+        )
+        activity_by_name = {item.name: item for item in raw_activity}
+
+    components = [
+        classify_national_policy_component(
+            component,
+            variable=variables_by_name.get(str(component.get("variable"))),
+            activity=activity_by_name.get(str(component.get("variable"))),
+        )
+        for component in NATIONAL_POLICY_COMPONENTS
+    ]
+
+    return UKEFRSNationalPolicyCoverageReport(
+        policyengine_versions=versions,
+        source_root=str(resolved_source_root.resolve()),
+        year=year,
+        dataset=dataset,
+        components=components,
+        activity_errors=activity_errors,
+    )
+
+
+def classify_national_policy_component(
+    component: dict[str, Any],
+    *,
+    variable: UKEFRSVariableMetadata | None,
+    activity: UKEFRSVariableActivity | None,
+) -> UKEFRSNationalPolicyComponentCoverage:
+    variable_name = component.get("variable")
+    if variable_name is None:
+        rationale = NATIONAL_POLICY_PARAMETER_ONLY_COMPONENTS.get(
+            str(component["program_id"]),
+            "This PolicyEngine UK program has no primary EFRS cash-output variable.",
+        )
+        return UKEFRSNationalPolicyComponentCoverage(
+            program_id=str(component["program_id"]),
+            name=str(component["name"]),
+            variable=None,
+            category=str(component["category"]),
+            agency=str(component["agency"]),
+            coverage=str(component["coverage"]),
+            status="parameter_only",
+            policy_component=False,
+            surfaces=(),
+            covered_outputs=(),
+            rationale=rationale,
+        )
+
+    coverage = NATIONAL_POLICY_COMPONENT_COVERAGE.get(str(variable_name))
+    if coverage is None:
+        coverage = {
+            "status": "missing",
+            "surfaces": (),
+            "covered_outputs": (),
+            "rationale": (
+                "No current Axiom UK RuleSpec surface is classified as covering "
+                f"the PolicyEngine UK {variable_name} national policy component."
+            ),
+        }
+
+    status = str(coverage["status"])
+    if variable is None and status not in {"out_of_scope", "parameter_only"}:
+        status = "unavailable"
+        rationale = (
+            f"PolicyEngine UK variable {variable_name} was listed in the national "
+            "policy manifest but was not found in the installed PE-UK variable set."
+        )
+        policy_component = False
+    else:
+        rationale = str(coverage["rationale"])
+        policy_component = status not in {
+            "fixed_input",
+            "out_of_scope",
+            "parameter_only",
+            "unavailable",
+        }
+
+    return UKEFRSNationalPolicyComponentCoverage(
+        program_id=str(component["program_id"]),
+        name=str(component["name"]),
+        variable=str(variable_name),
+        category=str(component["category"]),
+        agency=str(component["agency"]),
+        coverage=str(component["coverage"]),
+        status=status,
+        policy_component=policy_component,
+        surfaces=tuple(str(item) for item in coverage["surfaces"]),
+        covered_outputs=tuple(str(item) for item in coverage["covered_outputs"]),
+        rationale=rationale,
+        entity=variable.entity if variable else None,
+        path=variable.path if variable else None,
+        computed=variable.computed if variable else None,
         activity=activity,
     )
 
@@ -3718,6 +5447,89 @@ def print_uk_hbai_policy_coverage_report(
             print(f"  - {error.get('variable', '?')}: {error.get('error', '')}")
 
 
+def print_uk_national_policy_coverage_report(
+    report: UKEFRSNationalPolicyCoverageReport,
+    *,
+    top: int,
+) -> None:
+    print("PolicyEngine UK national policy coverage")
+    print(
+        "PolicyEngine versions: "
+        + ", ".join(
+            f"{package}=={version}"
+            for package, version in report.policyengine_versions.items()
+        )
+    )
+    if report.source_root:
+        print(f"Variable source root: {report.source_root}")
+    print(f"Year: {report.year}")
+    print(f"Dataset: {report.dataset}")
+    print(f"Manifest components: {len(report.components):,}")
+    print(
+        "Policy components covered exactly or partially: "
+        f"{report.covered_policy_component_count:,}/"
+        f"{report.policy_component_count:,} "
+        f"({report.covered_policy_component_share:.1%})"
+    )
+    print(
+        "Policy components covered exactly: "
+        f"{report.exact_policy_component_count:,}/"
+        f"{report.policy_component_count:,} "
+        f"({report.exact_policy_component_share:.1%})"
+    )
+    print("Status counts:")
+    for status, count in report.status_counts.items():
+        print(f"  - {status}: {count:,}")
+    if report.activity_totals:
+        totals = report.activity_totals
+        print()
+        print(
+            "Policy component weighted abs activity covered exactly or partially: "
+            f"{totals['covered_policy_weighted_abs_share']:.1%}"
+        )
+        print(
+            "Policy component weighted abs activity covered exactly: "
+            f"{totals['exact_policy_weighted_abs_share']:.1%}"
+        )
+        print(
+            "Policy component weighted abs activity still missing: "
+            f"{totals['missing_policy_weighted_abs_share']:.1%}"
+        )
+    print()
+    print(f"National policy components (first {top:,}):")
+    components = report.components
+    if any(component.activity for component in components):
+        components = sorted(
+            components,
+            key=lambda component: (
+                component.activity.weighted_abs_total if component.activity else -1,
+                component.name,
+            ),
+            reverse=True,
+        )
+    for component in components[:top]:
+        activity = ""
+        if component.activity:
+            activity = (
+                f", nonzero={component.activity.nonzero_count:,}, "
+                f"weighted_abs_total={component.activity.weighted_abs_total:.2f}"
+            )
+        surfaces = ", ".join(component.surfaces) if component.surfaces else "none"
+        print(
+            f"  - {component.name} [{component.variable or component.program_id}] "
+            f"({component.agency}, {component.coverage}): "
+            f"{component.status}, surfaces={surfaces}{activity}"
+        )
+    if report.activity_errors:
+        print()
+        print("Activity errors:")
+        for error in report.activity_errors[:top]:
+            print(
+                f"  - {error.get('entity', '?')}:{error.get('variable', '?')}: "
+                f"{error.get('error', '')}"
+            )
+
+
 def select_person_indices(
     rows: list[dict[str, Any]],
     *,
@@ -3747,6 +5559,22 @@ def select_benunit_indices(
         id_column="benunit_id",
         weight_column="benunit_weight",
         entity_label="EFRS benunit_id",
+    )
+
+
+def select_household_indices(
+    rows: list[dict[str, Any]],
+    *,
+    sample_size: int,
+    household_ids: tuple[int, ...] = (),
+) -> list[int]:
+    return select_entity_indices(
+        rows,
+        sample_size=sample_size,
+        requested_ids=household_ids,
+        id_column="household_id",
+        weight_column="household_weight",
+        entity_label="EFRS household_id",
     )
 
 
@@ -4019,6 +5847,8 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "closed-legacy-benefits-final":
+        return build_closed_legacy_benefits_final_request(pe_data=pe_data, year=year)
     if surface == "housing-benefit-working-age-tariff-income":
         return build_housing_benefit_working_age_tariff_income_request(
             pe_data=pe_data,
@@ -4088,6 +5918,47 @@ def build_axiom_request(
         return build_sda_final_request(pe_data=pe_data, year=year)
     if surface == "disability-living-allowance-final":
         return build_dla_final_request(pe_data=pe_data, year=year)
+    if surface == "attendance-allowance-final":
+        return build_attendance_allowance_final_request(pe_data=pe_data, year=year)
+    if surface == "winter-fuel-allowance-final":
+        return build_winter_fuel_allowance_final_request(pe_data=pe_data, year=year)
+    if surface == "tax-free-childcare-final":
+        return build_tax_free_childcare_final_request(pe_data=pe_data, year=year)
+    if surface == "capital-gains-tax-final":
+        return build_capital_gains_tax_final_request(pe_data=pe_data, year=year)
+    if surface == "stamp-duty-land-tax-final":
+        return build_stamp_duty_land_tax_final_request(pe_data=pe_data, year=year)
+    if surface == "land-and-buildings-transaction-tax-final":
+        return build_lbtt_final_request(pe_data=pe_data, year=year)
+    if surface == "land-transaction-tax-final":
+        return build_ltt_final_request(pe_data=pe_data, year=year)
+    if surface == "vat-final":
+        return build_vat_final_request(pe_data=pe_data, year=year)
+    if surface == "fuel-duty-final":
+        return build_fuel_duty_final_request(pe_data=pe_data, year=year)
+    if surface == "free-tv-licence-value":
+        return build_free_tv_licence_value_request(pe_data=pe_data, year=year)
+    if surface == "cost-of-living-support-payment-final":
+        return build_cost_of_living_support_payment_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "energy-bills-rebate-final":
+        return build_energy_bills_rebate_final_request(pe_data=pe_data, year=year)
+    if surface == "energy-price-guarantee-final":
+        return build_energy_price_guarantee_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "dfe-person-programs-final":
+        return build_dfe_person_programs_final_request(pe_data=pe_data, year=year)
+    if surface == "dfe-extended-childcare-entitlement-final":
+        return build_dfe_extended_childcare_entitlement_final_request(
+            pe_data=pe_data,
+            year=year,
+        )
+    if surface == "sure-start-maternity-grant-final":
+        return build_ssmg_final_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -4930,6 +6801,41 @@ def build_income_support_tariff_income_request(
     )
 
 
+def build_closed_legacy_benefits_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "closed-legacy-benefits-final"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_closed_legacy_benefits_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{CLOSED_LEGACY_BENEFITS_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in CLOSED_LEGACY_BENEFITS_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_housing_benefit_working_age_tariff_income_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -5617,6 +7523,581 @@ def build_dla_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, 
     }
 
 
+def build_attendance_allowance_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "attendance-allowance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_attendance_allowance_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{ATTENDANCE_ALLOWANCE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in ATTENDANCE_ALLOWANCE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_winter_fuel_allowance_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "winter-fuel-allowance-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_winter_fuel_allowance_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{WINTER_FUEL_ALLOWANCE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in WINTER_FUEL_ALLOWANCE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_tax_free_childcare_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = uk_tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "tax-free-childcare-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_tax_free_childcare_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{TAX_FREE_CHILDCARE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in TAX_FREE_CHILDCARE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_capital_gains_tax_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    parameters = policyengine_uk_capital_gains_tax_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "capital-gains-tax-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_capital_gains_tax_final_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{CAPITAL_GAINS_TAX_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in CAPITAL_GAINS_TAX_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_stamp_duty_land_tax_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "stamp-duty-land-tax-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_stamp_duty_land_tax_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_lbtt_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "land-and-buildings-transaction-tax-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_lbtt_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{LBTT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in LBTT_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_ltt_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "land-transaction-tax-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_ltt_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{LTT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in LTT_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_vat_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    parameters = policyengine_uk_vat_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "vat-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_vat_final_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{VAT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in VAT_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_fuel_duty_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    parameters = policyengine_uk_fuel_duty_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "fuel-duty-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_fuel_duty_final_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{FUEL_DUTY_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in FUEL_DUTY_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_free_tv_licence_value_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = licence_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "free-tv-licence-value"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_free_tv_licence_value_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{TV_LICENCE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in TV_LICENCE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_cost_of_living_support_payment_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "cost-of-living-support-payment-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_cost_of_living_support_payment_final_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_energy_bills_rebate_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "energy-bills-rebate-final"):
+        queries.append(
+            {
+                "entity_id": household_entity_id(int(row_value(row, "household_id"))),
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": [], "relations": []},
+        "queries": queries,
+    }
+
+
+def build_energy_price_guarantee_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "energy-price-guarantee-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        for name, value in project_energy_price_guarantee_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{ENERGY_PRICE_GUARANTEE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in ENERGY_PRICE_GUARANTEE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_dfe_person_programs_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "dfe-person-programs-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_dfe_person_programs_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_dfe_extended_childcare_entitlement_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    child_rows_by_benunit = person_rows_by_benunit(pe_data)
+    for row in rows_for_surface(pe_data, "dfe-extended-childcare-entitlement-final"):
+        benunit_id = int(row_value(row, "benunit_id"))
+        entity_id = benunit_entity_id(benunit_id)
+        inputs.append(
+            input_record(
+                (
+                    f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                    "#input.extended_childcare_entitlement_is_eligible"
+                ),
+                entity_id,
+                interval,
+                bool_row_value(row, "extended_childcare_entitlement_eligible", False),
+            )
+        )
+        maximum_hours_usage = money(
+            row_value(row, "maximum_extended_childcare_hours_usage", 0)
+        )
+        for child_row in child_rows_by_benunit.get(benunit_id, []):
+            person_id_text = person_entity_id(int(row_value(child_row, "person_id")))
+            relations.append(
+                {
+                    "name": (
+                        f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                        "#relation.extended_childcare_entitlement_children"
+                    ),
+                    "tuple": [person_id_text, entity_id],
+                    "interval": interval,
+                }
+            )
+            for name, value in project_dfe_extended_childcare_child_inputs(
+                child_row,
+                maximum_hours_usage=maximum_hours_usage,
+            ).items():
+                inputs.append(
+                    input_record(
+                        (
+                            f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+                            f"#input.{name}"
+                        ),
+                        person_id_text,
+                        interval,
+                        value,
+                    )
+                )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": queries,
+    }
+
+
+def build_ssmg_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "sure-start-maternity-grant-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_ssmg_final_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{SSMG_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in SSMG_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -6203,6 +8684,23 @@ def project_student_loan_repayment_inputs(row: Any) -> dict[str, Any]:
         "annual_income_before_tax_and_other_deductions": money(
             row_value(row, "adjusted_net_income", 0)
         ),
+        "outstanding_student_loan_balance": money(
+            row_value(row, "student_loan_balance", 0)
+        ),
+    }
+
+
+def project_closed_legacy_benefits_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "contribution_based_jobseekers_allowance_reported_for_year": money(
+            row_value(row, "jsa_contrib", 0)
+        ),
+        "income_related_employment_and_support_allowance_for_year": money(
+            row_value(row, "esa_income", 0)
+        ),
+        "contribution_based_employment_and_support_allowance_reported_for_year": money(
+            row_value(row, "esa_contrib", 0)
+        ),
     }
 
 
@@ -6266,6 +8764,369 @@ def project_dla_final_inputs(row: Any) -> dict[str, Any]:
         "person_has_lower_rate_dla_self_care_category": self_care_category == "LOWER",
         "person_has_higher_rate_dla_mobility_category": mobility_category == "HIGHER",
         "person_has_lower_rate_dla_mobility_category": mobility_category == "LOWER",
+    }
+
+
+def project_attendance_allowance_final_inputs(row: Any) -> dict[str, Any]:
+    category = enum_name(row_value(row, "aa_category", "NONE")).upper()
+    return {
+        "person_has_higher_rate_attendance_allowance_category": category == "HIGHER",
+        "person_has_lower_rate_attendance_allowance_category": category == "LOWER",
+    }
+
+
+def project_winter_fuel_allowance_final_inputs(row: Any) -> dict[str, Any]:
+    country = enum_name(row_value(row, "country", "")).upper()
+    receives_means_tested_benefit = (
+        money(row_value(row, "pension_credit", 0))
+        + money(row_value(row, "income_support", 0))
+        + money(row_value(row, "esa_income", 0))
+        + money(row_value(row, "jsa_income", 0))
+    ) > 0
+    return {
+        "household_is_in_scotland": country == "SCOTLAND",
+        "household_receives_relevant_means_tested_benefit": receives_means_tested_benefit,
+        "winter_fuel_payment_means_tested_benefits_required": bool_row_value(
+            row,
+            "winter_fuel_payment_means_tested_benefits_required",
+            False,
+        ),
+        "household_meets_winter_fuel_payment_income_passport": bool_row_value(
+            row,
+            "household_meets_winter_fuel_payment_income_passport",
+            False,
+        ),
+        "household_has_state_pension_age_person": bool_row_value(
+            row,
+            "household_has_state_pension_age_person",
+            False,
+        ),
+        "winter_fuel_payment_state_pension_age_required": bool_row_value(
+            row,
+            "winter_fuel_payment_state_pension_age_required",
+            False,
+        ),
+        "oldest_household_member_age": money(
+            row_value(row, "oldest_household_member_age", 0)
+        ),
+    }
+
+
+def project_tax_free_childcare_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "tax_free_childcare_benefit_unit_is_eligible": bool_row_value(
+            row,
+            "tax_free_childcare_eligible",
+            False,
+        ),
+        "tax_free_childcare_child_is_qualifying_child": bool_row_value(
+            row,
+            "tax_free_childcare_qualifying_child",
+            False,
+        ),
+        "tax_free_childcare_child_is_disabled_or_blind": bool_row_value(
+            row,
+            "is_disabled_for_benefits",
+            False,
+        )
+        or bool_row_value(row, "is_blind", False),
+        "tax_free_childcare_uses_qualifying_provider": bool_row_value(
+            row,
+            "tax_free_childcare_uses_qualifying_provider",
+            False,
+        ),
+        "tax_free_childcare_eligible_declaration_period_count": money(
+            row_value(row, "tax_free_childcare_eligible_declaration_periods", 0)
+        ),
+        "tax_free_childcare_qualifying_childcare_payment_annual_amount": money(
+            row_value(row, "childcare_expenses", 0)
+        ),
+    }
+
+
+def project_vat_final_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "full_rate_vat_consumption_for_year": money(
+            row_value(row, "full_rate_vat_consumption", 0)
+        ),
+        "reduced_rate_vat_consumption_for_year": money(
+            row_value(row, "reduced_rate_vat_consumption", 0)
+        ),
+        "microdata_vat_coverage_fraction": money(
+            parameters["microdata_vat_coverage"]
+        ),
+    }
+
+
+def project_capital_gains_tax_final_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "capital_gains_for_year": money(row_value(row, "capital_gains", 0)),
+        "adjusted_net_income_for_year": money(
+            row_value(row, "adjusted_net_income", 0)
+        ),
+        "allowances_for_year": money(row_value(row, "allowances", 0)),
+        "gift_aid_for_year": money(row_value(row, "gift_aid", 0)),
+        "gift_aid_grossed_up_for_year": money(
+            row_value(row, "gift_aid_grossed_up", 0)
+        ),
+        "personal_pension_contributions_for_year": money(
+            row_value(row, "personal_pension_contributions", 0)
+        ),
+        "pension_contributions_relief_for_year": money(
+            row_value(row, "pension_contributions_relief", 0)
+        ),
+        "income_tax_basic_rate_limit_for_year": money(
+            parameters["income_tax_basic_rate_limit"]
+        ),
+        "income_tax_higher_rate_limit_for_year": money(
+            parameters["income_tax_higher_rate_limit"]
+        ),
+    }
+
+
+def project_stamp_duty_land_tax_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "household_is_sdlt_liable": bool_row_value(row, "sdlt_liable", False),
+        "main_residential_property_purchased_for_year": money(
+            row_value(row, "main_residential_property_purchased", 0)
+        ),
+        "main_residential_property_purchased_is_first_home": bool_row_value(
+            row,
+            "main_residential_property_purchased_is_first_home",
+            False,
+        ),
+        "additional_residential_property_purchased_for_year": money(
+            row_value(row, "additional_residential_property_purchased", 0)
+        ),
+        "non_residential_property_purchased_for_year": money(
+            row_value(row, "non_residential_property_purchased", 0)
+        ),
+        "cumulative_residential_rent_for_year": money(
+            row_value(row, "cumulative_residential_rent", 0)
+        ),
+        "residential_rent_for_year": money(row_value(row, "rent", 0)),
+        "cumulative_non_residential_rent_for_year": money(
+            row_value(row, "cumulative_non_residential_rent", 0)
+        ),
+        "non_residential_rent_for_year": money(
+            row_value(row, "non_residential_rent", 0)
+        ),
+    }
+
+
+def project_lbtt_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "household_is_lbtt_liable": bool_row_value(row, "lbtt_liable", False),
+        "lbtt_on_transactions_for_year": money(
+            row_value(row, "lbtt_on_transactions", 0)
+        ),
+        "lbtt_on_rent_for_year": money(row_value(row, "lbtt_on_rent", 0)),
+    }
+
+
+def project_ltt_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "household_is_ltt_liable": bool_row_value(row, "ltt_liable", False),
+        "ltt_on_transactions_for_year": money(
+            row_value(row, "ltt_on_transactions", 0)
+        ),
+        "ltt_on_rent_for_year": money(row_value(row, "ltt_on_rent", 0)),
+    }
+
+
+def project_fuel_duty_final_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "petrol_litres_for_year": money(row_value(row, "petrol_litres", 0)),
+        "diesel_litres_for_year": money(row_value(row, "diesel_litres", 0)),
+        "petrol_and_diesel_fuel_duty_rate_per_litre": money(
+            parameters["petrol_and_diesel"]
+        ),
+        "fuel_is_purchased_in_rural_fuel_duty_relief_area": bool_row_value(
+            row,
+            "in_rural_fuel_duty_relief_area",
+            False,
+        ),
+    }
+
+
+def project_free_tv_licence_value_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "household_owns_tv": bool_row_value(row, "household_owns_tv", False),
+        "household_would_evade_tv_licence_fee": bool_row_value(
+            row,
+            "would_evade_tv_licence_fee",
+            False,
+        ),
+        "tv_licence_discount_fraction": money(row_value(row, "tv_licence_discount", 0)),
+    }
+
+
+def project_cost_of_living_support_payment_final_inputs(row: Any) -> dict[str, Any]:
+    receives_means_tested_benefit = (
+        money(row_value(row, "universal_credit", 0))
+        + money(row_value(row, "pension_credit", 0))
+        + money(row_value(row, "housing_benefit", 0))
+        + money(row_value(row, "jsa_income", 0))
+        + money(row_value(row, "income_support", 0))
+        + money(row_value(row, "esa_income", 0))
+    ) > 0
+    receives_disability_benefit = (
+        money(row_value(row, "pip", 0))
+        + money(row_value(row, "dla", 0))
+        + money(row_value(row, "attendance_allowance", 0))
+        + money(row_value(row, "armed_forces_independence_payment", 0))
+    ) > 0
+    return {
+        "household_receives_qualifying_means_tested_benefit_for_cost_of_living_payment": receives_means_tested_benefit,
+        "household_receives_winter_fuel_payment_for_cost_of_living_payment": money(
+            row_value(row, "winter_fuel_allowance", 0)
+        )
+        > 0,
+        "household_receives_qualifying_disability_benefit_for_cost_of_living_payment": receives_disability_benefit,
+    }
+
+
+def project_energy_price_guarantee_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "domestic_energy_consumption_for_year": money(
+            row_value(row, "domestic_energy_consumption", 0)
+        ),
+    }
+
+
+def project_dfe_person_programs_final_inputs(row: Any) -> dict[str, Any]:
+    living_arrangement = enum_key(row_value(row, "maintenance_loan_living_arrangement", ""))
+    region = enum_key(row_value(row, "region", ""))
+    return {
+        "person_age": money(row_value(row, "age", 0)),
+        "max_free_entitlement_hours_used": money(
+            row_value(row, "max_free_entitlement_hours_used", 0)
+        ),
+        "universal_childcare_entitlement_is_eligible": bool_row_value(
+            row,
+            "universal_childcare_entitlement_eligible",
+            False,
+        ),
+        "targeted_childcare_entitlement_is_eligible": bool_row_value(
+            row,
+            "targeted_childcare_entitlement_eligible",
+            False,
+        ),
+        "childcare_grant_is_eligible": bool_row_value(
+            row,
+            "childcare_grant_eligible",
+            False,
+        ),
+        "childcare_grant_eligible_child_count": money(
+            row_value(row, "childcare_grant_eligible_children", 0)
+        ),
+        "childcare_expenses_for_year": money(row_value(row, "childcare_expenses", 0)),
+        "parents_learning_allowance_is_eligible": bool_row_value(
+            row,
+            "parents_learning_allowance_eligible",
+            False,
+        ),
+        "adult_dependants_grant_is_eligible": bool_row_value(
+            row,
+            "adult_dependants_grant_eligible",
+            False,
+        ),
+        "travel_grant_is_eligible": bool_row_value(
+            row,
+            "travel_grant_eligible",
+            False,
+        ),
+        "travel_grant_eligible_expenses_for_year": money(
+            row_value(row, "travel_grant_eligible_expenses", 0)
+        ),
+        "travel_grant_household_income_for_year": money(
+            row_value(row, "travel_grant_household_income", 0)
+        ),
+        "disabled_students_allowance_is_eligible": bool_row_value(
+            row,
+            "disabled_students_allowance_eligible",
+            False,
+        ),
+        "disabled_students_allowance_eligible_expenses_for_year": money(
+            row_value(row, "disabled_students_allowance_eligible_expenses", 0)
+        ),
+        "care_to_learn_is_eligible": bool_row_value(
+            row,
+            "care_to_learn_eligible",
+            False,
+        ),
+        "household_region_is_london": region == "LONDON",
+        "maintenance_loan_is_eligible": bool_row_value(
+            row,
+            "maintenance_loan_eligible",
+            False,
+        ),
+        "maintenance_loan_household_income_for_year": money(
+            row_value(row, "maintenance_loan_household_income", 0)
+        ),
+        "maintenance_loan_living_with_parents": living_arrangement
+        == "LIVING_WITH_PARENTS",
+        "maintenance_loan_away_in_london": living_arrangement == "AWAY_IN_LONDON",
+        "maintenance_loan_entitled_to_benefits": bool_row_value(
+            row,
+            "maintenance_loan_entitled_to_benefits",
+            False,
+        ),
+        "bursary_fund_16_to_19_vulnerable_group_is_eligible": bool_row_value(
+            row,
+            "bursary_fund_16_to_19_vulnerable_group_eligible",
+            False,
+        ),
+        "bursary_fund_16_to_19_participation_costs_for_year": money(
+            row_value(row, "bursary_fund_16_to_19_participation_costs", 0)
+        ),
+    }
+
+
+def project_dfe_extended_childcare_child_inputs(
+    row: Any,
+    *,
+    maximum_hours_usage: float,
+) -> dict[str, Any]:
+    return {
+        "child_age": money(row_value(row, "age", 0)),
+        "max_free_entitlement_hours_used": money(
+            row_value(row, "max_free_entitlement_hours_used", 0)
+        ),
+        "maximum_extended_childcare_hours_usage_for_family": money(
+            maximum_hours_usage
+        ),
+        "extended_childcare_child_counts_for_entitlement": True,
+    }
+
+
+def person_rows_by_benunit(pe_data: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+    rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in pe_data.get("all_persons") or pe_data["persons"]:
+        benunit_id = row_value(row, "person_benunit_id")
+        if benunit_id is None:
+            continue
+        rows[int(benunit_id)].append(row)
+    return rows
+
+
+def project_ssmg_final_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "reported_sure_start_maternity_grant_for_year": money(
+            row_value(row, "ssmg_reported", 0)
+        ),
     }
 
 
@@ -6493,6 +9354,106 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             or enum_name(row_value(row, "dla_sc_category", "NONE")).upper() != "NONE"
             or enum_name(row_value(row, "dla_m_category", "NONE")).upper() != "NONE"
         ]
+    if surface == "attendance-allowance-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "attendance_allowance", 0)) > 0
+            or enum_name(row_value(row, "aa_category", "NONE")).upper() != "NONE"
+        ]
+    if surface == "tax-free-childcare-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "tax_free_childcare", 0)) > 0
+            or (
+                bool_row_value(row, "tax_free_childcare_eligible", False)
+                and bool_row_value(row, "tax_free_childcare_qualifying_child", False)
+                and money(row_value(row, "childcare_expenses", 0)) > 0
+            )
+        ]
+    if surface == "capital-gains-tax-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "capital_gains_tax", 0)) > 0
+            or money(row_value(row, "capital_gains", 0)) > 0
+            or money(row_value(row, "gift_aid", 0)) > 0
+            or money(row_value(row, "gift_aid_grossed_up", 0)) > 0
+            or money(row_value(row, "personal_pension_contributions", 0)) > 0
+            or money(row_value(row, "pension_contributions_relief", 0)) > 0
+        ]
+    if surface == "sure-start-maternity-grant-final":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "ssmg", 0)) > 0
+            or money(row_value(row, "ssmg_reported", 0)) > 0
+        ]
+    households = pe_data.get("households", [])
+    if surface == "vat-final":
+        return [
+            row
+            for row in households
+            if money(row_value(row, "vat", 0)) > 0
+            or money(row_value(row, "full_rate_vat_consumption", 0)) > 0
+            or money(row_value(row, "reduced_rate_vat_consumption", 0)) > 0
+        ]
+    if surface == "stamp-duty-land-tax-final":
+        return [
+            row
+            for row in households
+            if money(row_value(row, "stamp_duty_land_tax", 0)) > 0
+            or money(row_value(row, "main_residential_property_purchased", 0)) > 0
+            or money(row_value(row, "additional_residential_property_purchased", 0))
+            > 0
+            or money(row_value(row, "non_residential_property_purchased", 0)) > 0
+            or money(row_value(row, "cumulative_residential_rent", 0)) > 0
+            or money(row_value(row, "rent", 0)) > 0
+            or money(row_value(row, "cumulative_non_residential_rent", 0)) > 0
+            or money(row_value(row, "non_residential_rent", 0)) > 0
+        ]
+    if surface == "land-and-buildings-transaction-tax-final":
+        return list(households)
+    if surface == "land-transaction-tax-final":
+        return list(households)
+    if surface == "fuel-duty-final":
+        return [
+            row
+            for row in households
+            if money(row_value(row, "fuel_duty", 0)) > 0
+            or money(row_value(row, "petrol_litres", 0)) > 0
+            or money(row_value(row, "diesel_litres", 0)) > 0
+        ]
+    if surface == "winter-fuel-allowance-final":
+        return [
+            row
+            for row in households
+            if money(row_value(row, "winter_fuel_allowance", 0)) > 0
+            or bool_row_value(row, "household_has_state_pension_age_person", False)
+            or bool_row_value(
+                row,
+                "household_meets_winter_fuel_payment_income_passport",
+                False,
+            )
+            or money(row_value(row, "pension_credit", 0)) > 0
+            or money(row_value(row, "income_support", 0)) > 0
+            or money(row_value(row, "esa_income", 0)) > 0
+            or money(row_value(row, "jsa_income", 0)) > 0
+        ]
+    if surface == "free-tv-licence-value":
+        return [
+            row
+            for row in households
+            if money(row_value(row, "free_tv_licence_value", 0)) > 0
+            or money(row_value(row, "tv_licence", 0)) > 0
+        ]
+    if surface == "cost-of-living-support-payment-final":
+        return list(households)
+    if surface == "energy-bills-rebate-final":
+        return list(households)
+    if surface == "energy-price-guarantee-final":
+        return list(households)
     if surface == "pension-credit-final":
         return [
             row
@@ -6508,6 +9469,8 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             or money(row_value(row, "esa_income_reported_for_year", 0)) > 0
             or money(row_value(row, "esa_income_tariff_income", 0)) > 0
         ]
+    if surface == "closed-legacy-benefits-final":
+        return list(benunits)
     if surface == "housing-benefit-final":
         return [
             row
@@ -6532,6 +9495,8 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
         ]
     if SURFACE_SPECS[surface].entity == "benunit":
         return benunits
+    if SURFACE_SPECS[surface].entity == "household":
+        return households
     return persons
 
 
@@ -6621,6 +9586,7 @@ def compare_outputs(
     return UKEFRSComparisonReport(
         compared_persons=len(pe_data["person_ids"]),
         compared_benunits=len(pe_data.get("benunit_ids", [])),
+        compared_households=len(pe_data.get("household_ids", [])),
         compared_values=compared_values,
         mismatches=mismatches,
         oracle_divergences=oracle_divergences,
@@ -6731,6 +9697,14 @@ def compare_outputs(
             "projects PolicyEngine UK's DLA self-care and mobility category "
             "enums into boolean category leaves, then compares selected weekly "
             "components and the final annual aggregate.",
+            "PolicyEngine-aligned Attendance Allowance final comparison projects "
+            "PolicyEngine UK's Attendance Allowance category enum into higher "
+            "and lower boolean category leaves, then compares the selected weekly "
+            "amount and final annual aggregate.",
+            "PolicyEngine-aligned Winter Fuel Allowance final comparison runs at "
+            "household level, projects household pension-age, income-passport, "
+            "means-tested-benefit, Scotland, and age-80 gates from PolicyEngine "
+            "outputs, and compares the final annual household amount.",
             "When a local EFRS .h5 predates the PolicyEngine UK disability "
             "category-input migration, the oracle derives PIP, DLA, and "
             "Attendance Allowance category inputs in memory from reported "
@@ -6847,6 +9821,8 @@ def compare_outputs(
 def entity_id_for_surface(surface: str, row: Any) -> str:
     if SURFACE_SPECS[surface].entity == "benunit":
         return benunit_entity_id(int(row_value(row, "benunit_id")))
+    if SURFACE_SPECS[surface].entity == "household":
+        return household_entity_id(int(row_value(row, "household_id")))
     return person_entity_id(int(row_value(row, "person_id")))
 
 
@@ -6955,6 +9931,10 @@ def enum_name(value: Any) -> str:
     if "." in text:
         return text.rsplit(".", 1)[-1]
     return text
+
+
+def enum_key(value: Any) -> str:
+    return enum_name(value).upper().replace(" ", "_").replace("-", "_")
 
 
 def known_policyengine_divergence(
@@ -7090,6 +10070,7 @@ def print_report(
     print("PolicyEngine UK EFRS comparison")
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared benefit units: {report.compared_benunits:,}")
+    print(f"Compared households: {report.compared_households:,}")
     print(f"Compared values: {report.compared_values:,}")
     print(f"Tolerance: {tolerance:g}")
     print(f"Relative tolerance: {relative_tolerance:g}")
@@ -7196,6 +10177,24 @@ def uk_tax_year_interval(year: int) -> dict[str, str]:
     }
 
 
+def calendar_year_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "calendar_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+
+
+def licence_year_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "licence_year",
+        "start": f"{year:04d}-04-01",
+        "end": f"{year + 1:04d}-03-31",
+    }
+
+
 def day_interval(year: int) -> dict[str, str]:
     return {
         "period_kind": "custom",
@@ -7242,6 +10241,10 @@ def income_tax_component_entity_id(person_id: int, component: str) -> str:
 
 def benunit_entity_id(benunit_id: int) -> str:
     return f"benunit_{benunit_id}"
+
+
+def household_entity_id(household_id: int) -> str:
+    return f"household_{household_id}"
 
 
 def resolve_workspace_root(root: Path | None) -> Path:
