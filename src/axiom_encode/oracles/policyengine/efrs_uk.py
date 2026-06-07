@@ -185,6 +185,14 @@ DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_PROGRAM_PATH = Path(
 DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE = (
     "uk:policies/govuk/dfe-extended-childcare-entitlement"
 )
+BUSINESS_RATES_FINAL_PROGRAM_PATH = Path("policies/govuk/business-rates.yaml")
+BUSINESS_RATES_FINAL_BASE = "uk:policies/govuk/business-rates"
+NATIONAL_MINIMUM_WAGE_FINAL_PROGRAM_PATH = Path(
+    "policies/govuk/national-minimum-wage.yaml"
+)
+NATIONAL_MINIMUM_WAGE_FINAL_BASE = "uk:policies/govuk/national-minimum-wage"
+MATERNITY_ALLOWANCE_FINAL_PROGRAM_PATH = Path("policies/govuk/maternity-allowance.yaml")
+MATERNITY_ALLOWANCE_FINAL_BASE = "uk:policies/govuk/maternity-allowance"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -1094,6 +1102,34 @@ DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_OUTPUTS = {
     },
 }
 
+BUSINESS_RATES_FINAL_OUTPUTS = {
+    "business_rates_annual_amount": {
+        "axiom": f"{BUSINESS_RATES_FINAL_BASE}#business_rates_annual_amount",
+        "pe": "business_rates",
+        "tolerance": 0.01,
+    },
+}
+
+NATIONAL_MINIMUM_WAGE_FINAL_OUTPUTS = {
+    "national_minimum_wage_hourly_rate": {
+        "axiom": (
+            f"{NATIONAL_MINIMUM_WAGE_FINAL_BASE}#national_minimum_wage_hourly_rate"
+        ),
+        "pe": "minimum_wage",
+        "tolerance": 0.001,
+    },
+}
+
+MATERNITY_ALLOWANCE_FINAL_OUTPUTS = {
+    "maternity_allowance_annual_amount": {
+        "axiom": (
+            f"{MATERNITY_ALLOWANCE_FINAL_BASE}#maternity_allowance_annual_amount"
+        ),
+        "pe": "maternity_allowance",
+        "tolerance": 0.01,
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
@@ -1872,6 +1908,34 @@ SURFACE_SPECS = {
             "ssmg_reported",
         ),
     ),
+    "business-rates-final": UKEFRSSurfaceSpec(
+        program=BUSINESS_RATES_FINAL_PROGRAM_PATH,
+        entity="household",
+        outputs=BUSINESS_RATES_FINAL_OUTPUTS,
+        pe_variables=(
+            "business_rates",
+            "shareholding",
+        ),
+    ),
+    "national-minimum-wage-final": UKEFRSSurfaceSpec(
+        program=NATIONAL_MINIMUM_WAGE_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_MINIMUM_WAGE_FINAL_OUTPUTS,
+        pe_variables=(
+            "age",
+            "is_apprentice",
+            "minimum_wage",
+        ),
+    ),
+    "maternity-allowance-final": UKEFRSSurfaceSpec(
+        program=MATERNITY_ALLOWANCE_FINAL_PROGRAM_PATH,
+        entity="person",
+        outputs=MATERNITY_ALLOWANCE_FINAL_OUTPUTS,
+        pe_variables=(
+            "maternity_allowance",
+            "maternity_allowance_reported",
+        ),
+    ),
 }
 
 HBAI_FIXED_INPUT_COMPONENTS = frozenset(
@@ -1895,7 +1959,6 @@ HBAI_FIXED_INPUT_COMPONENTS = frozenset(
         "jsa_contrib",
         "maintenance_expenses",
         "maintenance_income",
-        "maternity_allowance",
         "miscellaneous_income",
         "personal_pension_contributions",
         "private_pension_income",
@@ -2175,6 +2238,12 @@ HBAI_COMPONENT_COVERAGE = {
         ),
         "rationale": "Axiom covers PolicyEngine UK's Sure Start Maternity Grant final person amount: the statutory grant rate and the reported-receipt gate used by PolicyEngine. Upstream qualifying-benefit, pregnancy or child, claim-time, and residence conditions remain projected into the reported-receipt leaf input.",
     },
+    "maternity_allowance": {
+        "status": "exact",
+        "surfaces": ("maternity-allowance-final",),
+        "covered_outputs": ("maternity_allowance",),
+        "rationale": "Axiom covers PolicyEngine UK's Maternity Allowance wrapper exactly as PE models it: the annual amount is the reported maternity_allowance_reported input held in the EFRS dataset.",
+    },
     "scottish_child_payment": {
         "status": "exact",
         "surfaces": (
@@ -2297,7 +2366,7 @@ NATIONAL_POLICY_COMPONENTS = (
     {
         "program_id": "minimum_wage",
         "name": "National Minimum Wage",
-        "variable": None,
+        "variable": "minimum_wage",
         "category": "Other",
         "agency": "HMRC",
         "coverage": "UK",
@@ -2631,10 +2700,16 @@ NATIONAL_POLICY_COMPONENT_COVERAGE = {
     "student_loan_repayment": HBAI_COMPONENT_COVERAGE["student_loan_repayments"],
     "tax_free_childcare": HBAI_COMPONENT_COVERAGE["tax_free_childcare"],
     "business_rates": {
-        "status": "out_of_scope",
-        "surfaces": (),
-        "covered_outputs": (),
-        "rationale": "PolicyEngine UK's business-rates program is marked partial with parameters needing updates beyond 2021, and it is outside the current household EFRS national tax-benefit validation scope.",
+        "status": "exact",
+        "surfaces": ("business-rates-final",),
+        "covered_outputs": ("business_rates",),
+        "rationale": "Axiom covers PolicyEngine UK's business_rates incidence surface exactly as PE models it: household shareholding multiplied by the active aggregate business-rates revenue parameter.",
+    },
+    "minimum_wage": {
+        "status": "exact",
+        "surfaces": ("national-minimum-wage-final",),
+        "covered_outputs": ("minimum_wage",),
+        "rationale": "Axiom covers PolicyEngine UK's National Minimum Wage hourly-rate surface from the apprentice override and non-apprentice age bands.",
     },
     "universal_credit": HBAI_COMPONENT_COVERAGE["universal_credit"],
     "pension_credit": HBAI_COMPONENT_COVERAGE["pension_credit"],
@@ -2688,10 +2763,10 @@ NATIONAL_POLICY_COMPONENT_COVERAGE = {
     "winter_fuel_allowance": HBAI_COMPONENT_COVERAGE["winter_fuel_allowance"],
     "ssmg": HBAI_COMPONENT_COVERAGE["ssmg"],
     "maternity_allowance": {
-        "status": "fixed_input",
-        "surfaces": (),
-        "covered_outputs": (),
-        "rationale": "PolicyEngine UK's maternity_allowance variable delegates to reported survey receipt in EFRS; it is held fixed rather than treated as a remaining policy-rule gap.",
+        "status": "exact",
+        "surfaces": ("maternity-allowance-final",),
+        "covered_outputs": ("maternity_allowance",),
+        "rationale": "Axiom covers PolicyEngine UK's Maternity Allowance wrapper exactly as PE models it: the final amount delegates to reported maternity_allowance_reported survey receipt.",
     },
     "universal_childcare_entitlement": {
         "status": "exact",
@@ -2810,13 +2885,7 @@ NATIONAL_POLICY_COMPONENT_COVERAGE = {
     },
 }
 
-NATIONAL_POLICY_PARAMETER_ONLY_COMPONENTS = {
-    "minimum_wage": (
-        "National Minimum Wage has PE parameters but no primary household EFRS "
-        "cash-output variable in programs.yaml, so it is tracked separately from "
-        "the current EFRS output-alignment queue."
-    ),
-}
+NATIONAL_POLICY_PARAMETER_ONLY_COMPONENTS: dict[str, str] = {}
 
 UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
     surface
@@ -5942,6 +6011,12 @@ def build_axiom_request(
         )
     if surface == "sure-start-maternity-grant-final":
         return build_ssmg_final_request(pe_data=pe_data, year=year)
+    if surface == "business-rates-final":
+        return build_business_rates_final_request(pe_data=pe_data, year=year)
+    if surface == "national-minimum-wage-final":
+        return build_national_minimum_wage_final_request(pe_data=pe_data, year=year)
+    if surface == "maternity-allowance-final":
+        return build_maternity_allowance_final_request(pe_data=pe_data, year=year)
     if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
@@ -7732,6 +7807,111 @@ def build_ltt_final_request(*, pe_data: dict[str, Any], year: int) -> dict[str, 
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in LTT_FINAL_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_business_rates_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "business-rates-final"):
+        entity_id = household_entity_id(int(row_value(row, "household_id")))
+        inputs.append(
+            input_record(
+                f"{BUSINESS_RATES_FINAL_BASE}#input.business_rates_shareholding",
+                entity_id,
+                interval,
+                money(row_value(row, "shareholding", 0)),
+            )
+        )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in BUSINESS_RATES_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_national_minimum_wage_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-minimum-wage-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in {
+            "minimum_wage_age": money(row_value(row, "age", 0)),
+            "minimum_wage_is_apprentice": bool(row_value(row, "is_apprentice", False)),
+        }.items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_MINIMUM_WAGE_FINAL_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_MINIMUM_WAGE_FINAL_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_maternity_allowance_final_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = calendar_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "maternity-allowance-final"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        inputs.append(
+            input_record(
+                f"{MATERNITY_ALLOWANCE_FINAL_BASE}"
+                "#input.reported_maternity_allowance_for_year",
+                entity_id,
+                interval,
+                money(row_value(row, "maternity_allowance_reported", 0)),
+            )
+        )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in MATERNITY_ALLOWANCE_FINAL_OUTPUTS.values()
+                ],
             }
         )
 

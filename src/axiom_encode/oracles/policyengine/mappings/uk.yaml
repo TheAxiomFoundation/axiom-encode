@@ -1,4 +1,58 @@
 mappings:
+  - legal_id: uk:policies/govuk/business-rates#business_rates_annual_amount
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: business_rates
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK household business-rates incidence amount, modeled as shareholding multiplied by aggregate business-rates revenue.
+
+  - legal_id: uk:policies/govuk/business-rates#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Helper parameters and projected inputs for the PolicyEngine UK business-rates parity surface; only the final annual amount maps directly to a PE output variable.
+
+  - legal_id: uk:policies/govuk/national-minimum-wage#national_minimum_wage_hourly_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: minimum_wage
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK National Minimum Wage hourly-rate output selected by apprentice status and age.
+
+  - legal_id: uk:policies/govuk/national-minimum-wage#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Helper parameters and projected inputs for the PolicyEngine UK National Minimum Wage parity surface; only the final hourly rate maps directly to a PE output variable.
+
+  - legal_id: uk:policies/govuk/maternity-allowance#maternity_allowance_annual_amount
+    country: uk
+    program: benefits
+    mapping_type: direct_variable
+    policyengine_variable: maternity_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK Maternity Allowance amount, which delegates to reported maternity_allowance_reported survey receipt.
+
+  - legal_id: uk:policies/govuk/maternity-allowance#
+    country: uk
+    program: benefits
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Projected-input helpers for the PolicyEngine UK Maternity Allowance parity surface; only the final annual amount maps directly to a PE output variable.
+
   - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_basic_rate
     country: uk
     program: tax

@@ -5798,8 +5798,9 @@ class hbai_household_net_income(Variable):
     assert by_name["incapacity_benefit"].policy_component is False
     assert by_name["jsa_contrib"].status == "fixed_input"
     assert by_name["jsa_contrib"].policy_component is False
-    assert by_name["maternity_allowance"].status == "fixed_input"
-    assert by_name["maternity_allowance"].policy_component is False
+    assert by_name["maternity_allowance"].status == "exact"
+    assert by_name["maternity_allowance"].surfaces == ("maternity-allowance-final",)
+    assert by_name["maternity_allowance"].policy_component is True
     assert by_name["statutory_sick_pay"].status == "fixed_input"
     assert by_name["statutory_sick_pay"].policy_component is False
     assert by_name["statutory_maternity_pay"].status == "fixed_input"
@@ -6024,9 +6025,9 @@ class hbai_household_net_income(Variable):
     assert by_name["domestic_rates"].policy_component is False
     assert by_name["LVT"].status == "out_of_scope"
     assert by_name["LVT"].policy_component is False
-    assert report.policy_component_count == 25
-    assert report.covered_policy_component_count == 25
-    assert report.exact_policy_component_count == 25
+    assert report.policy_component_count == 26
+    assert report.covered_policy_component_count == 26
+    assert report.exact_policy_component_count == 26
     assert report.covered_policy_component_share == 1
     assert report.exact_policy_component_share == 1
 
