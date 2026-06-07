@@ -3182,9 +3182,9 @@ def test_capital_gains_tax_final_request_projects_final_inputs(monkeypatch):
                 "end": "2026-12-31",
             },
             "outputs": [
-                CAPITAL_GAINS_TAX_FINAL_OUTPUTS[
-                    "capital_gains_tax_annual_amount"
-                ]["axiom"]
+                CAPITAL_GAINS_TAX_FINAL_OUTPUTS["capital_gains_tax_annual_amount"][
+                    "axiom"
+                ]
             ],
         }
     ]
@@ -3274,9 +3274,9 @@ def test_stamp_duty_land_tax_final_request_projects_final_inputs():
                 "end": "2026-12-31",
             },
             "outputs": [
-                STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS[
-                    "stamp_duty_land_tax_annual_amount"
-                ]["axiom"]
+                STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS["stamp_duty_land_tax_annual_amount"][
+                    "axiom"
+                ]
             ],
         }
     ]
@@ -3339,17 +3339,16 @@ def test_lbtt_final_request_compares_all_households():
         "household_2",
     ]
     assert request["queries"][0]["outputs"] == [
-        LBTT_FINAL_OUTPUTS["land_and_buildings_transaction_tax_annual_amount"][
-            "axiom"
-        ]
+        LBTT_FINAL_OUTPUTS["land_and_buildings_transaction_tax_annual_amount"]["axiom"]
     ]
     inputs = {
         record["name"] + ":" + record["entity_id"]: record["value"]
         for record in request["dataset"]["inputs"]
     }
-    assert inputs[
-        f"{LBTT_FINAL_BASE}#input.household_is_lbtt_liable:household_2"
-    ] == {"kind": "bool", "value": True}
+    assert inputs[f"{LBTT_FINAL_BASE}#input.household_is_lbtt_liable:household_2"] == {
+        "kind": "bool",
+        "value": True,
+    }
     assert inputs[
         f"{LBTT_FINAL_BASE}#input.lbtt_on_transactions_for_year:household_2"
     ] == {"kind": "decimal", "value": "4200.0"}
@@ -3408,9 +3407,10 @@ def test_ltt_final_request_compares_all_households():
         record["name"] + ":" + record["entity_id"]: record["value"]
         for record in request["dataset"]["inputs"]
     }
-    assert inputs[
-        f"{LTT_FINAL_BASE}#input.household_is_ltt_liable:household_2"
-    ] == {"kind": "bool", "value": True}
+    assert inputs[f"{LTT_FINAL_BASE}#input.household_is_ltt_liable:household_2"] == {
+        "kind": "bool",
+        "value": True,
+    }
     assert inputs[
         f"{LTT_FINAL_BASE}#input.ltt_on_transactions_for_year:household_2"
     ] == {"kind": "decimal", "value": "2900.0"}
@@ -3632,7 +3632,7 @@ def test_free_tv_licence_value_request_projects_final_inputs():
                 TV_LICENCE_FINAL_OUTPUTS["free_tv_licence_value"]["axiom"],
                 TV_LICENCE_FINAL_OUTPUTS["tv_licence_annual_amount"]["axiom"],
             ],
-        }
+        },
     ]
     inputs = {
         record["name"] + ":" + record["entity_id"]: record["value"]
@@ -3783,9 +3783,7 @@ def test_energy_bills_rebate_final_request_compares_all_households():
         "start": "2026-01-01",
         "end": "2026-12-31",
     }
-    outputs = [
-        output["axiom"] for output in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()
-    ]
+    outputs = [output["axiom"] for output in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()]
     assert request == {
         "mode": "explain",
         "dataset": {"inputs": [], "relations": []},
@@ -3915,9 +3913,7 @@ def test_dfe_person_programs_request_compares_person_outputs():
         "start": "2026-01-01",
         "end": "2026-12-31",
     }
-    outputs = [
-        output["axiom"] for output in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()
-    ]
+    outputs = [output["axiom"] for output in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()]
     assert request["queries"] == [
         {"entity_id": "person_1", "period": period, "outputs": outputs},
     ]
@@ -3925,15 +3921,13 @@ def test_dfe_person_programs_request_compares_person_outputs():
         record["name"] + ":" + record["entity_id"]: record["value"]
         for record in request["dataset"]["inputs"]
     }
+    assert inputs[f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.person_age:person_1"] == {
+        "kind": "decimal",
+        "value": "19.0",
+    }
     assert inputs[
-        f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.person_age:person_1"
-    ] == {"kind": "decimal", "value": "19.0"}
-    assert (
-        inputs[
-            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.household_region_is_london:person_1"
-        ]
-        == {"kind": "bool", "value": True}
-    )
+        f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#input.household_region_is_london:person_1"
+    ] == {"kind": "bool", "value": True}
 
 
 def test_dfe_extended_childcare_request_builds_child_relations():
@@ -4010,15 +4004,12 @@ def test_dfe_extended_childcare_request_builds_child_relations():
     assert inputs[
         f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}#input.child_age:person_1"
     ] == {"kind": "decimal", "value": "3.0"}
-    assert (
-        inputs[
-            (
-                f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
-                "#input.extended_childcare_child_counts_for_entitlement:person_1"
-            )
-        ]
-        == {"kind": "bool", "value": True}
-    )
+    assert inputs[
+        (
+            f"{DFE_EXTENDED_CHILDCARE_ENTITLEMENT_FINAL_BASE}"
+            "#input.extended_childcare_child_counts_for_entitlement:person_1"
+        )
+    ] == {"kind": "bool", "value": True}
 
 
 def test_ssmg_final_projection_uses_reported_receipt():
@@ -6256,14 +6247,10 @@ def test_uk_national_policy_coverage_report_classifies_non_ctr_manifest(
     assert by_variable["vat"].surfaces == ("vat-final",)
     assert by_variable["vat"].policy_component is True
     assert by_variable["capital_gains_tax"].status == "exact"
-    assert by_variable["capital_gains_tax"].surfaces == (
-        "capital-gains-tax-final",
-    )
+    assert by_variable["capital_gains_tax"].surfaces == ("capital-gains-tax-final",)
     assert by_variable["capital_gains_tax"].policy_component is True
     assert by_variable["stamp_duty_land_tax"].status == "exact"
-    assert by_variable["stamp_duty_land_tax"].surfaces == (
-        "stamp-duty-land-tax-final",
-    )
+    assert by_variable["stamp_duty_land_tax"].surfaces == ("stamp-duty-land-tax-final",)
     assert by_variable["stamp_duty_land_tax"].policy_component is True
     assert by_variable["land_and_buildings_transaction_tax"].status == "exact"
     assert by_variable["land_and_buildings_transaction_tax"].surfaces == (
@@ -6283,14 +6270,10 @@ def test_uk_national_policy_coverage_report_classifies_non_ctr_manifest(
     )
     assert by_variable["tax_credits"].policy_component is True
     assert by_variable["energy_bills_rebate"].status == "exact"
-    assert by_variable["energy_bills_rebate"].surfaces == (
-        "energy-bills-rebate-final",
-    )
+    assert by_variable["energy_bills_rebate"].surfaces == ("energy-bills-rebate-final",)
     assert by_variable["energy_bills_rebate"].policy_component is True
     assert by_variable["epg_subsidy"].status == "exact"
-    assert by_variable["epg_subsidy"].surfaces == (
-        "energy-price-guarantee-final",
-    )
+    assert by_variable["epg_subsidy"].surfaces == ("energy-price-guarantee-final",)
     assert by_variable["epg_subsidy"].policy_component is True
     assert by_variable["maintenance_loan"].status == "exact"
     assert by_variable["maintenance_loan"].surfaces == ("dfe-person-programs-final",)
@@ -7268,9 +7251,9 @@ def test_compare_outputs_compares_vat_final_amount():
             "vat-final": [
                 {
                     "outputs": {
-                        VAT_FINAL_OUTPUTS["vat_annual_amount"][
-                            "axiom"
-                        ]: decimal_output(578.95),
+                        VAT_FINAL_OUTPUTS["vat_annual_amount"]["axiom"]: decimal_output(
+                            578.95
+                        ),
                     }
                 }
             ]
@@ -8932,12 +8915,12 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
     monkeypatch.setattr(
         efrs_uk,
         "compare_uk_efrs",
-            lambda **_: efrs_uk.UKEFRSComparisonReport(
-                compared_persons=1,
-                compared_benunits=0,
-                compared_households=0,
-                compared_values=1,
-                mismatches=[
+        lambda **_: efrs_uk.UKEFRSComparisonReport(
+            compared_persons=1,
+            compared_benunits=0,
+            compared_households=0,
+            compared_values=1,
+            mismatches=[
                 efrs_uk.UKEFRSComparisonRow(
                     surface="personal-allowance",
                     entity_id="person_7",

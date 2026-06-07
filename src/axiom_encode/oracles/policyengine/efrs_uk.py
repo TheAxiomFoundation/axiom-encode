@@ -121,13 +121,9 @@ STUDENT_LOAN_REPAYMENT_PROGRAM_PATH = Path(
     "policies/govuk/student-loan-repayments.yaml"
 )
 STUDENT_LOAN_REPAYMENT_BASE = "uk:policies/govuk/student-loan-repayments"
-CAPITAL_GAINS_TAX_FINAL_PROGRAM_PATH = Path(
-    "policies/govuk/capital-gains-tax.yaml"
-)
+CAPITAL_GAINS_TAX_FINAL_PROGRAM_PATH = Path("policies/govuk/capital-gains-tax.yaml")
 CAPITAL_GAINS_TAX_FINAL_BASE = "uk:policies/govuk/capital-gains-tax"
-STAMP_DUTY_LAND_TAX_FINAL_PROGRAM_PATH = Path(
-    "policies/govuk/stamp-duty-land-tax.yaml"
-)
+STAMP_DUTY_LAND_TAX_FINAL_PROGRAM_PATH = Path("policies/govuk/stamp-duty-land-tax.yaml")
 STAMP_DUTY_LAND_TAX_FINAL_BASE = "uk:policies/govuk/stamp-duty-land-tax"
 LBTT_FINAL_PROGRAM_PATH = Path("policies/govuk/land-and-buildings-transaction-tax.yaml")
 LBTT_FINAL_BASE = "uk:policies/govuk/land-and-buildings-transaction-tax"
@@ -175,9 +171,7 @@ COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_PROGRAM_PATH = Path(
 COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_BASE = (
     "uk:policies/govuk/cost-of-living-support-payment"
 )
-ENERGY_BILLS_REBATE_FINAL_PROGRAM_PATH = Path(
-    "policies/govuk/energy-bills-rebate.yaml"
-)
+ENERGY_BILLS_REBATE_FINAL_PROGRAM_PATH = Path("policies/govuk/energy-bills-rebate.yaml")
 ENERGY_BILLS_REBATE_FINAL_BASE = "uk:policies/govuk/energy-bills-rebate"
 ENERGY_PRICE_GUARANTEE_FINAL_PROGRAM_PATH = Path(
     "policies/govuk/energy-price-guarantee.yaml"
@@ -906,9 +900,7 @@ TAX_FREE_CHILDCARE_FINAL_OUTPUTS = {
 
 CAPITAL_GAINS_TAX_FINAL_OUTPUTS = {
     "capital_gains_tax_annual_amount": {
-        "axiom": (
-            f"{CAPITAL_GAINS_TAX_FINAL_BASE}#capital_gains_tax_annual_amount"
-        ),
+        "axiom": (f"{CAPITAL_GAINS_TAX_FINAL_BASE}#capital_gains_tax_annual_amount"),
         "pe": "capital_gains_tax",
         "tolerance": 0.01,
     },
@@ -917,8 +909,7 @@ CAPITAL_GAINS_TAX_FINAL_OUTPUTS = {
 STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS = {
     "stamp_duty_land_tax_annual_amount": {
         "axiom": (
-            f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}"
-            "#stamp_duty_land_tax_annual_amount"
+            f"{STAMP_DUTY_LAND_TAX_FINAL_BASE}#stamp_duty_land_tax_annual_amount"
         ),
         "pe": "stamp_duty_land_tax",
         "tolerance": 0.01,
@@ -928,8 +919,7 @@ STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS = {
 LBTT_FINAL_OUTPUTS = {
     "land_and_buildings_transaction_tax_annual_amount": {
         "axiom": (
-            f"{LBTT_FINAL_BASE}"
-            "#land_and_buildings_transaction_tax_annual_amount"
+            f"{LBTT_FINAL_BASE}#land_and_buildings_transaction_tax_annual_amount"
         ),
         "pe": "land_and_buildings_transaction_tax",
         "tolerance": 0.01,
@@ -995,16 +985,14 @@ COST_OF_LIVING_SUPPORT_PAYMENT_FINAL_OUTPUTS = {
 ENERGY_BILLS_REBATE_FINAL_OUTPUTS = {
     "energy_bills_rebate_council_tax_rebate": {
         "axiom": (
-            f"{ENERGY_BILLS_REBATE_FINAL_BASE}"
-            "#energy_bills_rebate_council_tax_rebate"
+            f"{ENERGY_BILLS_REBATE_FINAL_BASE}#energy_bills_rebate_council_tax_rebate"
         ),
         "pe": "ebr_council_tax_rebate",
         "tolerance": 0.01,
     },
     "energy_bills_rebate_energy_bills_credit": {
         "axiom": (
-            f"{ENERGY_BILLS_REBATE_FINAL_BASE}"
-            "#energy_bills_rebate_energy_bills_credit"
+            f"{ENERGY_BILLS_REBATE_FINAL_BASE}#energy_bills_rebate_energy_bills_credit"
         ),
         "pe": "ebr_energy_bills_credit",
         "tolerance": 0.01,
@@ -1051,16 +1039,14 @@ DFE_PERSON_PROGRAMS_FINAL_OUTPUTS = {
     },
     "parents_learning_allowance_annual_amount": {
         "axiom": (
-            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
-            "#parents_learning_allowance_annual_amount"
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#parents_learning_allowance_annual_amount"
         ),
         "pe": "parents_learning_allowance",
         "tolerance": 0.01,
     },
     "adult_dependants_grant_annual_amount": {
         "axiom": (
-            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
-            "#adult_dependants_grant_annual_amount"
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#adult_dependants_grant_annual_amount"
         ),
         "pe": "adult_dependants_grant",
         "tolerance": 0.01,
@@ -1090,8 +1076,7 @@ DFE_PERSON_PROGRAMS_FINAL_OUTPUTS = {
     },
     "bursary_fund_16_to_19_annual_amount": {
         "axiom": (
-            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}"
-            "#bursary_fund_16_to_19_annual_amount"
+            f"{DFE_PERSON_PROGRAMS_FINAL_BASE}#bursary_fund_16_to_19_annual_amount"
         ),
         "pe": "bursary_fund_16_to_19",
         "tolerance": 0.01,
@@ -4196,9 +4181,7 @@ def policyengine_uk_fuel_duty_parameters(year: int) -> dict[str, Any]:
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message()) from exc
 
-    fuel_duty = CountryTaxBenefitSystem().parameters(
-        year
-    ).baseline.gov.hmrc.fuel_duty
+    fuel_duty = CountryTaxBenefitSystem().parameters(year).baseline.gov.hmrc.fuel_duty
     return {
         "petrol_and_diesel": float(fuel_duty.petrol_and_diesel),
     }
@@ -7653,8 +7636,7 @@ def build_capital_gains_tax_final_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [
-                    spec["axiom"]
-                    for spec in CAPITAL_GAINS_TAX_FINAL_OUTPUTS.values()
+                    spec["axiom"] for spec in CAPITAL_GAINS_TAX_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -7688,8 +7670,7 @@ def build_stamp_duty_land_tax_final_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [
-                    spec["axiom"]
-                    for spec in STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS.values()
+                    spec["axiom"] for spec in STAMP_DUTY_LAND_TAX_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -7820,9 +7801,7 @@ def build_fuel_duty_final_request(
             {
                 "entity_id": entity_id,
                 "period": interval,
-                "outputs": [
-                    spec["axiom"] for spec in FUEL_DUTY_FINAL_OUTPUTS.values()
-                ],
+                "outputs": [spec["axiom"] for spec in FUEL_DUTY_FINAL_OUTPUTS.values()],
             }
         )
 
@@ -7915,8 +7894,7 @@ def build_energy_bills_rebate_final_request(
                 "entity_id": household_entity_id(int(row_value(row, "household_id"))),
                 "period": interval,
                 "outputs": [
-                    spec["axiom"]
-                    for spec in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()
+                    spec["axiom"] for spec in ENERGY_BILLS_REBATE_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -7985,8 +7963,7 @@ def build_dfe_person_programs_final_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [
-                    spec["axiom"]
-                    for spec in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()
+                    spec["axiom"] for spec in DFE_PERSON_PROGRAMS_FINAL_OUTPUTS.values()
                 ],
             }
         )
@@ -8856,9 +8833,7 @@ def project_vat_final_inputs(
         "reduced_rate_vat_consumption_for_year": money(
             row_value(row, "reduced_rate_vat_consumption", 0)
         ),
-        "microdata_vat_coverage_fraction": money(
-            parameters["microdata_vat_coverage"]
-        ),
+        "microdata_vat_coverage_fraction": money(parameters["microdata_vat_coverage"]),
     }
 
 
@@ -8869,14 +8844,10 @@ def project_capital_gains_tax_final_inputs(
 ) -> dict[str, Any]:
     return {
         "capital_gains_for_year": money(row_value(row, "capital_gains", 0)),
-        "adjusted_net_income_for_year": money(
-            row_value(row, "adjusted_net_income", 0)
-        ),
+        "adjusted_net_income_for_year": money(row_value(row, "adjusted_net_income", 0)),
         "allowances_for_year": money(row_value(row, "allowances", 0)),
         "gift_aid_for_year": money(row_value(row, "gift_aid", 0)),
-        "gift_aid_grossed_up_for_year": money(
-            row_value(row, "gift_aid_grossed_up", 0)
-        ),
+        "gift_aid_grossed_up_for_year": money(row_value(row, "gift_aid_grossed_up", 0)),
         "personal_pension_contributions_for_year": money(
             row_value(row, "personal_pension_contributions", 0)
         ),
@@ -8935,9 +8906,7 @@ def project_lbtt_final_inputs(row: Any) -> dict[str, Any]:
 def project_ltt_final_inputs(row: Any) -> dict[str, Any]:
     return {
         "household_is_ltt_liable": bool_row_value(row, "ltt_liable", False),
-        "ltt_on_transactions_for_year": money(
-            row_value(row, "ltt_on_transactions", 0)
-        ),
+        "ltt_on_transactions_for_year": money(row_value(row, "ltt_on_transactions", 0)),
         "ltt_on_rent_for_year": money(row_value(row, "ltt_on_rent", 0)),
     }
 
@@ -9007,7 +8976,9 @@ def project_energy_price_guarantee_final_inputs(row: Any) -> dict[str, Any]:
 
 
 def project_dfe_person_programs_final_inputs(row: Any) -> dict[str, Any]:
-    living_arrangement = enum_key(row_value(row, "maintenance_loan_living_arrangement", ""))
+    living_arrangement = enum_key(
+        row_value(row, "maintenance_loan_living_arrangement", "")
+    )
     region = enum_key(row_value(row, "region", ""))
     return {
         "person_age": money(row_value(row, "age", 0)),
@@ -9105,9 +9076,7 @@ def project_dfe_extended_childcare_child_inputs(
         "max_free_entitlement_hours_used": money(
             row_value(row, "max_free_entitlement_hours_used", 0)
         ),
-        "maximum_extended_childcare_hours_usage_for_family": money(
-            maximum_hours_usage
-        ),
+        "maximum_extended_childcare_hours_usage_for_family": money(maximum_hours_usage),
         "extended_childcare_child_counts_for_entitlement": True,
     }
 
@@ -9405,8 +9374,7 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in households
             if money(row_value(row, "stamp_duty_land_tax", 0)) > 0
             or money(row_value(row, "main_residential_property_purchased", 0)) > 0
-            or money(row_value(row, "additional_residential_property_purchased", 0))
-            > 0
+            or money(row_value(row, "additional_residential_property_purchased", 0)) > 0
             or money(row_value(row, "non_residential_property_purchased", 0)) > 0
             or money(row_value(row, "cumulative_residential_rent", 0)) > 0
             or money(row_value(row, "rent", 0)) > 0
