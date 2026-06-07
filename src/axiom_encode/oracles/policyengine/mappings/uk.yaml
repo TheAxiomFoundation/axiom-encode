@@ -1108,30 +1108,36 @@ mappings:
     program: capital_gains_tax
     mapping_type: parameter_value
     policyengine_parameter: gov.hmrc.cgt.basic_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
     period: year
     unit: /1
     comparison: rate
-    rationale: Same basic-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change.
+    rationale: Same basic-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
 
   - legal_id: uk:policies/govuk/capital-gains-tax#cgt_higher_rate
     country: uk
     program: capital_gains_tax
     mapping_type: parameter_value
     policyengine_parameter: gov.hmrc.cgt.higher_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
     period: year
     unit: /1
     comparison: rate
-    rationale: Same higher-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change.
+    rationale: Same higher-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
 
   - legal_id: uk:policies/govuk/capital-gains-tax#cgt_additional_rate
     country: uk
     program: capital_gains_tax
     mapping_type: parameter_value
     policyengine_parameter: gov.hmrc.cgt.additional_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
     period: year
     unit: /1
     comparison: rate
-    rationale: Same additional-rate CGT parameter used by PolicyEngine UK; current main-rate gains use the same 24% rate as the higher-rate slice.
+    rationale: Same additional-rate CGT parameter used by PolicyEngine UK; current main-rate gains use the same 24% rate as the higher-rate slice. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
 
   - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
     country: uk
@@ -2760,6 +2766,48 @@ prefixes:
     program: state_pension
     mapping_type: not_comparable
     rationale: State Pension final receipt helper outputs not listed above are Axiom-side type-selection and dataset-year proration helpers rather than separate PolicyEngine UK oracle variables.
+
+  - legal_id_prefix: uk:policies/govuk/student-loan-repayments#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Student-loan repayment helper outputs not listed above are selected thresholds, pre-cap repayment amounts, and branch-control intermediates used inside the final PolicyEngine UK student-loan repayment variables.
+
+  - legal_id_prefix: uk:policies/govuk/cost-of-living-support-payment#
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Cost-of-living support helper outputs not listed above are instalment selectors, current-year parameter projections, and branch-level household predicates; PolicyEngine UK exposes the annual aggregate support payment rather than each Axiom helper one-to-one.
+
+  - legal_id_prefix: uk:policies/govuk/dfe-person-programs#
+    country: uk
+    program: dfe
+    mapping_type: not_comparable
+    rationale: DfE person-program helper outputs not listed above are source-parameter snapshots, age/rate selectors, loan taper stages, annualization factors, and intermediate caps used inside the final person-level childcare, student-support, and bursary outputs exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/dfe-extended-childcare-entitlement#
+    country: uk
+    program: dfe_childcare
+    mapping_type: not_comparable
+    rationale: Extended-childcare helper outputs not listed above are source-parameter snapshots, child age/rate selectors, and weekly entitlement intermediates used inside the final benefit-unit extended childcare entitlement exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/energy-bills-rebate#
+    country: uk
+    program: energy_bills_rebate
+    mapping_type: not_comparable
+    rationale: Energy Bills Rebate helper outputs not listed above are current-year parameter projections and component selectors used inside the final household rebate outputs exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/energy-price-guarantee#
+    country: uk
+    program: energy_price_guarantee
+    mapping_type: not_comparable
+    rationale: Energy Price Guarantee helper outputs not listed above are current-year price-cap and guarantee-level parameter projections used inside PolicyEngine UK's final household subsidy output.
+
+  - legal_id_prefix: uk:policies/govuk/stamp-duty-land-tax#
+    country: uk
+    program: stamp_duty_land_tax
+    mapping_type: not_comparable
+    rationale: Stamp Duty Land Tax helper outputs not listed above are band parameters, taxable-base splits, purchase/rent branch liabilities, and transaction-type intermediates used inside PolicyEngine UK's final household SDLT output.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
     country: uk
