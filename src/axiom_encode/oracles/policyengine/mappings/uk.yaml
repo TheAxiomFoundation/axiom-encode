@@ -1,4 +1,58 @@
 mappings:
+  - legal_id: uk:policies/govuk/business-rates#business_rates_annual_amount
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: business_rates
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK household business-rates incidence amount, modeled as shareholding multiplied by aggregate business-rates revenue.
+
+  - legal_id: uk:policies/govuk/business-rates#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Helper parameters and projected inputs for the PolicyEngine UK business-rates parity surface; only the final annual amount maps directly to a PE output variable.
+
+  - legal_id: uk:policies/govuk/national-minimum-wage#national_minimum_wage_hourly_rate
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: minimum_wage
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK National Minimum Wage hourly-rate output selected by apprentice status and age.
+
+  - legal_id: uk:policies/govuk/national-minimum-wage#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Helper parameters and projected inputs for the PolicyEngine UK National Minimum Wage parity surface; only the final hourly rate maps directly to a PE output variable.
+
+  - legal_id: uk:policies/govuk/maternity-allowance#maternity_allowance_annual_amount
+    country: uk
+    program: benefits
+    mapping_type: direct_variable
+    policyengine_variable: maternity_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same PolicyEngine UK Maternity Allowance amount, which delegates to reported maternity_allowance_reported survey receipt.
+
+  - legal_id: uk:policies/govuk/maternity-allowance#
+    country: uk
+    program: benefits
+    mapping_type: not_comparable
+    match: prefix
+    rationale: Projected-input helpers for the PolicyEngine UK Maternity Allowance parity surface; only the final annual amount maps directly to a PE output variable.
+
   - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_basic_rate
     country: uk
     program: tax
@@ -602,7 +656,7 @@ mappings:
     period: year
     unit: GBP
     comparison: money
-    rationale: Same modelled annual student-loan repayment from adjusted net income, loan plan, threshold, and rate.
+    rationale: Same modelled annual student-loan repayment from adjusted net income, loan plan, threshold, rate, and the outstanding-balance cap when a balance is available.
 
   - legal_id: uk:policies/govuk/student-loan-repayments#student_loan_repayments
     country: uk
@@ -1022,6 +1076,452 @@ mappings:
     comparison: money
     rationale: Same annual individual adjusted-net-income limit for Tax-Free Childcare eligibility.
 
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_standard_qualifying_payment_limit_per_entitlement_period
+    country: uk
+    program: tax_free_childcare
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.standard_child
+    candidate_priority: P4
+    rationale: Section 19 states the maximum qualifying payment paid into the childcare account per entitlement period; PolicyEngine stores the derived annual standard-child government top-up cap instead.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_disabled_qualifying_payment_limit_per_entitlement_period
+    country: uk
+    program: tax_free_childcare
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.disabled_child
+    candidate_priority: P4
+    rationale: Section 19 states the maximum qualifying payment paid into the childcare account per entitlement period; PolicyEngine stores the derived annual disabled-child government top-up cap instead.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_declaration_periods_per_year
+    country: uk
+    program: tax_free_childcare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.tax_free_childcare.declaration_periods_per_year
+    period: year
+    unit: declaration_period
+    comparison: count
+    rationale: Same number of Tax-Free Childcare declaration periods per year.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_standard_child_yearly_top_up_limit
+    country: uk
+    program: tax_free_childcare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.standard_child
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual standard-child government top-up cap after deriving it from the per-entitlement-period qualifying-payment cap and the top-up rate.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_disabled_child_yearly_top_up_limit
+    country: uk
+    program: tax_free_childcare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.tax_free_childcare.contribution.disabled_child
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual disabled-child government top-up cap after deriving it from the per-entitlement-period qualifying-payment cap and the top-up rate.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_selected_child_yearly_top_up_limit
+    country: uk
+    program: tax_free_childcare
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Row-level branch helper selecting the standard or disabled-child annual cap; PolicyEngine exposes the branch inputs and final Tax-Free Childcare variable, not this helper as a standalone variable.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_annual_top_up_limit_for_eligible_periods
+    country: uk
+    program: tax_free_childcare
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Row-level cap helper prorated by eligible declaration periods; PolicyEngine applies the same helper internally inside the final tax_free_childcare formula rather than exposing it separately.
+
+  - legal_id: uk:policies/govuk/tax-free-childcare#tax_free_childcare_annual_amount
+    country: uk
+    program: tax_free_childcare
+    mapping_type: direct_variable
+    policyengine_variable: tax_free_childcare
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Tax-Free Childcare person amount after eligibility, provider, child-status, declaration-period, and cap gates.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_annual_exempt_amount
+    country: uk
+    program: capital_gains_tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.cgt.annual_exempt_amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual exempt amount used by PolicyEngine UK's Capital Gains Tax formula.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_basic_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.cgt.basic_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same basic-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_higher_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.cgt.higher_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same higher-rate CGT parameter used by PolicyEngine UK after the Finance Act 2025 rate change. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_additional_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.cgt.additional_rate
+    aliases:
+      - uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same additional-rate CGT parameter used by PolicyEngine UK; current main-rate gains use the same 24% rate as the higher-rate slice. Companion tests exercise this rate through final annual Capital Gains Tax outputs.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_tax_annual_amount
+    country: uk
+    program: capital_gains_tax
+    mapping_type: direct_variable
+    policyengine_variable: capital_gains_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual person-level Capital Gains Tax amount after annual exempt amount, income-tax band usage, Gift Aid and pension band extensions, and main CGT rates.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#personal_pension_band_extension_for_cgt
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper mirroring an intermediate expression inside PolicyEngine UK's capital_gains_tax formula.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#basic_rate_band_extension_for_cgt
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper mirroring PolicyEngine UK's Gift Aid and pension extension of the basic-rate band inside capital_gains_tax.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#allowances_for_cgt_income
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for the allowance amount used to compute taxable income for CGT band allocation.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#taxable_income_for_cgt
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for taxable income used only to allocate gains across CGT rate bands.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#positive_capital_gains_for_year
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper flooring negative capital gains before applying the annual exempt amount, matching PolicyEngine UK's formula internals.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_less_annual_exempt_amount
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for positive gains after the annual exempt amount; PolicyEngine computes this internally.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_basic_rate_limit_with_extension
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for the income-tax basic-rate limit after Gift Aid and pension band extension.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_higher_rate_limit_with_extension
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for the income-tax higher-rate limit after Gift Aid and pension band extension.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#cgt_remaining_basic_rate_band
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for the unused basic-rate band available to capital gains.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_charged_at_basic_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom per-rate gain slice; PolicyEngine UK exposes only the final capital_gains_tax output.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_above_basic_rate_band
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for gains remaining after the basic-rate slice.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_charged_at_higher_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom per-rate gain slice; PolicyEngine UK exposes only the final capital_gains_tax output.
+
+  - legal_id: uk:policies/govuk/capital-gains-tax#capital_gains_charged_at_additional_rate
+    country: uk
+    program: capital_gains_tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom per-rate gain slice; PolicyEngine UK exposes only the final capital_gains_tax output.
+
+  - legal_id: uk:policies/govuk/stamp-duty-land-tax#stamp_duty_land_tax_annual_amount
+    country: uk
+    program: stamp_duty_land_tax
+    mapping_type: direct_variable
+    policyengine_variable: stamp_duty_land_tax
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual household Stamp Duty Land Tax amount after residential purchase, additional-dwelling purchase, non-residential purchase, lease-rent, and SDLT liability gates.
+
+  - legal_id: uk:policies/govuk/land-and-buildings-transaction-tax#land_and_buildings_transaction_tax_annual_amount
+    country: uk
+    program: land_and_buildings_transaction_tax
+    mapping_type: direct_variable
+    policyengine_variable: land_and_buildings_transaction_tax
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual household Land and Buildings Transaction Tax amount after PolicyEngine UK's LBTT transaction, rent, and Scotland liability gates.
+
+  - legal_id: uk:policies/govuk/land-transaction-tax#land_transaction_tax_annual_amount
+    country: uk
+    program: land_transaction_tax
+    mapping_type: direct_variable
+    policyengine_variable: land_transaction_tax
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual household Land Transaction Tax amount after PolicyEngine UK's LTT transaction, rent, and Wales liability gates.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#universal_childcare_entitlement_annual_amount
+    country: uk
+    program: dfe_childcare
+    mapping_type: direct_variable
+    policyengine_variable: universal_childcare_entitlement
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level universal childcare entitlement amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#targeted_childcare_entitlement_annual_amount
+    country: uk
+    program: dfe_childcare
+    mapping_type: direct_variable
+    policyengine_variable: targeted_childcare_entitlement
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level targeted childcare entitlement amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-extended-childcare-entitlement#extended_childcare_entitlement_annual_amount
+    country: uk
+    program: dfe_childcare
+    mapping_type: direct_variable
+    policyengine_variable: extended_childcare_entitlement
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same benefit-unit extended childcare entitlement amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#childcare_grant_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: childcare_grant
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Student Finance England Childcare Grant as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#parents_learning_allowance_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: parents_learning_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Parents' Learning Allowance as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#adult_dependants_grant_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: adult_dependants_grant
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Adult Dependants' Grant as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#travel_grant_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: travel_grant
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Travel Grant as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#disabled_students_allowance_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: disabled_students_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Disabled Students' Allowance as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#care_to_learn_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: care_to_learn
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level Care to Learn amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#maintenance_loan_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: maintenance_loan
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level maintenance loan amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/dfe-person-programs#bursary_fund_16_to_19_annual_amount
+    country: uk
+    program: student_support
+    mapping_type: direct_variable
+    policyengine_variable: bursary_fund_16_to_19
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same person-level 16 to 19 Bursary Fund amount as PolicyEngine UK's DfE formula.
+
+  - legal_id: uk:policies/govuk/vat#vat_standard_rate
+    country: uk
+    program: vat
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.vat.standard_rate
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same standard VAT rate used by PolicyEngine UK's VAT formula.
+
+  - legal_id: uk:policies/govuk/vat#vat_reduced_rate
+    country: uk
+    program: vat
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.vat.reduced_rate
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same reduced VAT rate used by PolicyEngine UK's VAT formula.
+
+  - legal_id: uk:policies/govuk/vat#vat_raw_annual_amount
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper for statutory VAT before PE's microdata-coverage calibration; PolicyEngine computes this internally inside the final vat formula.
+
+  - legal_id: uk:policies/govuk/vat#vat_annual_amount
+    country: uk
+    program: vat
+    mapping_type: direct_variable
+    policyengine_variable: vat
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual household VAT amount after standard-rate consumption, reduced-rate consumption, and PE microdata-coverage calibration.
+
+  - legal_id: uk:policies/govuk/fuel-duty#rural_fuel_duty_relief_rate_per_litre
+    country: uk
+    program: fuel_duty
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.fuel_duty.rural_fuel_duty_relief
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same rural fuel duty relief per litre used to reduce the main petrol and diesel fuel duty rate in eligible rural relief areas.
+
+  - legal_id: uk:policies/govuk/fuel-duty#fuel_duty_petrol_and_diesel_litres_for_year
+    country: uk
+    program: fuel_duty
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper summing petrol and diesel litres for the year; PolicyEngine exposes the component litre inputs rather than this derived total.
+
+  - legal_id: uk:policies/govuk/fuel-duty#fuel_duty_effective_rate_per_litre
+    country: uk
+    program: fuel_duty
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom helper applying rural fuel duty relief to the supplied petrol/diesel rate; PolicyEngine applies this inside the final fuel_duty formula rather than exposing the effective rate as a variable.
+
+  - legal_id: uk:policies/govuk/fuel-duty#fuel_duty_annual_amount
+    country: uk
+    program: fuel_duty
+    mapping_type: direct_variable
+    policyengine_variable: fuel_duty
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household fuel duty amount from petrol and diesel litres, main petrol/diesel duty rate, and rural fuel duty relief.
+
   - legal_id: uk:regulations/uksi/2005/3061/5#sure_start_maternity_grant_amount
     country: uk
     program: ssmg
@@ -1032,6 +1532,17 @@ mappings:
     comparison: money
     rationale: Same Sure Start Maternity Grant amount payable when the regulation's entitlement conditions are satisfied.
 
+  - legal_id: uk:policies/govuk/sure-start-maternity-grant#sure_start_maternity_grant_annual_amount
+    country: uk
+    program: ssmg
+    mapping_type: direct_variable
+    policyengine_variable: ssmg
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual person Sure Start Maternity Grant amount after the reported-receipt gate used by PolicyEngine UK.
+
   - legal_id: uk:regulations/uksi/2004/692/schedule/1#colour_tv_licence_general_form_issue_fee
     country: uk
     program: tv_licence
@@ -1041,6 +1552,28 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same annual colour TV licence General Form issue fee used by PolicyEngine UK's TV licence and free-TV-licence-value formulas.
+
+  - legal_id: uk:policies/govuk/tv-licence#free_tv_licence_value
+    country: uk
+    program: tv_licence
+    mapping_type: direct_variable
+    policyengine_variable: free_tv_licence_value
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household free TV licence value after household ownership, evasion, and TV licence discount fraction gates.
+
+  - legal_id: uk:policies/govuk/tv-licence#tv_licence_annual_amount
+    country: uk
+    program: tv_licence
+    mapping_type: direct_variable
+    policyengine_variable: tv_licence
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household TV licence tax after household ownership, evasion, and TV licence discount fraction gates.
 
   - legal_id: uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
     country: uk
@@ -1197,6 +1730,138 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same one-off Disability Cost-of-Living Payment amount for 2023-24.
+
+  - legal_id: uk:policies/govuk/cost-of-living-support-payment#cost_of_living_support_payment_annual_amount
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: direct_variable
+    policyengine_variable: cost_of_living_support_payment
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Final annual household Cost-of-Living Support Payment output is the same PolicyEngine UK variable after the means-tested, pensioner, and disability qualifying-benefit branches.
+
+  - legal_id: uk:policies/govuk/energy-bills-rebate#energy_bills_rebate_council_tax_rebate
+    country: uk
+    program: energy_bills_rebate
+    mapping_type: direct_variable
+    policyengine_variable: ebr_council_tax_rebate
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Energy Bills Rebate council-tax-rebate component after PolicyEngine UK's active temporary-support parameter is zero for 2026.
+
+  - legal_id: uk:policies/govuk/energy-bills-rebate#energy_bills_rebate_energy_bills_credit
+    country: uk
+    program: energy_bills_rebate
+    mapping_type: direct_variable
+    policyengine_variable: ebr_energy_bills_credit
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual Energy Bills Rebate energy-bills-credit component after PolicyEngine UK's active temporary-support parameter is zero for 2026.
+
+  - legal_id: uk:policies/govuk/energy-bills-rebate#energy_bills_rebate_annual_amount
+    country: uk
+    program: energy_bills_rebate
+    mapping_type: direct_variable
+    policyengine_variable: energy_bills_rebate
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household Energy Bills Rebate aggregate, composed from the council-tax rebate and energy-bills credit components.
+
+  - legal_id: uk:policies/govuk/energy-price-guarantee#energy_price_guarantee_subsidy_annual_amount
+    country: uk
+    program: energy_price_guarantee
+    mapping_type: direct_variable
+    policyengine_variable: epg_subsidy
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household Energy Price Guarantee subsidy after applying PolicyEngine UK's Ofgem price-cap and price-guarantee parameters to annual domestic energy consumption.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#income_support
+    country: uk
+    program: income_support
+    mapping_type: direct_variable
+    policyengine_variable: income_support
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same current-law final nil Income Support amount after DWP closed the remaining Income Support legacy caseload through managed migration.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#jsa_income
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: direct_variable
+    policyengine_variable: jsa_income
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same current-law final nil income-based Jobseeker's Allowance amount after DWP closed the remaining income-related JSA legacy caseload through managed migration.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#working_tax_credit
+    country: uk
+    program: working_tax_credit
+    mapping_type: direct_variable
+    policyengine_variable: working_tax_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same current-law final nil Working Tax Credit amount after tax credits ended on 5 April 2025.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#child_tax_credit
+    country: uk
+    program: child_tax_credit
+    mapping_type: direct_variable
+    policyengine_variable: child_tax_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same current-law final nil Child Tax Credit amount after tax credits ended on 5 April 2025.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#tax_credits
+    country: uk
+    program: tax_credits
+    mapping_type: direct_variable
+    policyengine_variable: tax_credits
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same current-law final nil aggregate Tax Credits amount after Child Tax Credit and Working Tax Credit ended on 5 April 2025.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#jsa
+    country: uk
+    program: jobseekers_allowance
+    mapping_type: direct_variable
+    policyengine_variable: jsa
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual aggregate Jobseeker's Allowance amount after current-law income-based JSA closure and reported contribution-based JSA receipt.
+
+  - legal_id: uk:policies/govuk/closed-legacy-benefits#esa
+    country: uk
+    program: employment_and_support_allowance
+    mapping_type: direct_variable
+    policyengine_variable: esa
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual aggregate Employment and Support Allowance amount after income-related ESA and reported contribution-based ESA receipt.
 
   - legal_id: uk:regulations/uksi/2013/377/24#pip_daily_living_standard_weekly_rate
     country: uk
@@ -1530,6 +2195,37 @@ mappings:
     comparison: money
     rationale: Same weekly lower Attendance Allowance rate in Schedule 1 Part III of the 2026 up-rating order.
 
+  - legal_id: uk:policies/govuk/attendance-allowance#attendance_allowance_weeks_in_year
+    country: uk
+    program: attendance_allowance
+    mapping_type: not_comparable
+    comparable: false
+    candidate_priority: P4
+    rationale: Source-backed annualization helper for the policy-level final amount wrapper; PolicyEngine exposes the final annual Attendance Allowance variable and weekly higher/lower parameters, not this multiplication factor as a separate oracle target.
+
+  - legal_id: uk:policies/govuk/attendance-allowance#attendance_allowance_weekly_amount
+    country: uk
+    program: attendance_allowance
+    mapping_type: direct_variable
+    policyengine_variable: attendance_allowance
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    result_multiplier: 0.019230769230769232
+    rationale: Same selected weekly Attendance Allowance amount, with PolicyEngine UK's annual attendance_allowance converted to a weekly amount.
+
+  - legal_id: uk:policies/govuk/attendance-allowance#attendance_allowance_annual_amount
+    country: uk
+    program: attendance_allowance
+    mapping_type: direct_variable
+    policyengine_variable: attendance_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual Attendance Allowance amount after selecting the higher, lower, or nil category.
+
   - legal_id: uk:regulations/uksi/2026/148/schedule/1#severe_disablement_allowance_basic_weekly_rate
     country: uk
     program: sda
@@ -1717,6 +2413,17 @@ mappings:
     unit: GBP
     comparison: money
     rationale: Same PE-shaped ordinary higher Winter Fuel Payment amount derived from Regulation 3(4).
+
+  - legal_id: uk:policies/govuk/winter-fuel-allowance#winter_fuel_allowance_annual_amount
+    country: uk
+    program: winter_fuel_allowance
+    mapping_type: direct_variable
+    policyengine_variable: winter_fuel_allowance
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final annual household Winter Fuel Allowance amount after PolicyEngine UK's Scotland, pension-age, means-tested-benefit, income-passport, and age-80 gates.
 
   - legal_id: uk:regulations/uksi/2002/1792/15#capital_deemed_weekly_income
     country: uk
@@ -2113,6 +2820,48 @@ prefixes:
     program: state_pension
     mapping_type: not_comparable
     rationale: State Pension final receipt helper outputs not listed above are Axiom-side type-selection and dataset-year proration helpers rather than separate PolicyEngine UK oracle variables.
+
+  - legal_id_prefix: uk:policies/govuk/student-loan-repayments#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Student-loan repayment helper outputs not listed above are selected thresholds, pre-cap repayment amounts, and branch-control intermediates used inside the final PolicyEngine UK student-loan repayment variables.
+
+  - legal_id_prefix: uk:policies/govuk/cost-of-living-support-payment#
+    country: uk
+    program: cost_of_living_support_payment
+    mapping_type: not_comparable
+    rationale: Cost-of-living support helper outputs not listed above are instalment selectors, current-year parameter projections, and branch-level household predicates; PolicyEngine UK exposes the annual aggregate support payment rather than each Axiom helper one-to-one.
+
+  - legal_id_prefix: uk:policies/govuk/dfe-person-programs#
+    country: uk
+    program: dfe
+    mapping_type: not_comparable
+    rationale: DfE person-program helper outputs not listed above are source-parameter snapshots, age/rate selectors, loan taper stages, annualization factors, and intermediate caps used inside the final person-level childcare, student-support, and bursary outputs exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/dfe-extended-childcare-entitlement#
+    country: uk
+    program: dfe_childcare
+    mapping_type: not_comparable
+    rationale: Extended-childcare helper outputs not listed above are source-parameter snapshots, child age/rate selectors, and weekly entitlement intermediates used inside the final benefit-unit extended childcare entitlement exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/energy-bills-rebate#
+    country: uk
+    program: energy_bills_rebate
+    mapping_type: not_comparable
+    rationale: Energy Bills Rebate helper outputs not listed above are current-year parameter projections and component selectors used inside the final household rebate outputs exposed by PolicyEngine UK.
+
+  - legal_id_prefix: uk:policies/govuk/energy-price-guarantee#
+    country: uk
+    program: energy_price_guarantee
+    mapping_type: not_comparable
+    rationale: Energy Price Guarantee helper outputs not listed above are current-year price-cap and guarantee-level parameter projections used inside PolicyEngine UK's final household subsidy output.
+
+  - legal_id_prefix: uk:policies/govuk/stamp-duty-land-tax#
+    country: uk
+    program: stamp_duty_land_tax
+    mapping_type: not_comparable
+    rationale: Stamp Duty Land Tax helper outputs not listed above are band parameters, taxable-base splits, purchase/rent branch liabilities, and transaction-type intermediates used inside PolicyEngine UK's final household SDLT output.
 
   - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
     country: uk
