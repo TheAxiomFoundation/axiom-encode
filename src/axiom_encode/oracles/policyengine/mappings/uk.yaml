@@ -1,4 +1,15 @@
 mappings:
+  - legal_id: uk:policies/govuk/council-tax-reduction#council_tax_reduction_annual_amount
+    country: uk
+    program: council_tax_reduction
+    mapping_type: direct_variable
+    policyengine_variable: council_tax_reduction
+    entity: household
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same annual household Council Tax Reduction amount as PolicyEngine UK's final council_tax_reduction variable, including supported national schemes and the reported-benefit fallback for unsupported schemes.
+
   - legal_id: uk:statutes/ukpga/2007/3/10#income_charged_at_basic_rate
     country: uk
     program: tax
@@ -2084,6 +2095,18 @@ mappings:
     rationale: Same Universal Credit childcare work-condition predicate, with the EFRS oracle projecting person-level adult work status into the Regulation 32 claimant and other-member work leaves.
 
 prefixes:
+  - legal_id_prefix: uk:policies/govuk/council-tax-reduction#
+    country: uk
+    program: council_tax_reduction
+    mapping_type: not_comparable
+    rationale: Council Tax Reduction helper outputs expose source-law scheme selection, capital, excess-income, taper, and simulated-award mechanics; PolicyEngine UK exposes the final household council_tax_reduction variable rather than these helpers one-to-one.
+
+  - legal_id_prefix: uk-kingston-upon-thames:policies/kingston-upon-thames/council-tax-reduction#
+    country: uk
+    program: council_tax_reduction
+    mapping_type: not_comparable
+    rationale: Kingston upon Thames Council Tax Reduction outputs are jurisdiction-specific local-scheme RuleSpec surfaces; the released PolicyEngine UK oracle does not yet expose this draft local CTR scheme one-to-one.
+
   - legal_id_prefix: uk:statutes/ukpga/2007/3/35#
     country: uk
     program: tax
