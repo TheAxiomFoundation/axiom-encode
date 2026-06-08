@@ -893,6 +893,52 @@ mappings:
     candidate_priority: P4
     rationale: Arizona manual shelter deduction output uses source-specific allowable shelter and utility inputs and cap-oriented homeless-deduction wording; PolicyEngine's final excess shelter deduction is adjacent but not a one-to-one output for this source boundary.
 
+  - legal_id: us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#a1_annual_payment_standard_percentage_of_base_year_fpl
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.tanf.payment_standard.rate
+    period: year
+    comparison: rate
+    rationale: Same Arizona TANF A1 payment-standard percentage of the 1992 FPL.
+
+  - legal_id: us-az:policies/des/faa5/ca-benefit-determination/earned-income-deduction#ca_earned_income_deduction_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.tanf.income.deductions.percentage
+    period: month
+    comparison: rate
+    rationale: Same Arizona TANF earned-income percentage disregard.
+
+  - legal_id: us-az:policies/des/faa5/ca-benefit-determination/cost-of-employment-deduction#cost_of_employment_monthly_deduction_amount
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.tanf.income.deductions.flat
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona TANF flat earned-income disregard amount.
+
+  - legal_id: us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#npcr_child_only_needy_family_fpl_limit_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.tanf.income.fpg_limit.non_parent
+    period: year
+    comparison: rate
+    rationale: Same Arizona TANF non-parent caretaker relative child-only income-limit rate.
+
+  - legal_id: us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#parent_or_npcr_self_and_child_needy_family_fpl_limit_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.tanf.income.fpg_limit.base
+    period: year
+    comparison: rate
+    rationale: Same Arizona TANF base income-limit rate for parent or non-parent caretaker relative self-and-child cases.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
@@ -14240,6 +14286,20 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Arizona manual net-income-test outputs decompose earned-income deduction, net-income construction, income-standard pass/fail, and denial predicates; PolicyEngine computes SNAP income eligibility through its own scenario and program variables rather than exposing these FAA5 source-slice helper outputs as one-to-one oracle targets.
+
+  - legal_id_prefix: us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona Cash Assistance A1/A2 payment-standard outputs are source-specific TANF payment-level predicates and 1992-FPL standard calculations. PolicyEngine-US exposes adjacent Arizona TANF grant variables through its own annual parameter graph, but does not expose these DES FAA5 A1/A2 legal helper boundaries one-to-one.
+
+  - legal_id_prefix: us-az:policies/des/faa5/ca-benefit-determination/
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona Cash Assistance benefit-determination outputs decompose DES FAA5 needy-family, payment-standard, under-$10 no-pay, and earned-income-deduction mechanics. PolicyEngine-US exposes adjacent TANF variables, but direct oracle comparison should wait for an adapter that targets the same Arizona CA source slices and helper boundaries.
 
   - legal_id_prefix: us:statutes/26/3102/a#
     country: us
