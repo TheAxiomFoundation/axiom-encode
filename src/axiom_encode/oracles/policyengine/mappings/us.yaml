@@ -995,6 +995,20 @@ mappings:
     comparison: rate
     rationale: Same Arizona TANF base income-limit rate for parent or non-parent caretaker relative self-and-child cases.
 
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age#jobs_program_participation_age_exemption_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 JOBS participation age exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this work-program participation predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age#minor_parent_head_or_spouse_exception_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 minor-parent exception to the JOBS age exemption is an administrative work-program branch; PolicyEngine does not expose this exception predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
