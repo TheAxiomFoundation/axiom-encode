@@ -1106,6 +1106,13 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 JPPO exception handling is a TANF work-program administrative compliance boundary; PolicyEngine does not expose this source-specific JPPO exception predicate.
 
+  - legal_id: us-az:policies/des/faa5/ca-jobs-work-program-requirements#ca_jobs_program_participation_required
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 CA JOBS work-program participation requirement is a TANF work-program administrative participation predicate; PolicyEngine does not expose this source-specific work-program participation requirement.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
