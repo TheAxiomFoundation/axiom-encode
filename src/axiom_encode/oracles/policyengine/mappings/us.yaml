@@ -1134,6 +1134,55 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 TPEP Jobs benefit release after participant compliance is a TANF work-program administrative compliance gate; PolicyEngine does not expose this source-specific TPEP Jobs release predicate.
 
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#tba_max_consecutive_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance maximum consecutive-month parameter is a state-specific transitional NA rule; PolicyEngine does not expose this Arizona TBA duration as a comparable SNAP parameter.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#tba_closure_reason_qualifies
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance closure-reason qualifier depends on source-specific CA closure administration; PolicyEngine does not expose this Arizona TBA transition predicate as a comparable SNAP output.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#tribal_tanf_transition_program_qualifies
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance Tribal TANF program qualifier is a source-specific HFAP/SRP-MIC LEARN transition boundary; PolicyEngine does not expose this Arizona TBA predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#na_tba_potentially_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance potential eligibility is a state-specific transition predicate combining CA closure and Tribal TANF gates; PolicyEngine does not expose this Arizona TBA eligibility boundary.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#na_tba_five_month_period_ended
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance five-month-period-ended output is a state-specific TBA closure predicate; PolicyEngine does not expose this Arizona TBA administrative duration gate.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#na_tba_no_longer_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance no-longer-eligible output is a source-specific closure predicate; PolicyEngine does not expose this Arizona TBA closure boundary as a comparable SNAP output.
+
+  - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#na_tba_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA Transitional Benefit Assistance eligibility is a state-specific transitional NA benefit rule combining CA closure, compliance, disqualification, and closure gates; PolicyEngine does not expose Arizona TBA eligibility as a comparable SNAP variable.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
