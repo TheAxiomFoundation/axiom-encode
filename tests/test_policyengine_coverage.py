@@ -4471,6 +4471,147 @@ rules:
     assert deduction["tested"] is True
 
 
+def test_policyengine_coverage_classifies_california_income_resource_bridge(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/snap/fy-2026-benefit-calculation.yaml",
+        """format: rulespec/v1
+rules:
+  - name: calfresh_income_and_resource_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_categorically_eligible_for_resource_exemption or (snap_resource_eligible and snap_standard_income_eligible)
+""",
+    )
+
+    coverage = build_policyengine_coverage_report(tmp_path, program="snap")
+    candidates = build_policyengine_candidate_report(tmp_path, program="snap")
+
+    assert coverage["status_counts"] == {"known_not_comparable": 1}
+    item = coverage["items"][0]
+    assert item["legal_id"] == (
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation"
+        "#calfresh_income_and_resource_eligible"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] == "is_snap_eligible"
+    assert item["candidate_priority"] == "P4"
+    assert candidates["category_counts"] == {"known_adjacent_target": 1}
+    assert candidates["priority_counts"] == {"P4": 1}
+
+
+def test_policyengine_coverage_classifies_arizona_snap_composition_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_gross_monthly_income
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: earned_income + unearned_income
+  - name: snap_net_income
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: max(0, snap_gross_monthly_income - deductions)
+  - name: snap_eligible
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: income_eligible and resource_eligible
+  - name: snap_maximum_allotment
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: thrift_food_plan_amount
+  - name: snap_excess_shelter_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: shelter_deduction
+  - name: snap_regular_month_allotment
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: max(0, snap_maximum_allotment - expected_contribution)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
+        """- name: composition_outputs_are_tested
+  period: 2026-01
+  input: {}
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_gross_monthly_income: 2000
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_net_income: 1200
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: holds
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_maximum_allotment: 768
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 350
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment: 408
+""",
+    )
+
+    coverage = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert coverage["status_counts"] == {"known_not_comparable": 6}
+    composition_items = {
+        item["rule_name"]: item
+        for item in coverage["items"]
+        if item["file"].endswith("fy-2026-benefit-calculation.yaml")
+    }
+    assert set(composition_items) == {
+        "snap_gross_monthly_income",
+        "snap_net_income",
+        "snap_eligible",
+        "snap_maximum_allotment",
+        "snap_excess_shelter_deduction",
+        "snap_regular_month_allotment",
+    }
+    assert {item["status"] for item in composition_items.values()} == {
+        "known_not_comparable"
+    }
+    assert {item["candidate_priority"] for item in composition_items.values()} == {"P4"}
+    assert {item["tested"] for item in composition_items.values()} == {True}
+    assert (
+        composition_items["snap_gross_monthly_income"]["policyengine_variable"]
+        == "snap_gross_income"
+    )
+    assert (
+        composition_items["snap_net_income"]["policyengine_variable"]
+        == "snap_net_income"
+    )
+    assert (
+        composition_items["snap_eligible"]["policyengine_variable"]
+        == "is_snap_eligible"
+    )
+    assert (
+        composition_items["snap_maximum_allotment"]["policyengine_variable"]
+        == "snap_max_allotment"
+    )
+    assert (
+        composition_items["snap_excess_shelter_deduction"]["policyengine_variable"]
+        == "snap_excess_shelter_expense_deduction"
+    )
+    assert (
+        composition_items["snap_regular_month_allotment"]["policyengine_variable"]
+        == "snap"
+    )
+
+
 def test_policyengine_coverage_classifies_arizona_snap_utility_eligibility(
     tmp_path,
 ):
