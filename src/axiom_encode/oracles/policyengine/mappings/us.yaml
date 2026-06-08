@@ -15718,6 +15718,24 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
 
+  - legal_id_prefix: us:regulations/42-cfr/431/213#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 431.213 advance-notice exception predicates are Medicaid notice-administration rules; PolicyEngine US does not expose these process predicates as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/431/231#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 431.231 reinstatement predicates are Medicaid notice and service-administration rules outside PolicyEngine US's one-to-one oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/438/58#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 438.58 community-engagement contractor conflict safeguards are Medicaid managed-care administration rules not represented as PolicyEngine US variables or parameters.
+
   - legal_id_prefix: us:regulations/42-cfr/435/110#
     country: us
     program: medicaid
@@ -15825,3 +15843,21 @@ prefixes:
     program: medicaid
     mapping_type: not_comparable
     rationale: 42 CFR 435.563 reporting obligations are CMS Medicaid work-requirement administration rules outside PolicyEngine US's one-to-one oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/457/340#
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    rationale: 42 CFR 457.340 timely-determination cross-reference predicates are CHIP administration rules; PolicyEngine US does not expose this CFR-level compliance surface as one-to-one variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/457/960#
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    rationale: 42 CFR 457.960 CHIP change-reporting and redetermination process predicates are administration rules not represented as one-to-one PolicyEngine US outputs.
+
+  - legal_id_prefix: us:regulations/42-cfr/600/320#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 600.320 Basic Health Program timely-determination cross-reference predicates are program-administration rules outside PolicyEngine US's one-to-one oracle surface.
