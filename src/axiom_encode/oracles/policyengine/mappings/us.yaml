@@ -1113,6 +1113,27 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 CA JOBS work-program participation requirement is a TANF work-program administrative participation predicate; PolicyEngine does not expose this source-specific work-program participation requirement.
 
+  - legal_id: us-az:policies/des/faa5/two-parent-employment-program-tpep-jobs#tpep_service_unit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 TPEP Jobs service-unit output is a TANF work-program administrative service predicate; PolicyEngine does not expose this source-specific TPEP Jobs boundary.
+
+  - legal_id: us-az:policies/des/faa5/two-parent-employment-program-tpep-jobs#tpep_services_available
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 TPEP Jobs services-available output is a source-specific work-program service boundary; PolicyEngine does not expose TPEP statewide/time-limited service availability as a comparable TANF output.
+
+  - legal_id: us-az:policies/des/faa5/two-parent-employment-program-tpep-jobs#tpep_benefits_released_after_compliance
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 TPEP Jobs benefit release after participant compliance is a TANF work-program administrative compliance gate; PolicyEngine does not expose this source-specific TPEP Jobs release predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
