@@ -14241,6 +14241,20 @@ prefixes:
     mapping_type: not_comparable
     rationale: Arizona manual net-income-test outputs decompose earned-income deduction, net-income construction, income-standard pass/fail, and denial predicates; PolicyEngine computes SNAP income eligibility through its own scenario and program variables rather than exposing these FAA5 source-slice helper outputs as one-to-one oracle targets.
 
+  - legal_id_prefix: us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona Cash Assistance A1/A2 payment-standard outputs are source-specific TANF payment-level predicates and 1992-FPL standard calculations. PolicyEngine-US exposes adjacent Arizona TANF grant variables through its own annual parameter graph, but does not expose these DES FAA5 A1/A2 legal helper boundaries one-to-one.
+
+  - legal_id_prefix: us-az:policies/des/faa5/ca-benefit-determination/
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona Cash Assistance benefit-determination outputs decompose DES FAA5 needy-family, payment-standard, under-$10 no-pay, and earned-income-deduction mechanics. PolicyEngine-US exposes adjacent TANF variables, but direct oracle comparison should wait for an adapter that targets the same Arizona CA source slices and helper boundaries.
+
   - legal_id_prefix: us:statutes/26/3102/a#
     country: us
     program: tax
