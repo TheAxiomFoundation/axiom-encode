@@ -14552,10 +14552,21 @@ rules:
         assert "snap_total_gross_income <=" in content
         assert "snap_net_monthly_income <=" in content
         test_content = test_file.read_text()
-        assert "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income" not in test_content
-        assert "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696" in test_content
-        assert "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5" in test_content
-        manifest = policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
+        assert (
+            "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"
+            not in test_content
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696"
+            in test_content
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5"
+            in test_content
+        )
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
+        )
         payload = json.loads(manifest.read_text())
         assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
