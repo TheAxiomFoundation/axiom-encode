@@ -1085,6 +1085,27 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 CA JOBS referral-required output is a TANF work-program administrative referral decision; PolicyEngine does not expose this source-specific work-program referral predicate.
 
+  - legal_id: us-az:policies/des/faa5/ca-jobs-program-preliminary-orientation-jppo#jppo_completion_required_before_ca_approval
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 JPPO preapproval completion requirement is a TANF work-program administrative compliance predicate; PolicyEngine does not expose this source-specific JPPO approval gate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-program-preliminary-orientation-jppo#jppo_compliance_completed_with_faa_worker
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 JPPO completion with an FAA worker is a TANF work-program administrative compliance predicate; PolicyEngine does not expose this source-specific JPPO completion predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-program-preliminary-orientation-jppo#jppo_requirement_exception_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 JPPO exception handling is a TANF work-program administrative compliance boundary; PolicyEngine does not expose this source-specific JPPO exception predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
