@@ -1232,6 +1232,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_snap_273_9_parser = subparsers.add_parser(
+        "repair-snap-273-9-income-eligibility",
+        help="Apply signed deterministic repairs for 7 CFR 273.9 SNAP income eligibility drift",
+    )
+    repair_snap_273_9_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_snap_273_9_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_ny_snap_categorical_parser = subparsers.add_parser(
         "repair-new-york-snap-categorical-eligibility",
         help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
@@ -1877,6 +1896,8 @@ def main():
         cmd_repair_california_snap_shelter_surface(args)
     elif args.command == "repair-snap-273-10-allotment":
         cmd_repair_snap_273_10_allotment(args)
+    elif args.command == "repair-snap-273-9-income-eligibility":
+        cmd_repair_snap_273_9_income_eligibility(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
         cmd_repair_new_york_snap_categorical_eligibility(args)
     elif args.command == "repair-new-york-snap-benefit-tests":
@@ -5620,6 +5641,190 @@ def cmd_repair_snap_273_10_allotment(args):
         )
 
     print("Applied 7 CFR 273.10 maximum-allotment repair")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+SNAP_273_9_RELATIVE = Path("regulations/7-cfr/273/9.yaml")
+
+
+def _repair_snap_273_9_income_rules(content: str) -> str:
+    content = _ensure_yaml_import_text(
+        content,
+        "us:regulations/7-cfr/273/10",
+        before_import="us:policies/usda/snap/fy-2026-cola/income-eligibility-standards",
+    )
+    content = content.replace(
+        "snap_gross_monthly_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc",
+        "snap_total_gross_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc",
+    )
+    return content.replace(
+        "formula: snap_net_income <= snap_net_income_limit_100_percent_fpl_48_states_dc",
+        "formula: snap_net_monthly_income <= snap_net_income_limit_100_percent_fpl_48_states_dc",
+    )
+
+
+def _snap_273_9_derived_income_inputs(
+    *,
+    gross: int,
+    shelter_expenses: int | float,
+) -> str:
+    return (
+        "    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1\n"
+        "    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 0\n"
+        f"    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: {gross}\n"
+        "    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0\n"
+        "    us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction: false\n"
+        "    us:regulations/7-cfr/273/10#input.snap_total_medical_expenses: 0\n"
+        "    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses: 0\n"
+        "    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments: 0\n"
+        "    us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction: 0\n"
+        f"    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: {shelter_expenses}\n"
+    )
+
+
+def _repair_snap_273_9_income_tests(content: str) -> str:
+    replacements = {
+        (
+            "    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 1696\n"
+            "    us:regulations/7-cfr/273/9#input.snap_net_income: 1305\n"
+        ): _snap_273_9_derived_income_inputs(gross=1696, shelter_expenses=925.5),
+        (
+            "    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 1697\n"
+            "    us:regulations/7-cfr/273/9#input.snap_net_income: 1305\n"
+        ): _snap_273_9_derived_income_inputs(gross=1697, shelter_expenses=927),
+        (
+            "    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 10000\n"
+            "    us:regulations/7-cfr/273/9#input.snap_net_income: 1305\n"
+        ): _snap_273_9_derived_income_inputs(gross=10000, shelter_expenses=13391.5),
+        (
+            "    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 1000\n"
+            "    us:regulations/7-cfr/273/9#input.snap_net_income: 1306\n"
+        ): _snap_273_9_derived_income_inputs(gross=1696, shelter_expenses=0),
+    }
+    for old, new in replacements.items():
+        content = content.replace(old, new)
+    return content
+
+
+def cmd_repair_snap_273_9_income_eligibility(args):
+    """Apply a signed deterministic repair for 273.9 income eligibility drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-snap-273-9-income-eligibility must run against rulespec-us; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = SNAP_273_9_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_snap_273_9_income_rules(original_content)
+    repaired_test_content = _repair_snap_273_9_income_tests(original_test_content)
+    applied_files = [rules_file, test_file]
+    axiom_encode_git = None
+
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+        if manifest_path.exists():
+            current_hashes = {
+                file.relative_to(repo_path).as_posix(): _sha256_file(file)
+                for file in applied_files
+            }
+            payload = json.loads(manifest_path.read_text())
+            manifest_hashes = {
+                item.get("path"): item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict)
+            }
+            if all(
+                manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
+            ):
+                axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+                if (
+                    payload.get("axiom_encode_version") == __version__
+                    and payload.get("axiom_encode_git") == axiom_encode_git
+                ):
+                    print("No 7 CFR 273.9 income-eligibility repairs found.")
+                    return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    if axiom_encode_git is None:
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=False,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="snap-273-9-income-eligibility-v1",
+            tool="axiom-encode repair-snap-273-9-income-eligibility",
+            citation="us:regulations/7-cfr/273/9",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied 7 CFR 273.9 income-eligibility repair")
     print(f"changed={relative_output}")
     print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")

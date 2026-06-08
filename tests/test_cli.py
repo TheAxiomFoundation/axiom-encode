@@ -135,6 +135,7 @@ from axiom_encode.cli import (
     cmd_repair_section_63_f_stale_test_inputs,
     cmd_repair_section_172_c_capacity,
     cmd_repair_section_911_a_1_exclusion,
+    cmd_repair_snap_273_9_income_eligibility,
     cmd_repair_snap_273_10_allotment,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
@@ -14473,6 +14474,213 @@ rules:
             "regulations/7-cfr/273/10.test.yaml",
         ]
         assert payload["tool"] == "axiom-encode repair-snap-273-10-allotment"
+
+    def test_repair_snap_273_9_income_eligibility_writes_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/9.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
+rules:
+  - name: snap_standard_gross_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_household_has_elderly_or_disabled_member
+          or snap_gross_monthly_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
+  - name: snap_standard_net_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_net_income <= snap_net_income_limit_100_percent_fpl_48_states_dc
+"""
+        )
+        test_file = policy_repo / "regulations/7-cfr/273/9.test.yaml"
+        test_file.write_text(
+            """- name: non_elderly_household_must_meet_gross_and_net_income_standards
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 1696
+    us:regulations/7-cfr/273/9#input.snap_net_income: 1305
+  output:
+    us:regulations/7-cfr/273/9#snap_standard_income_eligible: holds
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_snap_273_9_income_eligibility(args)
+
+        content = target.read_text()
+        assert "us:regulations/7-cfr/273/10" in content
+        assert "snap_gross_monthly_income" not in content
+        assert "snap_total_gross_income <=" in content
+        assert "snap_net_monthly_income <=" in content
+        test_content = test_file.read_text()
+        assert (
+            "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"
+            not in test_content
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696"
+            in test_content
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5"
+            in test_content
+        )
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "regulations/7-cfr/273/9.yaml",
+            "regulations/7-cfr/273/9.test.yaml",
+        ]
+        assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
+
+    def test_repair_snap_273_9_income_eligibility_refreshes_stale_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/9.yaml"
+        target.parent.mkdir(parents=True)
+        repaired_rules = """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+  - us:regulations/7-cfr/273/10
+  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
+rules:
+  - name: snap_standard_gross_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_household_has_elderly_or_disabled_member
+          or snap_total_gross_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
+  - name: snap_standard_net_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_net_monthly_income <= snap_net_income_limit_100_percent_fpl_48_states_dc
+"""
+        target.write_text(repaired_rules)
+        test_file = policy_repo / "regulations/7-cfr/273/9.test.yaml"
+        repaired_tests = """- name: non_elderly_household_must_meet_gross_and_net_income_standards
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
+    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 0
+    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696
+    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
+    us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction: false
+    us:regulations/7-cfr/273/10#input.snap_total_medical_expenses: 0
+    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses: 0
+    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments: 0
+    us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction: 0
+    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5
+  output:
+    us:regulations/7-cfr/273/9#snap_standard_income_eligible: holds
+"""
+        test_file.write_text(repaired_tests)
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
+        )
+        manifest.parent.mkdir(parents=True)
+        stale_payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "tool": "axiom-encode repair-snap-273-9-income-eligibility",
+            "axiom_encode_version": "0.2.624",
+            "axiom_encode_git": {"commit": "old", "dirty_tracked": False},
+            "applied_files": [
+                {
+                    "path": "regulations/7-cfr/273/9.yaml",
+                    "sha256": _sha256_file(target),
+                },
+                {
+                    "path": "regulations/7-cfr/273/9.test.yaml",
+                    "sha256": _sha256_file(test_file),
+                },
+            ],
+        }
+        manifest.write_text(json.dumps(stale_payload))
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        current_git = {"commit": "new", "dirty_tracked": False}
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value=current_git,
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_snap_273_9_income_eligibility(args)
+
+        payload = json.loads(manifest.read_text())
+        assert target.read_text() == repaired_rules
+        assert test_file.read_text() == repaired_tests
+        assert payload["axiom_encode_version"] == AXIOM_ENCODE_TEST_VERSION
+        assert payload["axiom_encode_git"] == current_git
+        assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
 
     def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
         self, tmp_path
