@@ -1022,6 +1022,13 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 Tribal NEW JOBS exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
 
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/working-in-unsubsidized-employment#unsubsidized_employment_exemption_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 unsubsidized-employment JOBS exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
