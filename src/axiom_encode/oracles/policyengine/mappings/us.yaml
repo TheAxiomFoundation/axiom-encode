@@ -1134,6 +1134,76 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 TPEP Jobs benefit release after participant compliance is a TANF work-program administrative compliance gate; PolicyEngine does not expose this source-specific TPEP Jobs release predicate.
 
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_maximum_consecutive_months
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care maximum consecutive-month parameter is a state-specific CA-closure childcare transition duration; PolicyEngine does not expose this TCC duration as a comparable TANF parameter.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_prior_ca_receipt_lookback_months
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care prior-CA receipt lookback is a source-specific TCC eligibility window; PolicyEngine does not expose this Arizona TCC lookback as a comparable TANF parameter.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_case_closure_request_window_months
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care post-closure request window is a source-specific CCSD application timing rule; PolicyEngine does not expose this TCC request window as a comparable TANF parameter.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_closure_reason_qualifies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care closure-reason qualifier depends on source-specific CA closure administration and IPV/DCSS/JOBS exclusions; PolicyEngine does not expose this TCC predicate as a comparable TANF output.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_requirements_met
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care requirements combine CA history, CCSD application, information-provision, caretaker-relative, and request-window gates; PolicyEngine does not expose this source-specific TCC eligibility boundary.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_coverage_month_authorizable
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care coverage authorization combines TCC application timing with the CA-closure month limit; PolicyEngine does not expose this source-specific coverage-month predicate.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_new_24_month_period_established
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care new-period establishment depends on CA reapproval and later qualifying stoppage; PolicyEngine does not expose this TCC reset boundary as a comparable TANF output.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_remaining_balance_eligibility
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care remaining-balance eligibility is a source-specific CCSD/TCC continuation predicate; PolicyEngine does not expose this remaining-months boundary as a comparable TANF output.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_budgetary_unit_tcc_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care budgetary-unit eligibility combines TCC coverage authorization and remaining-balance rules; PolicyEngine does not expose this Arizona TCC eligibility output.
+
+  - legal_id: us-az:policies/des/faa5/transitional-child-care-tcc#tcc_participant_potentially_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Transitional Child Care participant eligibility categories include CA-closure, SSI, foster-care, FBCP, grant-diversion, post-closure children, and SSN-failure branches; PolicyEngine does not expose this source-specific participant boundary.
+
   - legal_id: us-az:policies/des/faa5/na-transitional-benefit-assistance-tba#tba_max_consecutive_months
     country: us
     program: snap
