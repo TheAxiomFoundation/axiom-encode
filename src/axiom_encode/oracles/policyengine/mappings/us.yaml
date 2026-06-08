@@ -1029,6 +1029,62 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 unsubsidized-employment JOBS exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
 
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/working-in-unsubsidized-employment#minimum_average_weekly_work_hours_for_unsubsidized_employment_exemption
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 unsubsidized-employment JOBS exemption threshold is a TANF work-program administrative parameter; PolicyEngine does not expose this source-specific work-program exemption parameter.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/working-in-unsubsidized-employment#minimum_employment_duration_days_for_unsubsidized_employment_exemption
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 unsubsidized-employment JOBS exemption duration threshold is a TANF work-program administrative parameter; PolicyEngine does not expose this source-specific work-program exemption parameter.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/cuban-or-haitian-entrants#cuban_haitian_entrant_jobs_referral_temporary_exemption_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Cuban or Haitian Entrants JOBS exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age-18-not-referred#age_18_non_student_month_of_turning_18_exemption_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Age 18 - Not Referred JOBS exemption is a TANF work-program administrative participation exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age-18-not-referred#minor_parent_age_18_head_or_spouse_exception_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Age 18 - Not Referred minor-parent exception is a TANF work-program administrative exception; PolicyEngine does not expose this source-specific work-program participation predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/ca-gd#grant_diversion_jobs_work_requirement_exemption_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 Grant Diversion JOBS exemption is a TANF work-program administrative exemption; PolicyEngine does not expose this source-specific work-program participation predicate.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-mandatory-referrals#ca_jobs_mandatory_referral_category_applies
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 CA JOBS mandatory-referral category is a TANF work-program administrative referral predicate; PolicyEngine does not expose this source-specific work-program referral boundary.
+
+  - legal_id: us-az:policies/des/faa5/ca-jobs-mandatory-referrals#ca_jobs_referral_required
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 CA JOBS referral-required output is a TANF work-program administrative referral decision; PolicyEngine does not expose this source-specific work-program referral predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
