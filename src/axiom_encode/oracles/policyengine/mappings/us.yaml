@@ -755,6 +755,14 @@ mappings:
     candidate_priority: P4
     rationale: California CalFresh household bridge counts Axiom member eligibility over the household relation; PolicyEngine's SNAP eligibility is adjacent but includes PE's full eligibility graph.
 
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#calfresh_income_and_resource_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: California CalFresh income-and-resource bridge combines categorical eligibility, resource eligibility, and income eligibility as one composition predicate; PolicyEngine's SNAP eligibility is adjacent but computed through PE's full eligibility graph.
+
   - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible
     country: us
     program: snap
@@ -892,6 +900,54 @@ mappings:
     policyengine_variable: snap_excess_shelter_expense_deduction
     candidate_priority: P4
     rationale: Arizona manual shelter deduction output uses source-specific allowable shelter and utility inputs and cap-oriented homeless-deduction wording; PolicyEngine's final excess shelter deduction is adjacent but not a one-to-one output for this source boundary.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_gross_monthly_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_gross_income
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition sums Axiom boundary earned and unearned inputs for the ECPS surface; PolicyEngine's SNAP gross income is adjacent but computed from PE's own income source graph.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_net_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_net_income
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition passes the Axiom net-income boundary into the ECPS surface; PolicyEngine's SNAP net income is adjacent but computed from PE's deduction graph.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition gates the benefit surface through Axiom NA eligibility; PolicyEngine eligibility is adjacent but computed from PE's full eligibility graph.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_maximum_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_max_allotment
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition passes the Axiom Thrifty Food Plan allotment boundary for the budgetary-unit size; PolicyEngine's maximum allotment is adjacent but derives from PE household size and region.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_excess_shelter_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition passes the Axiom shelter-deduction boundary into the ECPS surface; PolicyEngine's shelter deduction is adjacent but uses PE housing and utility inputs.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona FY 2026 composition exposes the regular-month NA allotment after Axiom eligibility and benefit-amount inputs; PolicyEngine's SNAP amount is adjacent but computed from PE's full graph.
 
   - legal_id: us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#a1_annual_payment_standard_percentage_of_base_year_fpl
     country: us

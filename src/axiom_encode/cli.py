@@ -1213,6 +1213,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_az_snap_composition_parser = subparsers.add_parser(
+        "repair-arizona-snap-composition",
+        help="Install signed deterministic Arizona SNAP FY 2026 composition",
+    )
+    repair_az_snap_composition_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-az repository root used for manifest signing",
+    )
+    repair_az_snap_composition_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_snap_273_10_parser = subparsers.add_parser(
         "repair-snap-273-10-allotment",
         help="Apply signed deterministic repairs for 7 CFR 273.10 maximum-allotment drift",
@@ -1875,6 +1894,8 @@ def main():
         cmd_repair_colorado_snap_federal_refs(args)
     elif args.command == "repair-california-snap-shelter-surface":
         cmd_repair_california_snap_shelter_surface(args)
+    elif args.command == "repair-arizona-snap-composition":
+        cmd_repair_arizona_snap_composition(args)
     elif args.command == "repair-snap-273-10-allotment":
         cmd_repair_snap_273_10_allotment(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
@@ -3576,6 +3597,15 @@ CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS = (
     CALIFORNIA_SNAP_SUA_RELATIVE,
 )
 
+ARIZONA_SNAP_COMPOSITION_MODEL = "arizona-snap-composition-v1"
+ARIZONA_SNAP_PROGRAM_RELATIVE = Path(
+    "policies/des/faa5/na-eligibility-and-benefit-determination/"
+    "fy-2026-benefit-calculation.yaml"
+)
+ARIZONA_SNAP_BENEFIT_RELATIVE = Path(
+    "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
+)
+
 
 def cmd_repair_colorado_snap_federal_refs(args):
     """Apply signed deterministic repairs for Colorado SNAP federal ref drift."""
@@ -3934,6 +3964,334 @@ def _write_california_snap_repair_manifests(
                 )
             )
     return manifest_paths
+
+
+def cmd_repair_arizona_snap_composition(args):
+    """Install the Arizona SNAP composition module with signed provenance."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-az":
+        print(
+            "repair-arizona-snap-composition must run against rulespec-us-az; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    benefit_file = repo_path / ARIZONA_SNAP_BENEFIT_RELATIVE
+    if not benefit_file.exists():
+        print(f"Arizona SNAP benefit-amount RuleSpec file not found: {benefit_file}")
+        sys.exit(1)
+
+    rules_file = repo_path / ARIZONA_SNAP_PROGRAM_RELATIVE
+    test_file = _rulespec_test_path(rules_file)
+    manifest_groups = [(ARIZONA_SNAP_PROGRAM_RELATIVE, [rules_file, test_file])]
+    try:
+        _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    originals = {
+        rules_file: rules_file.read_text() if rules_file.exists() else None,
+        test_file: test_file.read_text() if test_file.exists() else None,
+    }
+    try:
+        changed = _write_arizona_snap_composition_files(rules_file, test_file)
+        refresh_manifest = False
+        if not changed:
+            if not _applied_manifest_matches_current_deterministic_repair(
+                repo_path=repo_path,
+                relative_output=ARIZONA_SNAP_PROGRAM_RELATIVE,
+                applied_files=[rules_file, test_file],
+                model=ARIZONA_SNAP_COMPOSITION_MODEL,
+                axiom_encode_git=axiom_encode_git,
+                signing_key=signing_key,
+            ):
+                refresh_manifest = True
+            else:
+                print("No Arizona SNAP composition repairs found.")
+                return
+
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=False,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            raise RuntimeError("\n".join(issues) or "validation failed")
+
+        test_issues = _companion_test_issues(
+            test_files=[test_file],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after Arizona SNAP composition install:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in changed
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    refresh_only = not changed_by_command and refresh_manifest
+    if refresh_only:
+        changed_by_command = [rules_file, test_file]
+    if not changed_by_command:
+        print("No Arizona SNAP composition repairs found.")
+        return
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model=ARIZONA_SNAP_COMPOSITION_MODEL,
+        tool="axiom-encode repair-arizona-snap-composition",
+    )
+
+    if refresh_only:
+        print("Refreshed Arizona SNAP composition repair manifest")
+    else:
+        print("Applied Arizona SNAP composition repair")
+        for path in changed_by_command:
+            print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _applied_manifest_matches_current_deterministic_repair(
+    *,
+    repo_path: Path,
+    relative_output: Path,
+    applied_files: list[Path],
+    model: str,
+    axiom_encode_git: dict[str, object],
+    signing_key: str,
+) -> bool:
+    manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+    if not manifest_path.exists():
+        return False
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return False
+    if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+        return False
+    if payload.get("model") != model:
+        return False
+    if payload.get("axiom_encode_version") != __version__:
+        return False
+    signature_issue = _applied_encoding_manifest_signature_issue(payload, signing_key)
+    if signature_issue:
+        return False
+
+    payload_git = payload.get("axiom_encode_git")
+    if not isinstance(payload_git, dict):
+        return False
+    for key in ("commit", "dirty_tracked", "version", "version_commit"):
+        if key in axiom_encode_git and payload_git.get(key) != axiom_encode_git.get(
+            key
+        ):
+            return False
+
+    expected_hashes = {
+        path.relative_to(repo_path).as_posix(): _sha256_file(path)
+        for path in applied_files
+        if path.exists()
+    }
+    applied_entries = payload.get("applied_files")
+    if not isinstance(applied_entries, list):
+        return False
+    actual_hashes = {
+        str(entry.get("path")): str(entry.get("sha256"))
+        for entry in applied_entries
+        if isinstance(entry, dict)
+        and isinstance(entry.get("path"), str)
+        and isinstance(entry.get("sha256"), str)
+    }
+    return actual_hashes == expected_hashes
+
+
+def _write_arizona_snap_composition_files(
+    rules_file: Path,
+    test_file: Path,
+) -> list[Path]:
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    changed: list[Path] = []
+    rules_content = _arizona_snap_composition_rulespec()
+    test_content = _arizona_snap_composition_tests()
+    if not rules_file.exists() or rules_file.read_text() != rules_content:
+        rules_file.write_text(rules_content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _arizona_snap_composition_rulespec() -> str:
+    return """format: rulespec/v1
+module:
+  kind: composition
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9
+  summary: |-
+    Arizona Nutrition Assistance FY 2026 benefit calculation composition. This
+    module exposes the final regular-month SNAP/NA allotment surface for oracle
+    comparison by composing the encoded Arizona benefit-amount rule and boundary
+    bridge outputs for gross income, net income, eligibility, maximum allotment,
+    minimum allotment, and shelter deduction values. Those upstream bridge
+    values remain inputs until the full Arizona NA eligibility chain is encoded.
+imports:
+  - us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount
+rules:
+  - name: snap_gross_monthly_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Arizona Nutrition Assistance FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_gross_monthly_earned_income + snap_total_monthly_unearned_income)
+
+  - name: snap_net_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Arizona Nutrition Assistance FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, na_net_income)
+
+  - name: snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona Nutrition Assistance FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          na_budgetary_unit_is_eligible
+
+  - name: snap_maximum_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Arizona Nutrition Assistance FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, thrifty_food_plan_amount_for_budgetary_unit_size)
+
+  - name: snap_excess_shelter_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Arizona Nutrition Assistance FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_excess_shelter_deduction_for_net_income)
+
+  - name: snap_regular_month_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: FAA5 NA Eligibility and Benefit Determination, block 9
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          benefit_amount_after_allotment_test
+"""
+
+
+def _arizona_snap_composition_tests() -> str:
+    return """- name: regular_month_allotment_uses_arizona_benefit_amount
+  period: 2026-01
+  input:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_gross_monthly_earned_income: 1000
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_total_monthly_unearned_income: 200
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income: 800
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_excess_shelter_deduction_for_net_income: 150
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.thrifty_food_plan_amount_for_budgetary_unit_size: 536
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.na_budgetary_unit_is_eligible: true
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.budgetary_unit_participant_count: 2
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.minimum_na_allotment: 24
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.initial_month_proration_applies: false
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.prorated_initial_month_na_benefit: 0
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_gross_monthly_income: 1200
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_net_income: 800
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: holds
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_maximum_allotment: 536
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 150
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment: 296
+
+- name: ineligible_unit_receives_zero_regular_month_allotment
+  period: 2026-01
+  input:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_gross_monthly_earned_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_total_monthly_unearned_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_excess_shelter_deduction_for_net_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.thrifty_food_plan_amount_for_budgetary_unit_size: 536
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.na_budgetary_unit_is_eligible: false
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.budgetary_unit_participant_count: 3
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.minimum_na_allotment: 24
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.initial_month_proration_applies: false
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.prorated_initial_month_na_benefit: 0
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: not_holds
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment: 0
+
+- name: one_person_zero_pre_allotment_rounds_up_to_minimum
+  period: 2026-01
+  input:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_gross_monthly_earned_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_total_monthly_unearned_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income: 2000
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.snap_excess_shelter_deduction_for_net_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.thrifty_food_plan_amount_for_budgetary_unit_size: 298
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.na_budgetary_unit_is_eligible: true
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.budgetary_unit_participant_count: 1
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.minimum_na_allotment: 24
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.initial_month_proration_applies: false
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#input.prorated_initial_month_na_benefit: 0
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: holds
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment: 24
+"""
 
 
 def _migrate_california_snap_sua_layout(repo_path: Path) -> None:

@@ -125,6 +125,7 @@ from axiom_encode.cli import (
     cmd_log_event,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_repair_arizona_snap_composition,
     cmd_repair_current_year_final_amounts,
     cmd_repair_imported_test_inputs,
     cmd_repair_judgment_positive_tests,
@@ -164,7 +165,11 @@ from axiom_encode.harness.encoding_db import (
 )
 from axiom_encode.harness.evals import EvalArtifactMetrics
 from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
-from axiom_encode.oracles.policyengine.ecps_snap import JURISDICTION_CONFIGS
+from axiom_encode.oracles.policyengine.ecps_snap import (
+    JURISDICTION_CONFIGS,
+    project_income_resource_inputs,
+    project_jurisdiction_household_inputs,
+)
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
@@ -202,6 +207,42 @@ def test_colorado_snap_ecps_uses_absolute_member_relation_only():
 
     assert config.relation_id == "us:statutes/7/2012/j#relation.member_of_household"
     assert config.additional_relation_ids == ()
+
+
+def test_arizona_snap_ecps_projects_boundary_inputs():
+    config = JURISDICTION_CONFIGS["us-az"]
+    values = {
+        "snap_earned_income": [1000],
+        "snap_unearned_income": [200],
+        "snap_assets": [500],
+        "snap_net_income": [750],
+        "is_snap_eligible": [True],
+        "snap_unit_size": [2],
+        "snap_max_allotment": [536],
+        "snap_min_allotment": [24],
+        "snap_excess_shelter_expense_deduction": [150],
+        "snap_dependent_care_deduction": [0],
+    }
+
+    assert config.program_relative_path.as_posix() == (
+        "policies/des/faa5/na-eligibility-and-benefit-determination/"
+        "fy-2026-benefit-calculation.yaml"
+    )
+    assert config.utility_allowance_labels == ()
+    assert project_income_resource_inputs(config, values, 0) == {
+        "snap_gross_monthly_earned_income": 1000.0,
+        "snap_total_monthly_unearned_income": 200.0,
+    }
+    assert project_jurisdiction_household_inputs(config, values, 0) == {
+        "na_net_income": 750.0,
+        "na_budgetary_unit_is_eligible": True,
+        "budgetary_unit_participant_count": 2,
+        "thrifty_food_plan_amount_for_budgetary_unit_size": 536.0,
+        "minimum_na_allotment": 24.0,
+        "initial_month_proration_applies": False,
+        "prorated_initial_month_na_benefit": 0,
+        "snap_excess_shelter_deduction_for_net_income": 150.0,
+    }
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
@@ -7416,6 +7457,157 @@ rules:
             ".axiom/encoding-manifests/guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.json"
             in str(exc.value)
         )
+
+    def test_repair_arizona_snap_composition_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us-az"
+        _init_test_git_repo(policy_repo)
+        benefit_file = (
+            policy_repo
+            / "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
+        )
+        benefit_file.parent.mkdir(parents=True)
+        benefit_file.write_text("format: rulespec/v1\nrules: []\n")
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+
+        target = (
+            policy_repo / "policies/des/faa5/na-eligibility-and-benefit-determination/"
+            "fy-2026-benefit-calculation.yaml"
+        )
+        test_file = target.with_name("fy-2026-benefit-calculation.test.yaml")
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._companion_test_issues",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_arizona_snap_composition(args)
+
+        content = target.read_text()
+        assert "kind: composition" in content
+        assert "snap_regular_month_allotment" in content
+        assert "snap_maximum_allotment" in content
+        assert "snap_excess_shelter_deduction" in content
+        test_content = test_file.read_text()
+        assert "regular_month_allotment_uses_arizona_benefit_amount" in test_content
+        assert "snap_excess_shelter_deduction_for_net_income: 150" in test_content
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/policies/des/faa5/"
+            "na-eligibility-and-benefit-determination/"
+            "fy-2026-benefit-calculation.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "arizona-snap-composition-v1"
+        assert payload["tool"] == "axiom-encode repair-arizona-snap-composition"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
+            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
+        ]
+
+    def test_repair_arizona_snap_composition_refreshes_stale_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us-az"
+        _init_test_git_repo(policy_repo)
+        benefit_file = (
+            policy_repo
+            / "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
+        )
+        benefit_file.parent.mkdir(parents=True)
+        benefit_file.write_text("format: rulespec/v1\nrules: []\n")
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+
+        target = (
+            policy_repo / "policies/des/faa5/na-eligibility-and-benefit-determination/"
+            "fy-2026-benefit-calculation.yaml"
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/policies/des/faa5/"
+            "na-eligibility-and-benefit-determination/"
+            "fy-2026-benefit-calculation.json"
+        )
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._companion_test_issues",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "old123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_arizona_snap_composition(args)
+
+        first_payload = json.loads(manifest.read_text())
+        assert first_payload["axiom_encode_git"]["commit"] == "old123"
+        first_rules_content = target.read_text()
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._companion_test_issues",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "new456", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_arizona_snap_composition(args)
+
+        refreshed_payload = json.loads(manifest.read_text())
+        assert target.read_text() == first_rules_content
+        assert refreshed_payload["axiom_encode_git"]["commit"] == "new456"
+        assert [item["path"] for item in refreshed_payload["applied_files"]] == [
+            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
+            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
+        ]
 
     def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
         rules = """format: rulespec/v1

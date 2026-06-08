@@ -165,6 +165,46 @@ JURISDICTION_CONFIGS = {
         display_name="California SNAP",
         additional_relation_ids=(AXIOM_RELATION_ID_BY_LABEL["member_of_household"],),
     ),
+    "us-az": JurisdictionConfig(
+        jurisdiction="us-az",
+        state_code="AZ",
+        repo_name="rulespec-us-az",
+        program_relative_path=Path(
+            "policies/des/faa5/na-eligibility-and-benefit-determination/"
+            "fy-2026-benefit-calculation.yaml"
+        ),
+        output_id_by_label={
+            "snap_regular_month_allotment": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_regular_month_allotment"
+            ),
+            "snap_gross_monthly_income": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_gross_monthly_income"
+            ),
+            "snap_net_income": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_net_income"
+            ),
+            "snap_eligible": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_maximum_allotment": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_maximum_allotment"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+                "fy-2026-benefit-calculation#snap_excess_shelter_deduction"
+            ),
+        },
+        utility_allowance_labels=(),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Person",
+        temp_prefix="az-snap-pe-ecps-",
+        display_name="Arizona SNAP",
+    ),
     "us-ny": JurisdictionConfig(
         jurisdiction="us-ny",
         state_code="NY",
@@ -871,6 +911,11 @@ def project_income_resource_inputs(
                 values["meets_snap_categorical_eligibility"][idx]
             ),
         }
+    if config.jurisdiction == "us-az":
+        return {
+            "snap_gross_monthly_earned_income": earned_income,
+            "snap_total_monthly_unearned_income": unearned_income,
+        }
     return {
         "employee_wages_received": earned_income,
         "other_gain_or_benefit_payments": unearned_income,
@@ -1118,6 +1163,7 @@ def load_policyengine_cases(
         "snap_unearned_income": calculate(sim, "snap_unearned_income", period_label),
         "snap_net_income": calculate(sim, "snap_net_income", period_label),
         "snap_max_allotment": calculate(sim, "snap_max_allotment", period_label),
+        "snap_min_allotment": calculate(sim, "snap_min_allotment", period_label),
         "snap_standard_deduction": calculate(
             sim, "snap_standard_deduction", period_label
         ),
@@ -1284,6 +1330,21 @@ def project_jurisdiction_household_inputs(
             "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements": False,
             "household_member_disqualified_for_intentional_program_violation": False,
             "household_member_ineligible_to_participate_in_snap": False,
+        }
+    if config.jurisdiction == "us-az":
+        return {
+            "na_net_income": money(values["snap_net_income"][idx]),
+            "na_budgetary_unit_is_eligible": bool(values["is_snap_eligible"][idx]),
+            "budgetary_unit_participant_count": int(values["snap_unit_size"][idx]),
+            "thrifty_food_plan_amount_for_budgetary_unit_size": money(
+                values["snap_max_allotment"][idx]
+            ),
+            "minimum_na_allotment": money(values["snap_min_allotment"][idx]),
+            "initial_month_proration_applies": False,
+            "prorated_initial_month_na_benefit": 0,
+            "snap_excess_shelter_deduction_for_net_income": money(
+                values["snap_excess_shelter_expense_deduction"][idx]
+            ),
         }
     return {}
 
