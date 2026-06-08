@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Iterator, Mapping, Optional
 
 import yaml
 
@@ -7699,7 +7699,46 @@ def _unit_relation_aggregate_helper_names_by_rule(
             and source_scope_record[0] == _SOURCE_SCOPE_PERSON
         ):
             continue
-        helper_names.update(_formula_local_identifiers(formula))
+        helper_names.update(_relation_aggregate_helper_identifiers(formula))
+    return helper_names
+
+
+_RELATION_AGGREGATE_CALL_START_PATTERN = re.compile(
+    r"\b(?P<function>count_where|sum_where|len|sum)\s*\(",
+    flags=re.IGNORECASE,
+)
+
+
+def _relation_aggregate_call_arguments(formula: str) -> Iterator[tuple[str, list[str]]]:
+    for match in _RELATION_AGGREGATE_CALL_START_PATTERN.finditer(formula):
+        depth = 1
+        index = match.end()
+        while index < len(formula):
+            char = formula[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    yield (
+                        match.group("function").lower(),
+                        _split_top_level_call_arguments(formula[match.end() : index]),
+                    )
+                    break
+            index += 1
+
+
+def _relation_aggregate_helper_identifiers(formula: str) -> set[str]:
+    helper_names: set[str] = set()
+    for function_name, arguments in _relation_aggregate_call_arguments(formula):
+        if len(arguments) < 2:
+            continue
+        relation_name = arguments[0].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", relation_name):
+            continue
+        if function_name in {"count_where", "sum_where"}:
+            for helper_argument in arguments[1:]:
+                helper_names.update(_formula_local_identifiers(helper_argument))
     return helper_names
 
 
