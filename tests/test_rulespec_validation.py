@@ -12862,6 +12862,82 @@ rules:
     ]
 
 
+def test_source_scope_consistency_allows_person_helper_for_all_member_unit_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    "Households that receive SNAP and Colorado Works (CW) basic cash assistance
+    that become ineligible" because of household income changes "are eligible
+    to receive T-SNAP." Eligible households have the "SNAP allotment continued
+    for five (5) months"; listed sanctioned or all-member-disqualified
+    households are not eligible.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: t_snap_member_snap_ineligibility_criterion
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state regulation
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          member_disqualified_for_intentional_program_violation
+          or member_is_ineligible_student
+  - name: household_members_all_snap_ineligible_for_t_snap
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: state regulation
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          len(member_of_household) > 0
+          and count_where(member_of_household, t_snap_member_snap_ineligibility_criterion) == len(member_of_household)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_unaggregated_person_helper_from_unit_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    "Households that receive SNAP and Colorado Works (CW) basic cash assistance
+    that become ineligible" because of household income changes "are eligible
+    to receive T-SNAP." Eligible households have the "SNAP allotment continued
+    for five (5) months"; listed sanctioned or all-member-disqualified
+    households are not eligible.
+rules:
+  - name: t_snap_member_snap_ineligibility_criterion
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state regulation
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          member_disqualified_for_intentional_program_violation
+          or member_is_ineligible_student
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: "
+        "`t_snap_member_snap_ineligibility_criterion` is declared on `Person`, "
+        "but the embedded source states a household/unit-scoped test. Encode "
+        "the rule at the source-stated unit scope or cite source text that "
+        "states the person-level test."
+    ]
+
+
 def test_source_scope_consistency_allows_medicaid_magi_person_eligibility_with_household_income():
     content = """format: rulespec/v1
 module:

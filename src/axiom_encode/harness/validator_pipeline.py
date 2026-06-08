@@ -7275,6 +7275,23 @@ _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
     flags=re.IGNORECASE,
 )
+_UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
+    r"\b(?:households?|snap\s+units?|food\s+assistance\s+units?|"
+    r"assistance\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
+    r"spm\s+units?)\b[\s\S]{0,240}\b(?:all|each|every|no)\s+"
+    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"|"
+    r"\b(?:all|each|every|no)\s+"
+    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"[\s\S]{0,240}\b(?:households?|snap\s+units?|food\s+assistance\s+"
+    r"units?|assistance\s+units?|tax\s+units?|filing\s+units?|"
+    r"famil(?:y|ies)|spm\s+units?)\b"
+    r"|"
+    r"\ball[-\s]+member[-\s]+(?:disqualif|ineligib|exclud)"
+    r"[\s\S]{0,120}\b(?:households?|snap\s+units?|food\s+assistance\s+"
+    r"units?|assistance\s+units?|famil(?:y|ies))\b",
+    flags=re.IGNORECASE,
+)
 _SOURCE_SCOPE_PERSON = "person"
 _SOURCE_SCOPE_UNIT = "unit"
 
@@ -7592,6 +7609,9 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
+    unit_relation_aggregate_helper_names = (
+        _unit_relation_aggregate_helper_names_by_rule(payload, source_text)
+    )
     issues: list[str] = []
     for rule in rules:
         if not isinstance(rule, dict):
@@ -7623,6 +7643,13 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 fallback_source_text=source_text,
             ):
                 continue
+            if _person_rule_can_use_unit_member_aggregate_source(
+                rule,
+                name=name,
+                fallback_source_text=source_text,
+                unit_relation_aggregate_helper_names=unit_relation_aggregate_helper_names,
+            ):
+                continue
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `Person`, but the embedded source "
@@ -7649,6 +7676,52 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 "scope or cite source text that states the declared unit scope."
             )
     return issues
+
+
+def _unit_relation_aggregate_helper_names_by_rule(
+    payload: dict[str, Any],
+    fallback_source_text: str,
+) -> set[str]:
+    helper_names: set[str] = set()
+    for _name, kind, formula, _rule_source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        entity = str(rule.get("entity") or "").strip().lower()
+        if entity not in _UNIT_SCOPED_ENTITY_NAMES:
+            continue
+        if not _RELATION_AGGREGATE_PATTERN.search(formula):
+            continue
+        source_scope_record = _rule_source_scope(rule, fallback_source_text)
+        if (
+            source_scope_record is not None
+            and source_scope_record[0] == _SOURCE_SCOPE_PERSON
+        ):
+            continue
+        helper_names.update(_formula_local_identifiers(formula))
+    return helper_names
+
+
+def _person_rule_can_use_unit_member_aggregate_source(
+    rule: dict[str, Any],
+    *,
+    name: str,
+    fallback_source_text: str,
+    unit_relation_aggregate_helper_names: set[str],
+) -> bool:
+    """Allow person helpers used only to evaluate all-member unit tests."""
+    if name not in unit_relation_aggregate_helper_names:
+        return False
+    if str(rule.get("dtype") or "").strip().lower() != "judgment":
+        return False
+    source_contexts = _rule_proof_source_excerpts(rule)
+    if not source_contexts and fallback_source_text:
+        source_contexts = [fallback_source_text]
+    return any(
+        _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN.search(text)
+        for text in source_contexts
+    )
 
 
 def _formula_or_referenced_helpers_use_relation_aggregate(
