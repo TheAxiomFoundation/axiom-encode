@@ -5733,6 +5733,7 @@ def cmd_repair_snap_273_9_income_eligibility(args):
     repaired_content = _repair_snap_273_9_income_rules(original_content)
     repaired_test_content = _repair_snap_273_9_income_tests(original_test_content)
     applied_files = [rules_file, test_file]
+    axiom_encode_git = None
 
     if (
         repaired_content == original_content
@@ -5753,11 +5754,17 @@ def cmd_repair_snap_273_9_income_eligibility(args):
             if all(
                 manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
             ):
-                print("No 7 CFR 273.9 income-eligibility repairs found.")
-                return
+                axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+                if (
+                    payload.get("axiom_encode_version") == __version__
+                    and payload.get("axiom_encode_git") == axiom_encode_git
+                ):
+                    print("No 7 CFR 273.9 income-eligibility repairs found.")
+                    return
 
     signing_key = _require_applied_encoding_manifest_signing_key()
-    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    if axiom_encode_git is None:
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
