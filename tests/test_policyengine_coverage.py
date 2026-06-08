@@ -347,9 +347,9 @@ rules:
         "known_not_comparable": 4,
     }
     assert report["untested_comparable"] == 0
-    assert {
-        items_by_id[legal_id]["mapping_type"] for legal_id in exact_ids
-    } == {"parameter_value"}
+    assert {items_by_id[legal_id]["mapping_type"] for legal_id in exact_ids} == {
+        "parameter_value"
+    }
     assert {items_by_id[legal_id]["tested"] for legal_id in exact_ids} == {True}
     assert (
         items_by_id[
