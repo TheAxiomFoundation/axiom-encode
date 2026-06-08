@@ -201,6 +201,170 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_arizona_tanf_exact_parameters(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-payment-standard-a1-2fa2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: a1_annual_payment_standard_percentage_of_base_year_fpl
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-09-02'
+        formula: 0.36
+  - name: a1_payment_standard_applies
+    kind: derived
+    entity: TanfUnit
+    dtype: Judgment
+    versions:
+      - effective_from: '2025-09-02'
+        formula: budgetary_unit_has_obligation_to_pay_shelter_cost
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-payment-standard-a1-2fa2.test.yaml",
+        """- name: a1_rate
+  output:
+    us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#a1_annual_payment_standard_percentage_of_base_year_fpl: 0.36
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/earned-income-deduction.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ca_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-09-02'
+        formula: 0.30
+  - name: ca_earned_income_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    versions:
+      - effective_from: '2025-09-02'
+        formula: ca_earned_income_deduction_rate * countable_earned_income
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/earned-income-deduction.test.yaml",
+        """- name: earned_income_rate
+  output:
+    us-az:policies/des/faa5/ca-benefit-determination/earned-income-deduction#ca_earned_income_deduction_rate: 0.3
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/cost-of-employment-deduction.yaml",
+        """format: rulespec/v1
+rules:
+  - name: cost_of_employment_monthly_deduction_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2025-09-02'
+        formula: 90
+  - name: cost_of_employment_deduction_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    versions:
+      - effective_from: '2025-09-02'
+        formula: participant_is_employed
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/cost-of-employment-deduction.test.yaml",
+        """- name: cost_of_employment_amount
+  output:
+    us-az:policies/des/faa5/ca-benefit-determination/cost-of-employment-deduction#cost_of_employment_monthly_deduction_amount: 90
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/needy-family-test.yaml",
+        """format: rulespec/v1
+rules:
+  - name: npcr_child_only_needy_family_fpl_limit_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-09-02'
+        formula: 1.30
+  - name: parent_or_npcr_self_and_child_needy_family_fpl_limit_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-09-02'
+        formula: 1.00
+  - name: needy_family_criteria_met
+    kind: derived
+    entity: TanfUnit
+    dtype: Judgment
+    versions:
+      - effective_from: '2025-09-02'
+        formula: caretaker_relative_family_income <= current_federal_poverty_level
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/ca-benefit-determination/needy-family-test.test.yaml",
+        """- name: needy_family_rates
+  output:
+    us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#npcr_child_only_needy_family_fpl_limit_rate: 1.3
+    us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#parent_or_npcr_self_and_child_needy_family_fpl_limit_rate: 1.0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+
+    exact_ids = {
+        "us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#a1_annual_payment_standard_percentage_of_base_year_fpl",
+        "us-az:policies/des/faa5/ca-benefit-determination/earned-income-deduction#ca_earned_income_deduction_rate",
+        "us-az:policies/des/faa5/ca-benefit-determination/cost-of-employment-deduction#cost_of_employment_monthly_deduction_amount",
+        "us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#npcr_child_only_needy_family_fpl_limit_rate",
+        "us-az:policies/des/faa5/ca-benefit-determination/needy-family-test#parent_or_npcr_self_and_child_needy_family_fpl_limit_rate",
+    }
+
+    assert report["total_outputs"] == 9
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 4,
+    }
+    assert report["untested_comparable"] == 0
+    assert {items_by_id[legal_id]["mapping_type"] for legal_id in exact_ids} == {
+        "parameter_value"
+    }
+    assert {items_by_id[legal_id]["tested"] for legal_id in exact_ids} == {True}
+    assert (
+        items_by_id[
+            "us-az:policies/des/faa5/ca-benefit-determination/earned-income-deduction#ca_earned_income_deduction"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us-az:policies/des/faa5/ca-payment-standard-a1-2fa2#a1_payment_standard_applies"
+        ]["candidate_priority"]
+        == "P4"
+    )
+
+
 def test_policyengine_coverage_classifies_new_york_tanf_state_plan_outputs(
     tmp_path,
 ):
