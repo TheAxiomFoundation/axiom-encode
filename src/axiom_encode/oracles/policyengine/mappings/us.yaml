@@ -786,6 +786,181 @@ mappings:
     policyengine_variable: snap_excess_shelter_expense_deduction
     rationale: Colorado manual rule includes Colorado source inputs and reiterative USDA cap values; PE's federal shelter deduction is adjacent but requires PE-specific housing and utility inputs.
 
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#participant_receives_tanf_cash_assistance_benefit_for_bce
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona BCE treats participant-level TANF CA receipt as including CA eligibility with no payment and CA benefit recoupment; PolicyEngine's SNAP categorical-eligibility surface does not expose this Arizona participant-level CA-status predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#participant_receives_bce_qualifying_benefit_or_status
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona BCE qualifying statuses include TANF CA, TANF services, Grant Diversion, Kinship Foster Care, Tribal TANF, RCA, BIA General Assistance, and SSI no-pay or suspended statuses; PolicyEngine exposes only an adjacent SNAP categorical-eligibility aggregate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#no_budgetary_unit_participant_meets_bce_disqualification_criterion
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona BCE disqualification screening is a source-specific participant-status predicate before the categorical-eligibility decision; PolicyEngine does not expose this Arizona manual boundary as a separate SNAP variable.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#all_budgetary_unit_participants_receive_listed_bce_benefit_or_status
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona BCE requires every budgetary-unit participant to receive one of the listed Arizona qualifying benefits or statuses; PolicyEngine's categorical-eligibility variable is adjacent but computed from PE program variables and SPM-unit membership.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#budgetary_unit_includes_ssi_participant_suspended_for_drug_alcohol_treatment_noncompliance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona BCE excludes units with an SSI participant suspended for drug-and-alcohol-treatment noncompliance; PolicyEngine does not expose this SSI suspension reason as a SNAP categorical-eligibility input or output.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/basic-categorical-eligibility#na_basic_categorical_eligibility
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_categorical_eligibility
+    candidate_priority: P4
+    rationale: Arizona BCE is adjacent to PE's SNAP categorical-eligibility variable but uses Arizona budgetary-unit statuses, CA no-pay and recoupment treatment, SSI no-pay or suspension treatment, and a specific SSI drug-and-alcohol suspension exception not represented in PE's current categorical-eligibility graph.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#expanded_categorical_eligibility_fpl_limit_rate
+    country: us
+    program: snap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.tanf.non_cash.income_limit.gross
+    parameter_key: AZ
+    period: month
+    comparison: rate
+    rationale: Same Arizona SNAP broad-based/expanded categorical-eligibility gross-income FPL limit.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#gross_income_within_expanded_categorical_eligibility_fpl_limit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_tanf_non_cash_gross_income_test
+    candidate_priority: P4
+    rationale: Arizona ECE gross-income predicate is a source-specific legal boundary using generated gross-income and current-FPL leaf inputs; PolicyEngine's TANF non-cash gross-income test is adjacent but computed through PE's SNAP income and state-code graph.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#budgetary_unit_does_not_meet_basic_categorical_eligibility_requirements
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE excludes budgetary units that already meet BCE requirements; PolicyEngine does not expose this Arizona source-specific negative BCE predicate as a one-to-one SNAP variable.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#disqualified_participant_resources_not_over_na_resource_limit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE resource screening for participants with certain disqualifications is a source-specific eligibility subtest; PolicyEngine does not expose this disqualified-participant resource predicate as a separate SNAP output.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#no_participant_has_disqualification_that_blocks_expanded_categorical_eligibility
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE disqualification screening is a source-specific participant-status predicate before the expanded categorical-eligibility decision; PolicyEngine does not expose this Arizona manual boundary as a separate SNAP variable.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#na_expanded_categorical_eligibility
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_categorical_eligibility
+    candidate_priority: P4
+    rationale: Arizona ECE is adjacent to PE's SNAP categorical-eligibility variable but combines generated ECE gross-income, BCE-exclusion, disqualified-participant resource, and disqualification predicates not represented as one-to-one PE outputs.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#expanded_categorical_eligibility_deems_resources_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE deeming of the resources test is a manual-specific administrative consequence of ECE; PolicyEngine computes SNAP resource eligibility through its own graph rather than exposing this deeming predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#expanded_categorical_eligibility_deems_gross_income_test_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE deeming of the gross-income test is a manual-specific consequence of ECE; PolicyEngine computes SNAP income eligibility through its own graph rather than exposing this source-specific deeming predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility#expanded_categorical_eligibility_deems_net_income_test_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona ECE deeming of the net-income test is a manual-specific consequence of ECE; PolicyEngine computes SNAP income eligibility through its own graph rather than exposing this source-specific deeming predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#minimum_allotment_actual_benefit_participant_cutoff
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_min_allotment
+    candidate_priority: P4
+    rationale: Arizona expresses the categorical-eligibility minimum-allotment exception as the participant cutoff at which units must receive the actual benefit amount; PolicyEngine exposes the resulting federal minimum-allotment amount, not this source-specific cutoff value.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#basic_categorically_eligible_budgetary_unit_income_within_net_income_standard
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_net_income_test
+    candidate_priority: P4
+    rationale: Arizona's BCE benefit-calculation rule combines a source-specific BCE status leaf with a generated net-income-standard comparison; PolicyEngine's SNAP net-income test is adjacent but computed through PE's own SNAP income graph.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_tanf_non_cash_gross_income_test
+    candidate_priority: P4
+    rationale: Arizona blocks ECE when generated gross income exceeds the Arizona 185 percent FPL boundary; PolicyEngine exposes the adjacent TANF non-cash gross-income test, but not this negative source-specific ECE blocker.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_categorical_eligibility
+    candidate_priority: P4
+    rationale: Arizona's benefit-calculation categorical-eligibility bridge combines generated BCE status, generated ECE consideration, and the Arizona ECE gross-income blocker; PolicyEngine's categorical-eligibility variable is adjacent but not this manual-page bridge.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_min_allotment
+    candidate_priority: P4
+    rationale: Arizona identifies the small categorically eligible budgetary units entitled to at least the minimum NA allotment; PolicyEngine exposes the resulting SNAP minimum allotment amount, not this Arizona entitlement predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_normal_allotment
+    candidate_priority: P4
+    rationale: Arizona separately flags three-or-more participant categorically eligible units that must receive the actual benefit amount instead of the minimum-allotment floor; PolicyEngine computes normal SNAP allotment directly and does not expose this source-specific exception predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona's output applies categorical-eligibility minimum-allotment and actual-benefit exception logic to generated NA amount inputs; PolicyEngine exposes final SNAP benefits through its own eligibility and allotment graph rather than this manual-page amount surface.
+
+  - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona eligible-no-pay status after NA proration is an administrative status predicate for prorated benefits below the minimum allotment; PolicyEngine's final SNAP benefit amount is adjacent but does not expose this no-pay status.
+
   - legal_id: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_expense_disregard
     country: us
     program: snap
