@@ -961,6 +961,46 @@ mappings:
     candidate_priority: P4
     rationale: Arizona eligible-no-pay status after NA proration is an administrative status predicate for prorated benefits below the minimum allotment; PolicyEngine's final SNAP benefit amount is adjacent but does not expose this no-pay status.
 
+  - legal_id: us-az:policies/des/faa5/disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount#disqualified_participant_excluded_from_budgetary_unit_size_and_benefit_level
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_unit_size
+    candidate_priority: P4
+    rationale: Arizona states a participant-level exclusion from budgetary-unit size and benefit-level assignment for disqualified participants; PolicyEngine exposes resulting SNAP unit size surfaces, but not this Arizona disqualified-participant exclusion predicate.
+
+  - legal_id: us-az:policies/des/faa5/disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount#disqualified_participant_included_for_utility_allowance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_standard_utility_allowance
+    candidate_priority: P4
+    rationale: Arizona includes disqualified participants when determining the correct utility allowance amount; PolicyEngine exposes utility allowance amounts, not this participant-level inclusion rule for Arizona disqualified participants.
+
+  - legal_id: us-az:policies/des/faa5/disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount#disqualified_participant_income_and_expenses_counted_in_full
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona lists disqualification reasons whose income and expenses are counted in full; PolicyEngine computes final SNAP amounts from PE scenario inputs and does not expose this source-specific disqualification-reason bucket.
+
+  - legal_id: us-az:policies/des/faa5/disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount#disqualified_participant_income_and_some_expenses_prorated
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona lists SSN and selected noncitizen disqualification reasons whose income and some expenses are prorated to remaining eligible participants; PolicyEngine does not expose this Arizona proration-reason bucket as a one-to-one SNAP output.
+
+  - legal_id: us-az:policies/des/faa5/disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount#expense_subject_to_proration
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    candidate_priority: P4
+    rationale: Arizona marks shelter, dependent-care, and child-support expenses as subject to proration while excluding utility expenses; PolicyEngine exposes final deduction amounts, not this source-specific expense-type proration predicate.
+
   - legal_id: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_expense_disregard
     country: us
     program: snap
