@@ -953,6 +953,58 @@ mappings:
     candidate_priority: P4
     rationale: Arizona's denial predicate is the negative consequence of failing this manual-page gross-income test; PolicyEngine exposes final SNAP eligibility and component tests, not this source-specific denial reason.
 
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#aggregate_allotment_application_day_threshold
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona's aggregate-allotment day threshold is an application-processing trigger for issuing two months together; PolicyEngine does not expose this source-specific administrative threshold.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#aggregate_allotment_month_count
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona defines aggregate allotment as the first two months of benefits for issuance timing; PolicyEngine computes monthly SNAP amounts and does not expose this source-page month-count parameter.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#first_approval_month_na_benefit_after_proration
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_normal_allotment
+    candidate_priority: P4
+    rationale: Arizona prorates the first approval month's NA benefit from application turn-in day through month end using generated day-count inputs; PolicyEngine's normal allotment is adjacent but does not expose this Arizona initial-month proration surface.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#application_turned_in_after_aggregate_allotment_day_threshold
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona's after-the-15th predicate is an aggregate-allotment issuance gate based on application processing timing; PolicyEngine does not model this source-specific administrative predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#aggregate_allotment_verification_requirement_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona's aggregate-allotment verification gate includes postponed verification handling for expedited units; PolicyEngine does not expose this Arizona verification-processing predicate as a SNAP variable.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#aggregate_allotment_issue_conditions_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona's aggregate-allotment issuance predicate combines application day, two-month eligibility, application completion, proration, and verification gates; PolicyEngine exposes monthly SNAP amounts, not this source-specific two-month issuance condition.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/first-month-benefit-proration#aggregate_allotment_amount
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: Arizona's aggregate allotment amount adds a prorated first approval month and full second month when source-specific issuance gates are met; PolicyEngine exposes final monthly SNAP benefits rather than this Arizona two-month issuance amount.
+
   - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#minimum_allotment_actual_benefit_participant_cutoff
     country: us
     program: snap
