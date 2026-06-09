@@ -1253,6 +1253,62 @@ mappings:
     candidate_priority: P4
     rationale: Arizona FAA5 NA Transitional Benefit Assistance eligibility is a state-specific transitional NA benefit rule combining CA closure, compliance, disqualification, and closure gates; PolicyEngine does not expose Arizona TBA eligibility as a comparable SNAP variable.
 
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#na_restored_benefit_lookback_limit_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 restored NA benefit lookback limit is an administrative benefit-correction rule; PolicyEngine does not expose restored SNAP benefit issuance windows as comparable outputs.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#budgetary_unit_underpayment_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 underpayment eligibility spans denied-in-error, closed-in-error, and incorrect prior/current benefit issuance across NA and CA; PolicyEngine does not expose this administrative correction predicate.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#supplemental_payment_issuable
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 supplemental payment issuance is a current/future-month benefit-correction rule triggered by changes, corrections, remands, or OARC recoupment; PolicyEngine does not expose this issuance boundary.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#na_restoration_trigger_event_occurred
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA restoration trigger events are administrative request, discovery, appeal, reversal, and untimely-processing events; PolicyEngine does not expose these restored-benefit trigger predicates.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#na_restored_benefit_month_within_lookback_limit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 NA restored-benefit lookback eligibility depends on source-specific restoration trigger dates and months-before calculations; PolicyEngine does not expose this administrative lookback predicate.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#restored_na_benefits_issuable
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 restored NA benefit issuance covers prior-month underissuance and administrative restoration limits; PolicyEngine does not expose restored SNAP benefit issuance as a comparable variable.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#restored_ca_benefits_issuable_without_month_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 restored CA benefit issuance with no month limit depends on verification and documentation for a past-month correction; PolicyEngine does not expose restored TANF benefit issuance.
+
+  - legal_id: us-az:policies/des/faa5/supplemental-payments-and-restored-benefits#faa_caused_underpayment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Arizona FAA5 FAA-caused underpayment is an administrative error classification spanning verification timing, reported changes, mass changes, incorrect actions, IPV reversals, and appeal decisions; PolicyEngine does not expose this correction-cause predicate.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
