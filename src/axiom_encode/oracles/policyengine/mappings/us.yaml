@@ -897,6 +897,62 @@ mappings:
     candidate_priority: P4
     rationale: Arizona ECE deeming of the net-income test is a manual-specific consequence of ECE; PolicyEngine computes SNAP income eligibility through its own graph rather than exposing this source-specific deeming predicate.
 
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#standard_gross_income_fpl_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_parameter: gov.usda.snap.income.limit.gross
+    candidate_priority: P4
+    rationale: Arizona's generated local 1.30 gross-income-test rate matches the federal SNAP gross-income-limit concept, but the current RuleSpec tests do not project this standalone parameter to PolicyEngine; PE uses the rate inside its gross-income test graph.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#expanded_gross_income_fpl_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_tanf_non_cash_gross_income_test
+    candidate_priority: P4
+    rationale: Arizona's 185 percent expanded gross-income rate is a manual-page selector for expanded categorical eligibility; PolicyEngine exposes the adjacent TANF non-cash gross-income test, not this standalone Arizona selector parameter.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#na_gross_income_for_income_test
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_gross_income
+    candidate_priority: P4
+    rationale: Arizona defines countable gross income for its generated budgetary-unit test, excluding farm self-employment loss by source-specific leaf input; PolicyEngine computes SNAP gross income from its own income graph rather than this manual-page boundary.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#applicable_na_gross_monthly_income_standard
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_fpg
+    candidate_priority: P4
+    rationale: Arizona's output multiplies generated FPL input by either the standard or expanded gross-income rate; PolicyEngine exposes SNAP FPG and gross-income tests through its own graph, not this source-specific monthly standard.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#na_gross_income_test_required
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_gross_income_test
+    candidate_priority: P4
+    rationale: Arizona states when the gross-income test is required, exempting elderly/disabled and categorically eligible units; PolicyEngine exposes the final positive gross-income test, not this source-specific requirement predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#na_gross_income_test_passes
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_gross_income_test
+    candidate_priority: P4
+    rationale: Arizona's generated gross-income pass predicate combines a source-specific required-test gate with generated income-standard inputs; PolicyEngine's SNAP gross-income test is adjacent but computed through PE's own income, FPG, and elderly/disabled graph.
+
+  - legal_id: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test#na_application_denied_due_to_gross_income_test
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: Arizona's denial predicate is the negative consequence of failing this manual-page gross-income test; PolicyEngine exposes final SNAP eligibility and component tests, not this source-specific denial reason.
+
   - legal_id: us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#minimum_allotment_actual_benefit_participant_cutoff
     country: us
     program: snap
