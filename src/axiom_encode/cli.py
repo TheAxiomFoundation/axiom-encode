@@ -135,7 +135,12 @@ from .oracles.policyengine.efrs_uk import (
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
-from .repo_routing import canonical_rulespec_repo_name, find_policy_repo_root
+from .repo_routing import (
+    candidate_jurisdiction_content_dirs,
+    canonical_rulespec_repo_name,
+    find_policy_repo_root,
+    resolve_jurisdiction_content_dir,
+)
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -166,10 +171,33 @@ def _resolve_runtime_axiom_rules_checkout(
 ) -> Path:
     """Resolve the Axiom rules engine checkout, preferring a sibling repo."""
     if policy_repo_root is not None:
-        sibling = Path(policy_repo_root).resolve().parent / "axiom-rules-engine"
-        if sibling.exists():
-            return sibling.resolve()
+        parents = [Path(policy_repo_root).resolve().parent]
+        if parents[0].name.startswith("rulespec-"):
+            # A monorepo jurisdiction directory: the engine checkout sits
+            # next to the monorepo checkout itself.
+            parents.append(parents[0].parent)
+        for parent in parents:
+            sibling = parent / "axiom-rules-engine"
+            if sibling.exists():
+                return sibling.resolve()
     return _resolve_repo_checkout("axiom-rules-engine")
+
+
+def _resolve_policy_repo_for_prefix(prefix: str) -> Path:
+    """Resolve a jurisdiction's RuleSpec content root by repo prefix.
+
+    Tries the country monorepo layout (``rulespec-<country>/<prefix>/``)
+    before the legacy sibling layout (``rulespec-<prefix>/``) under the
+    workspace next to this checkout, then under ``~/TheAxiomFoundation``.
+    Falls back to the legacy sibling path even when missing so callers
+    surface the same "repo not found" errors as before.
+    """
+    workspace_root = Path(__file__).resolve().parents[3]
+    bases = [workspace_root, Path.home() / "TheAxiomFoundation"]
+    resolved = resolve_jurisdiction_content_dir(bases, prefix)
+    if resolved is not None:
+        return resolved.resolve()
+    return _resolve_repo_checkout(f"rulespec-{prefix}")
 
 
 def _resolve_policy_repo_for_corpus_source(
@@ -179,15 +207,14 @@ def _resolve_policy_repo_for_corpus_source(
     if override is not None:
         return override
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
-    repo_name = f"rulespec-{jurisdiction}"
-    return _resolve_repo_checkout(repo_name)
+    return _resolve_policy_repo_for_prefix(jurisdiction)
 
 
 def _resolve_validation_repo_roots(rulespec_file: Path) -> tuple[Path, Path]:
     """Resolve the policy repo root plus the Axiom rules engine for validation."""
-    policy_repo_root = find_policy_repo_root(rulespec_file) or _resolve_repo_checkout(
-        "rulespec-us"
-    )
+    policy_repo_root = find_policy_repo_root(
+        rulespec_file
+    ) or _resolve_policy_repo_for_prefix("us")
     return policy_repo_root, _resolve_runtime_axiom_rules_checkout(policy_repo_root)
 
 
@@ -3333,7 +3360,7 @@ def cmd_classify(args):
     state = args.state.lower()
     repo = args.repo
     if repo is None:
-        repo = Path(__file__).resolve().parents[3] / f"rulespec-us-{state}"
+        repo = _resolve_policy_repo_for_prefix(f"us-{state}")
     repo = repo.resolve()
     if not repo.is_dir():
         print(f"rulespec-us-{state} repository not found at {repo}", file=sys.stderr)
@@ -15621,7 +15648,7 @@ def cmd_encode(args):
     axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
         "axiom-rules-engine"
     )
-    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
+    policy_repo_path = args.policy_repo_path or _resolve_policy_repo_for_prefix("us")
 
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")
@@ -17596,24 +17623,28 @@ def _rulespec_file_for_absolute_module_ref(
     relative_file = Path(relative)
     if relative_file.suffix not in {".yaml", ".yml"}:
         relative_file = Path(f"{relative}.yaml")
-    repo_name = f"rulespec-{prefix}"
     current_repo = Path(policy_repo_path).expanduser()
 
-    candidates: list[Path] = []
     candidate_roots = [
         current_repo,
         current_repo.parent,
         current_repo / "_axiom",
         current_repo.parent / "_axiom",
     ]
+    if current_repo.parent.name.startswith("rulespec-"):
+        # A monorepo jurisdiction directory: sibling checkouts live next to
+        # the monorepo checkout itself.
+        candidate_roots.append(current_repo.parent.parent)
+        candidate_roots.append(current_repo.parent.parent / "_axiom")
     env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
     candidate_roots.extend(
         Path(root).expanduser() for root in env_roots.split(os.pathsep) if root
     )
-    for root in candidate_roots:
-        if root.name == repo_name or canonical_rulespec_repo_name(root) == repo_name:
-            candidates.append(root / relative_file)
-        candidates.append(root / repo_name / relative_file)
+    candidates: list[Path] = [
+        content_dir / relative_file
+        for root in candidate_roots
+        for content_dir in candidate_jurisdiction_content_dirs(root, prefix)
+    ]
 
     seen_candidates: set[Path] = set()
     for candidate in candidates:
@@ -18937,7 +18968,15 @@ def _companion_test_file_for_relation_ref(
     current_prefix = _repo_jurisdiction_prefix(policy_repo_path)
     if prefix == current_prefix:
         repo_roots.append(policy_repo_path)
-    repo_roots.append(policy_repo_path.parent / f"rulespec-{prefix}")
+    # Sibling jurisdictions: monorepo jurisdiction dirs and legacy checkouts
+    # next to the current repo (or next to its monorepo checkout).
+    repo_roots.extend(
+        candidate_jurisdiction_content_dirs(policy_repo_path.parent, prefix)
+    )
+    if policy_repo_path.parent.name.startswith("rulespec-"):
+        repo_roots.extend(
+            candidate_jurisdiction_content_dirs(policy_repo_path.parent.parent, prefix)
+        )
     for repo_root in repo_roots:
         test_file = _rulespec_test_path(repo_root / relative_path)
         if test_file.exists():
@@ -27016,7 +27055,7 @@ def cmd_eval(args):
     axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
         "axiom-rules-engine"
     )
-    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
+    policy_repo_path = args.policy_repo_path or _resolve_policy_repo_for_prefix("us")
 
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")

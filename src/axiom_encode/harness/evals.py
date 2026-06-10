@@ -31,7 +31,10 @@ from axiom_encode.concepts.registry import (
 )
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
 from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
-from axiom_encode.repo_routing import canonical_rulespec_repo_name
+from axiom_encode.repo_routing import (
+    canonical_rulespec_repo_name,
+    monorepo_alternative_path,
+)
 from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
@@ -1389,10 +1392,21 @@ def _optional_float(value: object) -> float | None:
 
 
 def _resolve_manifest_path(base_dir: Path, value: object) -> Path:
-    """Resolve a manifest path entry relative to the manifest file."""
+    """Resolve a manifest path entry relative to the manifest file.
+
+    Manifest entries are written against the legacy sibling-checkout layout
+    (``../rulespec-us-co/...``). When the literal path is missing but the
+    content has moved into a country monorepo
+    (``../rulespec-us/us-co/...``), the monorepo equivalent resolves instead
+    — benchmark YAML stays unchanged across the consolidation.
+    """
     path = Path(str(value))
     if not path.is_absolute():
         path = (base_dir / path).resolve()
+    if not path.exists():
+        monorepo_path = monorepo_alternative_path(path)
+        if monorepo_path is not None and monorepo_path.exists():
+            return monorepo_path
     return path
 
 

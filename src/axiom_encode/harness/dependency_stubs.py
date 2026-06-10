@@ -307,6 +307,15 @@ def _candidate_corpus_provisions_roots(rules_repo_root: Path) -> list[Path]:
         candidates.append(Path(env_root).expanduser())
     root = Path(rules_repo_root).expanduser().resolve()
     candidates.extend([root.parent / "axiom-corpus", root.parent / "corpus"])
+    if root.parent.name.startswith("rulespec-"):
+        # A monorepo jurisdiction directory: the corpus checkout sits next to
+        # the monorepo checkout itself.
+        candidates.extend(
+            [
+                root.parent.parent / "axiom-corpus",
+                root.parent.parent / "corpus",
+            ]
+        )
 
     provisions_roots: list[Path] = []
     seen: set[Path] = set()
@@ -380,7 +389,10 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
 
 
 def _jurisdiction_for_rules_repo(rules_repo_root: Path) -> str:
-    name = Path(rules_repo_root).resolve().name
+    name = (
+        canonical_rulespec_repo_name(Path(rules_repo_root))
+        or Path(rules_repo_root).resolve().name
+    )
     if name.startswith("rulespec-"):
         return name.removeprefix("rulespec-")
     return "us"
