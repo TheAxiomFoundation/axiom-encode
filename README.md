@@ -86,6 +86,49 @@ That guard rejects changed RuleSpec YAML under `statutes/`, `regulations/`, or
 same diff and that manifest has a valid `AXIOM_ENCODE_APPLY_SIGNING_KEY`
 signature.
 
+## Source pinning and staleness
+
+RuleSpec modules ground to legal text through
+`module.source_verification.corpus_citation_path`. The schema also accepts an
+optional `source_sha256` pin — the SHA-256 hex digest of the exact corpus
+provision text the module was encoded from — plus in-content
+`module.encoding_provenance` (`encoder`, `model`, `run_id`, `reviewed_by`)
+and `module.validation` (oracle, `matches`/`mismatches`/`pending` status,
+`last_run` date) blocks. All three are optional and inert at runtime.
+
+Check every pinned module in a jurisdiction checkout against a local
+`axiom-corpus` checkout:
+
+```bash
+axiom-encode check-source-staleness \
+  --rulespec-root ~/TheAxiomFoundation/rulespec-us \
+  --corpus-root ~/TheAxiomFoundation/axiom-corpus
+```
+
+The command exits `0` when every `source_sha256` pin still matches the
+current corpus text and `1` when any module is stale (hash mismatch, or the
+pinned provision text can no longer be found). It reads the same provision
+JSONL layout the validator pipeline reads, including best-body selection for
+duplicate citations and the descendant fallback for metadata-only nodes.
+
+`axiom_encode.source_hash` exposes the building blocks for stamping at
+encode time:
+
+- `source_verification_block(citation_path, source_text)` builds the
+  `module.source_verification` block, hashing the provision text exactly as
+  read from the corpus.
+- `provenance_block(model, run_id)` builds `module.encoding_provenance`
+  with the current `axiom-encode/<version>` as the encoder.
+- `check_staleness(rulespec_root, corpus_root)` returns
+  `(module_path, pinned_sha, current_sha)` tuples for stale modules, for
+  programmatic use.
+
+Generation pipelines should stamp both blocks into `module:` when writing a
+main file: pass the same provision text fed to the encoding prompt to
+`source_verification_block`, and the run's model and run id to
+`provenance_block`. Oracle runners can then append `module.validation`
+entries as results land.
+
 ## Eval suites and readiness gates
 
 Use manifest-driven benchmark suites when you want an explicit readiness answer instead

@@ -55,7 +55,9 @@ all = [
 ]
 
 [project.scripts]
-axiom-encode = "axiom_encode.cli:main"
+# entrypoint.main dispatches check-source-staleness and delegates every
+# other invocation to axiom_encode.cli:main unchanged.
+axiom-encode = "axiom_encode.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/axiom_encode"]
