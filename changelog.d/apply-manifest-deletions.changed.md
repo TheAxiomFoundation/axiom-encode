@@ -1,0 +1,1 @@
+Encoder apply manifests support `{path, deleted: true}` entries, the generated-RuleSpec guard verifies deletions and tolerates manifests removed in the same change set, and the new `retire` command deletes live RuleSpec files with signed retirement manifests.

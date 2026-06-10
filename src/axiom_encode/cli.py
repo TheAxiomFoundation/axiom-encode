@@ -151,6 +151,7 @@ APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v1"
 APPLIED_ENCODING_SIGNING_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "hmac-sha256"
 APPLIED_ENCODING_SIGNATURE_KEY_ID = "axiom-encode-apply-v1"
+APPLIED_ENCODING_DELETED_MARKER = "deleted"
 
 
 def _resolve_repo_checkout(name: str) -> Path:
@@ -865,6 +866,34 @@ def main():
     )
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
+    )
+
+    retire_parser = subparsers.add_parser(
+        "retire",
+        help=(
+            "Retire live RuleSpec files: delete them and record signed "
+            "deletion entries in their encoder apply manifests. This is the "
+            "non-manual path for removing live RuleSpec files."
+        ),
+    )
+    retire_parser.add_argument(
+        "paths",
+        nargs="+",
+        help=(
+            "Repo-relative RuleSpec YAML paths to retire "
+            "(companion .test.yaml files are included automatically)"
+        ),
+    )
+    retire_parser.add_argument(
+        "--policy-repo-path",
+        type=Path,
+        required=True,
+        help="Path to the jurisdiction RuleSpec repo",
+    )
+    retire_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Why the files are being retired (recorded in the manifest)",
     )
 
     repair_floor_parser = subparsers.add_parser(
@@ -1902,6 +1931,8 @@ def main():
         cmd_runs(args)
     elif args.command == "concepts-audit":
         cmd_concepts_audit(args)
+    elif args.command == "retire":
+        cmd_retire(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
     elif args.command == "repair-nonnegative-floors":
@@ -15118,6 +15149,74 @@ def _is_generated_zero_expected_value(value: object) -> bool:
     return False
 
 
+def cmd_retire(args):
+    """Delete live RuleSpec files and sign deletion entries for the guard."""
+    repo_path = Path(args.policy_repo_path).resolve()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    roots = tuple(sorted(RULESPEC_SOURCE_ROOTS))
+
+    targets: list[Path] = []
+    for raw in args.paths:
+        relative = Path(raw)
+        if relative.is_absolute():
+            try:
+                relative = relative.relative_to(repo_path)
+            except ValueError:
+                raise SystemExit(
+                    f"{raw} is not inside the policy repo {repo_path}"
+                ) from None
+        if not _is_protected_rulespec_yaml_path(relative, roots=roots):
+            raise SystemExit(f"{relative.as_posix()} is not a protected RuleSpec path")
+        if not (repo_path / relative).exists():
+            raise SystemExit(f"{relative.as_posix()} does not exist")
+        targets.append(relative)
+        if relative.suffixes[-2:] != [".test", ".yaml"]:
+            companion = relative.with_name(relative.stem + ".test.yaml")
+            if (repo_path / companion).exists():
+                targets.append(companion)
+
+    seen: set[str] = set()
+    unique_targets: list[Path] = []
+    for target in targets:
+        if target.as_posix() not in seen:
+            seen.add(target.as_posix())
+            unique_targets.append(target)
+
+    manifests_rewritten: list[Path] = []
+    for target in unique_targets:
+        if target.suffixes[-2:] == [".test", ".yaml"]:
+            continue
+        companion = target.with_name(target.stem + ".test.yaml")
+        covered = [entry for entry in unique_targets if entry in (target, companion)]
+        manifest_path = repo_path / _applied_encoding_manifest_path(target)
+        # Carry the encoding's prior manifest forward so the audit chain
+        # (model, run id, encode provenance) survives the retirement.
+        retired_manifest = None
+        if manifest_path.exists():
+            with contextlib.suppress(json.JSONDecodeError, OSError):
+                retired_manifest = json.loads(manifest_path.read_text())
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "tool": "axiom-encode retire",
+            "reason": args.reason,
+            "axiom_encode_git": _git_repo_provenance(_axiom_encode_repo_root()),
+            "applied_files": [
+                {"path": entry.as_posix(), "deleted": True} for entry in covered
+            ],
+            "retired_manifest": retired_manifest,
+        }
+        _sign_applied_encoding_manifest(payload, signing_key)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(payload, indent=2) + "\n")
+        manifests_rewritten.append(manifest_path.relative_to(repo_path))
+
+    for target in unique_targets:
+        (repo_path / target).unlink()
+        print(f"retired {target.as_posix()}")
+    for manifest in manifests_rewritten:
+        print(f"signed {manifest.as_posix()}")
+
+
 def guard_generated_change_issues(
     repo_path: Path,
     *,
@@ -15167,8 +15266,18 @@ def guard_generated_change_issues(
             for path in protected
         ]
 
+    # Manifests deleted in the same change set are not consulted: the
+    # protected files they covered must be accounted for (as content or
+    # deletion entries) by a changed manifest that still exists. Missing
+    # manifests are only reported when coverage actually fails below.
+    surviving_manifest_paths = [
+        path for path in manifest_paths if (repo_path / path).exists()
+    ]
+    missing_manifest_paths = [
+        path for path in manifest_paths if not (repo_path / path).exists()
+    ]
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, manifest_paths
+        repo_path, surviving_manifest_paths
     )
     if manifest_issues:
         return manifest_issues
@@ -15187,6 +15296,13 @@ def guard_generated_change_issues(
                 )
             continue
         current_path = repo_path / path
+        if APPLIED_ENCODING_DELETED_MARKER in expected_hashes:
+            if current_path.exists():
+                issues.append(
+                    f"{path} is listed as deleted in an encoder apply manifest "
+                    "but still exists in the working tree"
+                )
+            continue
         if not current_path.exists():
             issues.append(f"{path} changed but does not exist in the working tree")
             continue
@@ -15195,6 +15311,11 @@ def guard_generated_change_issues(
             issues.append(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
+    if issues:
+        issues.extend(
+            f"{Path(path).as_posix()} does not exist in the working tree"
+            for path in missing_manifest_paths
+        )
     return issues
 
 
@@ -15324,7 +15445,9 @@ def _load_applied_encoding_manifest_entries(
                 continue
             file_path = item.get("path")
             file_hash = item.get("sha256")
-            if isinstance(file_path, str) and isinstance(file_hash, str):
+            if isinstance(file_path, str) and item.get("deleted") is True:
+                entries[file_path].add(APPLIED_ENCODING_DELETED_MARKER)
+            elif isinstance(file_path, str) and isinstance(file_hash, str):
                 entries[file_path].add(file_hash)
     return dict(entries), issues
 
