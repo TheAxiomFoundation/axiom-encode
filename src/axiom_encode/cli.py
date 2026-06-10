@@ -519,9 +519,14 @@ def main():
 
     # validate command
     validate_parser = subparsers.add_parser(
-        "validate", help="Validate a RuleSpec YAML file (CI + reviewer agents)"
+        "validate", help="Validate RuleSpec YAML files (CI + reviewer agents)"
     )
-    validate_parser.add_argument("file", type=Path, help="Path to RuleSpec YAML file")
+    validate_parser.add_argument(
+        "files",
+        type=Path,
+        nargs="+",
+        help="Paths to RuleSpec YAML files (--json emits an array for multiple files)",
+    )
     validate_parser.add_argument("--json", action="store_true", help="Output as JSON")
     validate_parser.add_argument("--skip-reviewers", action="store_true")
     validate_parser.add_argument(
@@ -546,7 +551,10 @@ def main():
         help="Validate explicit RuleSpec proof trees without reviewers or oracles",
     )
     proof_validate_parser.add_argument(
-        "file", type=Path, help="Path to RuleSpec YAML file"
+        "files",
+        type=Path,
+        nargs="+",
+        help="Paths to RuleSpec YAML files (--json emits an array for multiple files)",
     )
     proof_validate_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
@@ -2019,14 +2027,12 @@ def main():
 
 
 def cmd_validate(args):
-    """Validate a RuleSpec YAML file."""
-    if not args.file.exists():
-        print(f"File not found: {args.file}")
+    """Validate one or more RuleSpec YAML files in a single process."""
+    missing = [file for file in args.files if not file.exists()]
+    if missing:
+        for file in missing:
+            print(f"File not found: {file}")
         sys.exit(1)
-
-    rulespec_file = args.file.resolve()
-
-    policy_repo_root, axiom_rules_path = _resolve_validation_repo_roots(rulespec_file)
 
     # Enable oracles if --oracle flag is set
     enable_oracles = args.oracle is not None
@@ -2036,13 +2042,47 @@ def cmd_validate(args):
     elif args.oracle == "taxsim":
         oracle_validators = ("taxsim",)
 
-    pipeline = ValidatorPipeline(
-        policy_repo_path=policy_repo_root,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=enable_oracles,
-        oracle_validators=oracle_validators,
-    )
+    # Pipelines are reused across files sharing repo roots so per-process
+    # setup (registry load, repo resolution) is paid once, not per file.
+    pipelines: dict[tuple[Path, Path], ValidatorPipeline] = {}
+    json_outputs = []
+    failed_files = []
+    for index, file in enumerate(args.files):
+        rulespec_file = file.resolve()
+        roots = _resolve_validation_repo_roots(rulespec_file)
+        pipeline = pipelines.get(roots)
+        if pipeline is None:
+            policy_repo_root, axiom_rules_path = roots
+            pipeline = ValidatorPipeline(
+                policy_repo_path=policy_repo_root,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=enable_oracles,
+                oracle_validators=oracle_validators,
+            )
+            pipelines[roots] = pipeline
+        if not args.json and index:
+            print()
+        all_passed, output = _validate_one(args, pipeline, rulespec_file)
+        if output is not None:
+            json_outputs.append(output)
+        if not all_passed:
+            failed_files.append(file)
 
+    if args.json:
+        if len(args.files) == 1:
+            print(json.dumps(json_outputs[0], indent=2))
+        else:
+            print(json.dumps(json_outputs, indent=2))
+    elif failed_files and len(args.files) > 1:
+        print(f"\n{len(failed_files)} of {len(args.files)} file(s) failed:")
+        for file in failed_files:
+            print(f"  - {file}")
+
+    sys.exit(1 if failed_files else 0)
+
+
+def _validate_one(args, pipeline, rulespec_file):
+    """Validate a single file; return (all_passed, JSON payload or None)."""
     result = pipeline.validate(rulespec_file, skip_reviewers=args.skip_reviewers)
     scores = result.to_review_results()
     review_scores = (
@@ -2119,7 +2159,7 @@ def cmd_validate(args):
     all_passed = result.all_passed and oracle_passed
 
     if args.json:
-        output = {
+        return all_passed, {
             "file": str(rulespec_file),
             "ci_pass": result.ci_pass,
             "scores": {
@@ -2141,7 +2181,6 @@ def cmd_validate(args):
             "errors": errors,
             "duration_ms": result.total_duration_ms,
         }
-        print(json.dumps(output, indent=2))
     else:
         print(f"File: {rulespec_file}")
         print(f"CI: {'✓' if result.ci_pass else '✗'}")
@@ -2183,43 +2222,59 @@ def cmd_validate(args):
                 if len(issues) > 10:
                     print(f"  - {name}: ... {len(issues) - 10} more oracle issue(s)")
 
-    sys.exit(0 if all_passed else 1)
+    return all_passed, None
 
 
 def cmd_proof_validate(args):
-    """Validate explicit RuleSpec proof trees."""
-    if not args.file.exists():
-        print(f"File not found: {args.file}")
+    """Validate explicit RuleSpec proof trees for one or more files."""
+    missing = [file for file in args.files if not file.exists()]
+    if missing:
+        for file in missing:
+            print(f"File not found: {file}")
         sys.exit(1)
 
-    rulespec_file = args.file.resolve()
-    result = validate_rulespec_proofs(
-        rulespec_file.read_text(encoding="utf-8"),
-        validate_claim_records=True,
-    )
+    json_outputs = []
+    failed_files = []
+    for index, file in enumerate(args.files):
+        rulespec_file = file.resolve()
+        result = validate_rulespec_proofs(
+            rulespec_file.read_text(encoding="utf-8"),
+            validate_claim_records=True,
+        )
+        if not result.passed:
+            failed_files.append(file)
 
-    if args.json:
-        print(
-            json.dumps(
+        if args.json:
+            json_outputs.append(
                 {
                     "file": str(rulespec_file),
                     "passed": result.passed,
                     "proof_required": result.proof_required,
                     "atoms_checked": result.atoms_checked,
                     "issues": result.issues,
-                },
-                indent=2,
+                }
             )
-        )
-    else:
-        print(f"File: {rulespec_file}")
-        print(f"Proofs required: {'yes' if result.proof_required else 'no'}")
-        print(f"Atoms checked: {result.atoms_checked}")
-        print(f"Result: {'✓ PASSED' if result.passed else '✗ FAILED'}")
-        for issue in result.issues:
-            print(f"  - {issue}")
+        else:
+            if index:
+                print()
+            print(f"File: {rulespec_file}")
+            print(f"Proofs required: {'yes' if result.proof_required else 'no'}")
+            print(f"Atoms checked: {result.atoms_checked}")
+            print(f"Result: {'✓ PASSED' if result.passed else '✗ FAILED'}")
+            for issue in result.issues:
+                print(f"  - {issue}")
 
-    sys.exit(0 if result.passed else 1)
+    if args.json:
+        if len(args.files) == 1:
+            print(json.dumps(json_outputs[0], indent=2))
+        else:
+            print(json.dumps(json_outputs, indent=2))
+    elif failed_files and len(args.files) > 1:
+        print(f"\n{len(failed_files)} of {len(args.files)} file(s) failed:")
+        for file in failed_files:
+            print(f"  - {file}")
+
+    sys.exit(1 if failed_files else 0)
 
 
 def cmd_test(args):

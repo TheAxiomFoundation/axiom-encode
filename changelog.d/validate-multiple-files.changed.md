@@ -1,0 +1,1 @@
+- `axiom-encode validate` and `axiom-encode proof-validate` now accept multiple files in one invocation, reusing the validator pipeline (and its registry load) across files; `--json` emits an array when more than one file is passed.
