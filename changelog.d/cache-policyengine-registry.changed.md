@@ -1,0 +1,1 @@
+- `load_policyengine_registry` now parses the packaged mapping YAML once per process (cached, C loader when available) instead of on every call, cutting the test suite from ~21 to ~3 minutes.

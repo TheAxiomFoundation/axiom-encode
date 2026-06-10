@@ -33,7 +33,7 @@ jobs:
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
       - name: Run tests
-        run: .venv/bin/pytest tests/ -v
+        run: .venv/bin/pytest tests/
 
   lint:
     runs-on: ubuntu-latest
