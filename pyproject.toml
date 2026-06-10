@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.645"
+version = "0.2.647"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -55,7 +55,9 @@ all = [
 ]
 
 [project.scripts]
-axiom-encode = "axiom_encode.cli:main"
+# entrypoint.main dispatches check-source-staleness and delegates every
+# other invocation to axiom_encode.cli:main unchanged.
+axiom-encode = "axiom_encode.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/axiom_encode"]
