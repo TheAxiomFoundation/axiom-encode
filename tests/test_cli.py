@@ -25,6 +25,7 @@ from axiom_encode.cli import (
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
     _append_generated_zero_branch_tests_if_missing,
+    _applied_encoding_manifest_signature_issue,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
     _collapse_additive_versioned_derived_formulas,
@@ -141,6 +142,7 @@ from axiom_encode.cli import (
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
+    cmd_retire,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
@@ -12733,6 +12735,80 @@ rules:
         assert "self_employment_income_tax_rate" in content
 
 
+class TestCmdRetire:
+    def _repo_with_encoded_rule(self, tmp_path):
+        repo = tmp_path / "rulespec-uk"
+        rule = repo / "policies/govuk/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test_file = rule.with_name("example.test.yaml")
+        test_file.write_text("[]\n")
+        manifest = repo / ".axiom/encoding-manifests/policies/govuk/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "tool": "axiom-encode encode --apply",
+                    "run_id": "abc123",
+                    "applied_files": [
+                        {"path": "policies/govuk/example.yaml", "sha256": "deadbeef"}
+                    ],
+                }
+            )
+            + "\n"
+        )
+        return repo, rule, test_file, manifest
+
+    def test_retire_embeds_prior_manifest_and_deletes_companions(self, tmp_path):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["policies/govuk/example.yaml"],
+                    policy_repo_path=repo,
+                    reason="superseded by statute modules",
+                )
+            )
+
+        assert not rule.exists()
+        assert not test_file.exists()
+        payload = json.loads(manifest.read_text())
+        assert payload["reason"] == "superseded by statute modules"
+        assert payload["retired_manifest"]["run_id"] == "abc123"
+        assert {item["path"] for item in payload["applied_files"]} == {
+            "policies/govuk/example.yaml",
+            "policies/govuk/example.test.yaml",
+        }
+        assert all(item["deleted"] is True for item in payload["applied_files"])
+        assert (
+            _applied_encoding_manifest_signature_issue(payload, TEST_APPLY_SIGNING_KEY)
+            is None
+        )
+
+    def test_retire_rejects_paths_outside_policy_repo(self, tmp_path):
+        repo, *_ = self._repo_with_encoded_rule(tmp_path)
+        outside = tmp_path / "elsewhere/policies/govuk/example.yaml"
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(SystemExit) as exc,
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=[str(outside)],
+                    policy_repo_path=repo,
+                    reason="x",
+                )
+            )
+        assert "not inside the policy repo" in str(exc.value)
+
+
 class TestGuardGenerated:
     def test_rejects_rulespec_change_without_encoder_manifest(self, tmp_path):
         rule = tmp_path / "regulations/example.yaml"
@@ -12793,6 +12869,94 @@ class TestGuardGenerated:
                 changed_files=[
                     "regulations/example.yaml",
                     ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert issues == []
+
+    def test_accepts_protected_deletion_listed_in_changed_manifest(self, tmp_path):
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {"path": "regulations/example.yaml", "deleted": True}
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/removal.json",
+                ],
+            )
+
+        assert issues == []
+
+    def test_rejects_deletion_entry_when_file_still_exists(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {"path": "regulations/example.yaml", "deleted": True}
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/removal.json",
+                ],
+            )
+
+        assert issues == [
+            "regulations/example.yaml is listed as deleted in an encoder apply "
+            "manifest but still exists in the working tree"
+        ]
+
+    def test_tolerates_manifest_deleted_in_same_change(self, tmp_path):
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {"path": "regulations/example.yaml", "deleted": True}
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/removal.json",
+                    ".axiom/encoding-manifests/regulations/stale.json",
                 ],
             )
 

@@ -2508,3 +2508,51 @@ prefixes:
     program: universal_credit
     mapping_type: not_comparable
     rationale: Welfare Reform Act 2012 section 40 interpretation helpers are source-level definitions and administration rules not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/81#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 81 benefit-cap reduction steps are source-level cap mechanics; PolicyEngine UK exposes the capped award effect rather than the statutory excess and reduction amounts separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/82#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 82 earnings and grace-period exception helpers are source-level cap exception mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2015/621/4#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: The National Minimum Wage Regulations 2015 regulation 4 hourly rate is a rate instrument referenced by the regulation 82 earnings exception; PolicyEngine UK carries it as a parameter rather than a variable.
+
+  - legal_id_prefix: uk:policies/govuk/carers-allowance#
+    country: uk
+    program: carers_allowance
+    mapping_type: not_comparable
+    rationale: Weekly carer's allowance helpers (entitlement gate, weekly amount, earnings limit, minimum care hours) are source-level steps under the annual amount, which remains the comparable PolicyEngine UK variable.
+
+  - legal_id_prefix: uk:policies/govuk/carer-support-payment#
+    country: uk
+    program: carer_support_payment
+    mapping_type: not_comparable
+    rationale: Weekly carer support payment helpers are source-level steps under the annual amount, which remains the comparable PolicyEngine UK variable.
+
+  - legal_id_prefix: uk:policies/govuk/disability-living-allowance#
+    country: uk
+    program: dla
+    mapping_type: not_comparable
+    rationale: Weekly DLA component helpers are source-level steps under the annual amount, which remains the comparable PolicyEngine UK variable.
+
+  - legal_id_prefix: uk:policies/govuk/pension-credit#
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Guarantee credit top-up helpers are source-level steps; PolicyEngine UK exposes pension credit as a combined award rather than the weekly guarantee top-up separately.
+
+  - legal_id_prefix: uk:policies/govuk/scottish-child-payment#
+    country: uk
+    program: scottish_child_payment
+    mapping_type: not_comparable
+    rationale: Per-child weekly Scottish child payment helpers are source-level steps under the annual amount, which remains the comparable PolicyEngine UK variable.
