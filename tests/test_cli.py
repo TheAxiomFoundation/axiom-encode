@@ -1363,7 +1363,7 @@ class TestCmdEvalSuiteArchive:
 class TestCmdValidate:
     def test_file_not_found(self, capsys):
         args = MagicMock()
-        args.file = Path("/nonexistent/file.yaml")
+        args.files = [Path("/nonexistent/file.yaml")]
         with pytest.raises(SystemExit) as exc_info:
             cmd_validate(args)
         assert exc_info.value.code == 1
@@ -1374,7 +1374,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = False
         args.oracle = None
@@ -1406,7 +1406,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = True
         args.skip_reviewers = False
         args.oracle = None
@@ -1438,11 +1438,43 @@ class TestCmdValidate:
         output = json.loads(captured.out)
         assert output["all_passed"] is False
 
+    def test_validate_multiple_files_reuses_pipeline(self, capsys, tmp_path):
+        first = tmp_path / "first.yaml"
+        second = tmp_path / "second.yaml"
+        first.write_text("# test")
+        second.write_text("# test")
+        args = MagicMock()
+        args.files = [first, second]
+        args.json = True
+        args.skip_reviewers = True
+        args.oracle = None
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {}
+        mock_result.total_duration_ms = 100
+
+        with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline_cls.return_value.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+            assert mock_pipeline_cls.call_count == 1
+            assert mock_pipeline_cls.return_value.validate.call_count == 2
+        output = json.loads(capsys.readouterr().out)
+        assert isinstance(output, list)
+        assert [entry["file"] for entry in output] == [
+            str(first.resolve()),
+            str(second.resolve()),
+        ]
+
     def test_validate_with_oracle_policyengine_pass(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -1476,7 +1508,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -1512,7 +1544,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = True
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -1560,7 +1592,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -1719,7 +1751,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = True
         args.skip_reviewers = False
         args.oracle = "taxsim"
@@ -1751,7 +1783,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = False
         args.oracle = "all"
@@ -1784,7 +1816,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = True
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -1843,7 +1875,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -1878,7 +1910,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = True
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -1910,7 +1942,7 @@ class TestCmdValidate:
         rulespec_file = tmp_path / "test.yaml"
         rulespec_file.write_text("# test")
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -19493,7 +19525,7 @@ class TestCmdValidateEdgeCases:
         axiom_rules_path.mkdir(parents=True)
 
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = False
         args.oracle = None
@@ -19529,7 +19561,7 @@ class TestCmdValidateEdgeCases:
         (tmp_path / "axiom-rules-engine").mkdir()
 
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -19569,7 +19601,7 @@ class TestCmdValidateEdgeCases:
         axiom_rules_path.mkdir()
 
         args = MagicMock()
-        args.file = rulespec_file
+        args.files = [rulespec_file]
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
