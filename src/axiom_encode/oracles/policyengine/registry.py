@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+try:
+    from yaml import CSafeLoader as _YamlLoader
+except ImportError:
+    from yaml import SafeLoader as _YamlLoader
 
 SUPPORTED_MAPPING_TYPES = {
     "direct_variable",
@@ -214,13 +220,18 @@ class PolicyEngineOracleRegistry:
         return issues
 
 
+@lru_cache(maxsize=1)
 def load_policyengine_registry() -> PolicyEngineOracleRegistry:
-    """Load packaged PolicyEngine mappings."""
+    """Load packaged PolicyEngine mappings.
+
+    The packaged mappings are static (~1MB of YAML), so the parsed registry is
+    cached for the lifetime of the process; callers must treat it as read-only.
+    """
     mappings: dict[str, PolicyEngineMapping] = {}
     prefix_mappings: list[PolicyEngineMapping] = []
     mapping_dir = Path(__file__).with_name("mappings")
     for mapping_path in sorted(mapping_dir.glob("*.yaml")):
-        payload = yaml.safe_load(mapping_path.read_text()) or {}
+        payload = yaml.load(mapping_path.read_text(), Loader=_YamlLoader) or {}
         raw_mappings = payload.get("mappings", [])
         if not isinstance(raw_mappings, list):
             raise ValueError(f"{mapping_path} mappings must be a list")
