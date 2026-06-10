@@ -58,8 +58,11 @@ from axiom_encode.oracles.policyengine.registry import (
     load_policyengine_registry,
 )
 from axiom_encode.repo_routing import (
+    candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     find_policy_repo_root,
+    is_jurisdiction_content_root,
+    jurisdiction_subdir_names,
 )
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
@@ -6085,12 +6088,12 @@ def _rulespec_target_base(target: str) -> str:
 
 
 def _rulespec_repo_root(rules_file: Path) -> Path | None:
-    path = Path(rules_file).resolve()
-    search = path if path.is_dir() else path.parent
-    for candidate in (search, *search.parents):
-        if candidate.name.startswith("rulespec-"):
-            return candidate
-    return None
+    """Return the jurisdiction content root holding ``rules_file``.
+
+    The enclosing ``rulespec-*`` checkout root in the legacy layout, or the
+    first-level jurisdiction directory inside a country monorepo checkout.
+    """
+    return find_policy_repo_root(Path(rules_file))
 
 
 def _rulespec_repo_prefix(repo_root: Path) -> str:
@@ -6106,12 +6109,22 @@ def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
             roots.append(candidate)
 
     add(repo_root)
+    workspaces = [repo_root.parent, repo_root / "_axiom", repo_root.parent / "_axiom"]
+    if repo_root.parent.name.startswith("rulespec-"):
+        # A monorepo jurisdiction directory: ancestor jurisdictions live next
+        # to it inside the same checkout, and sibling checkouts live next to
+        # the monorepo itself.
+        workspaces.extend(
+            [repo_root.parent.parent, repo_root.parent.parent / "_axiom"]
+        )
     prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
     for length in range(len(prefix_parts) - 1, 0, -1):
         ancestor_prefix = "-".join(prefix_parts[:length])
-        add(repo_root.parent / f"rulespec-{ancestor_prefix}")
-        add(repo_root / "_axiom" / f"rulespec-{ancestor_prefix}")
-        add(repo_root.parent / "_axiom" / f"rulespec-{ancestor_prefix}")
+        for workspace in workspaces:
+            for candidate in candidate_jurisdiction_content_dirs(
+                workspace, ancestor_prefix
+            ):
+                add(candidate)
 
     unique: list[Path] = []
     seen: set[Path] = set()
@@ -6134,10 +6147,17 @@ def _rulespec_executable_index_for_roots(
         if not root.exists():
             continue
         prefix = _rulespec_repo_prefix(root)
+        # When the root is a (partially migrated) country monorepo checkout,
+        # sibling jurisdiction directories carry their own prefixes and must
+        # not be indexed under this root's prefix.
+        sibling_jurisdiction_dirs = jurisdiction_subdir_names(root)
         for rules_file in sorted(root.rglob("*.yaml")):
             if rules_file.name.endswith(".test.yaml"):
                 continue
-            if "_axiom" in rules_file.relative_to(root).parts:
+            relative_parts = rules_file.relative_to(root).parts
+            if "_axiom" in relative_parts:
+                continue
+            if relative_parts and relative_parts[0] in sibling_jurisdiction_dirs:
                 continue
             try:
                 payload = yaml.safe_load(rules_file.read_text())
@@ -6253,12 +6273,23 @@ def _canonical_rulespec_file_target(
     rules_file: Path,
     symbol: str,
 ) -> str | None:
-    repo_root = (
+    repo_root: Path | None
+    if policy_repo_path is not None and is_jurisdiction_content_root(
         Path(policy_repo_path)
-        if policy_repo_path is not None
-        and Path(policy_repo_path).name.startswith("rulespec-")
-        else _rulespec_repo_root(rules_file)
-    )
+    ):
+        repo_root = Path(policy_repo_path)
+        # Inside a country monorepo checkout the jurisdiction directory is
+        # the target anchor; prefer it when it sits under the explicit root.
+        walked_root = _rulespec_repo_root(rules_file)
+        if walked_root is not None:
+            try:
+                walked_root.relative_to(repo_root.resolve())
+            except ValueError:
+                pass
+            else:
+                repo_root = walked_root
+    else:
+        repo_root = _rulespec_repo_root(rules_file)
     if repo_root is None:
         return None
     try:
@@ -6280,7 +6311,7 @@ def _strict_rules_repo_layout_checks_enabled(
     if policy_repo_path is None:
         return False
     repo_root = Path(policy_repo_path)
-    if not repo_root.name.startswith("rulespec-"):
+    if not is_jurisdiction_content_root(repo_root):
         return False
     try:
         rules_file.resolve().relative_to(repo_root.resolve())
@@ -17153,6 +17184,7 @@ def _resolve_rulespec_target_file(
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
+        prefix=target_ref.prefix,
     ):
         target_file = root / target_ref.relative_path
         if target_file.exists():
@@ -17163,28 +17195,36 @@ def _resolve_rulespec_target_file(
 def _candidate_rulespec_repo_roots(
     repo_name: str,
     policy_repo_path: Path | None,
+    prefix: str | None = None,
 ) -> list[Path]:
-    """Return possible local roots for a canonical rules repository."""
-    candidates: list[Path] = []
+    """Return possible local content roots for a canonical rules repository.
 
-    def add(candidate: Path | None) -> None:
-        if candidate is None:
+    Each base location yields its candidates in monorepo-first order
+    (``<base>/rulespec-<country>/<prefix>``, then ``<base>/rulespec-<prefix>``);
+    bases that are themselves the jurisdiction's checkout (by name or Git
+    origin) resolve to the jurisdiction's content root in either layout.
+    """
+    candidates: list[Path] = []
+    jurisdiction = prefix or repo_name.removeprefix("rulespec-")
+
+    def add(base: Path | None) -> None:
+        if base is None:
             return
-        expanded = candidate.expanduser()
-        if (
-            expanded.name == repo_name
-            or canonical_rulespec_repo_name(expanded) == repo_name
-        ):
-            candidates.append(expanded)
-        else:
-            candidates.append(expanded / repo_name)
+        candidates.extend(
+            candidate_jurisdiction_content_dirs(base.expanduser(), jurisdiction)
+        )
 
     if policy_repo_path is not None:
         policy_root = Path(policy_repo_path).resolve()
         add(policy_root)
-        add(policy_root.parent / repo_name)
-        add(policy_root / "_axiom" / repo_name)
-        add(policy_root.parent / "_axiom" / repo_name)
+        add(policy_root.parent)
+        add(policy_root / "_axiom")
+        add(policy_root.parent / "_axiom")
+        if policy_root.parent.name.startswith("rulespec-"):
+            # A monorepo jurisdiction directory: sibling checkouts live next
+            # to the monorepo itself.
+            add(policy_root.parent.parent)
+            add(policy_root.parent.parent / "_axiom")
 
     env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
     for raw_root in env_roots.split(os.pathsep):
@@ -17192,8 +17232,8 @@ def _candidate_rulespec_repo_roots(
             add(Path(raw_root.strip()))
 
     cwd = Path.cwd()
-    add(cwd / repo_name)
-    add(cwd / "_axiom" / repo_name)
+    add(cwd)
+    add(cwd / "_axiom")
 
     unique: list[Path] = []
     seen: set[Path] = set()
@@ -17902,6 +17942,10 @@ class ValidatorPipeline:
         """Build an env that can resolve canonical RuleSpec repo imports."""
         env = self._pythonpath_env()
         roots = [self.policy_repo_path, self.policy_repo_path.parent]
+        if Path(self.policy_repo_path).parent.name.startswith("rulespec-"):
+            # A monorepo jurisdiction directory: sibling checkouts live next
+            # to the monorepo checkout itself.
+            roots.append(Path(self.policy_repo_path).parent.parent)
         alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
         if alias_parent is not None:
             roots.insert(0, alias_parent)
@@ -26364,6 +26408,13 @@ def validate_file(rulespec_file: str | Path) -> PipelineResult:
     if policy_repo_root is None:
         policy_repo_root = file_path.parent
     axiom_rules_path = policy_repo_root.parent / "axiom-rules-engine"
+    if (
+        not axiom_rules_path.exists()
+        and policy_repo_root.parent.name.startswith("rulespec-")
+    ):
+        # A monorepo jurisdiction directory: the engine checkout sits next to
+        # the monorepo checkout, not next to the jurisdiction directory.
+        axiom_rules_path = policy_repo_root.parent.parent / "axiom-rules-engine"
     if not axiom_rules_path.exists():
         axiom_rules_path = Path(__file__).resolve().parents[4] / "axiom-rules-engine"
 
