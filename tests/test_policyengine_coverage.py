@@ -629,6 +629,125 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_georgia_snap_medicaid_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ga"
+        / "policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
+        """format: rulespec/v1
+rules:
+  - name: magi_fpl_disregard_rate
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 0.05
+  - name: georgia_children_medicaid_ages_0_to_1_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 2.05
+  - name: georgia_children_medicaid_ages_1_to_5_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1.49
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1.33
+  - name: georgia_children_separate_chip_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 2.47
+  - name: georgia_pregnant_women_medicaid_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 2.20
+  - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 0.28
+  - name: georgia_parent_caretaker_standard_uses_dollar_amounts
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: true
+  - name: georgia_pregnant_women_chip_available
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: false
+  - name: georgia_adult_medicaid_expansion_available
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: false
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-ga" / "policies/dfcs/snap/3210/block-2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: assistance_unit_member_receives_tanf_wsp_or_ssi
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: receives_tanf or receives_wsp or receives_ssi
+  - name: categorically_eligible_for_snap
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: all_au_members_receive_tanf_wsp_or_ssi or receives_or_authorized_for_tcos
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["total_outputs"] == 12
+    assert report["status_counts"] == {"known_not_comparable": 12}
+    assert report["untested_comparable"] == 0
+    assert report["program_counts"] == {
+        "chip": 2,
+        "health": 1,
+        "medicaid": 7,
+        "snap": 2,
+    }
+    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
+
+    items_by_name = {item["rule_name"]: item for item in report["items"]}
+    assert (
+        items_by_name["georgia_children_medicaid_ages_0_to_1_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.medicaid.eligibility.categories.infant.income_limit"
+    )
+    assert (
+        items_by_name["georgia_children_separate_chip_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.chip.child.income_limit"
+    )
+    assert (
+        items_by_name["georgia_pregnant_women_chip_available"]["policyengine_parameter"]
+        == "gov.hhs.chip.pregnant.income_limit"
+    )
+    assert items_by_name["categorically_eligible_for_snap"]["program"] == "snap"
+    assert (
+        items_by_name["categorically_eligible_for_snap"]["policyengine_variable"]
+        is None
+    )
+    assert (
+        items_by_name["assistance_unit_member_receives_tanf_wsp_or_ssi"][
+            "policyengine_variable"
+        ]
+        is None
+    )
+
+
 def test_policyengine_coverage_classifies_aca_ptc_percentage_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "policies/irs/rev-proc-2025-25/aca-ptc.yaml",

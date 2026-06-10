@@ -2964,6 +2964,106 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective adult Medicaid expansion income limit including that disregard.
 
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate
+    country: us
+    program: health
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the CMS table's separate 5% MAGI FPL disregard. PolicyEngine-US bakes that disregard into Medicaid and CHIP income-limit parameters rather than exposing it as a separate parameter.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_0_to_1_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.infant.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective infant Medicaid income limit including that disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_1_to_5_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.young_child.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective young-child Medicaid income limit including that disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_6_to_18_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.older_child.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective older-child Medicaid income limit including that disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_separate_chip_fpl_limit
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.chip.child.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective child CHIP income limit including that disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_pregnant_women_medicaid_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.pregnant.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective pregnant-person Medicaid income limit including that disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.parent.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Georgia CMS table value and the CMS dollar-amount indicator for parent and caretaker adults. PolicyEngine-US stores an effective parent and caretaker Medicaid income limit including MAGI treatment, so the raw CMS row is not a one-to-one oracle target.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_standard_uses_dollar_amounts
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the CMS table footnote that Georgia's parent and caretaker adult standard is represented using dollar amounts. PolicyEngine-US does not expose that source footnote as a separate variable or parameter.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_pregnant_women_chip_available
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.chip.pregnant.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes CMS table availability for separate CHIP coverage of pregnant women. PolicyEngine-US represents unavailable pregnant-women CHIP coverage through its income-limit parameter rather than a separate availability boolean.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_adult_medicaid_expansion_available
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.adult.income_limit
+    parameter_key: GA
+    candidate_priority: P4
+    rationale: Axiom exposes CMS table availability for adult Medicaid expansion. PolicyEngine-US represents unavailable adult expansion through its adult Medicaid income-limit parameter rather than a separate availability boolean.
+
+  - legal_id: us-ga:policies/dfcs/snap/3210/block-2#assistance_unit_member_receives_tanf_wsp_or_ssi
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS SNAP Manual 3210 block 2 defines this per-member categorical eligibility helper for composing Georgia's manual categorical eligibility test. PolicyEngine-US models SNAP eligibility and benefits, not this state-manual helper as a one-to-one output.
+
+  - legal_id: us-ga:policies/dfcs/snap/3210/block-2#categorically_eligible_for_snap
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS SNAP Manual 3210 block 2 defines a state-manual categorical eligibility helper based on TANF, WSP, SSI, and TCOS receipt or authorization. PolicyEngine-US models broader SNAP eligibility and benefits, not this manual helper as a one-to-one output.
+
   - legal_id: us:statutes/26/3201#tier_2_employee_tax
     country: us
     program: tax
