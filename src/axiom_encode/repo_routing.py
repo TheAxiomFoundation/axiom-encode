@@ -113,7 +113,9 @@ def canonical_rulespec_repo_name(path: Path) -> str | None:
         return None
 
     if root is not None:
-        subdir = _jurisdiction_subdir_under(root, current, suffix=checkout_name.removeprefix("rulespec-"))
+        subdir = _jurisdiction_subdir_under(
+            root, current, suffix=checkout_name.removeprefix("rulespec-")
+        )
         if subdir is not None:
             return f"rulespec-{subdir}"
     return checkout_name

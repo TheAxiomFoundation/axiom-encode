@@ -6114,9 +6114,7 @@ def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
         # A monorepo jurisdiction directory: ancestor jurisdictions live next
         # to it inside the same checkout, and sibling checkouts live next to
         # the monorepo itself.
-        workspaces.extend(
-            [repo_root.parent.parent, repo_root.parent.parent / "_axiom"]
-        )
+        workspaces.extend([repo_root.parent.parent, repo_root.parent.parent / "_axiom"])
     prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
     for length in range(len(prefix_parts) - 1, 0, -1):
         ancestor_prefix = "-".join(prefix_parts[:length])
@@ -26408,9 +26406,8 @@ def validate_file(rulespec_file: str | Path) -> PipelineResult:
     if policy_repo_root is None:
         policy_repo_root = file_path.parent
     axiom_rules_path = policy_repo_root.parent / "axiom-rules-engine"
-    if (
-        not axiom_rules_path.exists()
-        and policy_repo_root.parent.name.startswith("rulespec-")
+    if not axiom_rules_path.exists() and policy_repo_root.parent.name.startswith(
+        "rulespec-"
     ):
         # A monorepo jurisdiction directory: the engine checkout sits next to
         # the monorepo checkout, not next to the jurisdiction directory.

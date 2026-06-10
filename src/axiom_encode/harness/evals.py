@@ -32,10 +32,7 @@ from axiom_encode.concepts.registry import (
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
 from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 from axiom_encode.repo_routing import (
-    candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
-    find_policy_repo_root,
-    jurisdiction_content_dir,
     monorepo_alternative_path,
 )
 from axiom_encode.statute import (

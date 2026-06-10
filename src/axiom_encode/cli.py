@@ -18975,9 +18975,7 @@ def _companion_test_file_for_relation_ref(
     )
     if policy_repo_path.parent.name.startswith("rulespec-"):
         repo_roots.extend(
-            candidate_jurisdiction_content_dirs(
-                policy_repo_path.parent.parent, prefix
-            )
+            candidate_jurisdiction_content_dirs(policy_repo_path.parent.parent, prefix)
         )
     for repo_root in repo_roots:
         test_file = _rulespec_test_path(repo_root / relative_path)
