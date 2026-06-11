@@ -16598,3 +16598,97 @@ prefixes:
     program: medicaid
     mapping_type: not_comparable
     rationale: 42 CFR 600.320 Basic Health Program timely-determination cross-reference predicates are program-administration rules outside PolicyEngine US's one-to-one oracle surface.
+
+  # State agency policy manuals and regulations are not modeled by
+  # PolicyEngine-US except where an exact mapping above says otherwise;
+  # exact entries take precedence over these jurisdiction-wide prefixes.
+  # Added for the country-monorepo consolidation (rulespec-us#395).
+  - legal_id_prefix: "us-al:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model AL agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ar:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model AR agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-az:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model AZ agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ca:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model CA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-co:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model CO agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-de:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model DE agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-fl:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model FL agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ga:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model GA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-id:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model ID agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ma:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model MA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-md:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model MD agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-nc:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model NC agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-nh:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model NH agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ny:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model NY agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ok:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model OK agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-sc:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model SC agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-tn:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model TN agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-tx:"
+    country: us
+    mapping_type: not_comparable
+    rationale: PolicyEngine-US does not model TX agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.

@@ -2640,3 +2640,9 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Regulation 10 outputs are the National Insurance earnings limits and thresholds; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+  # Council-level schemes are outside PolicyEngine-UK's model; exact
+  # mappings take precedence. Added for rulespec-uk#43.
+  - legal_id_prefix: "uk-kingston-upon-thames:"
+    country: uk
+    mapping_type: not_comparable
+    rationale: PolicyEngine-UK does not model council-level Council Tax Reduction schemes; Kingston upon Thames CTR is grounded to the council's published scheme document.
