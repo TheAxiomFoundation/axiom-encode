@@ -2556,3 +2556,87 @@ prefixes:
     program: scottish_child_payment
     mapping_type: not_comparable
     rationale: Per-child weekly Scottish child payment helpers are source-level steps under the annual amount, which remains the comparable PolicyEngine UK variable.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/8#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 8 outputs are the statutory dividend rate percentages; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons for this section are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/10#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 10 outputs not listed above are the basic and higher rate limit parameters; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/12#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 12 starting rate for savings outputs are intra-section band helpers and the statutory limit parameter; PolicyEngine UK computes savings income tax within combined band variables rather than exposing these steps one-to-one.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/12A#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 12A savings nil rate outputs are intra-section applicability predicates and band helpers; PolicyEngine UK applies the personal savings allowance within combined savings tax variables rather than exposing these steps one-to-one.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/12B#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 12B outputs are the savings allowance determination predicates and amount parameters; PolicyEngine UK carries the allowance amounts in its parameter tree and applies them inside savings tax variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/13A#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 13A dividend nil rate outputs are intra-section band helpers and the dividend allowance parameter; PolicyEngine UK applies the dividend allowance inside dividend tax variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/16#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 16 outputs are ordering predicates that fix the highest-part treatment of savings and dividend income; PolicyEngine UK hard-codes this ordering inside its band variables rather than exposing it.
+
+  - legal_id_prefix: uk:statutes/ukpga/2021/26/5#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Finance Act 2021 section 5 outputs are the frozen personal allowance and basic rate limit amounts; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2023/1/5#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Finance Act 2023 section 5 outputs are the extended freeze amounts and an uprating-disapplied predicate; PolicyEngine UK carries the amounts in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2026/11/1#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: The Finance Act 2026 section 1 output is the annual charge-to-tax predicate, a legal applicability gate that PolicyEngine UK does not expose as an oracle variable.
+
+  - legal_id_prefix: uk:statutes/ukpga/2026/11/2#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Finance Act 2026 section 2 outputs are the main income tax rate percentages; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2026/11/3#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Finance Act 2026 section 3 outputs are the default and savings rate percentages; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:statutes/ukpga/2026/11/9#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: The Finance Act 2026 section 9 output is the starting rate limit for savings amount; PolicyEngine UK carries this in its parameter tree rather than as a simulated variable, and parameter-level comparisons are not yet registered.
+
+  - legal_id_prefix: uk:regulations/uksi/2001/1004/10#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Regulation 10 outputs are the National Insurance earnings limits and thresholds; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
