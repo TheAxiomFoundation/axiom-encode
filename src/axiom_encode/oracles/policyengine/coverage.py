@@ -10,6 +10,13 @@ from typing import Any
 
 import yaml
 
+from axiom_encode.repo_routing import (
+    canonical_rulespec_repo_name,
+    iter_jurisdiction_content_dirs,
+    jurisdiction_subdir_names,
+    legacy_checkout_name,
+)
+
 from .registry import PolicyEngineMapping, load_policyengine_registry
 
 EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
@@ -192,14 +199,31 @@ def _iter_policyengine_coverage_items(
     registry,
 ) -> list[PolicyEngineCoverageItem]:
     items: list[PolicyEngineCoverageItem] = []
-    for repo in sorted(root.glob("rulespec-*")):
-        if not repo.is_dir():
-            continue
-        prefix = repo.name.removeprefix("rulespec-")
-        for rulespec_file in sorted(repo.rglob("*.y*ml")):
+    # Enumerate each jurisdiction's content root under the workspace, handling
+    # both layouts: a legacy ``rulespec-<prefix>`` checkout contributes itself
+    # under its prefix; a country monorepo ``rulespec-<country>`` contributes
+    # each first-level jurisdiction directory (``us``, ``us-al``, ...,
+    # ``uk-kingston-upon-thames``). ``prefix`` is the jurisdiction and
+    # ``content_dir`` is the directory whose repo-relative paths form the
+    # ``<prefix>:...`` portion of each output's legal ID, so a file at
+    # ``<rulespec-us>/us-al/policies/X.yaml`` yields ``us-al:policies/X#name``
+    # in either layout instead of a jurisdiction-doubled ``us:us-al/...`` ID.
+    for prefix, content_dir in iter_jurisdiction_content_dirs(root):
+        repo_name = canonical_rulespec_repo_name(content_dir) or legacy_checkout_name(
+            prefix
+        )
+        # In a partially migrated monorepo a country root can be both the
+        # content_dir for the country prefix and the parent of sibling
+        # jurisdiction directories; skip those sibling subtrees here so each
+        # output is attributed to exactly one (prefix, content_dir) pair.
+        nested_subdirs = jurisdiction_subdir_names(content_dir)
+        for rulespec_file in sorted(content_dir.rglob("*.y*ml")):
             if rulespec_file.name.endswith(".test.yaml"):
                 continue
-            if "_axiom" in rulespec_file.relative_to(repo).parts:
+            rel_parts = rulespec_file.relative_to(content_dir).parts
+            if "_axiom" in rel_parts:
+                continue
+            if rel_parts and rel_parts[0] in nested_subdirs:
                 continue
             payload = _load_rulespec_payload(rulespec_file)
             if not payload:
@@ -219,7 +243,7 @@ def _iter_policyengine_coverage_items(
                     continue
                 legal_id = _canonical_rulespec_legal_id(
                     prefix=prefix,
-                    repo=repo,
+                    content_dir=content_dir,
                     rulespec_file=rulespec_file,
                     rule_name=rule_name,
                 )
@@ -235,7 +259,7 @@ def _iter_policyengine_coverage_items(
                 items.append(
                     _coverage_item_from_mapping(
                         legal_id=legal_id,
-                        repo=repo,
+                        repo_name=repo_name,
                         root=root,
                         rulespec_file=rulespec_file,
                         rule_name=rule_name,
@@ -479,11 +503,19 @@ def _mapping_test_output_count(
 def _canonical_rulespec_legal_id(
     *,
     prefix: str,
-    repo: Path,
+    content_dir: Path,
     rulespec_file: Path,
     rule_name: str,
 ) -> str:
-    relative = rulespec_file.resolve().relative_to(repo.resolve())
+    """Derive an output's canonical legal ID from its jurisdiction content root.
+
+    ``content_dir`` is the jurisdiction's content root (a ``rulespec-<prefix>``
+    checkout root in the legacy layout, or the ``<prefix>`` directory inside a
+    country monorepo). Paths are taken relative to that root so both layouts
+    yield identical IDs: ``<rulespec-us>/us-al/policies/X.yaml`` and
+    ``<rulespec-us-al>/policies/X.yaml`` both produce ``us-al:policies/X#name``.
+    """
+    relative = rulespec_file.relative_to(content_dir)
     if relative.suffix in {".yaml", ".yml"}:
         relative = relative.with_suffix("")
     return f"{prefix}:{relative.as_posix()}#{rule_name}"
@@ -494,10 +526,26 @@ def _country_from_rulespec_prefix(prefix: str) -> str:
     return prefix.split("-", 1)[0]
 
 
+def _display_file_path(rulespec_file: Path, root: Path) -> str:
+    """Return a file path relative to the workspace ``root`` for reporting.
+
+    Prefers the unresolved path so a file reached through a sibling-checkout
+    symlink keeps its symlink-name prefix (``rulespec-us/us-al/...`` rather
+    than ``_axiom/rulespec-us/us-al/...``); CI matches changed files against
+    ``<consumer-repo-name>/<path>`` keys built from that symlink name.
+    """
+    for candidate in (rulespec_file, rulespec_file.resolve()):
+        try:
+            return str(candidate.relative_to(root))
+        except ValueError:
+            continue
+    return str(rulespec_file)
+
+
 def _coverage_item_from_mapping(
     *,
     legal_id: str,
-    repo: Path,
+    repo_name: str,
     root: Path,
     rulespec_file: Path,
     rule_name: str,
@@ -506,13 +554,14 @@ def _coverage_item_from_mapping(
     mapping: PolicyEngineMapping | None,
     test_output_count: int,
 ) -> PolicyEngineCoverageItem:
+    file_path = _display_file_path(rulespec_file, root)
     if mapping is None:
         program = _infer_program_from_legal_id(legal_id, rule_name=rule_name)
         if _is_interval_bound_helper_rule(rule_name, rule):
             return PolicyEngineCoverageItem(
                 legal_id=legal_id,
-                repo=repo.name,
-                file=str(rulespec_file.resolve().relative_to(root)),
+                repo=repo_name,
+                file=file_path,
                 rule_name=rule_name,
                 kind=kind,
                 status="known_not_comparable",
@@ -545,8 +594,8 @@ def _coverage_item_from_mapping(
 
     return PolicyEngineCoverageItem(
         legal_id=legal_id,
-        repo=repo.name,
-        file=str(rulespec_file.resolve().relative_to(root)),
+        repo=repo_name,
+        file=file_path,
         rule_name=rule_name,
         kind=kind,
         status=status,

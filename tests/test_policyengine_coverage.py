@@ -5906,7 +5906,10 @@ rules:
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
     assert report["total_outputs"] == 1
-    assert report["status_counts"] == {"unmapped": 1}
+    # The jurisdiction-wide `us-co:` prefix mapping classifies the output as
+    # not comparable (no exact mapping exists for it); program inference
+    # still runs because prefix entries carry no program.
+    assert report["status_counts"] == {"known_not_comparable": 1}
     item = report["items"][0]
     assert item["legal_id"] == (
         "us-co:statutes/39/39-22-999#unmapped_colorado_tax_output"

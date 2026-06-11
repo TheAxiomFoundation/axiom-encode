@@ -1,0 +1,1 @@
+Derive PolicyEngine oracle-coverage output IDs through the jurisdiction-aware repo-routing helpers so country-monorepo checkouts (`rulespec-us/us-al/...`) produce the same `us-al:policies/X#name` IDs as legacy standalone checkouts instead of jurisdiction-doubled `us:us-al/...` IDs, unblocking the country-monorepo consolidation runs.
