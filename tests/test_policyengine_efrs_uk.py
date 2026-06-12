@@ -855,8 +855,6 @@ def test_income_tax_section_10_projection_uses_pe_earned_income_and_rates():
 
     assert projected == {
         "income_charged_under_section_10": 60_000,
-        "basic_rate_limit": 37_700,
-        "higher_rate_limit": 125_140,
         "basic_rate": 0.2,
         "higher_rate": 0.4,
         "additional_rate": 0.45,
@@ -1082,14 +1080,10 @@ def test_income_tax_section_10_request_projects_earned_income_inputs(monkeypatch
     assert inputs[
         f"{INCOME_TAX_SECTION_10_BASE}#input.income_charged_under_section_10:person_7"
     ] == {"kind": "decimal", "value": "60000.0"}
-    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.basic_rate_limit:person_7"] == {
-        "kind": "integer",
-        "value": 37700,
-    }
-    assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.higher_rate_limit:person_7"] == {
-        "kind": "integer",
-        "value": 125140,
-    }
+    assert f"{INCOME_TAX_SECTION_10_BASE}#input.basic_rate_limit:person_7" not in inputs
+    assert (
+        f"{INCOME_TAX_SECTION_10_BASE}#input.higher_rate_limit:person_7" not in inputs
+    )
     assert inputs[f"{INCOME_TAX_SECTION_10_BASE}#input.basic_rate:person_7"] == {
         "kind": "decimal",
         "value": "0.2",
@@ -2333,16 +2327,20 @@ def test_universal_credit_final_request_projects_final_inputs():
 def test_carers_allowance_final_projection_uses_pe_boundary_facts():
     assert project_carers_allowance_final_inputs(
         {
+            "age": 30,
             "country": "SCOTLAND",
-            "care_hours": 40,
-            "carers_allowance_reported": 0,
+            "care_hours": 0,
+            "carers_allowance": 0,
+            "carers_allowance_reported": 4_495.40,
         },
         year=2026,
     ) == {
-        "person_is_in_scotland": True,
-        "carer_support_payment_replaces_carers_allowance": True,
-        "weekly_care_hours": 40.0,
-        "reported_carers_allowance_for_year": 0.0,
+        "person_is_aged_16_or_over": True,
+        "weekly_care_hours": 35.0,
+        "cared_for_person_receives_qualifying_disability_benefit": True,
+        "weekly_earnings_after_tax_national_insurance_and_expenses": 0.0,
+        "person_is_in_full_time_education": False,
+        "person_lives_in_scotland": True,
     }
 
 
@@ -2352,6 +2350,7 @@ def test_carers_allowance_final_request_projects_final_inputs():
             "persons": [
                 {
                     "person_id": 1,
+                    "age": 30,
                     "country": "ENGLAND",
                     "care_hours": 0,
                     "carers_allowance": 0,
@@ -2359,6 +2358,7 @@ def test_carers_allowance_final_request_projects_final_inputs():
                 },
                 {
                     "person_id": 2,
+                    "age": 30,
                     "country": "ENGLAND",
                     "care_hours": 35,
                     "carers_allowance": 4_495.40,
@@ -2392,32 +2392,36 @@ def test_carers_allowance_final_request_projects_final_inputs():
         for record in request["dataset"]["inputs"]
     }
     assert inputs[
-        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.person_is_in_scotland:person_2"
-    ] == {"kind": "bool", "value": False}
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.person_is_aged_16_or_over:person_2"
+    ] == {"kind": "bool", "value": True}
     assert inputs[
-        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.carer_support_payment_replaces_carers_allowance:person_2"
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.cared_for_person_receives_qualifying_disability_benefit:person_2"
     ] == {"kind": "bool", "value": True}
     assert inputs[
         f"{CARERS_ALLOWANCE_FINAL_BASE}#input.weekly_care_hours:person_2"
     ] == {"kind": "decimal", "value": "35.0"}
     assert inputs[
-        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.reported_carers_allowance_for_year:person_2"
-    ] == {"kind": "decimal", "value": "0.0"}
+        f"{CARERS_ALLOWANCE_FINAL_BASE}#input.person_lives_in_scotland:person_2"
+    ] == {"kind": "bool", "value": False}
 
 
 def test_carer_support_payment_final_projection_uses_pe_boundary_facts():
     assert project_carer_support_payment_final_inputs(
         {
+            "age": 30,
             "country": "SCOTLAND",
-            "care_hours": 40,
+            "care_hours": 0,
+            "carer_support_payment": 5_103.80,
             "carers_allowance_reported": 0,
         },
         year=2026,
     ) == {
-        "person_is_in_scotland": True,
-        "carer_support_payment_in_effect": True,
-        "weekly_care_hours": 40.0,
-        "reported_carers_allowance_for_year": 0.0,
+        "person_is_aged_16_or_over": True,
+        "person_lives_in_scotland": True,
+        "weekly_care_hours": 35.0,
+        "cared_for_person_receives_qualifying_disability_benefit": True,
+        "weekly_earnings_after_tax_national_insurance_and_expenses": 0.0,
+        "person_is_in_full_time_education": False,
     }
 
 
@@ -2427,6 +2431,7 @@ def test_carer_support_payment_final_request_projects_final_inputs():
             "persons": [
                 {
                     "person_id": 1,
+                    "age": 30,
                     "country": "ENGLAND",
                     "care_hours": 35,
                     "carer_support_payment": 0,
@@ -2434,6 +2439,7 @@ def test_carer_support_payment_final_request_projects_final_inputs():
                 },
                 {
                     "person_id": 2,
+                    "age": 30,
                     "country": "SCOTLAND",
                     "care_hours": 35,
                     "carer_support_payment": 5_103.80,
@@ -2467,36 +2473,41 @@ def test_carer_support_payment_final_request_projects_final_inputs():
         for record in request["dataset"]["inputs"]
     }
     assert inputs[
-        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.person_is_in_scotland:person_2"
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.person_lives_in_scotland:person_2"
     ] == {"kind": "bool", "value": True}
     assert inputs[
-        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.carer_support_payment_in_effect:person_2"
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.person_is_aged_16_or_over:person_2"
     ] == {"kind": "bool", "value": True}
     assert inputs[
         f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.weekly_care_hours:person_2"
     ] == {"kind": "decimal", "value": "35.0"}
     assert inputs[
-        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.reported_carers_allowance_for_year:person_2"
-    ] == {"kind": "decimal", "value": "0.0"}
+        f"{CARER_SUPPORT_PAYMENT_FINAL_BASE}#input.cared_for_person_receives_qualifying_disability_benefit:person_2"
+    ] == {"kind": "bool", "value": True}
 
 
 def test_scottish_child_payment_final_projection_uses_pe_boundary_facts():
     assert project_scottish_child_payment_final_inputs(
         {
+            "age": 7,
             "is_scp_eligible": True,
             "would_claim_scp": False,
+            "scottish_child_payment": 1_466.40,
         }
     ) == {
-        "is_scottish_child_payment_eligible": True,
-        "would_claim_scottish_child_payment": False,
+        "person_lives_in_scotland": True,
+        "child_age": 7.0,
+        "applicant_or_partner_receives_qualifying_benefit": True,
     }
     assert (
         project_scottish_child_payment_final_inputs(
             {
+                "age": 7,
                 "is_scp_eligible": float("nan"),
                 "would_claim_scp": True,
+                "scottish_child_payment": 0,
             }
-        )["is_scottish_child_payment_eligible"]
+        )["applicant_or_partner_receives_qualifying_benefit"]
         is False
     )
 
@@ -2507,12 +2518,14 @@ def test_scottish_child_payment_final_request_projects_final_inputs():
             "persons": [
                 {
                     "person_id": 1,
+                    "age": 7,
                     "is_scp_eligible": False,
                     "would_claim_scp": False,
                     "scottish_child_payment": 0,
                 },
                 {
                     "person_id": 2,
+                    "age": 7,
                     "is_scp_eligible": True,
                     "would_claim_scp": True,
                     "scottish_child_payment": 1_466.40,
@@ -2545,10 +2558,14 @@ def test_scottish_child_payment_final_request_projects_final_inputs():
         for record in request["dataset"]["inputs"]
     }
     assert inputs[
-        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.is_scottish_child_payment_eligible:person_2"
+        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.person_lives_in_scotland:person_2"
     ] == {"kind": "bool", "value": True}
+    assert inputs[f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.child_age:person_2"] == {
+        "kind": "decimal",
+        "value": "7.0",
+    }
     assert inputs[
-        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.would_claim_scottish_child_payment:person_2"
+        f"{SCOTTISH_CHILD_PAYMENT_FINAL_BASE}#input.applicant_or_partner_receives_qualifying_benefit:person_2"
     ] == {"kind": "bool", "value": True}
 
 
@@ -2611,15 +2628,19 @@ def test_sda_final_request_projects_final_inputs():
 def test_dla_final_projection_uses_category_inputs():
     assert project_dla_final_inputs(
         {
+            "age": 10,
             "dla_sc_category": "MIDDLE",
             "dla_m_category": "HIGHER",
         }
     ) == {
-        "person_has_higher_rate_dla_self_care_category": False,
-        "person_has_middle_rate_dla_self_care_category": True,
-        "person_has_lower_rate_dla_self_care_category": False,
-        "person_has_higher_rate_dla_mobility_category": True,
-        "person_has_lower_rate_dla_mobility_category": False,
+        "child_is_under_16": True,
+        "child_is_aged_3_or_over": True,
+        "child_is_aged_5_or_over": True,
+        "care_component_is_highest_rate": False,
+        "care_component_is_middle_rate": True,
+        "care_component_is_lowest_rate": False,
+        "mobility_component_is_higher_rate": True,
+        "mobility_component_is_lower_rate": False,
     }
 
 
@@ -2629,6 +2650,7 @@ def test_dla_final_request_projects_final_inputs():
             "persons": [
                 {
                     "person_id": 1,
+                    "age": 10,
                     "dla": 0,
                     "dla_sc": 0,
                     "dla_m": 0,
@@ -2637,6 +2659,16 @@ def test_dla_final_request_projects_final_inputs():
                 },
                 {
                     "person_id": 2,
+                    "age": 10,
+                    "dla": 8_148.40,
+                    "dla_sc": 3_988.40,
+                    "dla_m": 4_160.00,
+                    "dla_sc_category": "MIDDLE",
+                    "dla_m_category": "HIGHER",
+                },
+                {
+                    "person_id": 3,
+                    "age": 40,
                     "dla": 8_148.40,
                     "dla_sc": 3_988.40,
                     "dla_m": 4_160.00,
@@ -2644,7 +2676,7 @@ def test_dla_final_request_projects_final_inputs():
                     "dla_m_category": "HIGHER",
                 },
             ],
-            "person_ids": [1, 2],
+            "person_ids": [1, 2, 3],
             "benunits": [],
             "benunit_ids": [],
         },
@@ -2674,11 +2706,12 @@ def test_dla_final_request_projects_final_inputs():
         record["name"] + ":" + record["entity_id"]: record["value"]
         for record in request["dataset"]["inputs"]
     }
+    assert inputs[f"{DLA_FINAL_BASE}#input.care_component_is_middle_rate:person_2"] == {
+        "kind": "bool",
+        "value": True,
+    }
     assert inputs[
-        f"{DLA_FINAL_BASE}#input.person_has_middle_rate_dla_self_care_category:person_2"
-    ] == {"kind": "bool", "value": True}
-    assert inputs[
-        f"{DLA_FINAL_BASE}#input.person_has_higher_rate_dla_mobility_category:person_2"
+        f"{DLA_FINAL_BASE}#input.mobility_component_is_higher_rate:person_2"
     ] == {"kind": "bool", "value": True}
 
 
@@ -3829,6 +3862,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     assert policyengine_person_variables_for_surfaces(
         ["carer-support-payment-final"]
     ) == (
+        "age",
         "care_hours",
         "carer_support_payment",
         "carers_allowance_reported",
@@ -3837,6 +3871,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     assert policyengine_person_variables_for_surfaces(
         ["scottish-child-payment-final"]
     ) == (
+        "age",
         "is_scp_eligible",
         "scottish_child_payment",
         "would_claim_scp",
@@ -5117,6 +5152,7 @@ def test_compare_outputs_compares_dla_final_components_and_annual_amount():
             "persons": [
                 {
                     "person_id": 2,
+                    "age": 10,
                     "dla": 8_148.40,
                     "dla_sc": 3_988.40,
                     "dla_m": 4_160.00,

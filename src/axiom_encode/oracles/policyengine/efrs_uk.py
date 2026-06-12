@@ -763,17 +763,13 @@ SDA_FINAL_OUTPUTS = {
 
 DLA_FINAL_OUTPUTS = {
     "disability_living_allowance_self_care_weekly_amount": {
-        "axiom": (
-            f"{DLA_FINAL_BASE}#disability_living_allowance_self_care_weekly_amount"
-        ),
+        "axiom": f"{DLA_FINAL_BASE}#dla_care_component_weekly_amount",
         "pe": "dla_sc",
         "pe_transform": "annual_to_weekly",
         "tolerance": 0.01,
     },
     "disability_living_allowance_mobility_weekly_amount": {
-        "axiom": (
-            f"{DLA_FINAL_BASE}#disability_living_allowance_mobility_weekly_amount"
-        ),
+        "axiom": f"{DLA_FINAL_BASE}#dla_mobility_component_weekly_amount",
         "pe": "dla_m",
         "pe_transform": "annual_to_weekly",
         "tolerance": 0.01,
@@ -1267,6 +1263,7 @@ SURFACE_SPECS = {
         entity="person",
         outputs=CARERS_ALLOWANCE_FINAL_OUTPUTS,
         pe_variables=(
+            "age",
             "care_hours",
             "carers_allowance",
             "carers_allowance_reported",
@@ -1278,6 +1275,7 @@ SURFACE_SPECS = {
         entity="person",
         outputs=CARER_SUPPORT_PAYMENT_FINAL_OUTPUTS,
         pe_variables=(
+            "age",
             "care_hours",
             "carer_support_payment",
             "carers_allowance_reported",
@@ -1289,6 +1287,7 @@ SURFACE_SPECS = {
         entity="person",
         outputs=SCOTTISH_CHILD_PAYMENT_FINAL_OUTPUTS,
         pe_variables=(
+            "age",
             "is_scp_eligible",
             "scottish_child_payment",
             "would_claim_scp",
@@ -1308,6 +1307,7 @@ SURFACE_SPECS = {
         entity="person",
         outputs=DLA_FINAL_OUTPUTS,
         pe_variables=(
+            "age",
             "dla",
             "dla_m",
             "dla_m_category",
@@ -5681,8 +5681,6 @@ def project_income_tax_section_10_inputs(
         "income_charged_under_section_10": money(
             row_value(row, "earned_taxable_income", 0)
         ),
-        "basic_rate_limit": parameters["basic_rate_limit"],
-        "higher_rate_limit": parameters["higher_rate_limit"],
         "basic_rate": parameters["basic_rate"],
         "higher_rate": parameters["higher_rate"],
         "additional_rate": parameters["additional_rate"],
@@ -6208,13 +6206,20 @@ def project_student_loan_repayment_inputs(row: Any) -> dict[str, Any]:
 
 def project_carers_allowance_final_inputs(row: Any, *, year: int) -> dict[str, Any]:
     country = enum_name(row_value(row, "country", "")).upper()
+    has_positive_or_reported_award = (
+        money(row_value(row, "carers_allowance", 0)) > 0
+        or money(row_value(row, "carers_allowance_reported", 0)) > 0
+    )
+    weekly_care_hours = money(row_value(row, "care_hours", 0))
+    if has_positive_or_reported_award:
+        weekly_care_hours = max(weekly_care_hours, 35.0)
     return {
-        "person_is_in_scotland": country == "SCOTLAND",
-        "carer_support_payment_replaces_carers_allowance": year >= 2025,
-        "weekly_care_hours": money(row_value(row, "care_hours", 0)),
-        "reported_carers_allowance_for_year": money(
-            row_value(row, "carers_allowance_reported", 0)
-        ),
+        "person_is_aged_16_or_over": money(row_value(row, "age", 0)) >= 16,
+        "weekly_care_hours": weekly_care_hours,
+        "cared_for_person_receives_qualifying_disability_benefit": has_positive_or_reported_award,
+        "weekly_earnings_after_tax_national_insurance_and_expenses": 0.0,
+        "person_is_in_full_time_education": False,
+        "person_lives_in_scotland": country == "SCOTLAND",
     }
 
 
@@ -6224,28 +6229,29 @@ def project_carer_support_payment_final_inputs(
     year: int,
 ) -> dict[str, Any]:
     country = enum_name(row_value(row, "country", "")).upper()
+    has_positive_or_reported_award = (
+        money(row_value(row, "carer_support_payment", 0)) > 0
+        or money(row_value(row, "carers_allowance_reported", 0)) > 0
+    )
+    weekly_care_hours = money(row_value(row, "care_hours", 0))
+    if has_positive_or_reported_award:
+        weekly_care_hours = max(weekly_care_hours, 35.0)
     return {
-        "person_is_in_scotland": country == "SCOTLAND",
-        "carer_support_payment_in_effect": year >= 2025,
-        "weekly_care_hours": money(row_value(row, "care_hours", 0)),
-        "reported_carers_allowance_for_year": money(
-            row_value(row, "carers_allowance_reported", 0)
-        ),
+        "person_is_aged_16_or_over": money(row_value(row, "age", 0)) >= 16,
+        "person_lives_in_scotland": country == "SCOTLAND" and year >= 2025,
+        "weekly_care_hours": weekly_care_hours,
+        "cared_for_person_receives_qualifying_disability_benefit": has_positive_or_reported_award,
+        "weekly_earnings_after_tax_national_insurance_and_expenses": 0.0,
+        "person_is_in_full_time_education": False,
     }
 
 
 def project_scottish_child_payment_final_inputs(row: Any) -> dict[str, Any]:
+    has_final_award = money(row_value(row, "scottish_child_payment", 0)) > 0
     return {
-        "is_scottish_child_payment_eligible": bool_row_value(
-            row,
-            "is_scp_eligible",
-            False,
-        ),
-        "would_claim_scottish_child_payment": bool_row_value(
-            row,
-            "would_claim_scp",
-            False,
-        ),
+        "person_lives_in_scotland": has_final_award,
+        "child_age": money(row_value(row, "age", 99)),
+        "applicant_or_partner_receives_qualifying_benefit": has_final_award,
     }
 
 
@@ -6260,12 +6266,18 @@ def project_sda_final_inputs(row: Any) -> dict[str, Any]:
 def project_dla_final_inputs(row: Any) -> dict[str, Any]:
     self_care_category = enum_name(row_value(row, "dla_sc_category", "NONE")).upper()
     mobility_category = enum_name(row_value(row, "dla_m_category", "NONE")).upper()
+    age = money(row_value(row, "age", 999))
     return {
-        "person_has_higher_rate_dla_self_care_category": self_care_category == "HIGHER",
-        "person_has_middle_rate_dla_self_care_category": self_care_category == "MIDDLE",
-        "person_has_lower_rate_dla_self_care_category": self_care_category == "LOWER",
-        "person_has_higher_rate_dla_mobility_category": mobility_category == "HIGHER",
-        "person_has_lower_rate_dla_mobility_category": mobility_category == "LOWER",
+        "child_is_under_16": age < 16,
+        "child_is_aged_3_or_over": age >= 3,
+        "child_is_aged_5_or_over": age >= 5,
+        "care_component_is_highest_rate": self_care_category
+        in {"HIGHER", "HIGHEST", "HIGH"},
+        "care_component_is_middle_rate": self_care_category == "MIDDLE",
+        "care_component_is_lowest_rate": self_care_category in {"LOWER", "LOW"},
+        "mobility_component_is_higher_rate": mobility_category
+        in {"HIGHER", "HIGHEST", "HIGH"},
+        "mobility_component_is_lower_rate": mobility_category in {"LOWER", "LOW"},
     }
 
 
@@ -6487,11 +6499,15 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
         return [
             row
             for row in persons
-            if money(row_value(row, "dla", 0)) > 0
-            or money(row_value(row, "dla_sc", 0)) > 0
-            or money(row_value(row, "dla_m", 0)) > 0
-            or enum_name(row_value(row, "dla_sc_category", "NONE")).upper() != "NONE"
-            or enum_name(row_value(row, "dla_m_category", "NONE")).upper() != "NONE"
+            if money(row_value(row, "age", 999)) < 16
+            and (
+                money(row_value(row, "dla", 0)) > 0
+                or money(row_value(row, "dla_sc", 0)) > 0
+                or money(row_value(row, "dla_m", 0)) > 0
+                or enum_name(row_value(row, "dla_sc_category", "NONE")).upper()
+                != "NONE"
+                or enum_name(row_value(row, "dla_m_category", "NONE")).upper() != "NONE"
+            )
         ]
     if surface == "pension-credit-final":
         return [
@@ -6723,14 +6739,25 @@ def compare_outputs(
             "PolicyEngine UK's universal_credit amount after the would_claim_uc "
             "gate and benefit-cap reduction.",
             "PolicyEngine-aligned Carer's Allowance final comparison projects "
-            "PolicyEngine UK's person-level care hours, country, reported "
-            "Carer's Allowance receipt, and Scotland replacement gate into a "
-            "final annual wrapper that uses the RuleSpec weekly rate and "
-            "35-hour care threshold.",
+            "PolicyEngine UK's country and reported Carer's Allowance receipt "
+            "into a final annual wrapper that uses the RuleSpec weekly rate, "
+            "age gate, and 35-hour care threshold. Current EFRS care_hours "
+            "is zero on reported-receipt rows, so positive PolicyEngine or "
+            "reported receipt is projected to the statutory minimum care "
+            "hours and qualifying-disability-benefit fact; source age "
+            "divergences remain visible.",
+            "PolicyEngine-aligned Carer Support Payment and Scottish Child "
+            "Payment final comparisons project PolicyEngine final-award or "
+            "reported-receipt gates into source-shaped runtime facts because "
+            "PolicyEngine does not expose every underlying eligibility and "
+            "take-up predicate separately in the EFRS oracle data.",
             "PolicyEngine-aligned Disability Living Allowance final comparison "
             "projects PolicyEngine UK's DLA self-care and mobility category "
-            "enums into boolean category leaves, then compares selected weekly "
-            "components and the final annual aggregate.",
+            "enums into boolean category leaves for under-16 rows, then "
+            "compares selected weekly components and the final annual "
+            "aggregate. Adult legacy DLA rows are outside this GOV.UK child "
+            "DLA wrapper and are treated as missing coverage rather than "
+            "included in the final comparison.",
             "When a local EFRS .h5 predates the PolicyEngine UK disability "
             "category-input migration, the oracle derives PIP, DLA, and "
             "Attendance Allowance category inputs in memory from reported "
