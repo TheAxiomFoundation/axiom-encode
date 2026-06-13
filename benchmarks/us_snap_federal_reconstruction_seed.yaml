@@ -16,26 +16,26 @@ cases:
     source_id: 7 USC 2017(a)
     corpus_citation_path: us/statute/7/2017/a
     allow_context:
-      - ../../rulespec-us/statutes/7/2014/e/2.yaml
-      - ../../rulespec-us/statutes/7/2014/e/6/A.yaml
+      - ../../rulespec-us/us/statutes/7/2014/e/2.yaml
+      - ../../rulespec-us/us/statutes/7/2014/e/6/A.yaml
 
   - kind: source
     name: snap-2017-c-1
     source_id: 7 USC 2017(c)(1)
     corpus_citation_path: us/statute/7/2017/c/1
     allow_context:
-      - ../../rulespec-us/statutes/7/2017/a.yaml
+      - ../../rulespec-us/us/statutes/7/2017/a.yaml
 
   - kind: source
     name: snap-2017-c-3
     source_id: 7 USC 2017(c)(3)
     corpus_citation_path: us/statute/7/2017/c/3
     allow_context:
-      - ../../rulespec-us/statutes/7/2017/a.yaml
+      - ../../rulespec-us/us/statutes/7/2017/a.yaml
 
   - kind: source
     name: snap-fy2026-cola-allotments
     source_id: USDA SNAP FY 2026 COLA allotment table
     corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
     allow_context:
-      - ../../rulespec-us/statutes/7/2017/a.yaml
+      - ../../rulespec-us/us/statutes/7/2017/a.yaml
