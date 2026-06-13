@@ -1,0 +1,1 @@
+- Benchmark suite `allow_context` entries now point at the country-monorepo layout (`rulespec-us/us/statutes/...`, `rulespec-us/us/policies/...`) instead of the legacy pre-consolidation federal paths, so corpus-backed SNAP suites can resolve their repo-augmented context again.
