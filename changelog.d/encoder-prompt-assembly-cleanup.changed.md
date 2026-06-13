@@ -1,0 +1,1 @@
+Cleanup the assembled encoder prompt: split the empty _FORMULA_PROTOCOL out of _TESTS_PROTOCOL, de-duplicate the .test.yaml/output-shape guidance and the Hard requirements heading, and assemble blocks through a strip+join helper so no protocol boundary can glue words. Adds regression tests on the assembled string.

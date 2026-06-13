@@ -1,0 +1,1 @@
+Encoder prompt restructured into named protocol blocks (core contract, repository context, tables, structure, scope, composition/deferral, naming, formulas, tests, US tax pack, numeric grounding, self-check, shapes) with new monorepo/provenance/umbrella-provision guidance and three new worked shapes; battle-tested guidance carried verbatim.

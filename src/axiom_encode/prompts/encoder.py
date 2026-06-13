@@ -1,4 +1,12 @@
-"""RuleSpec encoder prompt used by generic backend adapters."""
+"""Encoder prompt, composed from named protocol blocks.
+
+Architecture: a core contract plus domain packs, assembled through
+`_assemble`, which strips each block and joins with blank lines so no
+protocol boundary can glue words or stack a duplicate heading. Battle-tested
+blocks are carried verbatim from the prior monolith; many sentences are
+pinned by tests and guard encoding-benchmark regressions. Restructure freely;
+reword guarded content only with a benchmark run.
+"""
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -141,10 +149,19 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   output, or leave the phrase documentary; do not bridge the mismatch with an
   opaque local fact or a made-up household/tax-unit proxy."""
 
-ENCODER_PROMPT = (
-    """# Axiom RuleSpec Encoder
+_CORE_CONTRACT = """# Axiom RuleSpec Encoder
 
-Encode only the supplied legal source text into Axiom RuleSpec YAML.
+You translate one supplied legal source slice into Axiom RuleSpec YAML. The
+encoded module must mirror the supplied text: every executable rule states
+what the source states, at the entity the source states, grounded by proof
+atoms the validator can check against the corpus. Anything the source does
+not state is either an explicit boundary input, an import of another encoded
+provision, or a typed deferral — never an invention.
+
+Reading order: output contract → repository context → tables → structure →
+source scope → composition, cross-references and deferral → naming → tests →
+formulas → US tax pack → numeric grounding → self-check → shapes. Domain
+packs refine the core contract; they never override it.
 
 Hard requirements:
 - Emit `format: rulespec/v1`.
@@ -206,7 +223,30 @@ Hard requirements:
   encode the period as `benefit_cost_rate_compensation_lookback_years = 5` and
   the fraction as `1 / benefit_cost_rate_compensation_lookback_years`, not
   `1 / 5`.
-- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated
+"""
+
+_REPOSITORY_CONTEXT = """
+Repository context:
+- Jurisdiction content lives in country monorepos: one directory per
+  jurisdiction (`us/`, `us-ca/`, `uk-kingston-upon-thames/`, ...) inside
+  `rulespec-<country>`. A rule's legal ID is
+  `<jurisdiction>:<path under the jurisdiction directory>#<rule_name>`; the
+  expected output path you are given is already jurisdiction-relative, and
+  imports always carry the jurisdiction prefix (`us:statutes/26/24/h#x`).
+- Tooling stamps `module.source_verification.source_sha256` and
+  `module.encoding_provenance` after generation; never fabricate hashes or
+  provenance fields yourself.
+- New executable outputs are classified against the PolicyEngine oracle
+  coverage registry in CI; prefer importing an existing classified output
+  over re-deriving an equivalent new one.
+- When the requested source is an umbrella provision that itself states a
+  program's structure or calculation sequence (for example 7 CFR 273.10's
+  eligibility-and-allotment sequence), encode that structure fully. Umbrella
+  provisions are the source-grounded spine that programs compose from; a gap
+  here forces ungrounded synthetic gates downstream.
+"""
+
+_TABLES_PROTOCOL = """- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated
   numeric tables/scales keyed by household size, family size, income band,
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
@@ -282,7 +322,9 @@ Hard requirements:
   output after that statutory application. Do not append a consumer entity
   suffix like `_for_tax_unit`, `_for_person`, or `_for_employer` unless the
   source header itself states that entity.
-- Use `kind: derived` for entity-scoped outputs.
+"""
+
+_STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering a source relation through a
   stated predicate. "This source is about SNAP" is not enough. If the source
@@ -302,9 +344,8 @@ Hard requirements:
   that declares it. Filtered entities have no structural existence without that
   dependency.
 """
-    + SOURCE_SCOPE_PROTOCOL
-    + """
-- If source text is a broad application, furnishing, administrative duty, or
+
+_COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishing, administrative duty, or
   purpose clause without a computable policy condition, preserve it in
   `module.summary` but do not create an executable derived output just to
   paraphrase it. Encode only the concrete conditions, exceptions, parameters,
@@ -400,7 +441,9 @@ Hard requirements:
   `statutes/26/24/h#some_output`.
 - In formulas, reference imported exports by their bare local rule name after
   adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
-- Do not create standalone small-number parameters just to restate prose such
+"""
+
+_NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to restate prose such
   as "one-time" or "more than one consecutive month" when the number only
   qualifies a local factual condition. Encode the whole source-stated condition
   as a fact predicate or derived condition unless the scalar is an independent
@@ -768,7 +811,9 @@ Hard requirements:
   `implements` for the state or implementing authority that fills that slot,
   and always include `source_relation.basis.delegation` for `sets` or
   `implements`.
-- Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
+"""
+
+_TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - Top-level `imports:` entries must be scalar strings, never map entries like
   `- target:` plus `symbols:`. Import a copied export as one exact string such
   as `<jurisdiction>:<repo-path>#<exported_symbol>`.
@@ -953,7 +998,9 @@ Hard requirements:
   usually describe the document's scope, not a new input variable. Do not add a
   state-residency input unless the provision itself is encoding a residency
   eligibility test.
-- Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+"""
+
+_FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Do not encode legal effective dates as `dtype: String` parameters or date
   literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
   Use `effective_from` metadata for version timing, or use a
@@ -1057,7 +1104,9 @@ Hard requirements:
   must include the exact source phrase containing that number. Do not omit a
   subsection, table row, or clause that grounds an encoded
   numeric amount, rate, threshold, cap, or limit.
-- US tax filing status is a derived legal classification, not a downstream
+"""
+
+US_TAX_PACK = """- US tax filing status is a derived legal classification, not a downstream
   boundary fact. Do not create local `#input.filing_status` facts in a rule or
   test. Encode the upstream filing-status source first, then import its absolute
   RuleSpec output into downstream threshold, phaseout, deduction, and credit
@@ -1090,7 +1139,9 @@ Hard requirements:
   `individual_is_not_married_and_is_not_surviving_spouse`.
   Those are derived legal classifications; import their source-backed RuleSpec
   outputs or defer the affected output until those upstream definitions exist.
-- If the source states a substitution, higher amount, increase, cap, or other
+"""
+
+_NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, increase, cap, or other
   modifier amount, do not define the modifier as an unused scalar while
   computing the affected numeric output without it. Use the modifier in the
   affected formula, or defer that affected output until the upstream branch
@@ -1113,7 +1164,9 @@ Hard requirements:
 - Adjacent bracket thresholds repeated as both an upper bound and the next
   bracket's lower bound are separate source-stated legal roles; define distinct
   semantic scalars for those occurrences and use them in the branch conditions.
-- Before finalizing, do this self-check:
+"""
+
+_SELF_CHECK = """- Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named local numeric concept or an exact imported concept
      from context, and derived formulas reference that local or imported name
@@ -1230,7 +1283,160 @@ rules:
       - effective_from: '2026-01-01'
         formula: snap_member_eligible
 """
+
+_SHAPES = """Minimal shape:
+
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: |-
+    <source text>
+rules:
+  - name: example_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: <legal citation/span>
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: <corpus path>
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          451
+
+Indexed table shape:
+
+rules:
+  - name: example_amount_by_household_size
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 546
+  - name: example_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: <legal citation/span>
+    versions:
+      - effective_from: '2025-10-01'
+        formula: example_amount_by_household_size[household_size]
+
+Derived membership shape:
+
+rules:
+  - name: snap_member_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_required_status
+          and not member_is_excluded_student
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+
+Parent-composition shape (import child results, never re-derive them):
+
+rules:
+  - name: combined_employee_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3201 (aggregate of subsections)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3201/a#tier_1_employee_tax
+              output: tier_1_employee_tax
+              hash: sha256:<listed context hash>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tier_1_employee_tax + tier_2_employee_tax
+
+Deferral shape (typed, target-precise, no tests for deferred outputs):
+
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/26/3201/a#tier_1_employee_tax
+      reason: >-
+        Compensation base is defined under section 3231(e), which is not yet
+        encoded; the rate cannot be applied to a faithful base.
+      source_values:
+        - us:statutes/26/3201/a#tier_1_rate
+rules: []
+
+Companion-test shape (relation rows under input; exceptions paired):
+
+- name: exception_blocks_allotment
+  period: 2026-01
+  input:
+    us:statutes/7/2017/a#relation.member_of_household:
+      - us:statutes/7/2017/a#input.member_has_required_status: true
+    us:statutes/7/2017/a#input.net_income: 100
+    us:statutes/7/2017/a#input.disqualification_exception_applies: true
+  output:
+    us:statutes/7/2017/a#allotment_available: not_holds
+"""
+
+_PROMPT_BLOCKS = (
+    _CORE_CONTRACT,
+    _REPOSITORY_CONTEXT,
+    _TABLES_PROTOCOL,
+    _STRUCTURE_PROTOCOL,
+    SOURCE_SCOPE_PROTOCOL,
+    _COMPOSITION_AND_DEFERRAL,
+    _NAMING_PROTOCOL,
+    _TESTS_PROTOCOL,
+    _FORMULA_PROTOCOL,
+    US_TAX_PACK,
+    _NUMERIC_GROUNDING,
+    _SELF_CHECK,
+    _SHAPES,
 )
+
+
+def _assemble(*blocks: str) -> str:
+    """Join protocol blocks with blank-line separators.
+
+    Each block is stripped before joining so no boundary can glue two
+    sentences together or stack blank lines; empty blocks are dropped.
+    """
+    return "\n\n".join(block.strip() for block in blocks if block.strip())
+
+
+ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS)
 
 
 def get_encoder_prompt(
