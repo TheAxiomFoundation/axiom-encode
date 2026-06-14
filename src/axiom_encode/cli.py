@@ -16572,6 +16572,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_embedded_scalar_literals = (
+                    _try_repair_generated_embedded_scalar_literals_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_embedded_scalar_literals:
+                    outcome["auto_repaired_embedded_scalar_literals"] = (
+                        repaired_embedded_scalar_literals
+                    )
+                    print(
+                        "  apply=auto_repaired_embedded_scalar_literals:"
+                        + ",".join(repaired_embedded_scalar_literals)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_table_band_scalars = (
                     _try_repair_generated_source_table_band_scalars_for_apply(
                         result,
@@ -17610,6 +17639,270 @@ def _try_repair_generated_boolean_parameter_inputs_for_apply(
     return _convert_versioned_boolean_parameters_to_indicators(
         rules_file,
         names=missing_inputs,
+    )
+
+
+def _try_repair_generated_embedded_scalar_literals_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Extract CI-reported formula scalar literals into named parameters."""
+    records = _embedded_scalar_literal_issue_records(issues)
+    if not records:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+    }
+    repaired: list[str] = []
+    for record in records:
+        changed = _extract_embedded_scalar_literal_record(
+            rules,
+            record,
+            target_anchor=target_anchor,
+            existing_names=existing_names,
+        )
+        if changed:
+            repaired.append(changed)
+            existing_names.add(changed)
+
+    if not repaired:
+        return []
+    rules_file.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _embedded_scalar_literal_issue_records(
+    issues: list[str],
+) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"Embedded scalar literal:\s+"
+        r"(?P<rule>[A-Za-z_][A-Za-z0-9_]*)\s+line\s+\d+\s+"
+        r"embeds\s+(?P<literal>-?\d+(?:\.\d+)?)\s+in\s+`(?P<expression>[^`]+)`"
+    )
+    for issue in issues:
+        match = pattern.search(issue)
+        if match is None:
+            continue
+        records.append(match.groupdict())
+    return records
+
+
+def _extract_embedded_scalar_literal_record(
+    rules: list[Any],
+    record: dict[str, str],
+    *,
+    target_anchor: str,
+    existing_names: set[str],
+) -> str | None:
+    rule_name = record["rule"]
+    literal = record["literal"]
+    expression = record["expression"]
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != rule_name:
+            continue
+        parameter_name = _embedded_scalar_parameter_name(rule_name, expression)
+        if not parameter_name:
+            return None
+        parameter_name = _unique_generated_rule_name(parameter_name, existing_names)
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            return None
+        changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            replacement = _replace_embedded_scalar_literal(
+                formula,
+                literal=literal,
+                expression=expression,
+                parameter_name=parameter_name,
+            )
+            if replacement != formula:
+                version["formula"] = replacement
+                changed = True
+        if not changed:
+            return None
+        parameter_rule = _embedded_scalar_parameter_rule(
+            rule,
+            name=parameter_name,
+            literal=literal,
+        )
+        _add_formula_proof_import(
+            rule,
+            target=f"{target_anchor}#{parameter_name}",
+            output=parameter_name,
+        )
+        rules.insert(index, parameter_rule)
+        return parameter_name
+    return None
+
+
+def _embedded_scalar_parameter_name(rule_name: str, expression: str) -> str | None:
+    if re.search(r"\bmin\s*\(", expression) and rule_name.endswith("_size_category"):
+        return f"{rule_name.removesuffix('_size_category')}_max_household_size"
+    if re.search(r"\bmax\s*\(", expression):
+        return f"{rule_name}_floor"
+    return f"{rule_name}_scalar_limit"
+
+
+def _replace_embedded_scalar_literal(
+    formula: str,
+    *,
+    literal: str,
+    expression: str,
+    parameter_name: str,
+) -> str:
+    expression_replacement = re.sub(
+        rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
+        parameter_name,
+        expression,
+        count=1,
+    )
+    if expression_replacement != expression and expression in formula:
+        return formula.replace(expression, expression_replacement, 1)
+    return re.sub(
+        rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
+        parameter_name,
+        formula,
+        count=1,
+    )
+
+
+def _embedded_scalar_parameter_rule(
+    source_rule: dict[str, Any],
+    *,
+    name: str,
+    literal: str,
+) -> dict[str, Any]:
+    first_effective_from = "0001-01-01"
+    versions = source_rule.get("versions")
+    if isinstance(versions, list):
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            effective_from = version.get("effective_from")
+            if isinstance(effective_from, str) and effective_from.strip():
+                first_effective_from = effective_from.strip()
+                break
+    parameter_rule: dict[str, Any] = {
+        "name": name,
+        "kind": "parameter",
+        "dtype": "Count",
+        "source": source_rule.get("source"),
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    _source_atom_for_embedded_scalar_parameter(
+                        source_rule,
+                        literal=literal,
+                    )
+                ]
+            }
+        },
+        "versions": [
+            {
+                "effective_from": first_effective_from,
+                "formula": literal,
+            }
+        ],
+    }
+    if not parameter_rule["source"]:
+        parameter_rule.pop("source", None)
+    return parameter_rule
+
+
+def _source_atom_for_embedded_scalar_parameter(
+    source_rule: dict[str, Any],
+    *,
+    literal: str,
+) -> dict[str, Any]:
+    proof = source_rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str) and literal in excerpt:
+                return {
+                    "path": "versions[0].formula",
+                    "kind": "parameter",
+                    "source": dict(source),
+                }
+    return {
+        "path": "versions[0].formula",
+        "kind": "parameter",
+    }
+
+
+def _add_formula_proof_import(
+    rule: dict[str, Any],
+    *,
+    target: str,
+    output: str,
+) -> None:
+    metadata = rule.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+        rule["metadata"] = metadata
+    proof = metadata.setdefault("proof", {})
+    if not isinstance(proof, dict):
+        proof = {}
+        metadata["proof"] = proof
+    atoms = proof.setdefault("atoms", [])
+    if not isinstance(atoms, list):
+        atoms = []
+        proof["atoms"] = atoms
+    atoms.append(
+        {
+            "path": "versions[0].formula",
+            "kind": "import",
+            "import": {
+                "target": target,
+                "output": output,
+                "hash": "sha256:local",
+            },
+        }
     )
 
 

@@ -99,6 +99,7 @@ from axiom_encode.cli import (
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
+    _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
@@ -4833,6 +4834,70 @@ rules:
         } == {
             "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
         }
+
+    def test_embedded_scalar_literal_repair_extracts_min_bound(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP standards.
+rules:
+- name: household_size
+  kind: derived
+  entity: Household
+  dtype: Count
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: household_member_count
+- name: snap_standard_deduction_size_category
+  kind: derived
+  entity: Household
+  dtype: Count
+  period: Month
+  source: Table IV-A, Standard Deduction household-size categories
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-tn/regulation/1240-01/04/27/block-1
+          excerpt: Household Size 1 2 3 4 5 6+
+  versions:
+  - effective_from: '0001-01-01'
+    formula: min(household_size, 6)
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_standard_deduction_size_category "
+                "line 7 embeds 6 in `min(household_size, 6)`; extract the value "
+                "to its own named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_standard_deduction_max_household_size"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][1]
+        assert parameter["name"] == "snap_standard_deduction_max_household_size"
+        assert parameter["kind"] == "parameter"
+        assert parameter["versions"][0]["formula"] == "6"
+        derived = payload["rules"][2]
+        assert (
+            derived["versions"][0]["formula"]
+            == "min(household_size, snap_standard_deduction_max_household_size)"
+        )
+        assert derived["metadata"]["proof"]["atoms"][-1]["import"]["target"] == (
+            "us-tn:regulations/block-1#snap_standard_deduction_max_household_size"
+        )
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
