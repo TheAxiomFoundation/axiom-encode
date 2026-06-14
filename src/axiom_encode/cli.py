@@ -84,8 +84,11 @@ from .harness.validator_pipeline import (
     _is_executable_rulespec_rule,
     _load_nearby_eval_source_metadata,
     _matching_delegated_setting_rule_names,
+    _parse_rulespec_target,
+    _resolve_rulespec_target_file,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
     _rulespec_rule_formula_rule_records,
@@ -17649,7 +17652,8 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         for rule in rules
         if isinstance(rule, dict)
     }
-    additions: list[dict[str, Any]] = []
+    source_relation_additions: list[dict[str, Any]] = []
+    wrapper_additions: list[dict[str, Any]] = []
     repaired: list[str] = []
     for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
         if _generated_rules_include_source_relation_target(rules, setting_target.target):
@@ -17660,6 +17664,13 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         )
         if not local_rule_names:
             continue
+        target_rule = _rulespec_rule_for_absolute_ref(
+            setting_target.target,
+            current_payload=payload,
+            current_rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        target_kind = _rulespec_rule_kind(target_rule)
         value_rule = _preferred_delegated_setting_value_rule(rules, local_rule_names)
         if value_rule is None:
             continue
@@ -17668,6 +17679,20 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
             continue
         target_symbol = setting_target.target.rsplit("#", 1)[-1]
         relation_stem = target_symbol.removesuffix("_state_option")
+        if target_kind == "derived" and _rulespec_rule_kind(value_rule) == "parameter":
+            wrapper_rule = _delegated_setting_derived_value_wrapper(
+                rules,
+                value_rule=value_rule,
+                target_rule=target_rule,
+                target_anchor=target_anchor,
+                relation_stem=relation_stem,
+                existing_names=existing_names,
+            )
+            if wrapper_rule is not None:
+                value_rule = wrapper_rule
+                value_name = str(wrapper_rule.get("name") or "").strip()
+                existing_names.add(value_name)
+                wrapper_additions.append(wrapper_rule)
         relation_name = _unique_generated_rule_name(
             f"sets_{relation_stem}",
             existing_names,
@@ -17689,10 +17714,10 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         source = value_rule.get("source")
         if isinstance(source, str) and source.strip():
             source_relation_rule["source"] = source.strip()
-        additions.append(source_relation_rule)
+        source_relation_additions.append(source_relation_rule)
         repaired.append(relation_name)
 
-    if not additions:
+    if not source_relation_additions:
         return []
 
     insert_at = 0
@@ -17703,7 +17728,12 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         if str(rule.get("kind") or "").strip().lower() != "source_relation":
             break
         insert_at += 1
-    payload["rules"] = [*rules[:insert_at], *additions, *rules[insert_at:]]
+    payload["rules"] = [
+        *rules[:insert_at],
+        *source_relation_additions,
+        *wrapper_additions,
+        *rules[insert_at:],
+    ]
     rules_file.write_text(
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
     )
@@ -17712,6 +17742,176 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
 
 def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
     return "Delegated policy setting missing source_relation" in issue
+
+
+def _rulespec_rule_kind(rule: dict[str, Any] | None) -> str:
+    if not isinstance(rule, dict):
+        return ""
+    return str(rule.get("kind") or "").strip().lower()
+
+
+def _rulespec_rule_for_absolute_ref(
+    reference: str,
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+) -> dict[str, Any] | None:
+    target_ref = _parse_rulespec_target(reference)
+    if target_ref is None or target_ref.symbol is None:
+        return None
+    target_payload: dict[str, Any] | None = None
+    if _rulespec_generated_file_matches_target_ref(current_rules_file, target_ref):
+        target_payload = current_payload
+    else:
+        target_file = _resolve_rulespec_target_file(target_ref, policy_repo_path)
+        if target_file is not None and target_file.exists():
+            target_payload = _rulespec_payload_from_file(target_file)
+    if target_payload is None:
+        return None
+    rules = target_payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() == target_ref.symbol:
+            return rule
+    return None
+
+
+def _rulespec_generated_file_matches_target_ref(
+    rules_file: Path,
+    target_ref: Any,
+) -> bool:
+    target_parts = target_ref.relative_path.parts
+    path_parts = Path(rules_file).resolve().parts
+    return len(path_parts) >= len(target_parts) and path_parts[
+        -len(target_parts) :
+    ] == target_parts
+
+
+def _delegated_setting_derived_value_wrapper(
+    rules: list[Any],
+    *,
+    value_rule: dict[str, Any],
+    target_rule: dict[str, Any] | None,
+    target_anchor: str,
+    relation_stem: str,
+    existing_names: set[str],
+) -> dict[str, Any] | None:
+    value_name = str(value_rule.get("name") or "").strip()
+    if not value_name:
+        return None
+    wrapper_name = _unique_generated_rule_name(
+        f"{relation_stem}_state_value",
+        existing_names,
+    )
+    effective_dates = _rulespec_rule_effective_dates(value_rule)
+    if not effective_dates:
+        return None
+    eligible_rule = _delegated_setting_eligibility_rule(rules, value_name)
+    eligible_name = (
+        str(eligible_rule.get("name") or "").strip()
+        if isinstance(eligible_rule, dict)
+        else ""
+    )
+    formula = value_name
+    if eligible_name:
+        formula = f"if {eligible_name}: {value_name} else: 0"
+
+    wrapper_rule: dict[str, Any] = {
+        "name": wrapper_name,
+        "kind": "derived",
+        "versions": [
+            {
+                "effective_from": effective_from,
+                "formula": formula,
+            }
+            for effective_from in effective_dates
+        ],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": f"{target_anchor}#{value_name}",
+                            "output": value_name,
+                            "hash": "sha256:local",
+                        },
+                    }
+                ]
+            }
+        },
+    }
+    for field in ("entity", "dtype", "period", "unit"):
+        value = (
+            target_rule.get(field)
+            if isinstance(target_rule, dict) and target_rule.get(field) is not None
+            else value_rule.get(field)
+        )
+        if value is not None:
+            wrapper_rule[field] = value
+    source = value_rule.get("source")
+    if isinstance(source, str) and source.strip():
+        wrapper_rule["source"] = source.strip()
+    if eligible_name:
+        wrapper_rule["metadata"]["proof"]["atoms"].append(
+            {
+                "path": "versions[0].formula",
+                "kind": "import",
+                "import": {
+                    "target": f"{target_anchor}#{eligible_name}",
+                    "output": eligible_name,
+                    "hash": "sha256:local",
+                },
+            }
+        )
+    return wrapper_rule
+
+
+def _rulespec_rule_effective_dates(rule: dict[str, Any]) -> list[str]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    dates: list[str] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        effective_from = version.get("effective_from")
+        if isinstance(effective_from, str) and effective_from.strip():
+            dates.append(effective_from.strip())
+    return dates
+
+
+def _delegated_setting_eligibility_rule(
+    rules: list[Any],
+    value_name: str,
+) -> dict[str, Any] | None:
+    candidate_names = [f"{value_name}_eligible"]
+    for suffix in ("_amount", "_for_unit_size", "_standard"):
+        if value_name.endswith(suffix):
+            candidate_names.append(f"{value_name.removesuffix(suffix)}_eligible")
+    if "basic_utility_allowance" in value_name:
+        candidate_names.append("snap_basic_utility_allowance_eligible")
+    if "telephone" in value_name:
+        candidate_names.append("snap_telephone_allowance_eligible")
+
+    seen: set[str] = set()
+    for candidate_name in candidate_names:
+        if candidate_name in seen:
+            continue
+        seen.add(candidate_name)
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            if str(rule.get("name") or "").strip() != candidate_name:
+                continue
+            if _rulespec_rule_kind(rule) == "derived":
+                return rule
+    return None
 
 
 def _generated_rules_include_source_relation_target(

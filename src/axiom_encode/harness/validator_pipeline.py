@@ -17039,6 +17039,7 @@ _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS = (
         rule_name_patterns=(
             r"^snap_individual_utility_allowance(?:_amount)?$",
             r"^.*telephone_utility_allowance.*$",
+            r"^.*telephone_standard.*$",
             r"^.*one_utility_allowance.*$",
         ),
     ),
