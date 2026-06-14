@@ -98,6 +98,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
@@ -4714,6 +4715,162 @@ rules:
 
         assert repaired == []
         assert rules_file.read_text() == original
+
+    def test_delegated_policy_setting_repair_adds_snap_utility_sets_edges(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us-nc"
+        rules_file = (
+            output_root
+            / "runner"
+            / "policies"
+            / "dhhs"
+            / "fns"
+            / "fns-360-determining-benefit-levels"
+            / "page-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: North Carolina FNS SNAP utility allowance table.
+rules:
+- name: heating_cooling_standard_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 637
+- name: heating_cooling_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: heating_cooling_standard_utility_allowance_for_unit_size[1]
+- name: non_heating_non_cooling_basic_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 392
+- name: non_heating_non_cooling_basic_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: non_heating_non_cooling_basic_utility_allowance_for_unit_size[1]
+- name: telephone_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 42
+- name: telephone_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: telephone_utility_allowance_for_unit_size[1]
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "Delegated policy setting missing source_relation: "
+                "`heating_cooling_standard_utility_allowance`, "
+                "`heating_cooling_standard_utility_allowance_for_unit_size` "
+                "encodes a state-set SNAP standard utility allowance."
+            ],
+        )
+
+        assert repaired == [
+            "sets_snap_standard_utility_allowance",
+            "sets_snap_limited_utility_allowance",
+            "sets_snap_individual_utility_allowance",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        relations = {
+            rule["source_relation"]["target"]: rule["source_relation"]
+            for rule in payload["rules"][:3]
+        }
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#heating_cooling_standard_utility_allowance"
+        )
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_limited_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#non_heating_non_cooling_basic_utility_allowance"
+        )
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#telephone_utility_allowance"
+        )
+        assert {
+            relation["basis"]["delegation"] for relation in relations.values()
+        } == {
+            "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        }
+
+    def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: State SNAP standard utility allowance.
+rules:
+- name: sets_snap_standard_utility_allowance
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+    value: us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 663
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-ca",
+            issues=["Delegated policy setting missing source_relation"],
+        )
+
+        assert repaired == []
 
     def test_source_relation_delegation_repair_drops_unsupported_federal_cfr_implements(
         self, tmp_path

@@ -72,6 +72,7 @@ from .harness.evals import (
 )
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
+    _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
     ValidatorPipeline,
@@ -82,6 +83,7 @@ from .harness.validator_pipeline import (
     _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
     _load_nearby_eval_source_metadata,
+    _matching_delegated_setting_rule_names,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_public_item_keys,
@@ -16006,6 +16008,35 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_delegated_settings = (
+                    _try_repair_generated_delegated_policy_settings_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_delegated_settings:
+                    outcome["auto_repaired_delegated_policy_settings"] = (
+                        repaired_delegated_settings
+                    )
+                    print(
+                        "  apply=auto_repaired_delegated_policy_settings:"
+                        + ",".join(repaired_delegated_settings)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_source_relations = (
                     _try_repair_generated_source_relation_delegations_for_apply(
                         result,
@@ -17577,6 +17608,191 @@ def _try_repair_generated_boolean_parameter_inputs_for_apply(
         rules_file,
         names=missing_inputs,
     )
+
+
+def _try_repair_generated_delegated_policy_settings_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Insert canonical state `sets` edges for generated delegated settings."""
+    if not any(_issue_mentions_delegated_policy_setting(issue) for issue in issues):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+    }
+    additions: list[dict[str, Any]] = []
+    repaired: list[str] = []
+    for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
+        if _generated_rules_include_source_relation_target(rules, setting_target.target):
+            continue
+        local_rule_names = _matching_delegated_setting_rule_names(
+            rules,
+            setting_target.rule_name_patterns,
+        )
+        if not local_rule_names:
+            continue
+        value_rule = _preferred_delegated_setting_value_rule(rules, local_rule_names)
+        if value_rule is None:
+            continue
+        value_name = str(value_rule.get("name") or "").strip()
+        if not value_name:
+            continue
+        target_symbol = setting_target.target.rsplit("#", 1)[-1]
+        relation_stem = target_symbol.removesuffix("_state_option")
+        relation_name = _unique_generated_rule_name(
+            f"sets_{relation_stem}",
+            existing_names,
+        )
+        existing_names.add(relation_name)
+        source_relation_rule: dict[str, Any] = {
+            "name": relation_name,
+            "kind": "source_relation",
+            "source_relation": {
+                "type": "sets",
+                "target": setting_target.target,
+                "authority": "state",
+                "value": f"{target_anchor}#{value_name}",
+                "basis": {
+                    "delegation": "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation",
+                },
+            },
+        }
+        source = value_rule.get("source")
+        if isinstance(source, str) and source.strip():
+            source_relation_rule["source"] = source.strip()
+        additions.append(source_relation_rule)
+        repaired.append(relation_name)
+
+    if not additions:
+        return []
+
+    insert_at = 0
+    while insert_at < len(rules):
+        rule = rules[insert_at]
+        if not isinstance(rule, dict):
+            break
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            break
+        insert_at += 1
+    payload["rules"] = [*rules[:insert_at], *additions, *rules[insert_at:]]
+    rules_file.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
+    return "Delegated policy setting missing source_relation" in issue
+
+
+def _generated_rules_include_source_relation_target(
+    rules: list[Any],
+    target: str,
+) -> bool:
+    normalized_target = _normalize_source_relation_target_ref(target)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        if (
+            _normalize_source_relation_target_ref(source_relation.get("target"))
+            == normalized_target
+        ):
+            return True
+    return False
+
+
+def _preferred_delegated_setting_value_rule(
+    rules: list[Any],
+    local_rule_names: list[str],
+) -> dict[str, Any] | None:
+    local_names = set(local_rule_names)
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name not in local_names or not _is_executable_rulespec_rule(rule):
+            continue
+        score = _delegated_setting_value_rule_score(rule)
+        candidates.append((score, -index, rule))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+_PREFERRED_DELEGATED_SETTING_VALUE_NAMES = {
+    "snap_standard_utility_allowance",
+    "heating_cooling_standard_utility_allowance",
+    "snap_limited_utility_allowance",
+    "non_heating_non_cooling_basic_utility_allowance",
+    "snap_basic_utility_allowance",
+    "snap_individual_utility_allowance",
+    "telephone_utility_allowance",
+    "snap_one_utility_allowance",
+}
+
+
+def _delegated_setting_value_rule_score(rule: dict[str, Any]) -> int:
+    name = str(rule.get("name") or "").strip()
+    kind = str(rule.get("kind") or "").strip().lower()
+    score = 0
+    if name in _PREFERRED_DELEGATED_SETTING_VALUE_NAMES:
+        score += 100
+    if kind == "derived":
+        score += 40
+    if name.startswith("snap_"):
+        score += 10
+    if name.endswith("_amount"):
+        score -= 20
+    if name.endswith("_for_unit_size"):
+        score -= 30
+    return score
+
+
+def _unique_generated_rule_name(base: str, existing_names: set[str]) -> str:
+    if base not in existing_names:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in existing_names:
+        suffix += 1
+    return f"{base}_{suffix}"
 
 
 def _try_repair_generated_source_relation_delegations_for_apply(
