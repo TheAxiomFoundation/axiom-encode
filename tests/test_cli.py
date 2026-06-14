@@ -4803,10 +4803,12 @@ rules:
 
         assert repaired == [
             "sets_snap_standard_utility_allowance",
+            "import:us:regulations/7-cfr/273/9",
             "sets_snap_limited_utility_allowance",
             "sets_snap_individual_utility_allowance",
         ]
         payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
         relations = {
             rule["source_relation"]["target"]: rule["source_relation"]
             for rule in payload["rules"][:3]
@@ -4935,7 +4937,9 @@ rules:
             issues=["Delegated policy setting missing source_relation"],
         )
 
-        assert repaired == []
+        assert repaired == ["import:us:regulations/7-cfr/273/9"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
 
     def test_delegated_policy_setting_repair_wraps_parameter_values_for_derived_slots(
         self, tmp_path
@@ -5050,10 +5054,12 @@ rules:
 
         assert repaired == [
             "sets_snap_standard_utility_allowance",
+            "import:us:regulations/7-cfr/273/9",
             "sets_snap_limited_utility_allowance",
             "sets_snap_individual_utility_allowance",
         ]
         payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
         relation_values = {
             rule["name"]: rule["source_relation"]["value"]
             for rule in payload["rules"][:3]
@@ -5089,6 +5095,94 @@ rules:
             wrappers[name]["entity"]
             for name in wrappers
         } == {"Household"}
+
+    def test_delegated_policy_setting_repair_retargets_existing_parameter_sets_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: sets_existing_standard
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `sets_existing_standard` cannot bind "
+                "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance` "
+                "(parameter) to "
+                "`us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option` "
+                "(derived)"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        assert payload["rules"][0]["source_relation"]["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
 
     def test_source_relation_delegation_repair_drops_unsupported_federal_cfr_implements(
         self, tmp_path

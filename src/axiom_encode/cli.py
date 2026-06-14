@@ -17949,14 +17949,6 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
     wrapper_additions: list[dict[str, Any]] = []
     repaired: list[str] = []
     for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
-        if _generated_rules_include_source_relation_target(rules, setting_target.target):
-            continue
-        local_rule_names = _matching_delegated_setting_rule_names(
-            rules,
-            setting_target.rule_name_patterns,
-        )
-        if not local_rule_names:
-            continue
         target_rule = _rulespec_rule_for_absolute_ref(
             setting_target.target,
             current_payload=payload,
@@ -17964,6 +17956,37 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
             policy_repo_path=policy_repo_path,
         )
         target_kind = _rulespec_rule_kind(target_rule)
+        existing_relation = _generated_source_relation_for_target(
+            rules,
+            setting_target.target,
+        )
+        if existing_relation is not None:
+            existing_repair = _repair_delegated_setting_relation_value_kind(
+                existing_relation,
+                rules,
+                current_payload=payload,
+                current_rules_file=rules_file,
+                policy_repo_path=policy_repo_path,
+                target_anchor=target_anchor,
+                target_rule=target_rule,
+                target_kind=target_kind,
+                existing_names=existing_names,
+            )
+            if existing_repair is not None:
+                wrapper_additions.append(existing_repair)
+                wrapper_name = str(existing_repair.get("name") or "").strip()
+                if wrapper_name:
+                    existing_names.add(wrapper_name)
+                    repaired.append(wrapper_name)
+            if _ensure_rulespec_payload_import(payload, setting_target.target):
+                repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
+            continue
+        local_rule_names = _matching_delegated_setting_rule_names(
+            rules,
+            setting_target.rule_name_patterns,
+        )
+        if not local_rule_names:
+            continue
         value_rule = _preferred_delegated_setting_value_rule(rules, local_rule_names)
         if value_rule is None:
             continue
@@ -18009,8 +18032,10 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
             source_relation_rule["source"] = source.strip()
         source_relation_additions.append(source_relation_rule)
         repaired.append(relation_name)
+        if _ensure_rulespec_payload_import(payload, setting_target.target):
+            repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
 
-    if not source_relation_additions:
+    if not source_relation_additions and not wrapper_additions and not repaired:
         return []
 
     insert_at = 0
@@ -18034,7 +18059,35 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
 
 
 def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
-    return "Delegated policy setting missing source_relation" in issue
+    if "Delegated policy setting missing source_relation" in issue:
+        return True
+    if "RuleSpec source relation" not in issue:
+        return False
+    return any(
+        setting_target.target in issue
+        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+    )
+
+
+def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
+    import_target = target.split("#", 1)[0].strip()
+    if not import_target:
+        return False
+    imports = payload.get("imports")
+    if imports is None:
+        payload["imports"] = [import_target]
+        return True
+    if not isinstance(imports, list):
+        return False
+    normalized_imports = {
+        str(item).split("#", 1)[0].strip()
+        for item in imports
+        if isinstance(item, str)
+    }
+    if import_target in normalized_imports:
+        return False
+    imports.append(import_target)
+    return True
 
 
 def _rulespec_rule_kind(rule: dict[str, Any] | None) -> str:
@@ -18183,14 +18236,17 @@ def _delegated_setting_eligibility_rule(
     rules: list[Any],
     value_name: str,
 ) -> dict[str, Any] | None:
-    candidate_names = [f"{value_name}_eligible"]
+    candidate_names = [f"{value_name}_eligible", f"{value_name}_applies"]
     for suffix in ("_amount", "_for_unit_size", "_standard"):
         if value_name.endswith(suffix):
             candidate_names.append(f"{value_name.removesuffix(suffix)}_eligible")
+            candidate_names.append(f"{value_name.removesuffix(suffix)}_applies")
     if "basic_utility_allowance" in value_name:
         candidate_names.append("snap_basic_utility_allowance_eligible")
+        candidate_names.append("snap_basic_utility_allowance_applies")
     if "telephone" in value_name:
         candidate_names.append("snap_telephone_allowance_eligible")
+        candidate_names.append("snap_telephone_allowance_applies")
 
     seen: set[str] = set()
     for candidate_name in candidate_names:
@@ -18211,6 +18267,13 @@ def _generated_rules_include_source_relation_target(
     rules: list[Any],
     target: str,
 ) -> bool:
+    return _generated_source_relation_for_target(rules, target) is not None
+
+
+def _generated_source_relation_for_target(
+    rules: list[Any],
+    target: str,
+) -> dict[str, Any] | None:
     normalized_target = _normalize_source_relation_target_ref(target)
     for rule in rules:
         if not isinstance(rule, dict):
@@ -18226,8 +18289,57 @@ def _generated_rules_include_source_relation_target(
             _normalize_source_relation_target_ref(source_relation.get("target"))
             == normalized_target
         ):
-            return True
-    return False
+            return rule
+    return None
+
+
+def _repair_delegated_setting_relation_value_kind(
+    relation_rule: dict[str, Any],
+    rules: list[Any],
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+    target_anchor: str,
+    target_rule: dict[str, Any] | None,
+    target_kind: str,
+    existing_names: set[str],
+) -> dict[str, Any] | None:
+    source_relation = relation_rule.get("source_relation")
+    if not isinstance(source_relation, dict):
+        return None
+    value_ref = str(source_relation.get("value") or "").strip()
+    if not value_ref:
+        return None
+    value_rule = _rulespec_rule_for_absolute_ref(
+        value_ref,
+        current_payload=current_payload,
+        current_rules_file=current_rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if value_rule is None:
+        return None
+    if target_kind != "derived" or _rulespec_rule_kind(value_rule) != "parameter":
+        return None
+    target_ref = str(source_relation.get("target") or "").strip()
+    if "#" not in target_ref:
+        return None
+    relation_stem = target_ref.rsplit("#", 1)[-1].removesuffix("_state_option")
+    wrapper_rule = _delegated_setting_derived_value_wrapper(
+        rules,
+        value_rule=value_rule,
+        target_rule=target_rule,
+        target_anchor=target_anchor,
+        relation_stem=relation_stem,
+        existing_names=existing_names,
+    )
+    if wrapper_rule is None:
+        return None
+    wrapper_name = str(wrapper_rule.get("name") or "").strip()
+    if not wrapper_name:
+        return None
+    source_relation["value"] = f"{target_anchor}#{wrapper_name}"
+    return wrapper_rule
 
 
 def _preferred_delegated_setting_value_rule(
