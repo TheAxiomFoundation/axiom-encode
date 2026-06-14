@@ -20,6 +20,46 @@ from axiom_encode.harness.backends import (
     EncoderResponse,
 )
 from axiom_encode.prompts import ENCODER_PROMPT, get_encoder_prompt
+from axiom_encode.prompts.encoder import (
+    _FORMULA_PROTOCOL,
+    _TESTS_PROTOCOL,
+    _assemble,
+)
+
+
+def test_assembled_prompt_has_no_duplicated_or_glued_blocks():
+    """Regression guards for the protocol-block assembly (codex review).
+
+    The prompt is composed by concatenating named protocol blocks; these
+    assert the *assembled* string is clean, since a bad block boundary or a
+    mis-partitioned block is invisible when you only inspect the blocks.
+    """
+    # Output-shape and prose-ban guidance must appear exactly once.
+    assert ENCODER_PROMPT.count("Emit only RuleSpec YAML") == 1
+    assert ENCODER_PROMPT.count("Do not emit Python code, markdown fences") == 1
+    # No duplicated heading from a block that re-states the core header.
+    assert "Hard requirements:Hard requirements:" not in ENCODER_PROMPT
+    assert ENCODER_PROMPT.count("Hard requirements:") == 1
+    # No block boundary glued two sentences together (the SOURCE_SCOPE /
+    # composition seam previously produced "proxy.- If source text").
+    assert "proxy.- If source text" not in ENCODER_PROMPT
+
+
+def test_formula_and_tests_protocols_are_distinct_and_populated():
+    assert _FORMULA_PROTOCOL.strip(), "_FORMULA_PROTOCOL must not be empty"
+    assert "Put formulas under" in _FORMULA_PROTOCOL
+    assert "min(uncapped_amount, max(cap_a," in _FORMULA_PROTOCOL
+    # Test guidance lives in the tests protocol, formula guidance does not.
+    assert "Emit only RuleSpec YAML" in _TESTS_PROTOCOL
+    assert "Put formulas under" not in _TESTS_PROTOCOL
+
+
+def test_assemble_strips_blocks_and_cannot_glue_or_stack():
+    assembled = _assemble("- alpha statement.", "  - beta statement.  ", "", "- gamma.")
+    assert assembled == "- alpha statement.\n\n- beta statement.\n\n- gamma."
+    # No empty block leaves a triple newline, and no boundary glues words.
+    assert "\n\n\n" not in assembled
+    assert "statement.- beta" not in assembled
 
 
 @pytest.fixture(autouse=True)
