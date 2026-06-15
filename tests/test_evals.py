@@ -43,6 +43,7 @@ from axiom_encode.harness.evals import (
     _run_codex_prompt_eval,
     _select_cross_section_context_files,
     _source_identifier_to_relative_rulespec_path,
+    _target_source_scope_for_heuristics,
     _wait_for_codex_process,
     evaluate_artifact,
     load_eval_suite_manifest,
@@ -1142,6 +1143,62 @@ def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
     assert "companion tests may assert" in prompt
     assert "canonical parameter output directly" in prompt
     assert "Explicit rate-only source-boundary artifacts" in prompt
+
+
+def test_target_source_scope_ignores_cross_references_before_structural_marker():
+    source = "\n\n".join(
+        [
+            "(a) Sampling plan. The plan references paragraph (b)(4), paragraph "
+            "(b)(1)(iii), and paragraph (b)(2)(ii) before the actual sample-size "
+            "paragraph.",
+            "(b) Sample size. The State agency shall review active and negative cases.",
+            "(1) Active cases. (i) All active cases shall be selected.",
+            "(ii) Unless the alternate active case formula applies, the sample size is:",
+            "Average monthly reviewable caseload (N) | Minimum annual sample size (n)\n"
+            "60,000 and over | n = 2400\n"
+            "10,000 to 59,999 | n = 300 + [0.042(N-10,000)]\n"
+            "Under 10,000 | n = 300",
+            "(iii) A State agency with the certification may instead use 0.0153.",
+            "(2) Negative cases. (i) Unless the State agency uses paragraph "
+            "(b)(2)(ii), the negative sample size is:",
+            "Average monthly reviewable negative caseload (N) | Minimum annual sample size (n)\n"
+            "5,000 and over | n = 800\n"
+            "500 to 4,999 | n = 150 + [0.144(N-500)]\n"
+            "Under 500 | n = 150",
+            "(ii) A State agency with the certification may determine the negative "
+            "sample size as follows:",
+            "Average monthly reviewable negative caseload (N) | Minimum annual sample size (n)\n"
+            "5,000 and over | n = 680\n"
+            "684 to 4,999 | n = 150 + [0.1224(N-683)]\n"
+            "Under 684 | n = 150",
+            "(iii) In the formulas, n is the required negative sample size.",
+            "(c) Review process.",
+        ]
+    )
+
+    regular_negative = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/2/i",
+    )
+    assert regular_negative.lstrip().startswith("(i) Unless")
+    assert "0.144" in regular_negative
+    assert "0.1224" not in regular_negative
+
+    alternate_negative = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/2/ii",
+    )
+    assert alternate_negative.lstrip().startswith("(ii) A State agency")
+    assert "0.1224" in alternate_negative
+    assert "0.144" not in alternate_negative
+
+    regular_active = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/1/ii",
+    )
+    assert regular_active.lstrip().startswith("(ii) Unless")
+    assert "0.042" in regular_active
+    assert "0.0153" not in regular_active
 
 
 def test_build_eval_prompt_does_not_treat_rates_path_as_rate_only(tmp_path):
@@ -3163,6 +3220,14 @@ rules:
 
         assert metrics.ci_pass
         assert not any("31" in issue for issue in metrics.numeric_occurrence_issues)
+
+    def test_preserves_bracketed_formula_numeric_source_text(self):
+        numbers = validator_pipeline.extract_numbers_from_text(
+            "684 to 4,999 | n = 150 + [ 0.1224(N-683)]"
+        )
+
+        assert 0.1224 in numbers
+        assert 683 in numbers
 
     def test_accepts_pence_threshold_grounded_as_decimal_gbp(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"

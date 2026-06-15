@@ -567,7 +567,7 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
 )
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
-    r"(?:^|(?<=[\s$£€(\[,]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
 SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
     r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"
@@ -822,8 +822,8 @@ _SOURCE_REFERENCE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:\d+\s+(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|CCR)\s+)?"
-        r"\d+[A-Za-z0-9./-]*(?:\([^)]+\))+",
+        r"(?<!\.)\b(?:\d+\s+(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|CCR)\s+)?"
+        r"\d+[A-Za-z0-9./-]*(?:\([A-Za-z0-9ivxlcdmIVXLCDM]+\))+",
         re.IGNORECASE,
     ),
     re.compile(
@@ -2783,7 +2783,11 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
         cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))
 
     cleaned = "\n".join(cleaned_lines)
-    cleaned = re.sub(r"\[[^\]]*\d[^\]]*\]", " ", cleaned)
+    cleaned = re.sub(
+        r"\[[^\]]*\d[^\]]*\]",
+        _strip_superseded_bracketed_numeric_text,
+        cleaned,
+    )
     cleaned = _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN.sub(" ", cleaned)
@@ -2809,6 +2813,15 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     for pattern in _SOURCE_REFERENCE_PATTERNS:
         cleaned = pattern.sub(" ", cleaned)
     return cleaned
+
+
+def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
+    """Drop superseded bracketed numerics but preserve bracketed formulas."""
+    bracketed = match.group(0)
+    inner = bracketed[1:-1]
+    if re.search(r"[+\-−*/]", inner) or re.search(r"[A-Za-z_]", inner):
+        return bracketed
+    return " "
 
 
 def _extract_collapsed_schedule_row_occurrences(

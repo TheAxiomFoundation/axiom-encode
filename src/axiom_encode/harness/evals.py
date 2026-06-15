@@ -5254,28 +5254,103 @@ def _target_source_scope_for_heuristics(
         return source_text
 
     start = 0
-    for fragment in fragments:
-        match = re.search(
-            rf"\({re.escape(fragment)}\)",
-            source_text[start:],
-            flags=re.IGNORECASE,
+    end = len(source_text)
+    search_from = 0
+    for depth, fragment in enumerate(fragments):
+        match = _find_structural_parenthetical_marker(
+            source_text,
+            fragment,
+            search_from,
+            end,
+            depth=depth,
         )
         if not match:
             return source_text
-        start += match.start()
-        search_from = start + len(match.group(0))
+        start = match.start("marker")
+        search_from = match.end("marker")
 
-    sibling_pattern = _sibling_marker_pattern(fragments[-1])
-    end = len(source_text)
-    if sibling_pattern:
-        sibling = re.search(
-            sibling_pattern,
-            source_text[search_from:],
-            flags=re.IGNORECASE,
+        sibling = _find_structural_sibling_marker(
+            source_text,
+            fragment,
+            search_from,
+            end,
+            depth=depth,
         )
         if sibling:
-            end = search_from + sibling.start()
+            end = sibling.start("marker")
     return source_text[start:end]
+
+
+def _find_structural_parenthetical_marker(
+    source_text: str,
+    fragment: str,
+    start: int,
+    end: int,
+    *,
+    depth: int,
+) -> re.Match[str] | None:
+    """Find a paragraph marker while ignoring inline cross-references.
+
+    eCFR section text often contains references such as ``paragraph (b)(4)``
+    before the actual ``(b)`` paragraph. For target-scope heuristics, prefer
+    markers that look structural: top-level markers must begin a line; nested
+    markers may also appear inline after punctuation, as in ``(2) Heading.
+    (i) Text``.
+    """
+    pattern = _structural_parenthetical_marker_pattern(
+        rf"\({re.escape(fragment)}\)",
+        allow_inline=depth > 0,
+    )
+    return pattern.search(source_text, start, end)
+
+
+def _find_structural_sibling_marker(
+    source_text: str,
+    fragment: str,
+    start: int,
+    end: int,
+    *,
+    depth: int,
+) -> re.Match[str] | None:
+    marker = _structural_sibling_marker_fragment(fragment, depth=depth)
+    if not marker:
+        return None
+    pattern = _structural_parenthetical_marker_pattern(
+        marker,
+        allow_inline=depth > 0,
+    )
+    return pattern.search(source_text, start, end)
+
+
+def _structural_parenthetical_marker_pattern(
+    marker_pattern: str,
+    *,
+    allow_inline: bool,
+) -> re.Pattern[str]:
+    boundary = r"(?P<prefix>\A|\n"
+    if allow_inline:
+        boundary += r"|[.;:]\s+"
+    boundary += r")"
+    return re.compile(
+        rf"{boundary}\s*(?P<marker>{marker_pattern})\s+",
+        flags=re.IGNORECASE,
+    )
+
+
+def _structural_sibling_marker_fragment(fragment: str, *, depth: int) -> str | None:
+    """Return a marker regex for the next same-level structural sibling."""
+    if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
+        return _numeric_sibling_parenthetical_marker(fragment)
+    if _is_roman_parenthetical_fragment(fragment, depth=depth):
+        return r"\([ivxlcdm]+\)"
+    if re.fullmatch(r"[a-z](?:\.\d+)*", fragment, flags=re.IGNORECASE):
+        return _alpha_sibling_parenthetical_marker(fragment, top_level=depth == 0)
+    return None
+
+
+def _is_roman_parenthetical_fragment(fragment: str, *, depth: int) -> bool:
+    """Treat nested lower-case roman markers as roman, not alpha letters."""
+    return depth > 0 and re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE) is not None
 
 
 def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:
@@ -5288,6 +5363,10 @@ def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:
             return parts[idx + 3 :]
     if "regulations" in parts:
         idx = parts.index("regulations")
+        if len(parts) > idx + 4 and re.fullmatch(
+            r"\d+-cfr", parts[idx + 1], flags=re.IGNORECASE
+        ):
+            return parts[idx + 4 :]
         if len(parts) > idx + 3:
             return parts[idx + 3 :]
     return []
