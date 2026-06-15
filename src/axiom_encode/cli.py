@@ -25240,6 +25240,14 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            target_validation = next(
+                (
+                    validation
+                    for validated_file, validation in validations
+                    if validated_file == overlay_target
+                ),
+                None,
+            )
             changed_proof_hash_files = _repair_dependent_proof_import_hashes(
                 overlay_repo=overlay_repo,
                 dependents=dependents,
@@ -25248,6 +25256,27 @@ def _validate_generated_encoding_in_policy_overlay(
                 for path in changed_proof_hash_files:
                     supplemental_files[path.relative_to(overlay_repo)] = (
                         path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
+            restatement_repairs = _repair_generated_restatement_source_relation_for_apply(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+                validation=target_validation,
+            )
+            if restatement_repairs:
+                supplemental_files[relative_output] = overlay_target.read_text()
+                test_path = _rulespec_test_path(overlay_target)
+                if test_path.exists():
+                    supplemental_files[test_path.relative_to(overlay_repo)] = (
+                        test_path.read_text()
                     )
                 validations = _validate_overlay_files(
                     pipeline,
@@ -25888,6 +25917,197 @@ def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
         ancestors.append(Path(f"{current.as_posix()}.yaml"))
         current = current.parent
     return ancestors
+
+
+def _repair_generated_restatement_source_relation_for_apply(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+    validation: object | None,
+) -> list[str]:
+    """Keep restatement modules non-executable when the model over-encodes them."""
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict):
+        return []
+
+    rules = rules_document.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    restatement_symbols, restatement_stems = (
+        _generated_restatement_symbols_and_stems(rules)
+    )
+    if not restatement_symbols and not restatement_stems:
+        return []
+
+    executable_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and _is_executable_rulespec_rule(rule)
+    }
+    changed = False
+    repairs: list[str] = []
+    if not executable_names and isinstance(rules_document.get("imports"), list):
+        rules_document.pop("imports", None)
+        changed = True
+        repairs.append("imports")
+
+    validation_issues = "\n".join(_validation_issue_strings(validation))
+    if "Restated upstream target copied as executable RuleSpec" in validation_issues:
+        remove_names = {
+            name
+            for name in executable_names
+            if name in restatement_symbols
+            or any(
+                _rulespec_name_matches_restatement_stem(name, stem)
+                for stem in restatement_stems
+            )
+        }
+        if remove_names:
+            rules_document["rules"] = [
+                rule
+                for rule in rules
+                if not (
+                    isinstance(rule, dict)
+                    and _is_executable_rulespec_rule(rule)
+                    and str(rule.get("name") or "").strip() in remove_names
+                )
+            ]
+            changed = True
+            repairs.extend(sorted(remove_names))
+            _remove_local_test_outputs_and_empty_cases(
+                test_file,
+                target_base=(
+                    f"{_repo_jurisdiction_prefix(repo_path)}:"
+                    f"{_relative_rulespec_import_target(relative_output)}"
+                ),
+                names=remove_names,
+            )
+            if not any(
+                isinstance(rule, dict) and _is_executable_rulespec_rule(rule)
+                for rule in rules_document.get("rules") or []
+            ):
+                rules_document.pop("imports", None)
+                if test_file.exists():
+                    test_file.write_text("[]\n")
+
+    if not changed:
+        return []
+
+    rules_file.write_text(
+        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
+
+
+def _generated_restatement_symbols_and_stems(
+    rules: list[object],
+) -> tuple[set[str], set[str]]:
+    symbols: set[str] = set()
+    stems: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "restates":
+            continue
+        target = _normalize_source_relation_target_ref(source_relation.get("target"))
+        if target and "#" in target:
+            symbol = target.rsplit("#", 1)[-1]
+            _add_restatement_symbol_and_stems(symbol, symbols=symbols, stems=stems)
+        verification = rule.get("verification")
+        values = verification.get("values") if isinstance(verification, dict) else None
+        if isinstance(values, dict):
+            for value_name in values:
+                _add_restatement_symbol_and_stems(
+                    str(value_name),
+                    symbols=symbols,
+                    stems=stems,
+                )
+    return symbols, stems
+
+
+def _add_restatement_symbol_and_stems(
+    symbol: str,
+    *,
+    symbols: set[str],
+    stems: set[str],
+) -> None:
+    normalized = symbol.strip()
+    if not normalized:
+        return
+    symbols.add(normalized)
+    candidates = {normalized}
+    if normalized.startswith("snap_"):
+        candidates.add(normalized.removeprefix("snap_"))
+    suffixes = (
+        "_48_states_dc_table",
+        "_table",
+        "_amount",
+        "_amounts",
+        "_value",
+        "_values",
+    )
+    for candidate in list(candidates):
+        for suffix in suffixes:
+            if candidate.endswith(suffix):
+                candidates.add(candidate.removesuffix(suffix))
+    stems.update(candidate for candidate in candidates if candidate)
+
+
+def _rulespec_name_matches_restatement_stem(name: str, stem: str) -> bool:
+    if not name or not stem:
+        return False
+    return name == stem or name.startswith(f"{stem}_") or name.endswith(f"_{stem}")
+
+
+def _remove_local_test_outputs_and_empty_cases(
+    test_file: Path,
+    *,
+    target_base: str,
+    names: set[str],
+) -> bool:
+    if not test_file.exists():
+        return False
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(cases, list):
+        return False
+
+    local_outputs = {f"{target_base}#{name}" for name in names}
+    changed = False
+    repaired_cases: list[object] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if isinstance(outputs, dict):
+            for output_ref in list(outputs):
+                if str(output_ref).strip().strip('"').strip("'") in local_outputs:
+                    outputs.pop(output_ref, None)
+                    changed = True
+            if not outputs:
+                changed = True
+                continue
+        repaired_cases.append(case)
+
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+        )
+    return changed
 
 
 def _repair_upstream_placement_duplicate_imports(
