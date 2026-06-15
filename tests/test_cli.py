@@ -15125,6 +15125,57 @@ rules: []
         assert issues == []
         assert supplemental == {}
 
+    def test_apply_overlay_validation_stages_country_monorepo_dependencies(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        monorepo = tmp_path / "rulespec-us"
+        policy_repo = monorepo / "us-tn"
+        federal_file = monorepo / "us/regulations/7-cfr/273/9.yaml"
+        generated = (
+            output_root / "codex-test-model" / "regulations/1240-01/04/27/block-1.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        federal_file.write_text("format: rulespec/v1\nrules: []\n")
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/9
+rules: []
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        staged_federal_files: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                repo_path = Path(kwargs["policy_repo_path"])
+                staged_federal = (
+                    repo_path.parent / "rulespec-us/us/regulations/7-cfr/273/9.yaml"
+                )
+                staged_federal_files.append(staged_federal)
+                assert staged_federal.exists()
+
+            def validate(self, _path, *, skip_reviewers):
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert len(staged_federal_files) == 1
+
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"

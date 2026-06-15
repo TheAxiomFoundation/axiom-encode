@@ -144,6 +144,7 @@ from .repo_routing import (
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     find_policy_repo_root,
+    monorepo_checkout_name,
     resolve_jurisdiction_content_dir,
 )
 
@@ -24940,16 +24941,11 @@ def _validate_generated_encoding_in_policy_overlay(
             overlay_parent=overlay_parent,
             relative_output=relative_output,
         )
-        for sibling in policy_repo_path.parent.glob("rulespec-*"):
-            if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
-                continue
-            if sibling.name == overlay_repo_name:
-                continue
-            sibling_target = overlay_parent / sibling.name
-            try:
-                sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
-            except OSError:
-                shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
+        _stage_apply_overlay_dependency_roots(
+            overlay_parent=overlay_parent,
+            policy_repo_path=policy_repo_path,
+            overlay_repo_name=overlay_repo_name,
+        )
 
         overlay_repo = overlay_parent / overlay_repo_name
         shutil.copytree(policy_repo_path, overlay_repo)
@@ -25233,6 +25229,48 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _stage_apply_overlay_dependency_roots(
+    *,
+    overlay_parent: Path,
+    policy_repo_path: Path,
+    overlay_repo_name: str,
+) -> None:
+    """Stage sibling RuleSpec roots that imported modules may resolve through."""
+    staged_names = {overlay_repo_name}
+    for sibling in policy_repo_path.parent.glob("rulespec-*"):
+        if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
+            continue
+        if sibling.name in staged_names:
+            continue
+        _stage_apply_overlay_dependency_root(
+            source=sibling,
+            target=overlay_parent / sibling.name,
+        )
+        staged_names.add(sibling.name)
+
+    if policy_repo_path.name.startswith("rulespec-"):
+        return
+    monorepo_parent = policy_repo_path.parent
+    if not monorepo_parent.name.startswith("rulespec-") or not monorepo_parent.is_dir():
+        return
+    checkout_name = monorepo_checkout_name(policy_repo_path.name)
+    if checkout_name in staged_names:
+        return
+    _stage_apply_overlay_dependency_root(
+        source=monorepo_parent,
+        target=overlay_parent / checkout_name,
+    )
+
+
+def _stage_apply_overlay_dependency_root(*, source: Path, target: Path) -> None:
+    if target.exists() or target.is_symlink():
+        return
+    try:
+        target.symlink_to(source.resolve(), target_is_directory=True)
+    except OSError:
+        shutil.copytree(source, target, dirs_exist_ok=True)
 
 
 def _write_overlay_eval_source_metadata_for_generated_output(
