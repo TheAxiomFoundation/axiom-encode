@@ -15399,7 +15399,7 @@ def _all_protected_rulespec_yaml_paths(
 
 
 def _all_applied_encoding_manifest_paths(
-    repo_path: Path, *, roots: tuple[str, ...]
+    repo_path: Path, *, roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS))
 ) -> list[str]:
     manifest_roots = [repo_path / APPLIED_ENCODING_MANIFEST_DIR]
     manifest_roots.extend(
@@ -15494,7 +15494,10 @@ def _applied_encoding_manifest_root_prefix(
 
 
 def _load_applied_encoding_manifest_entries(
-    repo_path: Path, manifest_paths: list[str], *, roots: tuple[str, ...]
+    repo_path: Path,
+    manifest_paths: list[str],
+    *,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
