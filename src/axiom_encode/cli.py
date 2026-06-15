@@ -15308,13 +15308,12 @@ def guard_generated_change_issues(
         return []
 
     manifest_paths = (
-        _all_applied_encoding_manifest_paths(repo_path)
+        _all_applied_encoding_manifest_paths(repo_path, roots=roots)
         if all_files
         else [
             path
             for path in changed
-            if Path(path).parts[:2] == APPLIED_ENCODING_MANIFEST_DIR.parts
-            and path.endswith(".json")
+            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
         ]
     )
     if not manifest_paths:
@@ -15339,7 +15338,7 @@ def guard_generated_change_issues(
         path for path in manifest_paths if not (repo_path / path).exists()
     ]
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, surviving_manifest_paths
+        repo_path, surviving_manifest_paths, roots=roots
     )
     if manifest_issues:
         return manifest_issues
@@ -15399,15 +15398,23 @@ def _all_protected_rulespec_yaml_paths(
     return sorted(paths)
 
 
-def _all_applied_encoding_manifest_paths(repo_path: Path) -> list[str]:
-    manifest_root = repo_path / APPLIED_ENCODING_MANIFEST_DIR
-    if not manifest_root.exists():
-        return []
-    return sorted(
-        path.relative_to(repo_path).as_posix()
-        for path in manifest_root.rglob("*.json")
-        if path.is_file()
+def _all_applied_encoding_manifest_paths(
+    repo_path: Path, *, roots: tuple[str, ...]
+) -> list[str]:
+    manifest_roots = [repo_path / APPLIED_ENCODING_MANIFEST_DIR]
+    manifest_roots.extend(
+        repo_path / root / APPLIED_ENCODING_MANIFEST_DIR for root in roots
     )
+    paths: set[str] = set()
+    for manifest_root in manifest_roots:
+        if not manifest_root.exists():
+            continue
+        paths.update(
+            path.relative_to(repo_path).as_posix()
+            for path in manifest_root.rglob("*.json")
+            if path.is_file()
+        )
+    return sorted(paths)
 
 
 def _git_changed_files(
@@ -15464,8 +15471,30 @@ def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> b
     return path.suffix in {".yaml", ".yml"}
 
 
+def _is_applied_encoding_manifest_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+    if path.suffix != ".json":
+        return False
+    return _applied_encoding_manifest_root_prefix(path, roots=roots) is not None
+
+
+def _applied_encoding_manifest_root_prefix(
+    path: Path, *, roots: tuple[str, ...]
+) -> str | None:
+    parts = path.parts
+    manifest_parts = APPLIED_ENCODING_MANIFEST_DIR.parts
+    if parts[: len(manifest_parts)] == manifest_parts:
+        return ""
+    if (
+        len(parts) > len(manifest_parts)
+        and parts[0] in roots
+        and parts[1 : 1 + len(manifest_parts)] == manifest_parts
+    ):
+        return parts[0]
+    return None
+
+
 def _load_applied_encoding_manifest_entries(
-    repo_path: Path, manifest_paths: list[str]
+    repo_path: Path, manifest_paths: list[str], *, roots: tuple[str, ...]
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -15480,6 +15509,11 @@ def _load_applied_encoding_manifest_entries(
 
     for manifest_path in manifest_paths:
         manifest_label = Path(manifest_path).as_posix()
+        root_prefix = _applied_encoding_manifest_root_prefix(
+            Path(manifest_path), roots=roots
+        )
+        if root_prefix is None:
+            continue
         path = repo_path / manifest_path
         if not path.exists():
             issues.append(f"{manifest_label} does not exist in the working tree")
@@ -15508,10 +15542,20 @@ def _load_applied_encoding_manifest_entries(
             file_path = item.get("path")
             file_hash = item.get("sha256")
             if isinstance(file_path, str) and item.get("deleted") is True:
-                entries[file_path].add(APPLIED_ENCODING_DELETED_MARKER)
+                entries[_prefix_applied_manifest_path(file_path, root_prefix)].add(
+                    APPLIED_ENCODING_DELETED_MARKER
+                )
             elif isinstance(file_path, str) and isinstance(file_hash, str):
-                entries[file_path].add(file_hash)
+                entries[_prefix_applied_manifest_path(file_path, root_prefix)].add(
+                    file_hash
+                )
     return dict(entries), issues
+
+
+def _prefix_applied_manifest_path(file_path: str, root_prefix: str) -> str:
+    if not root_prefix:
+        return file_path
+    return Path(root_prefix, file_path).as_posix()
 
 
 def _applied_encoding_manifest_signing_key() -> str | None:

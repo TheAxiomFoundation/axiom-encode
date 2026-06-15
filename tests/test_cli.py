@@ -13763,6 +13763,49 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_monorepo_rulespec_change_with_nested_encoder_manifest(
+        self, tmp_path
+    ):
+        rule = tmp_path / "us-ca/policies/example.yaml"
+        test = tmp_path / "us-ca/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("us-ca",),
+                changed_files=[
+                    "us-ca/policies/example.yaml",
+                    "us-ca/policies/example.test.yaml",
+                    "us-ca/.axiom/encoding-manifests/policies/example.json",
+                ],
+            )
+
+        assert issues == []
+
     def test_accepts_protected_deletion_listed_in_changed_manifest(self, tmp_path):
         manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
@@ -13936,6 +13979,45 @@ class TestGuardGenerated:
             issues = guard_generated_change_issues(
                 tmp_path,
                 roots=("regulations",),
+                all_files=True,
+            )
+
+        assert issues == []
+
+    def test_accepts_monorepo_existing_rulespec_with_nested_manifest_in_all_mode(
+        self, tmp_path
+    ):
+        rule = tmp_path / "us-ca/policies/example.yaml"
+        test = tmp_path / "us-ca/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("us-ca",),
                 all_files=True,
             )
 
