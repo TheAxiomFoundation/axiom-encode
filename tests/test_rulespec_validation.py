@@ -39,6 +39,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_current_year_final_amount_table_issues,
     find_deferred_output_issues,
     find_deferred_purpose_specific_limitation_issues,
+    find_delegated_policy_setting_issues,
     find_deprecated_source_url_issues,
     find_employer_scoped_entity_issues,
     find_empty_rules_module_issues,
@@ -75,6 +76,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
+    find_source_relation_issues,
     find_source_scope_consistency_issues,
     find_source_subparagraph_coverage_issues,
     find_source_table_row_scalar_parameter_issues,
@@ -19920,6 +19922,223 @@ rules:
 
     assert result.passed is False
     assert any("Source relation target required" in issue for issue in result.issues)
+
+
+def test_source_relation_sets_requires_value_and_delegation_basis():
+    content = """format: rulespec/v1
+rules:
+  - name: standard_utility_allowance_setting
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      authority: state
+"""
+
+    issues = find_source_relation_issues(content)
+
+    assert any("Source relation setting value required" in issue for issue in issues)
+    assert any("Source relation delegation basis required" in issue for issue in issues)
+
+
+def test_source_relation_sets_accepts_canonical_metadata():
+    content = """format: rulespec/v1
+rules:
+  - name: standard_utility_allowance_setting
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      authority: state
+      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+"""
+
+    assert find_source_relation_issues(content) == []
+
+
+def test_delegated_policy_setting_requires_snap_utility_sets_relation(tmp_path):
+    rules_file = (
+        tmp_path
+        / "rulespec-us"
+        / "us-co"
+        / "regulations"
+        / "10-ccr-2506-1"
+        / "4.407.31.yaml"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Colorado SNAP rules set the standard utility allowance.
+rules:
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '626'
+"""
+
+    issues = find_delegated_policy_setting_issues(content, rules_file=rules_file)
+
+    assert len(issues) == 1
+    assert "Delegated policy setting missing source_relation" in issues[0]
+    assert "source_relation.type: sets" in issues[0]
+    assert (
+        "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        in issues[0]
+    )
+
+
+def test_delegated_policy_setting_rejects_wrong_snap_utility_sets_target(tmp_path):
+    rules_file = (
+        tmp_path
+        / "rulespec-us"
+        / "us-tn"
+        / "regulations"
+        / "1240-01"
+        / "04"
+        / "27"
+        / "block-1.yaml"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Tennessee SNAP rules set the standard utility allowance.
+rules:
+  - name: sets_existing_standard
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+      value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '626'
+"""
+
+    issues = find_delegated_policy_setting_issues(content, rules_file=rules_file)
+
+    assert len(issues) == 1
+    assert "Delegated policy setting wrong source_relation target" in issues[0]
+    assert "snap_utility_allowance_for_shelter_costs" in issues[0]
+    assert (
+        "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        in issues[0]
+    )
+
+
+def test_rulespec_ci_rejects_delegated_policy_setting_without_sets_relation(tmp_path):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    repo_root = tmp_path / "rulespec-us"
+    rules_file = repo_root / "us-co" / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Colorado SNAP rules set the standard utility allowance.
+rules:
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '626'
+"""
+    )
+    rules_file.with_name("4.407.31.test.yaml").write_text(
+        """- name: standard_utility_allowance
+  period: 2025-10
+  input: {}
+  output:
+    snap_standard_utility_allowance: 626
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo_root,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
+    assert any(
+        "Delegated policy setting missing source_relation" in issue
+        and "snap_standard_utility_allowance_state_option" in issue
+        for issue in result.issues
+    )
+
+
+def test_delegated_policy_setting_accepts_snap_utility_sets_relation(tmp_path):
+    rules_file = (
+        tmp_path
+        / "rulespec-us"
+        / "us-co"
+        / "regulations"
+        / "10-ccr-2506-1"
+        / "4.407.31.yaml"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Colorado SNAP rules set the standard utility allowance.
+rules:
+  - name: sets_snap_standard_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      authority: state
+      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '626'
+"""
+
+    assert find_delegated_policy_setting_issues(content, rules_file=rules_file) == []
+
+
+def test_delegated_policy_setting_ignores_snap_utility_eligibility(tmp_path):
+    rules_file = (
+        tmp_path / "rulespec-us" / "us-az" / "policies" / "des" / "faa5" / "snap.yaml"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Arizona SNAP rules define utility allowance eligibility.
+rules:
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_has_heating_or_cooling_expense
+"""
+
+    assert find_delegated_policy_setting_issues(content, rules_file=rules_file) == []
 
 
 def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):

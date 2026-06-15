@@ -72,6 +72,7 @@ from .harness.evals import (
 )
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
+    _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
     ValidatorPipeline,
@@ -82,8 +83,12 @@ from .harness.validator_pipeline import (
     _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
     _load_nearby_eval_source_metadata,
+    _matching_delegated_setting_rule_names,
+    _parse_rulespec_target,
+    _resolve_rulespec_target_file,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
     _rulespec_rule_formula_rule_records,
@@ -139,6 +144,7 @@ from .repo_routing import (
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     find_policy_repo_root,
+    monorepo_checkout_name,
     resolve_jurisdiction_content_dir,
 )
 
@@ -13867,6 +13873,7 @@ def _append_generated_derived_output_tests_if_missing(
         f"{target_base}#input.{input_name}": _default_generated_test_input_value(
             input_name,
             rules_payload=rules_payload,
+            prefer_positive_counts=True,
         )
         for input_name in sorted(factual_inputs)
     }
@@ -15301,13 +15308,12 @@ def guard_generated_change_issues(
         return []
 
     manifest_paths = (
-        _all_applied_encoding_manifest_paths(repo_path)
+        _all_applied_encoding_manifest_paths(repo_path, roots=roots)
         if all_files
         else [
             path
             for path in changed
-            if Path(path).parts[:2] == APPLIED_ENCODING_MANIFEST_DIR.parts
-            and path.endswith(".json")
+            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
         ]
     )
     if not manifest_paths:
@@ -15332,7 +15338,7 @@ def guard_generated_change_issues(
         path for path in manifest_paths if not (repo_path / path).exists()
     ]
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, surviving_manifest_paths
+        repo_path, surviving_manifest_paths, roots=roots
     )
     if manifest_issues:
         return manifest_issues
@@ -15392,15 +15398,23 @@ def _all_protected_rulespec_yaml_paths(
     return sorted(paths)
 
 
-def _all_applied_encoding_manifest_paths(repo_path: Path) -> list[str]:
-    manifest_root = repo_path / APPLIED_ENCODING_MANIFEST_DIR
-    if not manifest_root.exists():
-        return []
-    return sorted(
-        path.relative_to(repo_path).as_posix()
-        for path in manifest_root.rglob("*.json")
-        if path.is_file()
+def _all_applied_encoding_manifest_paths(
+    repo_path: Path, *, roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS))
+) -> list[str]:
+    manifest_roots = [repo_path / APPLIED_ENCODING_MANIFEST_DIR]
+    manifest_roots.extend(
+        repo_path / root / APPLIED_ENCODING_MANIFEST_DIR for root in roots
     )
+    paths: set[str] = set()
+    for manifest_root in manifest_roots:
+        if not manifest_root.exists():
+            continue
+        paths.update(
+            path.relative_to(repo_path).as_posix()
+            for path in manifest_root.rglob("*.json")
+            if path.is_file()
+        )
+    return sorted(paths)
 
 
 def _git_changed_files(
@@ -15457,8 +15471,33 @@ def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> b
     return path.suffix in {".yaml", ".yml"}
 
 
+def _is_applied_encoding_manifest_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+    if path.suffix != ".json":
+        return False
+    return _applied_encoding_manifest_root_prefix(path, roots=roots) is not None
+
+
+def _applied_encoding_manifest_root_prefix(
+    path: Path, *, roots: tuple[str, ...]
+) -> str | None:
+    parts = path.parts
+    manifest_parts = APPLIED_ENCODING_MANIFEST_DIR.parts
+    if parts[: len(manifest_parts)] == manifest_parts:
+        return ""
+    if (
+        len(parts) > len(manifest_parts)
+        and parts[0] in roots
+        and parts[1 : 1 + len(manifest_parts)] == manifest_parts
+    ):
+        return parts[0]
+    return None
+
+
 def _load_applied_encoding_manifest_entries(
-    repo_path: Path, manifest_paths: list[str]
+    repo_path: Path,
+    manifest_paths: list[str],
+    *,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -15473,6 +15512,11 @@ def _load_applied_encoding_manifest_entries(
 
     for manifest_path in manifest_paths:
         manifest_label = Path(manifest_path).as_posix()
+        root_prefix = _applied_encoding_manifest_root_prefix(
+            Path(manifest_path), roots=roots
+        )
+        if root_prefix is None:
+            continue
         path = repo_path / manifest_path
         if not path.exists():
             issues.append(f"{manifest_label} does not exist in the working tree")
@@ -15501,10 +15545,20 @@ def _load_applied_encoding_manifest_entries(
             file_path = item.get("path")
             file_hash = item.get("sha256")
             if isinstance(file_path, str) and item.get("deleted") is True:
-                entries[file_path].add(APPLIED_ENCODING_DELETED_MARKER)
+                entries[_prefix_applied_manifest_path(file_path, root_prefix)].add(
+                    APPLIED_ENCODING_DELETED_MARKER
+                )
             elif isinstance(file_path, str) and isinstance(file_hash, str):
-                entries[file_path].add(file_hash)
+                entries[_prefix_applied_manifest_path(file_path, root_prefix)].add(
+                    file_hash
+                )
     return dict(entries), issues
+
+
+def _prefix_applied_manifest_path(file_path: str, root_prefix: str) -> str:
+    if not root_prefix:
+        return file_path
+    return Path(root_prefix, file_path).as_posix()
 
 
 def _applied_encoding_manifest_signing_key() -> str | None:
@@ -16005,6 +16059,35 @@ def cmd_encode(args):
                 )
             )
             outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_delegated_settings = (
+                    _try_repair_generated_delegated_policy_settings_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_delegated_settings:
+                    outcome["auto_repaired_delegated_policy_settings"] = (
+                        repaired_delegated_settings
+                    )
+                    print(
+                        "  apply=auto_repaired_delegated_policy_settings:"
+                        + ",".join(repaired_delegated_settings)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
                 repaired_source_relations = (
                     _try_repair_generated_source_relation_delegations_for_apply(
@@ -16524,6 +16607,35 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_input_field_access:"
                         + ",".join(repaired_input_field_accesses)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_embedded_scalar_literals = (
+                    _try_repair_generated_embedded_scalar_literals_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_embedded_scalar_literals:
+                    outcome["auto_repaired_embedded_scalar_literals"] = (
+                        repaired_embedded_scalar_literals
+                    )
+                    print(
+                        "  apply=auto_repaired_embedded_scalar_literals:"
+                        + ",".join(repaired_embedded_scalar_literals)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -17577,6 +17689,931 @@ def _try_repair_generated_boolean_parameter_inputs_for_apply(
         rules_file,
         names=missing_inputs,
     )
+
+
+def _try_repair_generated_embedded_scalar_literals_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Extract CI-reported formula scalar literals into named parameters."""
+    records = _embedded_scalar_literal_issue_records(issues)
+    if not records:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_names = {
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
+    }
+    repaired: list[str] = []
+    for record in records:
+        changed = _extract_embedded_scalar_literal_record(
+            rules,
+            record,
+            target_anchor=target_anchor,
+            existing_names=existing_names,
+        )
+        if changed:
+            repaired.append(changed)
+            existing_names.add(changed)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _embedded_scalar_literal_issue_records(
+    issues: list[str],
+) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"Embedded scalar literal:\s+"
+        r"(?P<rule>[A-Za-z_][A-Za-z0-9_]*)\s+line\s+\d+\s+"
+        r"embeds\s+(?P<literal>-?\d+(?:\.\d+)?)\s+in\s+`(?P<expression>[^`]+)`"
+    )
+    for issue in issues:
+        match = pattern.search(issue)
+        if match is None:
+            continue
+        records.append(match.groupdict())
+    return records
+
+
+def _extract_embedded_scalar_literal_record(
+    rules: list[Any],
+    record: dict[str, str],
+    *,
+    target_anchor: str,
+    existing_names: set[str],
+) -> str | None:
+    rule_name = record["rule"]
+    literal = record["literal"]
+    expression = record["expression"]
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != rule_name:
+            continue
+        parameter_name = _embedded_scalar_parameter_name(rule_name, expression)
+        if not parameter_name:
+            return None
+        existing_parameter_name = _existing_embedded_scalar_parameter_name(
+            rules,
+            base_name=parameter_name,
+            literal=literal,
+        )
+        insert_parameter = existing_parameter_name is None
+        if existing_parameter_name is not None:
+            parameter_name = existing_parameter_name
+        else:
+            parameter_name = _unique_generated_rule_name(
+                parameter_name,
+                existing_names,
+            )
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            return None
+        changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            replacement = _replace_embedded_scalar_literal(
+                formula,
+                literal=literal,
+                expression=expression,
+                parameter_name=parameter_name,
+            )
+            if replacement != formula:
+                version["formula"] = replacement
+                changed = True
+        if not changed:
+            return None
+        _add_formula_proof_import(
+            rule,
+            target=f"{target_anchor}#{parameter_name}",
+            output=parameter_name,
+        )
+        if insert_parameter:
+            parameter_rule = _embedded_scalar_parameter_rule(
+                rule,
+                name=parameter_name,
+                literal=literal,
+            )
+            rules.insert(index, parameter_rule)
+        return parameter_name
+    return None
+
+
+def _embedded_scalar_parameter_name(rule_name: str, expression: str) -> str | None:
+    if re.search(r"\bmin\s*\(", expression) and rule_name.endswith("_size_category"):
+        return f"{rule_name.removesuffix('_size_category')}_max_household_size"
+    if re.search(r"\bmax\s*\(", expression):
+        return f"{rule_name}_floor"
+    return f"{rule_name}_scalar_limit"
+
+
+def _existing_embedded_scalar_parameter_name(
+    rules: list[Any],
+    *,
+    base_name: str,
+    literal: str,
+) -> str | None:
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != base_name:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            return None
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            return None
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if str(formula).strip() == literal:
+                return base_name
+    return None
+
+
+def _replace_embedded_scalar_literal(
+    formula: str,
+    *,
+    literal: str,
+    expression: str,
+    parameter_name: str,
+) -> str:
+    expression_replacement = re.sub(
+        rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
+        parameter_name,
+        expression,
+    )
+    if expression_replacement != expression and expression in formula:
+        formula = formula.replace(expression, expression_replacement, 1)
+    return re.sub(
+        rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
+        parameter_name,
+        formula,
+    )
+
+
+def _embedded_scalar_parameter_rule(
+    source_rule: dict[str, Any],
+    *,
+    name: str,
+    literal: str,
+) -> dict[str, Any]:
+    first_effective_from = "0001-01-01"
+    versions = source_rule.get("versions")
+    if isinstance(versions, list):
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            effective_from = version.get("effective_from")
+            if isinstance(effective_from, str) and effective_from.strip():
+                first_effective_from = effective_from.strip()
+                break
+    parameter_rule: dict[str, Any] = {
+        "name": name,
+        "kind": "parameter",
+        "dtype": "Count",
+        "source": source_rule.get("source"),
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    _source_atom_for_embedded_scalar_parameter(
+                        source_rule,
+                        literal=literal,
+                    )
+                ]
+            }
+        },
+        "versions": [
+            {
+                "effective_from": first_effective_from,
+                "formula": literal,
+            }
+        ],
+    }
+    if not parameter_rule["source"]:
+        parameter_rule.pop("source", None)
+    return parameter_rule
+
+
+def _source_atom_for_embedded_scalar_parameter(
+    source_rule: dict[str, Any],
+    *,
+    literal: str,
+) -> dict[str, Any]:
+    proof = source_rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str) and literal in excerpt:
+                return {
+                    "path": "versions[0].formula",
+                    "kind": "parameter",
+                    "source": dict(source),
+                }
+    return {
+        "path": "versions[0].formula",
+        "kind": "parameter",
+    }
+
+
+def _add_formula_proof_import(
+    rule: dict[str, Any],
+    *,
+    target: str,
+    output: str,
+) -> None:
+    metadata = rule.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+        rule["metadata"] = metadata
+    proof = metadata.setdefault("proof", {})
+    if not isinstance(proof, dict):
+        proof = {}
+        metadata["proof"] = proof
+    atoms = proof.setdefault("atoms", [])
+    if not isinstance(atoms, list):
+        atoms = []
+        proof["atoms"] = atoms
+    if any(
+        isinstance(atom, dict)
+        and isinstance(atom.get("import"), dict)
+        and atom["import"].get("target") == target
+        for atom in atoms
+    ):
+        return
+    atoms.append(
+        {
+            "path": "versions[0].formula",
+            "kind": "import",
+            "import": {
+                "target": target,
+                "output": output,
+                "hash": "sha256:local",
+            },
+        }
+    )
+
+
+def _try_repair_generated_delegated_policy_settings_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Insert canonical state `sets` edges for generated delegated settings."""
+    if not any(_issue_mentions_delegated_policy_setting(issue) for issue in issues):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_names = {
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
+    }
+    source_relation_additions: list[dict[str, Any]] = []
+    wrapper_additions: list[dict[str, Any]] = []
+    repaired: list[str] = []
+    retargeted_wrappers, retargeted_relations = (
+        _repair_delegated_setting_relation_targets(
+            rules,
+            current_payload=payload,
+            current_rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            target_anchor=target_anchor,
+            existing_names=existing_names,
+        )
+    )
+    if retargeted_wrappers:
+        wrapper_additions.extend(retargeted_wrappers)
+        for wrapper_rule in retargeted_wrappers:
+            wrapper_name = str(wrapper_rule.get("name") or "").strip()
+            if wrapper_name:
+                existing_names.add(wrapper_name)
+    repaired.extend(retargeted_relations)
+    for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
+        target_rule = _rulespec_rule_for_absolute_ref(
+            setting_target.target,
+            current_payload=payload,
+            current_rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        target_kind = _rulespec_rule_kind(target_rule)
+        existing_relation = _generated_source_relation_for_target(
+            rules,
+            setting_target.target,
+        )
+        if existing_relation is not None:
+            existing_repair = _repair_delegated_setting_relation_value_kind(
+                existing_relation,
+                rules,
+                current_payload=payload,
+                current_rules_file=rules_file,
+                policy_repo_path=policy_repo_path,
+                target_anchor=target_anchor,
+                target_rule=target_rule,
+                target_kind=target_kind,
+                existing_names=existing_names,
+            )
+            if existing_repair is not None:
+                wrapper_additions.append(existing_repair)
+                wrapper_name = str(existing_repair.get("name") or "").strip()
+                if wrapper_name:
+                    existing_names.add(wrapper_name)
+                    repaired.append(wrapper_name)
+            if _ensure_rulespec_payload_import(payload, setting_target.target):
+                repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
+            continue
+        local_rule_names = _matching_delegated_setting_rule_names(
+            rules,
+            setting_target.rule_name_patterns,
+        )
+        if not local_rule_names:
+            continue
+        value_rule = _preferred_delegated_setting_value_rule(rules, local_rule_names)
+        if value_rule is None:
+            continue
+        value_name = str(value_rule.get("name") or "").strip()
+        if not value_name:
+            continue
+        target_symbol = setting_target.target.rsplit("#", 1)[-1]
+        relation_stem = target_symbol.removesuffix("_state_option")
+        if target_kind == "derived" and _rulespec_rule_kind(value_rule) == "parameter":
+            wrapper_rule = _delegated_setting_derived_value_wrapper(
+                rules,
+                value_rule=value_rule,
+                target_rule=target_rule,
+                target_anchor=target_anchor,
+                relation_stem=relation_stem,
+                existing_names=existing_names,
+            )
+            if wrapper_rule is not None:
+                value_rule = wrapper_rule
+                value_name = str(wrapper_rule.get("name") or "").strip()
+                existing_names.add(value_name)
+                wrapper_additions.append(wrapper_rule)
+        relation_name = _unique_generated_rule_name(
+            f"sets_{relation_stem}",
+            existing_names,
+        )
+        existing_names.add(relation_name)
+        source_relation_rule: dict[str, Any] = {
+            "name": relation_name,
+            "kind": "source_relation",
+            "source_relation": {
+                "type": "sets",
+                "target": setting_target.target,
+                "authority": "state",
+                "value": f"{target_anchor}#{value_name}",
+                "basis": {
+                    "delegation": "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation",
+                },
+            },
+        }
+        source = value_rule.get("source")
+        if isinstance(source, str) and source.strip():
+            source_relation_rule["source"] = source.strip()
+        source_relation_additions.append(source_relation_rule)
+        repaired.append(relation_name)
+        if _ensure_rulespec_payload_import(payload, setting_target.target):
+            repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
+
+    if not source_relation_additions and not wrapper_additions and not repaired:
+        return []
+
+    insert_at = 0
+    while insert_at < len(rules):
+        rule = rules[insert_at]
+        if not isinstance(rule, dict):
+            break
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            break
+        insert_at += 1
+    payload["rules"] = [
+        *rules[:insert_at],
+        *source_relation_additions,
+        *wrapper_additions,
+        *rules[insert_at:],
+    ]
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
+    if "Delegated policy setting missing source_relation" in issue:
+        return True
+    if "Delegated policy setting wrong source_relation target" in issue:
+        return True
+    if (
+        "RuleSpec source relation" in issue
+        and "sets target" in issue
+        and "#snap_utility_allowance_for_shelter_costs" in issue
+    ):
+        return True
+    if "RuleSpec source relation" not in issue:
+        return False
+    return (
+        any(
+            setting_target.target in issue
+            for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+        )
+        or "us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs"
+        in issue
+    )
+
+
+def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
+    import_target = target.split("#", 1)[0].strip()
+    if not import_target:
+        return False
+    imports = payload.get("imports")
+    if imports is None:
+        payload["imports"] = [import_target]
+        return True
+    if not isinstance(imports, list):
+        return False
+    normalized_imports = {
+        str(item).split("#", 1)[0].strip() for item in imports if isinstance(item, str)
+    }
+    if import_target in normalized_imports:
+        return False
+    imports.append(import_target)
+    return True
+
+
+def _rulespec_rule_kind(rule: dict[str, Any] | None) -> str:
+    if not isinstance(rule, dict):
+        return ""
+    return str(rule.get("kind") or "").strip().lower()
+
+
+def _rulespec_rule_for_absolute_ref(
+    reference: str,
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+) -> dict[str, Any] | None:
+    target_ref = _parse_rulespec_target(reference)
+    if target_ref is None or target_ref.symbol is None:
+        return None
+    target_payload: dict[str, Any] | None = None
+    if _rulespec_generated_file_matches_target_ref(current_rules_file, target_ref):
+        target_payload = current_payload
+    else:
+        target_file = _resolve_rulespec_target_file(target_ref, policy_repo_path)
+        if target_file is not None and target_file.exists():
+            target_payload = _rulespec_payload_from_file(target_file)
+    if target_payload is None:
+        return None
+    rules = target_payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() == target_ref.symbol:
+            return rule
+    return None
+
+
+def _rulespec_generated_file_matches_target_ref(
+    rules_file: Path,
+    target_ref: Any,
+) -> bool:
+    target_parts = target_ref.relative_path.parts
+    path_parts = Path(rules_file).resolve().parts
+    return (
+        len(path_parts) >= len(target_parts)
+        and path_parts[-len(target_parts) :] == target_parts
+    )
+
+
+def _delegated_setting_derived_value_wrapper(
+    rules: list[Any],
+    *,
+    value_rule: dict[str, Any],
+    target_rule: dict[str, Any] | None,
+    target_anchor: str,
+    relation_stem: str,
+    existing_names: set[str],
+) -> dict[str, Any] | None:
+    value_name = str(value_rule.get("name") or "").strip()
+    if not value_name:
+        return None
+    wrapper_name = _unique_generated_rule_name(
+        f"{relation_stem}_state_value",
+        existing_names,
+    )
+    effective_dates = _rulespec_rule_effective_dates(value_rule)
+    if not effective_dates:
+        return None
+    eligible_rule = _delegated_setting_eligibility_rule(rules, value_name)
+    eligible_name = (
+        str(eligible_rule.get("name") or "").strip()
+        if isinstance(eligible_rule, dict)
+        else ""
+    )
+    formula = value_name
+    if eligible_name:
+        formula = f"if {eligible_name}: {value_name} else: 0"
+
+    wrapper_rule: dict[str, Any] = {
+        "name": wrapper_name,
+        "kind": "derived",
+        "versions": [
+            {
+                "effective_from": effective_from,
+                "formula": formula,
+            }
+            for effective_from in effective_dates
+        ],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": f"{target_anchor}#{value_name}",
+                            "output": value_name,
+                            "hash": "sha256:local",
+                        },
+                    }
+                ]
+            }
+        },
+    }
+    for field in ("entity", "dtype", "period", "unit"):
+        value = (
+            target_rule.get(field)
+            if isinstance(target_rule, dict) and target_rule.get(field) is not None
+            else value_rule.get(field)
+        )
+        if value is not None:
+            wrapper_rule[field] = value
+    source = value_rule.get("source")
+    if isinstance(source, str) and source.strip():
+        wrapper_rule["source"] = source.strip()
+    if eligible_name:
+        wrapper_rule["metadata"]["proof"]["atoms"].append(
+            {
+                "path": "versions[0].formula",
+                "kind": "import",
+                "import": {
+                    "target": f"{target_anchor}#{eligible_name}",
+                    "output": eligible_name,
+                    "hash": "sha256:local",
+                },
+            }
+        )
+    return wrapper_rule
+
+
+def _rulespec_rule_effective_dates(rule: dict[str, Any]) -> list[str]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    dates: list[str] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        effective_from = version.get("effective_from")
+        if isinstance(effective_from, str) and effective_from.strip():
+            dates.append(effective_from.strip())
+    return dates
+
+
+def _delegated_setting_eligibility_rule(
+    rules: list[Any],
+    value_name: str,
+) -> dict[str, Any] | None:
+    candidate_names = [f"{value_name}_eligible", f"{value_name}_applies"]
+    for suffix in ("_amount", "_for_unit_size", "_standard"):
+        if value_name.endswith(suffix):
+            candidate_names.append(f"{value_name.removesuffix(suffix)}_eligible")
+            candidate_names.append(f"{value_name.removesuffix(suffix)}_applies")
+    if "basic_utility_allowance" in value_name:
+        candidate_names.append("snap_basic_utility_allowance_eligible")
+        candidate_names.append("snap_basic_utility_allowance_applies")
+    if "telephone" in value_name:
+        candidate_names.append("snap_telephone_allowance_eligible")
+        candidate_names.append("snap_telephone_allowance_applies")
+
+    seen: set[str] = set()
+    for candidate_name in candidate_names:
+        if candidate_name in seen:
+            continue
+        seen.add(candidate_name)
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            if str(rule.get("name") or "").strip() != candidate_name:
+                continue
+            if _rulespec_rule_kind(rule) == "derived":
+                return rule
+    return None
+
+
+def _generated_rules_include_source_relation_target(
+    rules: list[Any],
+    target: str,
+) -> bool:
+    return _generated_source_relation_for_target(rules, target) is not None
+
+
+def _generated_source_relation_for_target(
+    rules: list[Any],
+    target: str,
+) -> dict[str, Any] | None:
+    normalized_target = _normalize_source_relation_target_ref(target)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        if (
+            _normalize_source_relation_target_ref(source_relation.get("target"))
+            == normalized_target
+        ):
+            return rule
+    return None
+
+
+def _repair_delegated_setting_relation_targets(
+    rules: list[Any],
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+    target_anchor: str,
+    existing_names: set[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Retarget generated SNAP utility `sets` relations to canonical hooks."""
+    canonical_targets = {
+        _normalize_source_relation_target_ref(setting_target.target)
+        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+    }
+    wrapper_additions: list[dict[str, Any]] = []
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        target_ref = _normalize_source_relation_target_ref(
+            source_relation.get("target")
+        )
+        if not target_ref or target_ref in canonical_targets:
+            continue
+        value_ref = str(source_relation.get("value") or "").strip()
+        if not value_ref:
+            continue
+        value_rule = _rulespec_rule_for_absolute_ref(
+            value_ref,
+            current_payload=current_payload,
+            current_rules_file=current_rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if value_rule is None:
+            continue
+        value_name = str(value_rule.get("name") or "").strip()
+        setting_target = _delegated_setting_target_for_value_name(value_name)
+        if setting_target is None:
+            continue
+        target_rule = _rulespec_rule_for_absolute_ref(
+            setting_target.target,
+            current_payload=current_payload,
+            current_rules_file=current_rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        target_kind = _rulespec_rule_kind(target_rule)
+        target_symbol = setting_target.target.rsplit("#", 1)[-1]
+        relation_stem = target_symbol.removesuffix("_state_option")
+        if target_kind == "derived" and _rulespec_rule_kind(value_rule) == "parameter":
+            wrapper_rule = _delegated_setting_derived_value_wrapper(
+                rules,
+                value_rule=value_rule,
+                target_rule=target_rule,
+                target_anchor=target_anchor,
+                relation_stem=relation_stem,
+                existing_names=existing_names,
+            )
+            if wrapper_rule is not None:
+                wrapper_name = str(wrapper_rule.get("name") or "").strip()
+                if wrapper_name:
+                    existing_names.add(wrapper_name)
+                    source_relation["value"] = f"{target_anchor}#{wrapper_name}"
+                    wrapper_additions.append(wrapper_rule)
+                    repaired.append(wrapper_name)
+        source_relation["target"] = setting_target.target
+        source_relation["authority"] = "state"
+        basis = source_relation.get("basis")
+        if not isinstance(basis, dict):
+            basis = {}
+            source_relation["basis"] = basis
+        basis["delegation"] = (
+            "us:regulations/7-cfr/273/9#"
+            "snap_state_standard_utility_allowance_delegation"
+        )
+        relation_name = str(rule.get("name") or f"sets_{relation_stem}").strip()
+        if relation_name:
+            repaired.append(relation_name)
+        if _ensure_rulespec_payload_import(current_payload, setting_target.target):
+            repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
+    return wrapper_additions, repaired
+
+
+def _delegated_setting_target_for_value_name(
+    value_name: str,
+) -> Any | None:
+    if not value_name:
+        return None
+    probe_rule = {"name": value_name, "kind": "derived", "dtype": "Money"}
+    for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
+        if _matching_delegated_setting_rule_names(
+            [probe_rule],
+            setting_target.rule_name_patterns,
+        ):
+            return setting_target
+    return None
+
+
+def _repair_delegated_setting_relation_value_kind(
+    relation_rule: dict[str, Any],
+    rules: list[Any],
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+    target_anchor: str,
+    target_rule: dict[str, Any] | None,
+    target_kind: str,
+    existing_names: set[str],
+) -> dict[str, Any] | None:
+    source_relation = relation_rule.get("source_relation")
+    if not isinstance(source_relation, dict):
+        return None
+    value_ref = str(source_relation.get("value") or "").strip()
+    if not value_ref:
+        return None
+    value_rule = _rulespec_rule_for_absolute_ref(
+        value_ref,
+        current_payload=current_payload,
+        current_rules_file=current_rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if value_rule is None:
+        return None
+    if target_kind != "derived" or _rulespec_rule_kind(value_rule) != "parameter":
+        return None
+    target_ref = str(source_relation.get("target") or "").strip()
+    if "#" not in target_ref:
+        return None
+    relation_stem = target_ref.rsplit("#", 1)[-1].removesuffix("_state_option")
+    wrapper_rule = _delegated_setting_derived_value_wrapper(
+        rules,
+        value_rule=value_rule,
+        target_rule=target_rule,
+        target_anchor=target_anchor,
+        relation_stem=relation_stem,
+        existing_names=existing_names,
+    )
+    if wrapper_rule is None:
+        return None
+    wrapper_name = str(wrapper_rule.get("name") or "").strip()
+    if not wrapper_name:
+        return None
+    source_relation["value"] = f"{target_anchor}#{wrapper_name}"
+    return wrapper_rule
+
+
+def _preferred_delegated_setting_value_rule(
+    rules: list[Any],
+    local_rule_names: list[str],
+) -> dict[str, Any] | None:
+    local_names = set(local_rule_names)
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name not in local_names or not _is_executable_rulespec_rule(rule):
+            continue
+        score = _delegated_setting_value_rule_score(rule)
+        candidates.append((score, -index, rule))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+_PREFERRED_DELEGATED_SETTING_VALUE_NAMES = {
+    "snap_standard_utility_allowance",
+    "heating_cooling_standard_utility_allowance",
+    "snap_limited_utility_allowance",
+    "non_heating_non_cooling_basic_utility_allowance",
+    "snap_basic_utility_allowance",
+    "snap_individual_utility_allowance",
+    "telephone_utility_allowance",
+    "snap_one_utility_allowance",
+}
+
+
+def _delegated_setting_value_rule_score(rule: dict[str, Any]) -> int:
+    name = str(rule.get("name") or "").strip()
+    kind = str(rule.get("kind") or "").strip().lower()
+    score = 0
+    if name in _PREFERRED_DELEGATED_SETTING_VALUE_NAMES:
+        score += 100
+    if kind == "derived":
+        score += 40
+    if name.startswith("snap_"):
+        score += 10
+    if name.endswith("_amount"):
+        score -= 20
+    if name.endswith("_for_unit_size"):
+        score -= 30
+    return score
+
+
+def _unique_generated_rule_name(base: str, existing_names: set[str]) -> str:
+    if base not in existing_names:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in existing_names:
+        suffix += 1
+    return f"{base}_{suffix}"
 
 
 def _try_repair_generated_source_relation_delegations_for_apply(
@@ -23558,11 +24595,32 @@ def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | Non
 
 
 def _default_generated_test_input_value(
-    input_name: str, *, rules_payload: dict[str, object]
+    input_name: str,
+    *,
+    rules_payload: dict[str, object],
+    prefer_positive_counts: bool = False,
 ) -> bool | int:
     if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+        if prefer_positive_counts and _factual_input_name_looks_positive_count(
+            input_name
+        ):
+            return 1
         return 0
     return False
+
+
+def _factual_input_name_looks_positive_count(input_name: str) -> bool:
+    tokens = set(input_name.lower().split("_"))
+    if "count" in tokens or "size" in tokens:
+        return True
+    positive_suffixes = (
+        "_member_count",
+        "_household_size",
+        "_unit_size",
+        "_family_size",
+        "_assistance_unit_size",
+    )
+    return input_name.lower().endswith(positive_suffixes)
 
 
 def _factual_input_appears_numeric(
@@ -24119,16 +25177,11 @@ def _validate_generated_encoding_in_policy_overlay(
             overlay_parent=overlay_parent,
             relative_output=relative_output,
         )
-        for sibling in policy_repo_path.parent.glob("rulespec-*"):
-            if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
-                continue
-            if sibling.name == overlay_repo_name:
-                continue
-            sibling_target = overlay_parent / sibling.name
-            try:
-                sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
-            except OSError:
-                shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
+        _stage_apply_overlay_dependency_roots(
+            overlay_parent=overlay_parent,
+            policy_repo_path=policy_repo_path,
+            overlay_repo_name=overlay_repo_name,
+        )
 
         overlay_repo = overlay_parent / overlay_repo_name
         shutil.copytree(policy_repo_path, overlay_repo)
@@ -24412,6 +25465,51 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _stage_apply_overlay_dependency_roots(
+    *,
+    overlay_parent: Path,
+    policy_repo_path: Path,
+    overlay_repo_name: str,
+) -> None:
+    """Stage sibling RuleSpec roots that imported modules may resolve through."""
+    staged_names = {overlay_repo_name}
+    for sibling in policy_repo_path.parent.glob("rulespec-*"):
+        if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
+            continue
+        if sibling.name in staged_names:
+            continue
+        _stage_apply_overlay_dependency_root(
+            source=sibling,
+            target=overlay_parent / sibling.name,
+        )
+        staged_names.add(sibling.name)
+
+    if policy_repo_path.name.startswith("rulespec-"):
+        return
+    monorepo_parent = policy_repo_path.parent
+    if not monorepo_parent.name.startswith("rulespec-") or not monorepo_parent.is_dir():
+        return
+    checkout_name = monorepo_checkout_name(policy_repo_path.name)
+    if checkout_name in staged_names:
+        return
+    _stage_apply_overlay_dependency_root(
+        source=monorepo_parent,
+        target=overlay_parent / checkout_name,
+    )
+
+
+def _stage_apply_overlay_dependency_root(*, source: Path, target: Path) -> None:
+    if target.exists() or target.is_symlink():
+        return
+    if source.name != target.name:
+        shutil.copytree(source, target, dirs_exist_ok=True)
+        return
+    try:
+        target.symlink_to(source.resolve(), target_is_directory=True)
+    except OSError:
+        shutil.copytree(source, target, dirs_exist_ok=True)
 
 
 def _write_overlay_eval_source_metadata_for_generated_output(

@@ -96,8 +96,11 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _split_table_row_relation_test_cases,
+    _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_delegated_policy_settings_for_apply,
+    _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
@@ -4714,6 +4717,801 @@ rules:
 
         assert repaired == []
         assert rules_file.read_text() == original
+
+    def test_delegated_policy_setting_repair_adds_snap_utility_sets_edges(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us-nc"
+        rules_file = (
+            output_root
+            / "runner"
+            / "policies"
+            / "dhhs"
+            / "fns"
+            / "fns-360-determining-benefit-levels"
+            / "page-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: North Carolina FNS SNAP utility allowance table.
+rules:
+- name: heating_cooling_standard_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 637
+- name: heating_cooling_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: heating_cooling_standard_utility_allowance_for_unit_size[1]
+- name: non_heating_non_cooling_basic_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 392
+- name: non_heating_non_cooling_basic_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: non_heating_non_cooling_basic_utility_allowance_for_unit_size[1]
+- name: telephone_utility_allowance_for_unit_size
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 42
+- name: telephone_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: telephone_utility_allowance_for_unit_size[1]
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "Delegated policy setting missing source_relation: "
+                "`heating_cooling_standard_utility_allowance`, "
+                "`heating_cooling_standard_utility_allowance_for_unit_size` "
+                "encodes a state-set SNAP standard utility allowance."
+            ],
+        )
+
+        assert repaired == [
+            "sets_snap_standard_utility_allowance",
+            "import:us:regulations/7-cfr/273/9",
+            "sets_snap_limited_utility_allowance",
+            "sets_snap_individual_utility_allowance",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relations = {
+            rule["source_relation"]["target"]: rule["source_relation"]
+            for rule in payload["rules"][:3]
+        }
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#heating_cooling_standard_utility_allowance"
+        )
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_limited_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#non_heating_non_cooling_basic_utility_allowance"
+        )
+        assert (
+            relations[
+                "us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option"
+            ]["value"]
+            == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#telephone_utility_allowance"
+        )
+        assert {relation["basis"]["delegation"] for relation in relations.values()} == {
+            "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
+        }
+
+    def test_embedded_scalar_literal_repair_extracts_min_bound(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP standards.
+rules:
+- name: household_size
+  kind: derived
+  entity: Household
+  dtype: Count
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: household_member_count
+- name: snap_standard_deduction_size_category
+  kind: derived
+  entity: Household
+  dtype: Count
+  period: Month
+  source: Table IV-A, Standard Deduction household-size categories
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-tn/regulation/1240-01/04/27/block-1
+          excerpt: Household Size 1 2 3 4 5 6+
+  versions:
+  - effective_from: '0001-01-01'
+    formula: min(household_size, 6)
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_standard_deduction_size_category "
+                "line 7 embeds 6 in `min(household_size, 6)`; extract the value "
+                "to its own named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_standard_deduction_max_household_size"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][1]
+        assert parameter["name"] == "snap_standard_deduction_max_household_size"
+        assert parameter["kind"] == "parameter"
+        assert parameter["versions"][0]["formula"] == "6"
+        derived = payload["rules"][2]
+        assert (
+            derived["versions"][0]["formula"]
+            == "min(household_size, snap_standard_deduction_max_household_size)"
+        )
+        assert derived["metadata"]["proof"]["atoms"][-1]["import"]["target"] == (
+            "us-tn:regulations/block-1#snap_standard_deduction_max_household_size"
+        )
+
+    def test_embedded_scalar_literal_repair_replaces_repeated_expression_literals(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        formula = (
+            "if household_size <= 10: snap_gross_income_standard[household_size] "
+            "else: snap_gross_income_standard[10] + ((household_size - 10) * "
+            "snap_gross_income_standard_additional_member)"
+        )
+        rules_file.write_text(
+            f"""format: rulespec/v1
+module:
+  summary: Tennessee SNAP standards.
+rules:
+- name: snap_gross_income_standard_for_household
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Table I
+  versions:
+  - effective_from: '0001-01-01'
+    formula: {formula!r}
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_gross_income_standard_for_household "
+                f"line 10 embeds 10 in `{formula}`; extract the value to its own "
+                "named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_gross_income_standard_for_household_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        derived = payload["rules"][1]
+        repaired_formula = derived["versions"][0]["formula"]
+        assert " 10" not in repaired_formula
+        assert "[10]" not in repaired_formula
+        assert " - 10" not in repaired_formula
+        assert (
+            "snap_gross_income_standard_for_household_scalar_limit" in repaired_formula
+        )
+
+    def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        formula = (
+            "if household_size <= snap_gross_income_standard_for_household_scalar_limit: "
+            "snap_gross_income_standard[household_size] else: "
+            "snap_gross_income_standard[10] + ((household_size - 10) * "
+            "snap_gross_income_standard_additional_member)"
+        )
+        rules_file.write_text(
+            f"""format: rulespec/v1
+rules:
+- name: snap_gross_income_standard_for_household_scalar_limit
+  kind: parameter
+  dtype: Count
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '10'
+- name: snap_gross_income_standard_for_household
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Table I
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us-tn:regulations/block-1#snap_gross_income_standard_for_household_scalar_limit
+          output: snap_gross_income_standard_for_household_scalar_limit
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: {formula!r}
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_gross_income_standard_for_household "
+                "line 10 embeds 10 in `snap_gross_income_standard[10]`; "
+                "extract the value to its own named numeric concept or indexed "
+                "table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_gross_income_standard_for_household_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        rule_names = [rule["name"] for rule in payload["rules"]]
+        assert (
+            rule_names.count("snap_gross_income_standard_for_household_scalar_limit")
+            == 1
+        )
+        derived = payload["rules"][1]
+        repaired_formula = derived["versions"][0]["formula"]
+        assert "[10]" not in repaired_formula
+        assert " - 10" not in repaired_formula
+        assert (
+            repaired_formula.count(
+                "snap_gross_income_standard_for_household_scalar_limit"
+            )
+            == 3
+        )
+        assert len(derived["metadata"]["proof"]["atoms"]) == 1
+
+    def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "state_rule.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: State SNAP standard utility allowance.
+rules:
+- name: sets_snap_standard_utility_allowance
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+    value: us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 663
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-ca",
+            issues=["Delegated policy setting missing source_relation"],
+        )
+
+        assert repaired == ["import:us:regulations/7-cfr/273/9"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+
+    def test_delegated_policy_setting_repair_wraps_parameter_values_for_derived_slots(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    authority: federal
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+- name: snap_limited_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+- name: snap_individual_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance tables.
+rules:
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: capped_household_size_for_utility_allowances
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+- name: snap_basic_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: capped_household_size_for_utility_allowances
+  source: Table V-B
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 126
+- name: snap_basic_utility_allowance_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: household_incurs_non_heating_cooling_utility_costs
+- name: snap_telephone_standard
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: capped_household_size_for_utility_allowances
+  source: Food Stamp Standard Telephone Allowance
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 25
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=["Delegated policy setting missing source_relation"],
+        )
+
+        assert repaired == [
+            "sets_snap_standard_utility_allowance",
+            "import:us:regulations/7-cfr/273/9",
+            "sets_snap_limited_utility_allowance",
+            "sets_snap_individual_utility_allowance",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation_values = {
+            rule["name"]: rule["source_relation"]["value"]
+            for rule in payload["rules"][:3]
+        }
+        assert relation_values == {
+            "sets_snap_standard_utility_allowance": (
+                "us-tn:regulations/1240-01/04/27/block-1#"
+                "snap_standard_utility_allowance_state_value"
+            ),
+            "sets_snap_limited_utility_allowance": (
+                "us-tn:regulations/1240-01/04/27/block-1#"
+                "snap_limited_utility_allowance_state_value"
+            ),
+            "sets_snap_individual_utility_allowance": (
+                "us-tn:regulations/1240-01/04/27/block-1#"
+                "snap_individual_utility_allowance_state_value"
+            ),
+        }
+        wrappers = {rule["name"]: rule for rule in payload["rules"][3:6]}
+        assert (
+            wrappers["snap_standard_utility_allowance_state_value"]["versions"][0][
+                "formula"
+            ]
+            == "snap_standard_utility_allowance"
+        )
+        assert wrappers["snap_limited_utility_allowance_state_value"]["versions"][0][
+            "formula"
+        ] == (
+            "if snap_basic_utility_allowance_eligible: "
+            "snap_basic_utility_allowance else: 0"
+        )
+        assert (
+            wrappers["snap_individual_utility_allowance_state_value"]["versions"][0][
+                "formula"
+            ]
+            == "snap_telephone_standard"
+        )
+        assert {wrappers[name]["entity"] for name in wrappers} == {"Household"}
+
+    def test_delegated_policy_setting_repair_retargets_aggregate_hook_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    authority: federal
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: snap_standard_utility_allowance_sets_federal_delegated_slot
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation "
+                "`snap_standard_utility_allowance_sets_federal_delegated_slot` "
+                "sets target "
+                "`us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs`, "
+                "but the target does not resolve to a parameter in the merged program"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "snap_standard_utility_allowance_sets_federal_delegated_slot",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation = payload["rules"][0]["source_relation"]
+        assert relation["target"] == (
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        )
+        assert relation["authority"] == "state"
+        assert relation["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["name"] == (
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
+
+    def test_delegated_policy_setting_repair_retargets_existing_parameter_sets_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: sets_existing_standard
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `sets_existing_standard` cannot bind "
+                "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance` "
+                "(parameter) to "
+                "`us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option` "
+                "(derived)"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        assert payload["rules"][0]["source_relation"]["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert (
+            payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
+
+    def test_delegated_policy_setting_repair_retargets_aggregate_sets_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: sets_existing_standard
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `sets_existing_standard` sets target "
+                "`us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs`, "
+                "but the target does not resolve to a parameter in the merged program"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "sets_existing_standard",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation = payload["rules"][0]["source_relation"]
+        assert relation["target"] == (
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        )
+        assert relation["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert relation["authority"] == "state"
+        assert relation["basis"]["delegation"] == (
+            "us:regulations/7-cfr/273/9#"
+            "snap_state_standard_utility_allowance_delegation"
+        )
+        assert (
+            payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
 
     def test_source_relation_delegation_repair_drops_unsupported_federal_cfr_implements(
         self, tmp_path
@@ -9817,6 +10615,65 @@ rules:
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
 
+    def test_derived_output_test_repair_uses_positive_count_defaults(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us" / "us-tn"
+        rules_file = (
+            repo_path / "regulations" / "1240-01" / "04" / "27" / "block-1.yaml"
+        )
+        test_file = rules_file.with_name("block-1.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_size
+    kind: derived
+    entity: Household
+    dtype: Count
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_count
+  - name: snap_standard_utility_allowance
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    indexed_by: household_size
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 200
+  - name: snap_standard_utility_allowance_state_value
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_standard_utility_allowance[household_size]
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_derived_output_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=Path("regulations/1240-01/04/27/block-1.yaml"),
+            issues=[
+                "Derived rule missing companion output coverage: "
+                "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance_state_value` "
+                "is not asserted by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_output_snap_standard_utility_allowance_state_value"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["input"] == {
+            "us-tn:regulations/1240-01/04/27/block-1#input.household_member_count": 1
+        }
+
     def test_judgment_positive_test_repair_clones_existing_scenario(self, tmp_path):
         repo_path = tmp_path / "rulespec-us"
         test_file = repo_path / "statutes" / "26" / "3102" / "f" / "1.test.yaml"
@@ -12906,6 +13763,49 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_monorepo_rulespec_change_with_nested_encoder_manifest(
+        self, tmp_path
+    ):
+        rule = tmp_path / "us-ca/policies/example.yaml"
+        test = tmp_path / "us-ca/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("us-ca",),
+                changed_files=[
+                    "us-ca/policies/example.yaml",
+                    "us-ca/policies/example.test.yaml",
+                    "us-ca/.axiom/encoding-manifests/policies/example.json",
+                ],
+            )
+
+        assert issues == []
+
     def test_accepts_protected_deletion_listed_in_changed_manifest(self, tmp_path):
         manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
@@ -13079,6 +13979,45 @@ class TestGuardGenerated:
             issues = guard_generated_change_issues(
                 tmp_path,
                 roots=("regulations",),
+                all_files=True,
+            )
+
+        assert issues == []
+
+    def test_accepts_monorepo_existing_rulespec_with_nested_manifest_in_all_mode(
+        self, tmp_path
+    ):
+        rule = tmp_path / "us-ca/policies/example.yaml"
+        test = tmp_path / "us-ca/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("us-ca",),
                 all_files=True,
             )
 
@@ -14655,6 +15594,71 @@ rules: []
         assert ok is True
         assert issues == []
         assert supplemental == {}
+
+    def test_apply_overlay_validation_stages_country_monorepo_dependencies(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        monorepo = tmp_path / "rulespec-us"
+        policy_repo = monorepo / "us-tn"
+        federal_file = monorepo / "us/regulations/7-cfr/273/9.yaml"
+        generated = (
+            output_root / "codex-test-model" / "regulations/1240-01/04/27/block-1.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        federal_file.write_text("format: rulespec/v1\nrules: []\n")
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/9
+rules: []
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        staged_federal_files: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                repo_path = Path(kwargs["policy_repo_path"])
+                staged_federal = (
+                    repo_path.parent / "rulespec-us/us/regulations/7-cfr/273/9.yaml"
+                )
+                staged_federal_files.append(staged_federal)
+                assert staged_federal.exists()
+
+            def validate(self, _path, *, skip_reviewers):
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert len(staged_federal_files) == 1
+
+    def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
+        self, tmp_path
+    ):
+        source = tmp_path / "rulespec-us-worktree"
+        target = tmp_path / "overlay" / "rulespec-us"
+        federal_file = source / "us/regulations/7-cfr/273/9.yaml"
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text("format: rulespec/v1\nrules: []\n")
+
+        _stage_apply_overlay_dependency_root(source=source, target=target)
+
+        assert (target / "us/regulations/7-cfr/273/9.yaml").exists()
+        assert not target.is_symlink()
 
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"

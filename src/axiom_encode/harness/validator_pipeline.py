@@ -16998,6 +16998,55 @@ class _RuleSpecTargetRef:
     symbol: str | None
 
 
+@dataclass(frozen=True)
+class _DelegatedPolicySettingTarget:
+    """Canonical target for a delegated downstream policy setting."""
+
+    label: str
+    target: str
+    rule_name_patterns: tuple[str, ...]
+
+
+_US_STATE_RULESPEC_PATH_PART = re.compile(r"(?:rulespec-)?us-[a-z]{2}(?:-[a-z0-9]+)*")
+_SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS = (
+    _DelegatedPolicySettingTarget(
+        label="standard utility allowance",
+        target=(
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        ),
+        rule_name_patterns=(
+            r"^snap_standard_utility_allowance(?:_amount)?$",
+            r"^.*heating_cooling_standard_utility_allowance.*$",
+            r"^.*standard_utility_allowance.*$",
+        ),
+    ),
+    _DelegatedPolicySettingTarget(
+        label="limited utility allowance",
+        target=(
+            "us:regulations/7-cfr/273/9#snap_limited_utility_allowance_state_option"
+        ),
+        rule_name_patterns=(
+            r"^snap_limited_utility_allowance(?:_amount)?$",
+            r"^.*basic_utility_allowance.*$",
+            r"^.*limited_utility_allowance.*$",
+        ),
+    ),
+    _DelegatedPolicySettingTarget(
+        label="individual utility allowance",
+        target=(
+            "us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option"
+        ),
+        rule_name_patterns=(
+            r"^snap_individual_utility_allowance(?:_amount)?$",
+            r"^.*telephone_utility_allowance.*$",
+            r"^.*telephone_standard.*$",
+            r"^.*one_utility_allowance.*$",
+        ),
+    ),
+)
+_DELEGATED_SETTING_AMOUNT_DTYPES = {"money"}
+
+
 def find_source_relation_issues(
     content: str,
     *,
@@ -17027,7 +17076,13 @@ def find_source_relation_issues(
         relation_type = ""
         if isinstance(source_relation, dict):
             relation_type = str(source_relation.get("type") or "").strip().lower()
-        if relation_type != "restates":
+        if relation_type not in {
+            "amends",
+            "delegates",
+            "implements",
+            "restates",
+            "sets",
+        }:
             continue
         if (
             not isinstance(source_relation, dict)
@@ -17045,7 +17100,7 @@ def find_source_relation_issues(
                     "Source relation target invalid: "
                     f"{name} uses `{target}`, expected `<jurisdiction>:<path>#<rule>`."
                 )
-            elif target_ref.symbol is None:
+            elif target_ref.symbol is None and relation_type in {"restates", "sets"}:
                 issues.append(
                     "Source relation target rule required: "
                     f"{name} must point to a specific RuleSpec rule with `#rule_name`."
@@ -17055,9 +17110,36 @@ def find_source_relation_issues(
                 "Source relation must be non-executable: "
                 f"{name} should not declare `versions`; use the canonical target for formulas and values."
             )
+        if relation_type == "sets":
+            value = (
+                source_relation.get("value")
+                if isinstance(source_relation, dict)
+                else None
+            )
+            if value is None or (isinstance(value, str) and not value.strip()):
+                issues.append(
+                    "Source relation setting value required: "
+                    f"{name} uses `source_relation.type: sets` and must declare "
+                    "`source_relation.value` pointing to the local value or formula "
+                    "that fills the delegated slot."
+                )
+            basis = (
+                source_relation.get("basis")
+                if isinstance(source_relation, dict)
+                else None
+            )
+            delegation = basis.get("delegation") if isinstance(basis, dict) else None
+            if not isinstance(delegation, str) or not delegation.strip():
+                issues.append(
+                    "Source relation delegation basis required: "
+                    f"{name} uses `source_relation.type: sets` and must declare "
+                    "`source_relation.basis.delegation` pointing to the upstream "
+                    "delegation authority."
+                )
         verification = rule.get("verification")
         if (
-            target
+            relation_type == "restates"
+            and target
             and target_ref is not None
             and target_ref.symbol is not None
             and isinstance(verification, dict)
@@ -17073,6 +17155,154 @@ def find_source_relation_issues(
                 )
             )
     return issues
+
+
+def find_delegated_policy_setting_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+) -> list[str]:
+    """Require downstream state settings to use the canonical delegated hook."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not _is_us_state_rulespec_path(rules_file):
+        return []
+    if not _looks_like_snap_utility_allowance_module(payload, rules_file=rules_file):
+        return []
+
+    issues: list[str] = []
+    for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
+        local_rule_names = _matching_delegated_setting_rule_names(
+            rules,
+            setting_target.rule_name_patterns,
+        )
+        if not local_rule_names:
+            continue
+        if _rules_include_source_relation_target(
+            rules,
+            setting_target.target,
+            relation_type="sets",
+        ):
+            continue
+        wrong_relations = _source_relation_sets_rules_for_local_values(
+            rules,
+            local_rule_names,
+        )
+        if wrong_relations:
+            for relation_name, target in wrong_relations:
+                issues.append(
+                    "Delegated policy setting wrong source_relation target: "
+                    f"`{relation_name}` points a state-set SNAP {setting_target.label} "
+                    f"to `{target}`. The canonical target is "
+                    f"`{setting_target.target}`; `source_relation.value` should "
+                    "point to the local setting and `source_relation.basis.delegation` "
+                    "should point to the upstream delegation authority."
+                )
+            continue
+        local_list = ", ".join(f"`{name}`" for name in local_rule_names)
+        issues.append(
+            "Delegated policy setting missing source_relation: "
+            f"{local_list} encodes a state-set SNAP {setting_target.label}. "
+            "The canonical encoding is a non-executable `kind: source_relation` "
+            "record with `source_relation.type: sets`, "
+            f"`source_relation.target: {setting_target.target}`, "
+            "`source_relation.value` pointing to the local setting, and "
+            "`source_relation.basis.delegation` pointing to the upstream "
+            "delegation authority. Executable formulas should consume the "
+            "federal delegated hook rather than a state-specific local output."
+        )
+    return issues
+
+
+def _source_relation_sets_rules_for_local_values(
+    rules: list[Any],
+    local_rule_names: list[str],
+) -> list[tuple[str, str]]:
+    local_names = set(local_rule_names)
+    matches: list[tuple[str, str]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        value = _normalize_relation_target(source_relation.get("value"))
+        if not value:
+            continue
+        value_name = value.rsplit("#", 1)[-1] if "#" in value else value
+        if value_name not in local_names:
+            continue
+        target = _normalize_relation_target(source_relation.get("target"))
+        if not target:
+            continue
+        matches.append((_rulespec_rule_name(rule), target))
+    return matches
+
+
+def _is_us_state_rulespec_path(rules_file: Path | None) -> bool:
+    if rules_file is None:
+        return False
+    return any(
+        _US_STATE_RULESPEC_PATH_PART.fullmatch(part) is not None
+        for part in rules_file.parts
+    )
+
+
+def _looks_like_snap_utility_allowance_module(
+    payload: dict[str, Any],
+    *,
+    rules_file: Path | None,
+) -> bool:
+    text_parts: list[str] = []
+    if rules_file is not None:
+        text_parts.extend(part.lower() for part in rules_file.parts)
+    module = payload.get("module")
+    if isinstance(module, dict):
+        summary = module.get("summary")
+        if isinstance(summary, str):
+            text_parts.append(summary.lower())
+    rules = payload.get("rules")
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            text_parts.append(str(rule.get("name") or "").lower())
+            source = rule.get("source")
+            if isinstance(source, str):
+                text_parts.append(source.lower())
+    text = "\n".join(text_parts)
+    return (
+        "snap" in text
+        or "supplemental nutrition" in text
+        or "food and nutrition" in text
+        or re.search(r"(?:^|[/_\-\s])fns(?:$|[/_\-\s])", text) is not None
+    )
+
+
+def _matching_delegated_setting_rule_names(
+    rules: list[Any],
+    patterns: tuple[str, ...],
+) -> list[str]:
+    compiled_patterns = tuple(re.compile(pattern) for pattern in patterns)
+    matches: list[str] = []
+    for rule in rules:
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        assert isinstance(rule, dict)
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in _DELEGATED_SETTING_AMOUNT_DTYPES:
+            continue
+        name = _rulespec_rule_name(rule)
+        normalized_name = name.lower()
+        if any(pattern.fullmatch(normalized_name) for pattern in compiled_patterns):
+            matches.append(name)
+    return sorted(dict.fromkeys(matches))
 
 
 def _find_source_relation_value_verification_issues(
@@ -19440,6 +19670,9 @@ class ValidatorPipeline:
         issues.extend(self._check_unapplied_cross_reference_base_mechanics(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
+        )
+        issues.extend(
+            find_delegated_policy_setting_issues(content, rules_file=rules_file)
         )
         issues.extend(
             find_rule_name_path_suffix_issues(
