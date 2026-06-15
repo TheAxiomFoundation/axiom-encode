@@ -13873,6 +13873,7 @@ def _append_generated_derived_output_tests_if_missing(
         f"{target_base}#input.{input_name}": _default_generated_test_input_value(
             input_name,
             rules_payload=rules_payload,
+            prefer_positive_counts=True,
         )
         for input_name in sorted(factual_inputs)
     }
@@ -24380,11 +24381,32 @@ def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | Non
 
 
 def _default_generated_test_input_value(
-    input_name: str, *, rules_payload: dict[str, object]
+    input_name: str,
+    *,
+    rules_payload: dict[str, object],
+    prefer_positive_counts: bool = False,
 ) -> bool | int:
     if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+        if prefer_positive_counts and _factual_input_name_looks_positive_count(
+            input_name
+        ):
+            return 1
         return 0
     return False
+
+
+def _factual_input_name_looks_positive_count(input_name: str) -> bool:
+    tokens = set(input_name.lower().split("_"))
+    if "count" in tokens or "size" in tokens:
+        return True
+    positive_suffixes = (
+        "_member_count",
+        "_household_size",
+        "_unit_size",
+        "_family_size",
+        "_assistance_unit_size",
+    )
+    return input_name.lower().endswith(positive_suffixes)
 
 
 def _factual_input_appears_numeric(

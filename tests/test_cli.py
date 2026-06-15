@@ -10287,6 +10287,67 @@ rules:
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
 
+    def test_derived_output_test_repair_uses_positive_count_defaults(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us" / "us-tn"
+        rules_file = (
+            repo_path / "regulations" / "1240-01" / "04" / "27" / "block-1.yaml"
+        )
+        test_file = rules_file.with_name("block-1.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_size
+    kind: derived
+    entity: Household
+    dtype: Count
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_count
+  - name: snap_standard_utility_allowance
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    indexed_by: household_size
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 200
+  - name: snap_standard_utility_allowance_state_value
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_standard_utility_allowance[household_size]
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_derived_output_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=Path("regulations/1240-01/04/27/block-1.yaml"),
+            issues=[
+                "Derived rule missing companion output coverage: "
+                "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance_state_value` "
+                "is not asserted by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_output_snap_standard_utility_allowance_state_value"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["input"] == {
+            "us-tn:regulations/1240-01/04/27/block-1#input.household_member_count": 1
+        }
+
     def test_judgment_positive_test_repair_clones_existing_scenario(self, tmp_path):
         repo_path = tmp_path / "rulespec-us"
         test_file = repo_path / "statutes" / "26" / "3102" / "f" / "1.test.yaml"
