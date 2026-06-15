@@ -25267,6 +25267,9 @@ def _stage_apply_overlay_dependency_roots(
 def _stage_apply_overlay_dependency_root(*, source: Path, target: Path) -> None:
     if target.exists() or target.is_symlink():
         return
+    if source.name != target.name:
+        shutil.copytree(source, target, dirs_exist_ok=True)
+        return
     try:
         target.symlink_to(source.resolve(), target_is_directory=True)
     except OSError:

@@ -96,6 +96,7 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _split_table_row_relation_test_cases,
+    _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
@@ -15175,6 +15176,20 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert len(staged_federal_files) == 1
+
+    def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
+        self, tmp_path
+    ):
+        source = tmp_path / "rulespec-us-worktree"
+        target = tmp_path / "overlay" / "rulespec-us"
+        federal_file = source / "us/regulations/7-cfr/273/9.yaml"
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text("format: rulespec/v1\nrules: []\n")
+
+        _stage_apply_overlay_dependency_root(source=source, target=target)
+
+        assert (target / "us/regulations/7-cfr/273/9.yaml").exists()
+        assert not target.is_symlink()
 
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"
