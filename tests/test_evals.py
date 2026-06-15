@@ -1201,6 +1201,37 @@ def test_target_source_scope_ignores_cross_references_before_structural_marker()
     assert "0.0153" not in regular_active
 
 
+def test_target_source_scope_distinguishes_alpha_marker_case_by_level():
+    source = "\n\n".join(
+        [
+            "(d) Validation of State Agency error rates.",
+            "(1) Payment error rate. (i) FNS will select a subsample.",
+            "(A) First active subsample formula.",
+            "(B) Second active subsample formula.",
+            "(E) N is the State agency's minimum active case sample size.",
+            "(2) Other payment-error review steps.",
+            "(3) Negative case error rate. (i) FNS will select a subsample of "
+            "completed negative cases as follows:",
+            "Average monthly reviewable negative caseload (N) | Federal subsample target (n')\n"
+            "12,000 and over | n' = 400\n"
+            "1,001 to 11,999 | n' = .011634 N + 40\n"
+            "1,000 and under | n' = 150",
+            "(ii) The negative case record review follows.",
+            "(e) State corrective action.",
+        ]
+    )
+
+    negative_review = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/3/d/3/i",
+    )
+
+    assert negative_review.lstrip().startswith("(i) FNS will select")
+    assert "Federal subsample target" in negative_review
+    assert "Second active subsample formula" not in negative_review
+    assert "(e) State corrective action" not in negative_review
+
+
 def test_build_eval_prompt_does_not_treat_rates_path_as_rate_only(tmp_path):
     runner = parse_runner_spec("codex:gpt-5.4")
     workspace = prepare_eval_workspace(

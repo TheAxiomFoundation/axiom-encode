@@ -5333,7 +5333,6 @@ def _structural_parenthetical_marker_pattern(
     boundary += r")"
     return re.compile(
         rf"{boundary}\s*(?P<marker>{marker_pattern})\s+",
-        flags=re.IGNORECASE,
     )
 
 
