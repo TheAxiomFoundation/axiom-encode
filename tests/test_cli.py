@@ -100,6 +100,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
@@ -12811,6 +12812,86 @@ rules:
                 },
             }
         ]
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_admin_agency_aggregate_repair_defers_entity_rule(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "codex-gpt-5.5"
+            / "regulations/7-cfr/275/23/b/2/i/B.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+  summary: y2′ = y2 + b2(X2−x2).
+rules:
+  - name: average_allotments_underissued_active_error_rate
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 CFR 275.23(b)(2)(i)(B)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: federal_average + coefficient * difference
+"""
+        )
+        test_file.write_text(
+            """- name: generated_household_formula
+  period: 2026
+  input: {}
+  output:
+    us:regulations/7-cfr/275/23/b/2/i/B#average_allotments_underissued_active_error_rate: 1
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+            metrics=SimpleNamespace(
+                ci_issues=[
+                    "Unsupported administrative aggregate entity: "
+                    "`average_allotments_underissued_active_error_rate` is "
+                    "declared on `Household`."
+                ]
+            ),
+        )
+
+        repaired = _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == [
+            "us:regulations/7-cfr/275/23/b/2/i/B#average_allotments_underissued_active_error_rate"
+        ]
+        assert payload["module"]["status"] == "entity_not_supported"
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": (
+                    "us:regulations/7-cfr/275/23/b/2/i/B"
+                    "#average_allotments_underissued_active_error_rate"
+                ),
+                "reason": (
+                    "The source defines a State agency/FNS aggregate "
+                    "performance, sampling, liability, waiver, or bonus "
+                    "measure. The supported RuleSpec entity set does not "
+                    "include the administrative entity needed to encode this "
+                    "as an executable rule."
+                ),
+            }
+        ]
+        assert payload["rules"] == []
         assert yaml.safe_load(test_file.read_text()) == []
 
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):

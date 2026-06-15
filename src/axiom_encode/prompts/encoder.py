@@ -95,6 +95,15 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   source's executable output to the source-stated lower entity, or defer it if
   the needed lower-entity facts cannot be represented. Do not preserve the
   aggregate entity just to keep old output names or tests compatible.
+- State agency/FNS performance reporting, quality-control sampling statistics,
+  error rates, liability amounts, waiver formulas, high-performance bonuses,
+  and similar administrative aggregates are not household benefit rules merely
+  because they mention household cases, allotments, or SNAP participation. Do
+  not put those outputs on `Household`, `Person`, `TaxUnit`, or another
+  supported benefit-unit entity. If the source defines a State agency/FNS
+  aggregate measure and the supported ontology has no StateAgency/FNS review
+  entity for it, emit `module.status: entity_not_supported` or `deferred` with
+  `rules: []` and a concrete `module.deferred_outputs[]` record.
 - When a definition uses "taxpayer" but also says the amount is "of an
   individual" or applies exclusions for services, income, payments, or statuses
   of an individual/person/employee/member, encode those components on `Person`.

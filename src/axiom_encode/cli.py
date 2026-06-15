@@ -16080,6 +16080,21 @@ def cmd_encode(args):
                     "  apply=auto_repaired_indexed_parameter_lookups:"
                     + ",".join(repaired_indexed_parameter_lookups)
                 )
+            repaired_admin_aggregate_entities = (
+                _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_admin_aggregate_entities:
+                outcome["auto_repaired_admin_agency_aggregate_entities"] = (
+                    repaired_admin_aggregate_entities
+                )
+                print(
+                    "  apply=auto_repaired_admin_agency_aggregate_entities:"
+                    + ",".join(repaired_admin_aggregate_entities)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -20789,6 +20804,101 @@ def _try_repair_generated_missing_deferred_outputs_for_apply(
     payload["rules"] = []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return [output]
+
+
+def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Defer State-agency/FNS aggregate measures emitted on supported entities."""
+    metrics = getattr(result, "metrics", None)
+    issues = list(getattr(metrics, "ci_issues", []) or [])
+    if not any(
+        str(issue).startswith("Unsupported administrative aggregate entity:")
+        for issue in issues
+    ):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        module = {}
+        payload["module"] = module
+    module["status"] = "entity_not_supported"
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    deferred_outputs = []
+    seen_outputs: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if not str(rule.get("entity") or "").strip():
+            continue
+        symbol = str(rule.get("name") or f"deferred_output_{index + 1}").strip()
+        if not symbol:
+            symbol = f"deferred_output_{index + 1}"
+        output = f"{base_anchor}#{symbol}"
+        if output in seen_outputs:
+            continue
+        seen_outputs.add(output)
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "The source defines a State agency/FNS aggregate "
+                    "performance, sampling, liability, waiver, or bonus "
+                    "measure. The supported RuleSpec entity set does not "
+                    "include the administrative entity needed to encode this "
+                    "as an executable rule."
+                ),
+            }
+        )
+    if not deferred_outputs:
+        output = f"{base_anchor}#deferred_output"
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "The source defines a State agency/FNS administrative "
+                    "aggregate measure, which cannot be encoded as an "
+                    "executable RuleSpec output until that entity is supported."
+                ),
+            }
+        )
+
+    module["deferred_outputs"] = deferred_outputs
+    payload["rules"] = []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+    test_file = _rulespec_test_path(rules_file)
+    if test_file.exists():
+        test_file.write_text("[]\n")
+
+    return [str(record["output"]) for record in deferred_outputs]
 
 
 def _try_repair_generated_nonoperative_source_coverage_for_apply(
