@@ -25264,12 +25264,14 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
-            restatement_repairs = _repair_generated_restatement_source_relation_for_apply(
-                rules_file=overlay_target,
-                test_file=_rulespec_test_path(overlay_target),
-                repo_path=overlay_repo,
-                relative_output=relative_output,
-                validation=target_validation,
+            restatement_repairs = (
+                _repair_generated_restatement_source_relation_for_apply(
+                    rules_file=overlay_target,
+                    test_file=_rulespec_test_path(overlay_target),
+                    repo_path=overlay_repo,
+                    relative_output=relative_output,
+                    validation=target_validation,
+                )
             )
             if restatement_repairs:
                 supplemental_files[relative_output] = overlay_target.read_text()
@@ -25939,8 +25941,8 @@ def _repair_generated_restatement_source_relation_for_apply(
     if not isinstance(rules, list):
         return []
 
-    restatement_symbols, restatement_stems = (
-        _generated_restatement_symbols_and_stems(rules)
+    restatement_symbols, restatement_stems = _generated_restatement_symbols_and_stems(
+        rules
     )
     if not restatement_symbols and not restatement_stems:
         return []
