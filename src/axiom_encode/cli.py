@@ -60,8 +60,11 @@ from .harness.encoding_db import (
     ReviewResults,
 )
 from .harness.evals import (
+    _canonical_target_ref_prefix,
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
+    _source_identifier_to_relative_rulespec_path,
+    _target_source_scope_for_heuristics,
     evaluate_artifact,
     load_eval_suite_manifest,
     resolve_corpus_source_unit,
@@ -15872,6 +15875,31 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
 # =========================================================================
 
 
+def _scoped_source_text_for_encode_source_id(
+    source_text: str,
+    *,
+    source_id: str,
+    policy_repo_path: Path,
+) -> str:
+    """Return the target leaf source text for source-id encodes when possible."""
+    try:
+        relative_output = _source_identifier_to_relative_rulespec_path(source_id)
+        target_ref_prefix = _canonical_target_ref_prefix(
+            source_id,
+            relative_output,
+            policy_repo_path=policy_repo_path,
+        )
+    except Exception:
+        return source_text
+    if not target_ref_prefix:
+        return source_text
+    scoped_source_text = _target_source_scope_for_heuristics(
+        source_text,
+        target_ref_prefix,
+    )
+    return scoped_source_text if scoped_source_text.strip() else source_text
+
+
 def cmd_encode(args):
     """Encode a corpus-backed source unit through the RuleSpec eval pipeline."""
     model = args.model or DEFAULT_OPENAI_MODEL
@@ -15898,9 +15926,14 @@ def cmd_encode(args):
     source_unit = None
     if source_id:
         source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
+        source_text = _scoped_source_text_for_encode_source_id(
+            source_unit.body,
+            source_id=source_id,
+            policy_repo_path=policy_repo_path,
+        )
         results = run_source_eval(
             source_id=source_id,
-            source_text=source_unit.body,
+            source_text=source_text,
             runner_specs=[runner],
             output_root=args.output,
             policy_path=policy_repo_path,

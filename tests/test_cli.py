@@ -92,6 +92,7 @@ from axiom_encode.cli import (
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_numeric_comparisons,
+    _scoped_source_text_for_encode_source_id,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -207,6 +208,32 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     provenance = _require_axiom_encode_version_provenance(repo)
 
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_source_id_encode_scopes_cfr_section_text_to_target_leaf(tmp_path):
+    source = "\n\n".join(
+        [
+            "(b) State agency error rates.",
+            "(2) Determination of payment error rates.",
+            "(i) FNS shall calculate regressed error rates.",
+            "(A) y1' = y1 + b1 (X1 - x1).",
+            "(B) y2' = y2 + b2 (X2 - x2).",
+            "(C) The regressed error rates are r1' = y1'/u and r2' = y2'/u.",
+            "(D) The adjusted regressed payment error rate is r1'' + r2''.",
+            "(d) State agencies' liabilities for payment error rates.",
+        ]
+    )
+
+    scoped = _scoped_source_text_for_encode_source_id(
+        source,
+        source_id="us/regulation/7/275/23/b/2/i/C",
+        policy_repo_path=tmp_path,
+    )
+
+    assert scoped.lstrip().startswith("(C) The regressed error rates")
+    assert "r1' = y1'/u" in scoped
+    assert "adjusted regressed payment error rate" not in scoped
+    assert "liabilities for payment error rates" not in scoped
 
 
 def test_colorado_snap_ecps_uses_absolute_member_relation_only():
