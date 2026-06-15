@@ -68,6 +68,7 @@ from axiom_encode.cli import (
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
+    _repair_generated_restatement_source_relation_for_apply,
     _repair_generated_unused_imports_for_apply,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
@@ -12613,6 +12614,175 @@ rules:
                     "target": "us:statutes/26/3121/f#american_vessel",
                 },
             },
+        ]
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_restatement_source_relation_repair_prunes_unused_import_only(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "policies/dfcs/snap/3613.yaml"
+        test_file = policy_repo / "policies/dfcs/snap/3613.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:external/deductions
+rules:
+  - name: restates_standard_deduction
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
+      authority: federal
+    verification:
+      values:
+        snap_standard_deduction_48_states_dc_table:
+          1: 209
+          2: 209
+          3: 209
+          4: 223
+          5: 261
+          6: 299
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _repair_generated_restatement_source_relation_for_apply(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("policies/dfcs/snap/3613.yaml"),
+            validation=SimpleNamespace(results={}),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == ["imports"]
+        assert "imports" not in rules_payload
+        assert [rule["name"] for rule in rules_payload["rules"]] == [
+            "restates_standard_deduction"
+        ]
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_restatement_source_relation_repair_removes_executable_copy_helpers(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "policies/dfcs/snap/3613.yaml"
+        test_file = policy_repo / "policies/dfcs/snap/3613.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/deductions
+rules:
+  - name: restates_standard_deduction
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
+      authority: federal
+    verification:
+      values:
+        snap_standard_deduction_48_states_dc_table:
+          1: 209
+          2: 209
+          3: 209
+          4: 223
+          5: 261
+          6: 299
+  - name: standard_deduction_amount_by_size_band
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: standard_deduction_assistance_unit_size_band
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          0: 209
+          1: 223
+          2: 261
+          3: 299
+  - name: standard_deduction_assistance_unit_size_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: "if assistance_unit_size <= 3: 0 else: 1"
+  - name: snap_standard_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: standard_deduction_amount_by_size_band[standard_deduction_assistance_unit_size_band]
+"""
+        )
+        test_file.write_text(
+            """- name: four_person_standard_deduction
+  period: 2025-10
+  input:
+    us:policies/dfcs/snap/3613#input.assistance_unit_size: 4
+  output:
+    us:policies/dfcs/snap/3613#standard_deduction_amount_by_size_band: 223
+    us:policies/dfcs/snap/3613#standard_deduction_assistance_unit_size_band: 1
+    us:policies/dfcs/snap/3613#snap_standard_deduction: 223
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Restated upstream target copied as executable RuleSpec: "
+                        "`snap_standard_deduction` duplicates "
+                        "`us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction`."
+                    ],
+                    error=None,
+                )
+            }
+        )
+
+        repaired = _repair_generated_restatement_source_relation_for_apply(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("policies/dfcs/snap/3613.yaml"),
+            validation=validation,
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == [
+            "snap_standard_deduction",
+            "standard_deduction_amount_by_size_band",
+            "standard_deduction_assistance_unit_size_band",
+        ]
+        assert "imports" not in rules_payload
+        assert rules_payload["rules"] == [
+            {
+                "name": "restates_standard_deduction",
+                "kind": "source_relation",
+                "source_relation": {
+                    "type": "restates",
+                    "target": "us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction",
+                    "authority": "federal",
+                },
+                "verification": {
+                    "values": {
+                        "snap_standard_deduction_48_states_dc_table": {
+                            1: 209,
+                            2: 209,
+                            3: 209,
+                            4: 223,
+                            5: 261,
+                            6: 299,
+                        }
+                    }
+                },
+            }
         ]
         assert yaml.safe_load(test_file.read_text()) == []
 
