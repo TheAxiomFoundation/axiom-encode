@@ -17186,6 +17186,21 @@ def find_delegated_policy_setting_issues(
             relation_type="sets",
         ):
             continue
+        wrong_relations = _source_relation_sets_rules_for_local_values(
+            rules,
+            local_rule_names,
+        )
+        if wrong_relations:
+            for relation_name, target in wrong_relations:
+                issues.append(
+                    "Delegated policy setting wrong source_relation target: "
+                    f"`{relation_name}` points a state-set SNAP {setting_target.label} "
+                    f"to `{target}`. The canonical target is "
+                    f"`{setting_target.target}`; `source_relation.value` should "
+                    "point to the local setting and `source_relation.basis.delegation` "
+                    "should point to the upstream delegation authority."
+                )
+            continue
         local_list = ", ".join(f"`{name}`" for name in local_rule_names)
         issues.append(
             "Delegated policy setting missing source_relation: "
@@ -17199,6 +17214,35 @@ def find_delegated_policy_setting_issues(
             "federal delegated hook rather than a state-specific local output."
         )
     return issues
+
+
+def _source_relation_sets_rules_for_local_values(
+    rules: list[Any],
+    local_rule_names: list[str],
+) -> list[tuple[str, str]]:
+    local_names = set(local_rule_names)
+    matches: list[tuple[str, str]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        value = _normalize_relation_target(source_relation.get("value"))
+        if not value:
+            continue
+        value_name = value.rsplit("#", 1)[-1] if "#" in value else value
+        if value_name not in local_names:
+            continue
+        target = _normalize_relation_target(source_relation.get("target"))
+        if not target:
+            continue
+        matches.append((_rulespec_rule_name(rule), target))
+    return matches
 
 
 def _is_us_state_rulespec_path(rules_file: Path | None) -> bool:

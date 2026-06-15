@@ -19993,6 +19993,50 @@ rules:
     )
 
 
+def test_delegated_policy_setting_rejects_wrong_snap_utility_sets_target(tmp_path):
+    rules_file = (
+        tmp_path
+        / "rulespec-us"
+        / "us-tn"
+        / "regulations"
+        / "1240-01"
+        / "04"
+        / "27"
+        / "block-1.yaml"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Tennessee SNAP rules set the standard utility allowance.
+rules:
+  - name: sets_existing_standard
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+      value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '626'
+"""
+
+    issues = find_delegated_policy_setting_issues(content, rules_file=rules_file)
+
+    assert len(issues) == 1
+    assert "Delegated policy setting wrong source_relation target" in issues[0]
+    assert "snap_utility_allowance_for_shelter_costs" in issues[0]
+    assert (
+        "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        in issues[0]
+    )
+
+
 def test_rulespec_ci_rejects_delegated_policy_setting_without_sets_relation(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")

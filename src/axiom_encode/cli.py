@@ -17950,6 +17950,23 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
     source_relation_additions: list[dict[str, Any]] = []
     wrapper_additions: list[dict[str, Any]] = []
     repaired: list[str] = []
+    retargeted_wrappers, retargeted_relations = (
+        _repair_delegated_setting_relation_targets(
+            rules,
+            current_payload=payload,
+            current_rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            target_anchor=target_anchor,
+            existing_names=existing_names,
+        )
+    )
+    if retargeted_wrappers:
+        wrapper_additions.extend(retargeted_wrappers)
+        for wrapper_rule in retargeted_wrappers:
+            wrapper_name = str(wrapper_rule.get("name") or "").strip()
+            if wrapper_name:
+                existing_names.add(wrapper_name)
+    repaired.extend(retargeted_relations)
     for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
         target_rule = _rulespec_rule_for_absolute_ref(
             setting_target.target,
@@ -18063,12 +18080,20 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
 def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
     if "Delegated policy setting missing source_relation" in issue:
         return True
+    if "Delegated policy setting wrong source_relation target" in issue:
+        return True
+    if (
+        "RuleSpec source relation" in issue
+        and "sets target" in issue
+        and "#snap_utility_allowance_for_shelter_costs" in issue
+    ):
+        return True
     if "RuleSpec source relation" not in issue:
         return False
     return any(
         setting_target.target in issue
         for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
-    )
+    ) or "us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs" in issue
 
 
 def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
@@ -18292,6 +18317,110 @@ def _generated_source_relation_for_target(
             == normalized_target
         ):
             return rule
+    return None
+
+
+def _repair_delegated_setting_relation_targets(
+    rules: list[Any],
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+    target_anchor: str,
+    existing_names: set[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Retarget generated SNAP utility `sets` relations to canonical hooks."""
+    canonical_targets = {
+        _normalize_source_relation_target_ref(setting_target.target)
+        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+    }
+    wrapper_additions: list[dict[str, Any]] = []
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        target_ref = _normalize_source_relation_target_ref(
+            source_relation.get("target")
+        )
+        if not target_ref or target_ref in canonical_targets:
+            continue
+        value_ref = str(source_relation.get("value") or "").strip()
+        if not value_ref:
+            continue
+        value_rule = _rulespec_rule_for_absolute_ref(
+            value_ref,
+            current_payload=current_payload,
+            current_rules_file=current_rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if value_rule is None:
+            continue
+        value_name = str(value_rule.get("name") or "").strip()
+        setting_target = _delegated_setting_target_for_value_name(value_name)
+        if setting_target is None:
+            continue
+        target_rule = _rulespec_rule_for_absolute_ref(
+            setting_target.target,
+            current_payload=current_payload,
+            current_rules_file=current_rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        target_kind = _rulespec_rule_kind(target_rule)
+        target_symbol = setting_target.target.rsplit("#", 1)[-1]
+        relation_stem = target_symbol.removesuffix("_state_option")
+        if target_kind == "derived" and _rulespec_rule_kind(value_rule) == "parameter":
+            wrapper_rule = _delegated_setting_derived_value_wrapper(
+                rules,
+                value_rule=value_rule,
+                target_rule=target_rule,
+                target_anchor=target_anchor,
+                relation_stem=relation_stem,
+                existing_names=existing_names,
+            )
+            if wrapper_rule is not None:
+                wrapper_name = str(wrapper_rule.get("name") or "").strip()
+                if wrapper_name:
+                    existing_names.add(wrapper_name)
+                    source_relation["value"] = f"{target_anchor}#{wrapper_name}"
+                    wrapper_additions.append(wrapper_rule)
+                    repaired.append(wrapper_name)
+        source_relation["target"] = setting_target.target
+        source_relation["authority"] = "state"
+        basis = source_relation.get("basis")
+        if not isinstance(basis, dict):
+            basis = {}
+            source_relation["basis"] = basis
+        basis["delegation"] = (
+            "us:regulations/7-cfr/273/9#"
+            "snap_state_standard_utility_allowance_delegation"
+        )
+        relation_name = str(rule.get("name") or f"sets_{relation_stem}").strip()
+        if relation_name:
+            repaired.append(relation_name)
+        if _ensure_rulespec_payload_import(current_payload, setting_target.target):
+            repaired.append(f"import:{setting_target.target.split('#', 1)[0]}")
+    return wrapper_additions, repaired
+
+
+def _delegated_setting_target_for_value_name(
+    value_name: str,
+) -> Any | None:
+    if not value_name:
+        return None
+    probe_rule = {"name": value_name, "kind": "derived", "dtype": "Money"}
+    for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
+        if _matching_delegated_setting_rule_names(
+            [probe_rule],
+            setting_target.rule_name_patterns,
+        ):
+            return setting_target
     return None
 
 

@@ -5097,6 +5097,109 @@ rules:
             for name in wrappers
         } == {"Household"}
 
+    def test_delegated_policy_setting_repair_retargets_aggregate_hook_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    authority: federal
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: snap_standard_utility_allowance_sets_federal_delegated_slot
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation "
+                "`snap_standard_utility_allowance_sets_federal_delegated_slot` "
+                "sets target "
+                "`us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs`, "
+                "but the target does not resolve to a parameter in the merged program"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "snap_standard_utility_allowance_sets_federal_delegated_slot",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation = payload["rules"][0]["source_relation"]
+        assert relation["target"] == (
+            "us:regulations/7-cfr/273/9#"
+            "snap_standard_utility_allowance_state_option"
+        )
+        assert relation["authority"] == "state"
+        assert relation["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["name"] == (
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
+
     def test_delegated_policy_setting_repair_retargets_existing_parameter_sets_edge(
         self, tmp_path
     ):
@@ -5179,6 +5282,103 @@ rules:
         assert payload["rules"][0]["source_relation"]["value"] == (
             "us-tn:regulations/1240-01/04/27/block-1#"
             "snap_standard_utility_allowance_state_value"
+        )
+        assert payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "snap_standard_utility_allowance"
+        )
+
+    def test_delegated_policy_setting_repair_retargets_aggregate_sets_edge(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        federal_file = (
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        )
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "1240-01"
+            / "04"
+            / "27"
+            / "block-1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Tennessee SNAP utility allowance table.
+rules:
+- name: sets_existing_standard
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    value: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table V-A
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 314
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "RuleSpec source relation `sets_existing_standard` sets target "
+                "`us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs`, "
+                "but the target does not resolve to a parameter in the merged program"
+            ],
+        )
+
+        assert repaired == [
+            "snap_standard_utility_allowance_state_value",
+            "sets_existing_standard",
+            "import:us:regulations/7-cfr/273/9",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation = payload["rules"][0]["source_relation"]
+        assert relation["target"] == (
+            "us:regulations/7-cfr/273/9#"
+            "snap_standard_utility_allowance_state_option"
+        )
+        assert relation["value"] == (
+            "us-tn:regulations/1240-01/04/27/block-1#"
+            "snap_standard_utility_allowance_state_value"
+        )
+        assert relation["authority"] == "state"
+        assert relation["basis"]["delegation"] == (
+            "us:regulations/7-cfr/273/9#"
+            "snap_state_standard_utility_allowance_delegation"
         )
         assert payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
         assert payload["rules"][1]["versions"][0]["formula"] == (
