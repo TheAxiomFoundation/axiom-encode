@@ -17680,9 +17680,7 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
         policy_repo_path=policy_repo_path,
     )
     existing_names = {
-        str(rule.get("name") or "").strip()
-        for rule in rules
-        if isinstance(rule, dict)
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
     }
     repaired: list[str] = []
     for record in records:
@@ -17698,9 +17696,7 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(
-        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
-    )
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
 
 
@@ -17986,9 +17982,7 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         policy_repo_path=policy_repo_path,
     )
     existing_names = {
-        str(rule.get("name") or "").strip()
-        for rule in rules
-        if isinstance(rule, dict)
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
     }
     source_relation_additions: list[dict[str, Any]] = []
     wrapper_additions: list[dict[str, Any]] = []
@@ -18114,9 +18108,7 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         *wrapper_additions,
         *rules[insert_at:],
     ]
-    rules_file.write_text(
-        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
-    )
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
 
 
@@ -18133,10 +18125,14 @@ def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
         return True
     if "RuleSpec source relation" not in issue:
         return False
-    return any(
-        setting_target.target in issue
-        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
-    ) or "us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs" in issue
+    return (
+        any(
+            setting_target.target in issue
+            for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+        )
+        or "us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs"
+        in issue
+    )
 
 
 def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
@@ -18150,9 +18146,7 @@ def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> boo
     if not isinstance(imports, list):
         return False
     normalized_imports = {
-        str(item).split("#", 1)[0].strip()
-        for item in imports
-        if isinstance(item, str)
+        str(item).split("#", 1)[0].strip() for item in imports if isinstance(item, str)
     }
     if import_target in normalized_imports:
         return False
@@ -18202,9 +18196,10 @@ def _rulespec_generated_file_matches_target_ref(
 ) -> bool:
     target_parts = target_ref.relative_path.parts
     path_parts = Path(rules_file).resolve().parts
-    return len(path_parts) >= len(target_parts) and path_parts[
-        -len(target_parts) :
-    ] == target_parts
+    return (
+        len(path_parts) >= len(target_parts)
+        and path_parts[-len(target_parts) :] == target_parts
+    )
 
 
 def _delegated_setting_derived_value_wrapper(

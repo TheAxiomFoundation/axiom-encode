@@ -4832,9 +4832,7 @@ rules:
             ]["value"]
             == "us-nc:policies/dhhs/fns/fns-360-determining-benefit-levels/page-1#telephone_utility_allowance"
         )
-        assert {
-            relation["basis"]["delegation"] for relation in relations.values()
-        } == {
+        assert {relation["basis"]["delegation"] for relation in relations.values()} == {
             "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
         }
 
@@ -4950,8 +4948,7 @@ rules:
         assert "[10]" not in repaired_formula
         assert " - 10" not in repaired_formula
         assert (
-            "snap_gross_income_standard_for_household_scalar_limit"
-            in repaired_formula
+            "snap_gross_income_standard_for_household_scalar_limit" in repaired_formula
         )
 
     def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
@@ -5012,16 +5009,20 @@ rules:
         assert repaired == ["snap_gross_income_standard_for_household_scalar_limit"]
         payload = yaml.safe_load(rules_file.read_text())
         rule_names = [rule["name"] for rule in payload["rules"]]
-        assert rule_names.count(
-            "snap_gross_income_standard_for_household_scalar_limit"
-        ) == 1
+        assert (
+            rule_names.count("snap_gross_income_standard_for_household_scalar_limit")
+            == 1
+        )
         derived = payload["rules"][1]
         repaired_formula = derived["versions"][0]["formula"]
         assert "[10]" not in repaired_formula
         assert " - 10" not in repaired_formula
-        assert repaired_formula.count(
-            "snap_gross_income_standard_for_household_scalar_limit"
-        ) == 3
+        assert (
+            repaired_formula.count(
+                "snap_gross_income_standard_for_household_scalar_limit"
+            )
+            == 3
+        )
         assert len(derived["metadata"]["proof"]["atoms"]) == 1
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
@@ -5202,22 +5203,25 @@ rules:
             ),
         }
         wrappers = {rule["name"]: rule for rule in payload["rules"][3:6]}
-        assert wrappers["snap_standard_utility_allowance_state_value"][
-            "versions"
-        ][0]["formula"] == "snap_standard_utility_allowance"
-        assert wrappers["snap_limited_utility_allowance_state_value"][
-            "versions"
-        ][0]["formula"] == (
+        assert (
+            wrappers["snap_standard_utility_allowance_state_value"]["versions"][0][
+                "formula"
+            ]
+            == "snap_standard_utility_allowance"
+        )
+        assert wrappers["snap_limited_utility_allowance_state_value"]["versions"][0][
+            "formula"
+        ] == (
             "if snap_basic_utility_allowance_eligible: "
             "snap_basic_utility_allowance else: 0"
         )
-        assert wrappers["snap_individual_utility_allowance_state_value"][
-            "versions"
-        ][0]["formula"] == "snap_telephone_standard"
-        assert {
-            wrappers[name]["entity"]
-            for name in wrappers
-        } == {"Household"}
+        assert (
+            wrappers["snap_individual_utility_allowance_state_value"]["versions"][0][
+                "formula"
+            ]
+            == "snap_telephone_standard"
+        )
+        assert {wrappers[name]["entity"] for name in wrappers} == {"Household"}
 
     def test_delegated_policy_setting_repair_retargets_aggregate_hook_edge(
         self, tmp_path
@@ -5307,8 +5311,7 @@ rules:
         assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
         relation = payload["rules"][0]["source_relation"]
         assert relation["target"] == (
-            "us:regulations/7-cfr/273/9#"
-            "snap_standard_utility_allowance_state_option"
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
         )
         assert relation["authority"] == "state"
         assert relation["value"] == (
@@ -5405,7 +5408,9 @@ rules:
             "us-tn:regulations/1240-01/04/27/block-1#"
             "snap_standard_utility_allowance_state_value"
         )
-        assert payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        assert (
+            payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        )
         assert payload["rules"][1]["versions"][0]["formula"] == (
             "snap_standard_utility_allowance"
         )
@@ -5490,8 +5495,7 @@ rules:
         assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
         relation = payload["rules"][0]["source_relation"]
         assert relation["target"] == (
-            "us:regulations/7-cfr/273/9#"
-            "snap_standard_utility_allowance_state_option"
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
         )
         assert relation["value"] == (
             "us-tn:regulations/1240-01/04/27/block-1#"
@@ -5502,7 +5506,9 @@ rules:
             "us:regulations/7-cfr/273/9#"
             "snap_state_standard_utility_allowance_delegation"
         )
-        assert payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        assert (
+            payload["rules"][1]["name"] == "snap_standard_utility_allowance_state_value"
+        )
         assert payload["rules"][1]["versions"][0]["formula"] == (
             "snap_standard_utility_allowance"
         )
@@ -10609,9 +10615,7 @@ rules:
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
 
-    def test_derived_output_test_repair_uses_positive_count_defaults(
-        self, tmp_path
-    ):
+    def test_derived_output_test_repair_uses_positive_count_defaults(self, tmp_path):
         repo_path = tmp_path / "rulespec-us" / "us-tn"
         rules_file = (
             repo_path / "regulations" / "1240-01" / "04" / "27" / "block-1.yaml"
