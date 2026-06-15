@@ -4954,6 +4954,76 @@ rules:
             in repaired_formula
         )
 
+    def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        formula = (
+            "if household_size <= snap_gross_income_standard_for_household_scalar_limit: "
+            "snap_gross_income_standard[household_size] else: "
+            "snap_gross_income_standard[10] + ((household_size - 10) * "
+            "snap_gross_income_standard_additional_member)"
+        )
+        rules_file.write_text(
+            f"""format: rulespec/v1
+rules:
+- name: snap_gross_income_standard_for_household_scalar_limit
+  kind: parameter
+  dtype: Count
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '10'
+- name: snap_gross_income_standard_for_household
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Table I
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us-tn:regulations/block-1#snap_gross_income_standard_for_household_scalar_limit
+          output: snap_gross_income_standard_for_household_scalar_limit
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: {formula!r}
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_gross_income_standard_for_household "
+                "line 10 embeds 10 in `snap_gross_income_standard[10]`; "
+                "extract the value to its own named numeric concept or indexed "
+                "table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_gross_income_standard_for_household_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        rule_names = [rule["name"] for rule in payload["rules"]]
+        assert rule_names.count(
+            "snap_gross_income_standard_for_household_scalar_limit"
+        ) == 1
+        derived = payload["rules"][1]
+        repaired_formula = derived["versions"][0]["formula"]
+        assert "[10]" not in repaired_formula
+        assert " - 10" not in repaired_formula
+        assert repaired_formula.count(
+            "snap_gross_income_standard_for_household_scalar_limit"
+        ) == 3
+        assert len(derived["metadata"]["proof"]["atoms"]) == 1
+
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "runner" / "state_rule.yaml"

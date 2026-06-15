@@ -17739,7 +17739,19 @@ def _extract_embedded_scalar_literal_record(
         parameter_name = _embedded_scalar_parameter_name(rule_name, expression)
         if not parameter_name:
             return None
-        parameter_name = _unique_generated_rule_name(parameter_name, existing_names)
+        existing_parameter_name = _existing_embedded_scalar_parameter_name(
+            rules,
+            base_name=parameter_name,
+            literal=literal,
+        )
+        insert_parameter = existing_parameter_name is None
+        if existing_parameter_name is not None:
+            parameter_name = existing_parameter_name
+        else:
+            parameter_name = _unique_generated_rule_name(
+                parameter_name,
+                existing_names,
+            )
         versions = rule.get("versions")
         if not isinstance(versions, list) or not versions:
             return None
@@ -17761,17 +17773,18 @@ def _extract_embedded_scalar_literal_record(
                 changed = True
         if not changed:
             return None
-        parameter_rule = _embedded_scalar_parameter_rule(
-            rule,
-            name=parameter_name,
-            literal=literal,
-        )
         _add_formula_proof_import(
             rule,
             target=f"{target_anchor}#{parameter_name}",
             output=parameter_name,
         )
-        rules.insert(index, parameter_rule)
+        if insert_parameter:
+            parameter_rule = _embedded_scalar_parameter_rule(
+                rule,
+                name=parameter_name,
+                literal=literal,
+            )
+            rules.insert(index, parameter_rule)
         return parameter_name
     return None
 
@@ -17782,6 +17795,31 @@ def _embedded_scalar_parameter_name(rule_name: str, expression: str) -> str | No
     if re.search(r"\bmax\s*\(", expression):
         return f"{rule_name}_floor"
     return f"{rule_name}_scalar_limit"
+
+
+def _existing_embedded_scalar_parameter_name(
+    rules: list[Any],
+    *,
+    base_name: str,
+    literal: str,
+) -> str | None:
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != base_name:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            return None
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            return None
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if str(formula).strip() == literal:
+                return base_name
+    return None
 
 
 def _replace_embedded_scalar_literal(
@@ -17797,12 +17835,11 @@ def _replace_embedded_scalar_literal(
         expression,
     )
     if expression_replacement != expression and expression in formula:
-        return formula.replace(expression, expression_replacement, 1)
+        formula = formula.replace(expression, expression_replacement, 1)
     return re.sub(
         rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
         parameter_name,
         formula,
-        count=1,
     )
 
 
@@ -17894,6 +17931,13 @@ def _add_formula_proof_import(
     if not isinstance(atoms, list):
         atoms = []
         proof["atoms"] = atoms
+    if any(
+        isinstance(atom, dict)
+        and isinstance(atom.get("import"), dict)
+        and atom["import"].get("target") == target
+        for atom in atoms
+    ):
+        return
     atoms.append(
         {
             "path": "versions[0].formula",
