@@ -4902,6 +4902,58 @@ rules:
             "us-tn:regulations/block-1#snap_standard_deduction_max_household_size"
         )
 
+    def test_embedded_scalar_literal_repair_replaces_repeated_expression_literals(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "regulations" / "block-1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        formula = (
+            "if household_size <= 10: snap_gross_income_standard[household_size] "
+            "else: snap_gross_income_standard[10] + ((household_size - 10) * "
+            "snap_gross_income_standard_additional_member)"
+        )
+        rules_file.write_text(
+            f"""format: rulespec/v1
+module:
+  summary: Tennessee SNAP standards.
+rules:
+- name: snap_gross_income_standard_for_household
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Table I
+  versions:
+  - effective_from: '0001-01-01'
+    formula: {formula!r}
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-tn",
+            issues=[
+                "Embedded scalar literal: snap_gross_income_standard_for_household "
+                f"line 10 embeds 10 in `{formula}`; extract the value to its own "
+                "named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["snap_gross_income_standard_for_household_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        derived = payload["rules"][1]
+        repaired_formula = derived["versions"][0]["formula"]
+        assert " 10" not in repaired_formula
+        assert "[10]" not in repaired_formula
+        assert " - 10" not in repaired_formula
+        assert (
+            "snap_gross_income_standard_for_household_scalar_limit"
+            in repaired_formula
+        )
+
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "runner" / "state_rule.yaml"

@@ -17795,7 +17795,6 @@ def _replace_embedded_scalar_literal(
         rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
         parameter_name,
         expression,
-        count=1,
     )
     if expression_replacement != expression and expression in formula:
         return formula.replace(expression, expression_replacement, 1)
