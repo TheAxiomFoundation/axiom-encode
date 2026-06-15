@@ -117,6 +117,21 @@ SUPPORTED_EVAL_DTYPES = (
 )
 _PURE_NUMERIC_EXPRESSION_PATTERN = re.compile(r"^[\d\s()+\-*/.,]+$")
 _ISO_WEEK_PERIOD_PATTERN = re.compile(r"^\d{4}-W\d{2}(?:-\d)?$")
+_ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN = re.compile(
+    r"\b(?:FNS|State\s+agenc(?:y|ies)|State(?:'s)?\s+administration|"
+    r"Federal\s+(?:reviewer|case\s+reviews?|subsample)|"
+    r"national\s+performance\s+measure)\b",
+    flags=re.IGNORECASE,
+)
+_ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN = re.compile(
+    r"\b(?:active\s+case|negative\s+case|payment\s+error|negative\s+error|"
+    r"error\s+rates?|quality\s+control\s+sample|rereview\s+sample|"
+    r"regress(?:ed|ion)|subsample|sample\s+size|liabilit(?:y|ies)|"
+    r"waiver\s+of\s+liability|at-risk|new\s+investment|caseload\s+growth|"
+    r"high\s+performance\s+bonuses?|bonus\s+payments?|program\s+access\s+index|"
+    r"application\s+processing\s+timeliness)\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -2711,10 +2726,17 @@ def evaluate_artifact(
         content,
         numeric_grounding_source_text,
     )
+    admin_agency_aggregate_issues = find_admin_agency_aggregate_entity_issues(
+        content,
+        source_text,
+    )
     ci_issues = []
     seen_ci_issues: set[str] = set()
     for issue in (
-        list(ci_result.issues) + ungrounded_numeric_issues + numeric_occurrence_issues
+        list(ci_result.issues)
+        + ungrounded_numeric_issues
+        + numeric_occurrence_issues
+        + admin_agency_aggregate_issues
     ):
         if issue in seen_ci_issues:
             continue
@@ -2724,6 +2746,7 @@ def evaluate_artifact(
         ci_result.passed
         and not ungrounded_numeric_issues
         and not numeric_occurrence_issues
+        and not admin_agency_aggregate_issues
     )
 
     return EvalArtifactMetrics(
@@ -6306,6 +6329,53 @@ def _context_file_hash(source_path: str) -> str | None:
     except OSError:
         return None
     return f"sha256:{digest}"
+
+
+def find_admin_agency_aggregate_entity_issues(
+    content: str,
+    source_text: str,
+) -> list[str]:
+    """Reject executable entity rules for State-agency/FNS aggregate measures."""
+    if not (
+        _ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN.search(source_text)
+        and _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN.search(source_text)
+    ):
+        return []
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    module = payload.get("module")
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+        if status in {"deferred", "entity_not_supported"}:
+            return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    supported_entities = {entity.lower(): entity for entity in SUPPORTED_EVAL_ENTITIES}
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if not entity:
+            continue
+        if entity.lower() not in supported_entities:
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        issues.append(
+            "Unsupported administrative aggregate entity: "
+            f"`{name}` is declared on `{entity}`, but the authoritative source "
+            "defines a State agency/FNS aggregate performance, sampling, "
+            "liability, waiver, or bonus measure. Emit "
+            "`module.status: entity_not_supported` or `deferred` with "
+            "`rules: []` until RuleSpec supports that administrative entity."
+        )
+    return issues
 
 
 def _context_file_export_detail(item: EvalContextFile) -> str:

@@ -46,6 +46,7 @@ from axiom_encode.harness.evals import (
     _target_source_scope_for_heuristics,
     _wait_for_codex_process,
     evaluate_artifact,
+    find_admin_agency_aggregate_entity_issues,
     load_eval_suite_manifest,
     parse_runner_spec,
     prepare_eval_workspace,
@@ -119,6 +120,65 @@ def test_source_identifier_maps_state_manual_to_policies_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us-az/manual/des/faa5/na-child-support-expense/block-2"
     ) == Path("policies/des/faa5/na-child-support-expense/block-2.yaml")
+
+
+def test_admin_agency_aggregate_rejects_household_executable_rule():
+    source_text = (
+        "FNS shall estimate each State agency's active case, payment, and negative "
+        "case error rate. y2′ = y2 + b2(X2−x2), where X2 is the average value of "
+        "allotments underissued to participating households in the State agency "
+        "full quality control sample."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: average_allotments_underissued_active_error_rate
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 CFR 275.23(b)(2)(i)(B)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: y2 + b2 * (x2_full_sample - x2_rereview)
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert issues == [
+        "Unsupported administrative aggregate entity: "
+        "`average_allotments_underissued_active_error_rate` is declared on "
+        "`Household`, but the authoritative source defines a State agency/FNS "
+        "aggregate performance, sampling, liability, waiver, or bonus measure. "
+        "Emit `module.status: entity_not_supported` or `deferred` with "
+        "`rules: []` until RuleSpec supports that administrative entity."
+    ]
+
+
+def test_admin_agency_aggregate_allows_household_level_source():
+    source_text = (
+        "A household is eligible for SNAP if it meets the household income "
+        "standard and resource test."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/9
+rules:
+  - name: household_snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.9
+    versions:
+      - effective_from: '0001-01-01'
+        formula: household_income_eligible and household_resource_eligible
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
