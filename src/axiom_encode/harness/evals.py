@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, Callable, Iterator, Literal, Sequence
+from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
 
 import requests
 import yaml
@@ -5253,6 +5253,10 @@ def _target_source_scope_for_heuristics(
     if not fragments:
         return source_text
 
+    hierarchical_scope = _target_source_scope_by_cfr_hierarchy(source_text, fragments)
+    if hierarchical_scope is not None:
+        return hierarchical_scope
+
     start = 0
     end = len(source_text)
     search_from = 0
@@ -5281,6 +5285,141 @@ def _target_source_scope_for_heuristics(
     return source_text[start:end]
 
 
+def _target_source_scope_by_cfr_hierarchy(
+    source_text: str,
+    fragments: list[str],
+) -> str | None:
+    """Slice CFR-style parenthetical hierarchy by legal marker level.
+
+    CFR paragraphs reuse marker spellings at deeper levels, such as top-level
+    numeric ``(3)`` paragraphs and nested upper-alpha list item ``(3)`` markers.
+    A simple regex search for ``(3)`` can therefore select the wrong branch. This
+    scanner tracks the conventional CFR marker sequence:
+    lower-alpha, then numeric/lower-roman/upper-alpha repeating.
+    """
+    if any(not _cfr_marker_kind_ordinals(fragment) for fragment in fragments):
+        return None
+
+    stack: list[tuple[str, str, int]] = []
+    target = tuple(fragments)
+    target_start: int | None = None
+    target_level: int | None = None
+
+    for match in _iter_cfr_structural_markers(source_text):
+        token = match.group("token")
+        assigned = _assign_cfr_marker_level(stack, token)
+        if assigned is None:
+            continue
+        level, kind, ordinal = assigned
+        stack = stack[:level]
+        stack.append((kind, token, ordinal))
+        path = tuple(item[1] for item in stack)
+
+        if target_start is None:
+            if path == target:
+                target_start = match.start("marker")
+                target_level = level
+            continue
+
+        if target_level is not None and level <= target_level:
+            return source_text[target_start : match.start("marker")]
+
+    if target_start is not None:
+        return source_text[target_start:]
+    return None
+
+
+def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
+    """Yield parenthetical markers that appear in structural positions."""
+    marker_pattern = re.compile(r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))\s+")
+    for match in marker_pattern.finditer(source_text):
+        marker_start = match.start("marker")
+        line_start = source_text.rfind("\n", 0, marker_start) + 1
+        if not source_text[line_start:marker_start].strip():
+            yield match
+            continue
+
+        previous = match.start("marker") - 1
+        while previous >= 0 and source_text[previous].isspace():
+            previous -= 1
+        follows_spaced_marker = (
+            previous >= 0
+            and source_text[previous] == ")"
+            and marker_start > 0
+            and source_text[marker_start - 1].isspace()
+        )
+        if (
+            previous < 0
+            or source_text[previous] in "\n.;:"
+            or follows_spaced_marker
+        ):
+            yield match
+
+
+def _assign_cfr_marker_level(
+    stack: list[tuple[str, str, int]],
+    token: str,
+) -> tuple[int, str, int] | None:
+    possible = _cfr_marker_kind_ordinals(token)
+    if not possible:
+        return None
+
+    child_level = len(stack)
+    expected_child_kind = _cfr_marker_kind_for_level(child_level)
+    if expected_child_kind == "lower_roman":
+        for kind, ordinal in possible:
+            if kind == expected_child_kind:
+                return (child_level, kind, ordinal)
+
+    for level in range(len(stack) - 1, -1, -1):
+        expected_kind = _cfr_marker_kind_for_level(level)
+        for kind, ordinal in possible:
+            if kind == expected_kind and ordinal > stack[level][2]:
+                return (level, kind, ordinal)
+
+    for kind, ordinal in possible:
+        if kind == expected_child_kind:
+            return (child_level, kind, ordinal)
+    return None
+
+
+def _cfr_marker_kind_for_level(level: int) -> str:
+    if level == 0:
+        return "lower_alpha"
+    return ("numeric", "lower_roman", "upper_alpha")[(level - 1) % 3]
+
+
+def _cfr_marker_kind_ordinals(token: str) -> list[tuple[str, int]]:
+    kinds: list[tuple[str, int]] = []
+    if re.fullmatch(r"\d+", token):
+        kinds.append(("numeric", int(token)))
+    if re.fullmatch(r"[a-z]", token):
+        kinds.append(("lower_alpha", ord(token) - ord("a") + 1))
+    if re.fullmatch(r"[A-Z]", token):
+        kinds.append(("upper_alpha", ord(token) - ord("A") + 1))
+    if re.fullmatch(r"[ivxlcdm]+", token):
+        roman = _lower_roman_to_int(token)
+        if roman is not None:
+            kinds.append(("lower_roman", roman))
+    return kinds
+
+
+def _lower_roman_to_int(token: str) -> int | None:
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(token):
+        value = values.get(char)
+        if value is None:
+            return None
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+    return total or None
+
+
 def _find_structural_parenthetical_marker(
     source_text: str,
     fragment: str,
@@ -5299,9 +5438,16 @@ def _find_structural_parenthetical_marker(
     """
     pattern = _structural_parenthetical_marker_pattern(
         rf"\({re.escape(fragment)}\)",
-        allow_inline=depth > 0,
+        allow_inline=False,
     )
-    return pattern.search(source_text, start, end)
+    match = pattern.search(source_text, start, end)
+    if match or depth == 0:
+        return match
+    inline_pattern = _structural_parenthetical_marker_pattern(
+        rf"\({re.escape(fragment)}\)",
+        allow_inline=True,
+    )
+    return inline_pattern.search(source_text, start, end)
 
 
 def _find_structural_sibling_marker(
@@ -5317,9 +5463,16 @@ def _find_structural_sibling_marker(
         return None
     pattern = _structural_parenthetical_marker_pattern(
         marker,
-        allow_inline=depth > 0,
+        allow_inline=False,
     )
-    return pattern.search(source_text, start, end)
+    match = pattern.search(source_text, start, end)
+    if match or depth == 0:
+        return match
+    inline_pattern = _structural_parenthetical_marker_pattern(
+        marker,
+        allow_inline=True,
+    )
+    return inline_pattern.search(source_text, start, end)
 
 
 def _structural_parenthetical_marker_pattern(
@@ -5349,7 +5502,7 @@ def _structural_sibling_marker_fragment(fragment: str, *, depth: int) -> str | N
 
 def _is_roman_parenthetical_fragment(fragment: str, *, depth: int) -> bool:
     """Treat nested lower-case roman markers as roman, not alpha letters."""
-    return depth > 0 and re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE) is not None
+    return depth > 0 and re.fullmatch(r"[ivxlcdm]+", fragment) is not None
 
 
 def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:

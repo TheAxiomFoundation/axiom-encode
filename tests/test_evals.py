@@ -1232,6 +1232,67 @@ def test_target_source_scope_distinguishes_alpha_marker_case_by_level():
     assert "(e) State corrective action" not in negative_review
 
 
+def test_target_source_scope_treats_uppercase_alpha_as_non_roman():
+    source = "\n\n".join(
+        [
+            "(b) State agency error rates.",
+            "(2) Determination of payment error rates.",
+            "(i) FNS shall calculate regressed error rates.",
+            "(A) y1' = y1 + b1 (X1 - x1).",
+            "(B) y2' = y2 + b2 (X2 - x2).",
+            "(C) The regressed error rates are r1' = y1'/u and r2' = y2'/u.",
+            "(D) The adjusted regressed payment error rate is r1'' + r2''.",
+            "(ii) Other review steps.",
+        ]
+    )
+
+    regressed_rates = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/23/b/2/i/C",
+    )
+
+    assert regressed_rates.lstrip().startswith("(C) The regressed error rates")
+    assert "r1' = y1'/u" in regressed_rates
+    assert "adjusted regressed payment error rate" not in regressed_rates
+
+
+def test_target_source_scope_prefers_line_start_nested_markers():
+    source = "\n\n".join(
+        [
+            "(f) Good cause.",
+            "(1) Natural disasters. (i) The State agency shall document impacts.",
+            "(ii) (A) The following criteria apply:",
+            "(1) Geographic impact;",
+            "(2) Duration;",
+            "(3) The proportion of caseload affected; and/or",
+            "(4) Operational impact.",
+            "(2) Strikes.",
+            "(3) Caseload growth.",
+            "(i) A State agency may request relief for unusual caseload growth.",
+            "(ii) Criteria apply.",
+            "(iii) If information is insufficient, use this five-step calculation:",
+            "(A) Step 1--determine the base-period average.",
+            "(B) Step 2--determine the percentage increase.",
+            "(C) Step 3--determine the percentage the error rate exceeds the national performance measure.",
+            "(D) Step 4--divide the percentage increase by the percentage excess.",
+            "(E) Step 5--multiply the quotient by the liability amount.",
+            "(iv) Caseload growth of less than 15 percent is not considered.",
+            "(4) Program changes.",
+            "(g) Results of appeals.",
+        ]
+    )
+
+    step_three = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/23/f/3/iii/C",
+    )
+
+    assert step_three.lstrip().startswith("(C) Step 3")
+    assert "percentage the error rate exceeds" in step_three
+    assert "Step 4" not in step_three
+    assert "The proportion of caseload affected" not in step_three
+
+
 def test_build_eval_prompt_does_not_treat_rates_path_as_rate_only(tmp_path):
     runner = parse_runner_spec("codex:gpt-5.4")
     workspace = prepare_eval_workspace(
