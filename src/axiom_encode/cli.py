@@ -16297,6 +16297,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_judgment_conditionals = (
+                    _try_repair_generated_judgment_conditionals_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_judgment_conditionals:
+                    outcome["auto_repaired_judgment_conditionals"] = (
+                        repaired_judgment_conditionals
+                    )
+                    print(
+                        "  apply=auto_repaired_judgment_conditionals:"
+                        + ",".join(repaired_judgment_conditionals)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_deferred_source_values = (
                     _try_repair_generated_empty_deferred_source_values_for_apply(
                         result,
@@ -17705,6 +17733,24 @@ def _try_repair_generated_judgment_numeric_comparisons_for_apply(
     return _rewrite_judgment_numeric_comparisons(rules_file, names=rule_names)
 
 
+def _try_repair_generated_judgment_conditionals_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite generated inline Judgment conditionals into boolean branches."""
+    if not any(_issue_mentions_judgment_conditional_shape(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _rewrite_judgment_conditional_formulas(rules_file)
+
+
 def _try_repair_generated_boolean_parameter_inputs_for_apply(
     result,
     *,
@@ -19076,6 +19122,14 @@ def _issue_mentions_judgment_scalar_request(issue: str) -> bool:
     return "is judgment, but a scalar was requested" in str(issue).lower()
 
 
+def _issue_mentions_judgment_conditional_shape(issue: str) -> bool:
+    text = str(issue).lower()
+    return (
+        "expression shape not supported in judgment position" in text
+        and "discriminant" in text
+    )
+
+
 def _boolean_comparison_rule_names_from_issues(issues: list[str]) -> set[str]:
     names: set[str] = set()
     for issue in issues:
@@ -19778,6 +19832,151 @@ def _rewrite_judgment_numeric_comparisons(
 
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _rewrite_judgment_conditional_formulas(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip() != "Judgment":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            rewritten = _rewrite_inline_judgment_conditional_formula(formula)
+            if rewritten is None:
+                continue
+            version["formula"] = rewritten
+            rule_changed = True
+        if rule_changed:
+            repaired.append(str(rule.get("name") or "judgment_rule"))
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _rewrite_inline_judgment_conditional_formula(formula: str) -> str | None:
+    stripped = " ".join(str(formula).strip().split())
+    if not stripped.startswith("if "):
+        return None
+    branches = _inline_if_judgment_branches(stripped, [])
+    if not branches:
+        return None
+    disjuncts: list[str] = []
+    for conditions, result in branches:
+        cleaned_result = result.strip()
+        if not cleaned_result or cleaned_result.startswith("if "):
+            return None
+        terms = [*_parenthesized_condition_terms(conditions), cleaned_result]
+        disjuncts.append("(" + " and ".join(terms) + ")")
+    return "\n  or ".join(disjuncts)
+
+
+def _inline_if_judgment_branches(
+    expression: str,
+    conditions: list[str],
+) -> list[tuple[list[str], str]] | None:
+    split = _split_inline_if_expression(expression)
+    if split is None:
+        return [(conditions, expression)]
+    condition, true_branch, false_branch = split
+    true_branches = _inline_if_judgment_branches(
+        true_branch,
+        [*conditions, condition],
+    )
+    false_branches = _inline_if_judgment_branches(
+        false_branch,
+        [*conditions, f"not ({condition})"],
+    )
+    if true_branches is None or false_branches is None:
+        return None
+    return [*true_branches, *false_branches]
+
+
+def _split_inline_if_expression(expression: str) -> tuple[str, str, str] | None:
+    text = expression.strip()
+    if not text.startswith("if "):
+        return None
+    colon_index = _find_top_level_token(text, ":", start=3)
+    if colon_index is None:
+        return None
+    condition = text[3:colon_index].strip()
+    remainder = text[colon_index + 1 :].strip()
+    else_index = _find_top_level_token(remainder, " else:")
+    if else_index is None:
+        return None
+    true_branch = remainder[:else_index].strip()
+    false_branch = remainder[else_index + len(" else:") :].strip()
+    if not condition or not true_branch or not false_branch:
+        return None
+    return condition, true_branch, false_branch
+
+
+def _find_top_level_token(text: str, token: str, *, start: int = 0) -> int | None:
+    depth = 0
+    quote: str | None = None
+    index = max(start, 0)
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            depth = max(0, depth - 1)
+            index += 1
+            continue
+        if depth == 0 and text.startswith(token, index):
+            return index
+        index += 1
+    return None
+
+
+def _parenthesized_condition_terms(conditions: list[str]) -> list[str]:
+    terms: list[str] = []
+    for condition in conditions:
+        stripped = condition.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("not (") and stripped.endswith(")"):
+            terms.append(stripped)
+        else:
+            terms.append(f"({stripped})")
+    return terms
 
 
 def _rewrite_judgment_numeric_comparison_formula(
