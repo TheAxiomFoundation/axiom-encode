@@ -4184,6 +4184,85 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_removes_mapping_deferred_source_values(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "7-cfr"
+            / "275"
+            / "24"
+            / "b"
+            / "3"
+            / "i.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  status: entity_not_supported
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/24
+  deferred_outputs:
+    - output: us:regulations/7-cfr/275/24/b/3/i#high_program_access_index_bonus_states
+      reason: FNS administrative bonus selection has no State-agency entity.
+      source_values:
+        high_program_access_index_bonus_state_count: 4
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = (
+            args.policy_repo_path / "regulations/7-cfr/275/24/b/3/i.yaml"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "regulations/7-cfr/275/24/b/3/i.yaml: ci: "
+                            "module.deferred_outputs[0].source_values must list "
+                            "absolute RuleSpec targets for source-stated values "
+                            "retained for the deferred output."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_invalid_deferred_source_values:" in output
+        assert "source_values:" not in output_file.read_text()
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_deferred_source_values"] == [
+            "source_values[0]"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_rulespec_output_target_check_rejects_dict_source_values(self):
         assert _looks_like_absolute_rulespec_output_target(
             "us:statutes/26/3132/c#modified_section_110_b_aggregate_limit_amount"

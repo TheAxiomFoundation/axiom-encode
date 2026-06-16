@@ -20453,11 +20453,21 @@ def _try_repair_generated_invalid_deferred_source_values_for_apply(
     output_root: Path,
     issues: list[str],
 ) -> list[str]:
-    """Remove optional prose source_values from deferred outputs."""
+    """Remove optional invalid source_values from deferred outputs."""
     if not any(
-        "module.deferred_outputs[" in str(issue)
-        and ".source_values entry `" in str(issue)
-        and "must be an absolute RuleSpec target" in str(issue)
+        (
+            "module.deferred_outputs[" in str(issue)
+            and (
+                (
+                    ".source_values entry `" in str(issue)
+                    and "must be an absolute RuleSpec target" in str(issue)
+                )
+                or (
+                    ".source_values must list absolute RuleSpec targets"
+                    in str(issue)
+                )
+            )
+        )
         for issue in issues
     ):
         return []
@@ -20549,13 +20559,16 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
         if not isinstance(record, dict):
             continue
         source_values = record.get("source_values")
-        if not isinstance(source_values, list):
+        if source_values is None:
             continue
-        invalid_values = [
-            value
-            for value in source_values
-            if not _looks_like_absolute_rulespec_output_target(value)
-        ]
+        invalid_values = (
+            not isinstance(source_values, list)
+            or not source_values
+            or any(
+                not _looks_like_absolute_rulespec_output_target(value)
+                for value in source_values
+            )
+        )
         if not invalid_values:
             continue
         record.pop("source_values", None)
