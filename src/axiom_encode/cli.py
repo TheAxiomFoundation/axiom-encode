@@ -16095,6 +16095,21 @@ def cmd_encode(args):
                     "  apply=auto_repaired_admin_agency_aggregate_entities:"
                     + ",".join(repaired_admin_aggregate_entities)
                 )
+            repaired_parameter_only_tests = (
+                _try_repair_generated_parameter_only_companion_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_parameter_only_tests:
+                outcome["auto_repaired_parameter_only_companion_tests"] = (
+                    repaired_parameter_only_tests
+                )
+                print(
+                    "  apply=auto_repaired_parameter_only_companion_tests:"
+                    + ",".join(repaired_parameter_only_tests)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -20912,6 +20927,83 @@ def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
         test_file.write_text("[]\n")
 
     return [str(record["output"]) for record in deferred_outputs]
+
+
+def _try_repair_generated_parameter_only_companion_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Empty generated tests that only assert local parameter constants."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        return []
+    parameter_names = _parameter_only_rule_names(rules_file)
+    if not parameter_names:
+        return []
+    try:
+        cases = _load_rulespec_test_cases(test_file)
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not cases:
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    repaired_cases: list[str] = []
+    for index, case in enumerate(cases, 1):
+        if not isinstance(case, dict):
+            return []
+        outputs = case.get("output")
+        if not isinstance(outputs, dict) or not outputs:
+            return []
+        for key in outputs:
+            key_text = str(key)
+            if not key_text.startswith(f"{target_base}#"):
+                return []
+            if _rulespec_test_key_fragment(key_text) not in parameter_names:
+                return []
+        repaired_cases.append(str(case.get("name") or f"case_{index}"))
+    if not repaired_cases:
+        return []
+    test_file.write_text("[]\n")
+    return repaired_cases
+
+
+def _parameter_only_rule_names(rules_file: Path) -> set[str]:
+    if not rules_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            return set()
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            return set()
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            return set()
+        names.add(name)
+    return names
 
 
 def _try_repair_generated_nonoperative_source_coverage_for_apply(

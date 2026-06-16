@@ -109,6 +109,7 @@ from axiom_encode.cli import (
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
+    _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
@@ -12971,6 +12972,64 @@ rules:
             }
         ]
         assert payload["rules"] == []
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_parameter_only_companion_test_repair_empties_parameter_outputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "codex-gpt-5.5"
+            / "regulations/7-cfr/275/23/e/1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: program_administration_investment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 0.5
+  - name: at_risk_repayment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 0.5
+"""
+        )
+        test_file.write_text(
+            """- name: liability_percentage_caps
+  period: 2026
+  input: {}
+  output:
+    us:regulations/7-cfr/275/23/e/1#program_administration_investment_liability_cap_rate: 0.5
+    us:regulations/7-cfr/275/23/e/1#at_risk_repayment_liability_cap_rate: 0.5
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_parameter_only_companion_tests_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        assert repaired == ["liability_percentage_caps"]
         assert yaml.safe_load(test_file.read_text()) == []
 
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):

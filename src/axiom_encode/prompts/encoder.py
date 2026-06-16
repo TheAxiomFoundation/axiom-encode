@@ -836,10 +836,13 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
-- Every local executable `kind: parameter` and `kind: derived` rule must appear
-  at least once under an `output:` block in the companion `.test.yaml`; do not
-  leave scalar parameters, helper parameters, or helper derived rules
-  unasserted.
+- Every local executable `kind: derived` or `kind: derived_relation` rule must
+  appear at least once under an `output:` block in the companion `.test.yaml`;
+  do not leave helper derived rules unasserted.
+- Do not assert raw `kind: parameter` rules directly in companion test
+  `output:` blocks. Cover parameters through derived outputs that consume them.
+  If a module only contains parameters and has no derived output to assert,
+  leave the companion test file empty.
 - Never emit a concrete test case with `output: {}` or an empty `output` map.
   If no executable output can be asserted, leave the test file empty instead of
   adding placeholder cases.
