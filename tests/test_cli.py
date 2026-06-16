@@ -99,6 +99,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
@@ -5025,6 +5026,55 @@ rules:
             == 3
         )
         assert len(derived["metadata"]["proof"]["atoms"]) == 1
+
+    def test_bare_snapunit_entity_repair_scopes_assistance_group_to_household(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies" / "fl.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-fl/manual/example
+  source_text: |-
+    The assistance group's monthly benefit is based on net monthly income.
+rules:
+- name: monthly_benefit
+  kind: derived
+  entity: SnapUnit
+  dtype: Money
+  period: Month
+  source: Florida ESS manual
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          excerpt: assistance group's monthly benefit
+  versions:
+  - effective_from: '0001-01-01'
+    formula: maximum_benefit - income_reduction
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_bare_snapunit_entity_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "Filtered entity dependency missing: `monthly_benefit` uses "
+                "`entity: SnapUnit`, but this RuleSpec file does not declare "
+                "`SnapUnit` with a `kind: derived_relation` rule or import its "
+                "declaring relation (`snap_unit`)."
+            ],
+        )
+
+        assert repaired == ["monthly_benefit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["entity"] == "Household"
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
