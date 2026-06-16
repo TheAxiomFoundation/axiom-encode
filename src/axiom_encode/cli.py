@@ -16360,6 +16360,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_judgment_conditionals = (
+                    _try_repair_generated_judgment_conditionals_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_judgment_conditionals:
+                    outcome["auto_repaired_judgment_conditionals"] = (
+                        repaired_judgment_conditionals
+                    )
+                    print(
+                        "  apply=auto_repaired_judgment_conditionals:"
+                        + ",".join(repaired_judgment_conditionals)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_deferred_source_values = (
                     _try_repair_generated_empty_deferred_source_values_for_apply(
                         result,
@@ -16684,21 +16712,57 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_embedded_scalar_literals = (
-                    _try_repair_generated_embedded_scalar_literals_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_embedded_scalar_literals: list[str] = []
+                while not can_apply:
+                    repaired_scalar_pass = (
+                        _try_repair_generated_embedded_scalar_literals_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_embedded_scalar_literals:
+                    if not repaired_scalar_pass:
+                        break
+                    repaired_embedded_scalar_literals.extend(repaired_scalar_pass)
                     outcome["auto_repaired_embedded_scalar_literals"] = (
                         repaired_embedded_scalar_literals
                     )
                     print(
                         "  apply=auto_repaired_embedded_scalar_literals:"
-                        + ",".join(repaired_embedded_scalar_literals)
+                        + ",".join(repaired_scalar_pass)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_bare_snapunit_entities: list[str] = []
+                while not can_apply:
+                    repaired_snapunit_pass = (
+                        _try_repair_generated_bare_snapunit_entity_for_apply(
+                            result,
+                            output_root=args.output,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_snapunit_pass:
+                        break
+                    repaired_bare_snapunit_entities.extend(repaired_snapunit_pass)
+                    outcome["auto_repaired_bare_snapunit_entity"] = (
+                        repaired_bare_snapunit_entities
+                    )
+                    print(
+                        "  apply=auto_repaired_bare_snapunit_entity:"
+                        + ",".join(repaired_snapunit_pass)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -17732,6 +17796,24 @@ def _try_repair_generated_judgment_numeric_comparisons_for_apply(
     return _rewrite_judgment_numeric_comparisons(rules_file, names=rule_names)
 
 
+def _try_repair_generated_judgment_conditionals_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite generated inline Judgment conditionals into boolean branches."""
+    if not any(_issue_mentions_judgment_conditional_shape(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _rewrite_judgment_conditional_formulas(rules_file)
+
+
 def _try_repair_generated_boolean_parameter_inputs_for_apply(
     result,
     *,
@@ -17825,6 +17907,130 @@ def _embedded_scalar_literal_issue_records(
             continue
         records.append(match.groupdict())
     return records
+
+
+def _try_repair_generated_bare_snapunit_entity_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Scope generated assistance-group rules to Household when SnapUnit is undeclared."""
+    records = _bare_snapunit_entity_issue_records(issues)
+    if not records:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        content = rules_file.read_text()
+        payload = yaml.safe_load(content) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    if _declares_or_imports_snapunit_relation(payload):
+        return []
+    source_text_value = extract_embedded_source_text(content)
+    if not source_text_value:
+        module = payload.get("module")
+        if isinstance(module, dict):
+            fallback_source_text = module.get("source_text")
+            if isinstance(fallback_source_text, str):
+                source_text_value = fallback_source_text
+    source_text = (source_text_value or "").lower()
+    if "snapunit" in source_text or "snap unit" in source_text:
+        return []
+    if "assistance group" not in source_text and "household" not in source_text:
+        return []
+
+    requested_names = {record["rule"] for record in records}
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("entity") or "").strip() != "SnapUnit":
+            continue
+        if name not in requested_names and not _rule_mentions_assistance_group(rule):
+            continue
+        rule["entity"] = "Household"
+        repaired.append(name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _bare_snapunit_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"Filtered entity dependency missing:\s+"
+        r"`(?P<rule>[A-Za-z_][A-Za-z0-9_]*)`\s+uses\s+`entity:\s+SnapUnit`"
+    )
+    for issue in issues:
+        match = pattern.search(issue)
+        if match is None:
+            continue
+        records.append(match.groupdict())
+    return records
+
+
+def _declares_or_imports_snapunit_relation(payload: dict[str, Any]) -> bool:
+    imports = payload.get("imports")
+    if isinstance(imports, list):
+        for item in imports:
+            if isinstance(item, str) and item.rsplit("#", 1)[-1].strip() == "snap_unit":
+                return True
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived_relation":
+            continue
+        relation = rule.get("derived_relation")
+        if not isinstance(relation, dict):
+            continue
+        if str(relation.get("entity") or "").strip() == "SnapUnit":
+            return True
+    return False
+
+
+def _rule_mentions_assistance_group(rule: dict[str, Any]) -> bool:
+    text_parts: list[str] = []
+    for key in ("name", "source"):
+        value = rule.get(key)
+        if isinstance(value, str):
+            text_parts.append(value)
+    proof = rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str):
+                text_parts.append(excerpt)
+    haystack = " ".join(text_parts).lower()
+    return "assistance_group" in haystack or "assistance group" in haystack
 
 
 def _extract_embedded_scalar_literal_record(
@@ -17999,6 +18205,7 @@ def _source_atom_for_embedded_scalar_parameter(
 ) -> dict[str, Any]:
     proof = source_rule.get("metadata", {}).get("proof")
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    fallback_source: dict[str, Any] | None = None
     if isinstance(atoms, list):
         for atom in atoms:
             if not isinstance(atom, dict):
@@ -18006,6 +18213,8 @@ def _source_atom_for_embedded_scalar_parameter(
             source = atom.get("source")
             if not isinstance(source, dict):
                 continue
+            if fallback_source is None:
+                fallback_source = dict(source)
             excerpt = source.get("excerpt")
             if isinstance(excerpt, str) and literal in excerpt:
                 return {
@@ -18013,6 +18222,12 @@ def _source_atom_for_embedded_scalar_parameter(
                     "kind": "parameter",
                     "source": dict(source),
                 }
+    if fallback_source is not None:
+        return {
+            "path": "versions[0].formula",
+            "kind": "parameter",
+            "source": fallback_source,
+        }
     return {
         "path": "versions[0].formula",
         "kind": "parameter",
@@ -18970,6 +19185,14 @@ def _issue_mentions_judgment_scalar_request(issue: str) -> bool:
     return "is judgment, but a scalar was requested" in str(issue).lower()
 
 
+def _issue_mentions_judgment_conditional_shape(issue: str) -> bool:
+    text = str(issue).lower()
+    return (
+        "expression shape not supported in judgment position" in text
+        and "discriminant" in text
+    )
+
+
 def _boolean_comparison_rule_names_from_issues(issues: list[str]) -> set[str]:
     names: set[str] = set()
     for issue in issues:
@@ -19672,6 +19895,151 @@ def _rewrite_judgment_numeric_comparisons(
 
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _rewrite_judgment_conditional_formulas(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip() != "Judgment":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            rewritten = _rewrite_inline_judgment_conditional_formula(formula)
+            if rewritten is None:
+                continue
+            version["formula"] = rewritten
+            rule_changed = True
+        if rule_changed:
+            repaired.append(str(rule.get("name") or "judgment_rule"))
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _rewrite_inline_judgment_conditional_formula(formula: str) -> str | None:
+    stripped = " ".join(str(formula).strip().split())
+    if not stripped.startswith("if "):
+        return None
+    branches = _inline_if_judgment_branches(stripped, [])
+    if not branches:
+        return None
+    disjuncts: list[str] = []
+    for conditions, result in branches:
+        cleaned_result = result.strip()
+        if not cleaned_result or cleaned_result.startswith("if "):
+            return None
+        terms = [*_parenthesized_condition_terms(conditions), cleaned_result]
+        disjuncts.append("(" + " and ".join(terms) + ")")
+    return "\n  or ".join(disjuncts)
+
+
+def _inline_if_judgment_branches(
+    expression: str,
+    conditions: list[str],
+) -> list[tuple[list[str], str]] | None:
+    split = _split_inline_if_expression(expression)
+    if split is None:
+        return [(conditions, expression)]
+    condition, true_branch, false_branch = split
+    true_branches = _inline_if_judgment_branches(
+        true_branch,
+        [*conditions, condition],
+    )
+    false_branches = _inline_if_judgment_branches(
+        false_branch,
+        [*conditions, f"not ({condition})"],
+    )
+    if true_branches is None or false_branches is None:
+        return None
+    return [*true_branches, *false_branches]
+
+
+def _split_inline_if_expression(expression: str) -> tuple[str, str, str] | None:
+    text = expression.strip()
+    if not text.startswith("if "):
+        return None
+    colon_index = _find_top_level_token(text, ":", start=3)
+    if colon_index is None:
+        return None
+    condition = text[3:colon_index].strip()
+    remainder = text[colon_index + 1 :].strip()
+    else_index = _find_top_level_token(remainder, " else:")
+    if else_index is None:
+        return None
+    true_branch = remainder[:else_index].strip()
+    false_branch = remainder[else_index + len(" else:") :].strip()
+    if not condition or not true_branch or not false_branch:
+        return None
+    return condition, true_branch, false_branch
+
+
+def _find_top_level_token(text: str, token: str, *, start: int = 0) -> int | None:
+    depth = 0
+    quote: str | None = None
+    index = max(start, 0)
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            depth = max(0, depth - 1)
+            index += 1
+            continue
+        if depth == 0 and text.startswith(token, index):
+            return index
+        index += 1
+    return None
+
+
+def _parenthesized_condition_terms(conditions: list[str]) -> list[str]:
+    terms: list[str] = []
+    for condition in conditions:
+        stripped = condition.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("not (") and stripped.endswith(")"):
+            terms.append(stripped)
+        else:
+            terms.append(f"({stripped})")
+    return terms
 
 
 def _rewrite_judgment_numeric_comparison_formula(
@@ -20896,9 +21264,9 @@ def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
                 "reason": (
                     "The source defines a State agency/FNS aggregate "
                     "performance, sampling, liability, waiver, or bonus "
-                    "measure. The supported RuleSpec entity set does not "
-                    "include the administrative entity needed to encode this "
-                    "as an executable rule."
+                    "measure, but the generated output was scoped to a "
+                    "household/person/tax/payment-style entity rather than "
+                    "the source-stated administrative entity."
                 ),
             }
         )

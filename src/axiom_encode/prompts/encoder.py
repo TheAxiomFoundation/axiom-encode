@@ -100,21 +100,25 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   and similar administrative aggregates are not household benefit rules merely
   because they mention household cases, allotments, or SNAP participation. Do
   not put those outputs on `Household`, `Person`, `TaxUnit`, or another
-  supported benefit-unit entity. If the source defines a State agency/FNS
-  aggregate measure and the supported ontology has no StateAgency/FNS review
-  entity for it, defer that aggregate output. If the same source also states
-  independent amounts, rates, thresholds, caps, or limits, retain those scalar
-  legal values as `kind: parameter` rules and add `module.deferred_outputs[]`
-  for only the unsupported aggregate output. Do not drop source-stated scalar
-  legal values solely because the surrounding administrative aggregate is
-  unsupported. For a pure unsupported administrative surface with no retained
-  scalar or source-relation rules, emit `module.status: entity_not_supported`
-  or `deferred` with `rules: []` and a concrete `module.deferred_outputs[]`
-  record.
+  benefit-unit entity. If the source states a State-agency administrative
+  amount, rate, liability, waiver, bonus, quality-control statistic, or
+  reporting measure, encode it on a source-stated administrative entity such as
+  `StateAgency`. If the source defines a national fiscal-year aggregate across
+  State agencies, use a source-stated administrative aggregate entity such as
+  `SnapQualityControlFiscalYear` and a relation to StateAgency rows when the
+  formula needs per-State-agency inputs. Introduce a new singular PascalCase
+  entity when the legal subject is outside the existing household/person/tax/
+  benefit-unit ontology and the source gives an executable formula using local
+  facts, parameters, imports, or relation inputs. Defer only when the legal
+  surface cannot be represented faithfully even with a source-stated entity and
+  semantic boundary inputs. Do not drop source-stated scalar legal values
+  solely because the surrounding administrative aggregate has deferred pieces.
 - Bonus award money and bonus-payment spending restrictions are part of that
   administrative surface. If the source says bonus money may be used only for
   SNAP-related expenses or may not be used for household benefits or incentive
-  payments, do not invent a `Payment` entity rule; defer the output.
+  payments, do not invent a household-benefit or generic `Payment` rule unless
+  the source is genuinely per payment. Prefer the source-stated administrative
+  entity, usually `StateAgency` or a narrow award/fund entity.
 - When a definition uses "taxpayer" but also says the amount is "of an
   individual" or applies exclusions for services, income, payments, or statuses
   of an individual/person/employee/member, encode those components on `Person`.
@@ -353,8 +357,9 @@ _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
   membership in a derived legal unit by filtering a source relation through a
   stated predicate. "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
-  or `Person`, and merely references a program-specific concept without defining
-  who belongs to it, stay on the source-stated structural entity.
+  `Person`, or a source-stated administrative or organizational entity such as
+  `StateAgency`, and merely references a program-specific concept without
+  defining who belongs to it, stay on the source-stated structural entity.
 - For source text that imposes an amount, tax, credit, or limitation on each,
   every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
   merely because the output is tax-related.

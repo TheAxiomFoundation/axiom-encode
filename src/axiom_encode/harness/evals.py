@@ -103,7 +103,15 @@ SUPPORTED_EVAL_ENTITIES = (
     "Business",
     "Employer",
     "Asset",
+    "StateAgency",
 )
+ADMINISTRATIVE_EVAL_ENTITIES = {
+    "stateagency",
+    "snapqualitycontrolfiscalyear",
+    "administrativeclaim",
+    "stateagencyappeal",
+    "bonusaward",
+}
 SUPPORTED_EVAL_PERIODS = ("Year", "Month", "Week", "Day")
 SUPPORTED_EVAL_DTYPES = (
     "Money",
@@ -4311,8 +4319,14 @@ RuleSpec requirements:
   increase plus the base, not the unrounded total. For example, with base
   15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
   and the total is 17300, not 17325.
-- Do not invent new entities, periods, or dtypes.
-- Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
+- Do not invent arbitrary entities. Use existing standard entities when they
+  match the source-stated legal subject. If the source states a legal subject
+  outside the standard benefit/tax/person ontology, introduce a narrow singular
+  PascalCase entity for that subject, such as `StateAgency` for State-agency
+  SNAP administration or `SnapQualityControlFiscalYear` for a national SNAP QC
+  fiscal-year aggregate. Do not use a generic `State`, row-index, or
+  household/person/tax-unit entity for administrative aggregates.
+- Standard `entity:` examples are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
 - Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
@@ -6368,23 +6382,27 @@ def find_admin_agency_aggregate_entity_issues(
         return []
 
     issues: list[str] = []
-    supported_entities = {entity.lower(): entity for entity in SUPPORTED_EVAL_ENTITIES}
+    standard_entities = {entity.lower(): entity for entity in SUPPORTED_EVAL_ENTITIES}
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             continue
         entity = str(rule.get("entity") or "").strip()
         if not entity:
             continue
-        if entity.lower() not in supported_entities:
+        normalized_entity = entity.lower()
+        if normalized_entity in ADMINISTRATIVE_EVAL_ENTITIES:
+            continue
+        if normalized_entity not in standard_entities:
             continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
             f"`{name}` is declared on `{entity}`, but the authoritative source "
             "defines a State agency/FNS aggregate performance, sampling, "
-            "liability, waiver, or bonus measure. Emit "
-            "`module.status: entity_not_supported` or `deferred` with "
-            "`rules: []` until RuleSpec supports that administrative entity."
+            "liability, waiver, or bonus measure. Use a source-stated "
+            "administrative entity such as `StateAgency` instead of a "
+            "household/person/tax/payment entity, or defer only if the "
+            "administrative surface still cannot be represented faithfully."
         )
     return issues
 
@@ -7307,10 +7325,36 @@ def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:
         source_length = 0
     if source_length >= _CODEX_LONG_SOURCE_CHAR_THRESHOLD:
         return (
-            _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
-            _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+            _positive_int_env(
+                "AXIOM_ENCODE_CODEX_LONG_TIMEOUT_SECONDS",
+                _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
+            ),
+            _positive_int_env(
+                "AXIOM_ENCODE_CODEX_LONG_IDLE_TIMEOUT_SECONDS",
+                _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+            ),
         )
-    return (_CODEX_DEFAULT_TIMEOUT_SECONDS, _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS)
+    return (
+        _positive_int_env(
+            "AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS",
+            _CODEX_DEFAULT_TIMEOUT_SECONDS,
+        ),
+        _positive_int_env(
+            "AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS",
+            _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS,
+        ),
+    )
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def _wait_for_codex_process(

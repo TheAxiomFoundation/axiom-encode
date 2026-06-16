@@ -152,8 +152,9 @@ rules:
         "`average_allotments_underissued_active_error_rate` is declared on "
         "`Household`, but the authoritative source defines a State agency/FNS "
         "aggregate performance, sampling, liability, waiver, or bonus measure. "
-        "Emit `module.status: entity_not_supported` or `deferred` with "
-        "`rules: []` until RuleSpec supports that administrative entity."
+        "Use a source-stated administrative entity such as `StateAgency` "
+        "instead of a household/person/tax/payment entity, or defer only if the "
+        "administrative surface still cannot be represented faithfully."
     ]
 
 
@@ -185,9 +186,35 @@ rules:
         "`bonus_payment_may_be_used_for_household_benefits` is declared on "
         "`Payment`, but the authoritative source defines a State agency/FNS "
         "aggregate performance, sampling, liability, waiver, or bonus measure. "
-        "Emit `module.status: entity_not_supported` or `deferred` with "
-        "`rules: []` until RuleSpec supports that administrative entity."
+        "Use a source-stated administrative entity such as `StateAgency` "
+        "instead of a household/person/tax/payment entity, or defer only if the "
+        "administrative surface still cannot be represented faithfully."
     ]
+
+
+def test_admin_agency_aggregate_allows_state_agency_entity():
+    source_text = (
+        "The amount of the liability shall be equal to the product of the value "
+        "of all allotments issued by the State agency, the difference between "
+        "the State agency's payment error rate and 6 percent, and 10 percent."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: StateAgency
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(d)(2)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: all_allotments_issued_by_state_agency * (state_agency_payment_error_rate - 0.06) * 0.10
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
 def test_admin_agency_aggregate_allows_household_level_source():
@@ -2540,6 +2567,38 @@ def test_codex_prompt_timeouts_use_default_for_short_source(tmp_path):
     assert _codex_prompt_timeouts(workspace) == (600, 300)
 
 
+def test_codex_prompt_timeouts_use_env_for_short_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS", "30")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2012",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="short source",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (90, 30)
+
+
+def test_codex_prompt_timeouts_ignore_invalid_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS", "not-a-number")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS", "0")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2012",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="short source",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (600, 300)
+
+
 def test_codex_prompt_timeouts_use_long_limits_for_large_source(tmp_path):
     workspace = prepare_eval_workspace(
         citation="us/statute/7/2014",
@@ -2552,6 +2611,22 @@ def test_codex_prompt_timeouts_use_long_limits_for_large_source(tmp_path):
     )
 
     assert _codex_prompt_timeouts(workspace) == (1800, 900)
+
+
+def test_codex_prompt_timeouts_use_long_env_for_large_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_LONG_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_LONG_IDLE_TIMEOUT_SECONDS", "60")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2014",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="x" * 40000,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (240, 60)
 
 
 def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_path):
@@ -4836,12 +4911,13 @@ class TestEvalPrompt:
             include_tests=True,
         )
 
-        assert "Do not invent new entities, periods, or dtypes." in prompt
+        assert "Do not invent arbitrary entities." in prompt
         assert (
-            "Allowed `entity:` values are `Payment`, `Person`, `TaxUnit`, `Household`, "
+            "Standard `entity:` examples are `Payment`, `Person`, `TaxUnit`, `Household`, "
             "`Family`, `TanfUnit`, `SnapUnit`, `SPMUnit`, `Corporation`, `Business`, "
-            "`Employer`, `Asset`."
+            "`Employer`, `Asset`, `StateAgency`."
         ) in prompt
+        assert "introduce a narrow singular" in prompt
         assert "Allowed `period:` values are `Year`, `Month`, `Week`, `Day`." in prompt
         assert "do not use ISO week shorthands like `2025-W01`" in prompt
         assert (

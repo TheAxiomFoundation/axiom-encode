@@ -91,6 +91,7 @@ from axiom_encode.cli import (
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
+    _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
     _scoped_source_text_for_encode_source_id,
     _sha256_file,
@@ -101,10 +102,12 @@ from axiom_encode.cli import (
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
+    _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
+    _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
@@ -5007,6 +5010,53 @@ rules:
             "us-tn:regulations/block-1#snap_standard_deduction_max_household_size"
         )
 
+    def test_embedded_scalar_literal_repair_falls_back_to_source_atom(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies" / "fl.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: maximum_food_assistance_benefit
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Appendix A-1, Maximum Benefit Effective October 1, 2025
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-fl/manual/example
+          excerpt: Maximum Benefit Effective October 1, 2025; Each Additional Member Add +$218
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "if assistance_group_size <= 10: maximum_food_assistance_benefit_table[assistance_group_size] else: maximum_food_assistance_benefit_table[10]"
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-fl",
+            issues=[
+                "Embedded scalar literal: maximum_food_assistance_benefit line 10 "
+                "embeds 10 in `assistance_group_size <= 10`; extract the value "
+                "to its own named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["maximum_food_assistance_benefit_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][0]
+        assert parameter["name"] == "maximum_food_assistance_benefit_scalar_limit"
+        atom = parameter["metadata"]["proof"]["atoms"][0]
+        assert atom["source"]["corpus_citation_path"] == "us-fl/manual/example"
+        assert "Maximum Benefit Effective" in atom["source"]["excerpt"]
+
     def test_embedded_scalar_literal_repair_replaces_repeated_expression_literals(
         self, tmp_path
     ):
@@ -5131,6 +5181,55 @@ rules:
             == 3
         )
         assert len(derived["metadata"]["proof"]["atoms"]) == 1
+
+    def test_bare_snapunit_entity_repair_scopes_assistance_group_to_household(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies" / "fl.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-fl/manual/example
+  source_text: |-
+    The assistance group's monthly benefit is based on net monthly income.
+rules:
+- name: monthly_benefit
+  kind: derived
+  entity: SnapUnit
+  dtype: Money
+  period: Month
+  source: Florida ESS manual
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          excerpt: assistance group's monthly benefit
+  versions:
+  - effective_from: '0001-01-01'
+    formula: maximum_benefit - income_reduction
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_bare_snapunit_entity_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "Filtered entity dependency missing: `monthly_benefit` uses "
+                "`entity: SnapUnit`, but this RuleSpec file does not declare "
+                "`SnapUnit` with a `kind: derived_relation` rule or import its "
+                "declaring relation (`snap_unit`)."
+            ],
+        )
+
+        assert repaired == ["monthly_benefit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["entity"] == "Household"
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
@@ -6315,6 +6414,68 @@ rules:
         )
         assert payload["rules"][1]["versions"][0]["formula"] == (
             "if other_status == 0: 0 else: 100"
+        )
+
+    def test_rewrite_judgment_conditionals_updates_formula(self, tmp_path):
+        rules_file = tmp_path / "snap.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: assistance_group_passes_required_income_test
+  kind: derived
+  entity: SnapUnit
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if standard_filing_unit_is_broad_based_categorically_eligible: standard_filing_unit_meets_broad_based_categorical_gross_income_limit else: if assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible: assistance_group_meets_net_income_limit else: assistance_group_meets_gross_income_test'
+"""
+        )
+
+        repaired = _rewrite_judgment_conditional_formulas(rules_file)
+
+        assert repaired == ["assistance_group_passes_required_income_test"]
+        payload = yaml.safe_load(rules_file.read_text())
+        formula = payload["rules"][0]["versions"][0]["formula"]
+        assert (
+            formula
+            == "((standard_filing_unit_is_broad_based_categorically_eligible) and standard_filing_unit_meets_broad_based_categorical_gross_income_limit)\n"
+            "  or (not (standard_filing_unit_is_broad_based_categorically_eligible) and (assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible) and assistance_group_meets_net_income_limit)\n"
+            "  or (not (standard_filing_unit_is_broad_based_categorically_eligible) and not (assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible) and assistance_group_meets_gross_income_test)"
+        )
+
+    def test_judgment_conditional_repair_uses_discriminant_issue(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "snap.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: required_income_test
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if broad_based_categorically_eligible: bbce_income_test else: regular_income_test'
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_judgment_conditionals_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "formula lower error: expression shape not supported in judgment position: Discriminant(10)"
+            ],
+        )
+
+        assert repaired == ["required_income_test"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "((broad_based_categorically_eligible) and bbce_income_test)\n"
+            "  or (not (broad_based_categorically_eligible) and regular_income_test)"
         )
 
     def test_judgment_numeric_comparison_repair_skips_non_truth_decimals(
@@ -12961,9 +13122,9 @@ rules:
                 "reason": (
                     "The source defines a State agency/FNS aggregate "
                     "performance, sampling, liability, waiver, or bonus "
-                    "measure. The supported RuleSpec entity set does not "
-                    "include the administrative entity needed to encode this "
-                    "as an executable rule."
+                    "measure, but the generated output was scoped to a "
+                    "household/person/tax/payment-style entity rather than "
+                    "the source-stated administrative entity."
                 ),
             }
         ]
