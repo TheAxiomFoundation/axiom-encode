@@ -6277,6 +6277,8 @@ def _canonical_rulespec_target(
     relative = rules_file.resolve().relative_to(repo_root.resolve())
     if relative.suffix in {".yaml", ".yml"}:
         relative = relative.with_suffix("")
+    if relative.parts and relative.parts[0] == prefix:
+        relative = Path(*relative.parts[1:])
     return f"{prefix}:{relative.as_posix()}#{symbol}"
 
 
