@@ -91,6 +91,7 @@ from axiom_encode.cli import (
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
+    _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
     _sha256_file,
     _sha256_text,
@@ -104,6 +105,7 @@ from axiom_encode.cli import (
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
+    _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
@@ -6306,6 +6308,68 @@ rules:
         )
         assert payload["rules"][1]["versions"][0]["formula"] == (
             "if other_status == 0: 0 else: 100"
+        )
+
+    def test_rewrite_judgment_conditionals_updates_formula(self, tmp_path):
+        rules_file = tmp_path / "snap.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: assistance_group_passes_required_income_test
+  kind: derived
+  entity: SnapUnit
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if standard_filing_unit_is_broad_based_categorically_eligible: standard_filing_unit_meets_broad_based_categorical_gross_income_limit else: if assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible: assistance_group_meets_net_income_limit else: assistance_group_meets_gross_income_test'
+"""
+        )
+
+        repaired = _rewrite_judgment_conditional_formulas(rules_file)
+
+        assert repaired == ["assistance_group_passes_required_income_test"]
+        payload = yaml.safe_load(rules_file.read_text())
+        formula = payload["rules"][0]["versions"][0]["formula"]
+        assert (
+            formula
+            == "((standard_filing_unit_is_broad_based_categorically_eligible) and standard_filing_unit_meets_broad_based_categorical_gross_income_limit)\n"
+            "  or (not (standard_filing_unit_is_broad_based_categorically_eligible) and (assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible) and assistance_group_meets_net_income_limit)\n"
+            "  or (not (standard_filing_unit_is_broad_based_categorically_eligible) and not (assistance_group_contains_elderly_or_disabled_member_and_is_not_categorically_eligible) and assistance_group_meets_gross_income_test)"
+        )
+
+    def test_judgment_conditional_repair_uses_discriminant_issue(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "snap.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: required_income_test
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if broad_based_categorically_eligible: bbce_income_test else: regular_income_test'
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_judgment_conditionals_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "formula lower error: expression shape not supported in judgment position: Discriminant(10)"
+            ],
+        )
+
+        assert repaired == ["required_income_test"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "((broad_based_categorically_eligible) and bbce_income_test)\n"
+            "  or (not (broad_based_categorically_eligible) and regular_income_test)"
         )
 
     def test_judgment_numeric_comparison_repair_skips_non_truth_decimals(
