@@ -3934,6 +3934,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars when it fits the local schema, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges. The numeric invariant is the named concept: source-stated amounts, rates, thresholds, caps, limits, and table/grid cells should be named so consuming formulas can reference names instead of embedding literals.
+- This numeric invariant applies in mixed deferred or entity-unsupported provisions too. Defer the unsupported output under `module.deferred_outputs[]`, but keep any independent source-stated scalar legal values as `kind: parameter` rules rather than dropping them into prose.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Store source-stated row bounds as private named bound concepts or private indexed table/grid bound columns, and have the selector reference those names while returning integer band ids. If interpolation or clamping needs the active row bounds before native interval-table support exists, store lower/upper bounds as private indexed parameter columns and reference those names in derived formulas; do not repeat bound literals outside the selector. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
 - Do not treat the final interval row as open-ended unless the source row is actually open-ended. If the last source row has an upper bound, the selector must return an out-of-table sentinel above that bound and the principal output must handle that sentinel. Include a companion test above the final bounded row so the generated artifact cannot silently extend the table.
 - The out-of-table sentinel is not itself a source table row. Do not add sentinel entries to indexed parameter tables and do not clamp sentinel cases to the final table row's values. Handle the sentinel before table lookups, using the existing target's source-grounded out-of-range branch when repairing an existing artifact. Use a negative sentinel such as `-1`; do not use the next positive band id such as `6` merely because there are six legal rows, because that positive id is not source-stated and will fail numeric grounding.
@@ -4093,6 +4094,9 @@ RuleSpec requirements:
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  If those scalar legal values are independently encoded as `kind: parameter`
+  rules in the same file, do not also demote them to prose or rely on
+  `source_values` instead.
   Treat category membership phrases such as `person described in section X`,
   `organization described in section X`, or `service described in section X` as
   factual boundary predicates when the current source states the legal effect.
@@ -4456,10 +4460,13 @@ RuleSpec requirements:
   untested just because another negative case toggles a different gate.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
-- Every local executable `kind: parameter` and `kind: derived` rule must appear
-  at least once under an `output:` block in the companion `.test.yaml`; do not
-  leave scalar parameters, helper parameters, or helper derived rules
-  unasserted.
+- Every local executable `kind: derived` or `kind: derived_relation` rule must
+  appear at least once under an `output:` block in the companion `.test.yaml`;
+  do not leave helper derived rules unasserted.
+- Do not assert raw `kind: parameter` rules directly in companion test
+  `output:` blocks. Cover parameters through derived outputs that consume them.
+  If a module only contains parameters and has no derived output to assert,
+  leave the companion test file empty.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If
   a module defines outputs on multiple entities, create separate cases for each
   entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or

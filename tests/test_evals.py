@@ -9446,9 +9446,10 @@ class TestSourceEval:
         assert "mirror the imported file's companion test pattern" in prompt
         assert "Never turn an imported derived rule into a fabricated" in prompt
         assert (
-            "Every local executable `kind: parameter` and `kind: derived` rule"
+            "Every local executable `kind: derived` or `kind: derived_relation` rule"
             in prompt
         )
+        assert "Do not assert raw `kind: parameter` rules directly" in prompt
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (

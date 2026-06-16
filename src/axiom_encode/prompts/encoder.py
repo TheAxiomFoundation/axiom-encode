@@ -102,8 +102,15 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   not put those outputs on `Household`, `Person`, `TaxUnit`, or another
   supported benefit-unit entity. If the source defines a State agency/FNS
   aggregate measure and the supported ontology has no StateAgency/FNS review
-  entity for it, emit `module.status: entity_not_supported` or `deferred` with
-  `rules: []` and a concrete `module.deferred_outputs[]` record.
+  entity for it, defer that aggregate output. If the same source also states
+  independent amounts, rates, thresholds, caps, or limits, retain those scalar
+  legal values as `kind: parameter` rules and add `module.deferred_outputs[]`
+  for only the unsupported aggregate output. Do not drop source-stated scalar
+  legal values solely because the surrounding administrative aggregate is
+  unsupported. For a pure unsupported administrative surface with no retained
+  scalar or source-relation rules, emit `module.status: entity_not_supported`
+  or `deferred` with `rules: []` and a concrete `module.deferred_outputs[]`
+  record.
 - Bonus award money and bonus-payment spending restrictions are part of that
   administrative surface. If the source says bonus money may be used only for
   SNAP-related expenses or may not be used for household benefits or incentive
@@ -230,6 +237,10 @@ Hard requirements:
   it fits the local schema, but the invariant is the named concept: consuming
   formulas reference that name, so the concept can later change from a direct
   scalar to a computed formula without rewriting every consumer.
+- This applies in mixed deferred or entity-unsupported provisions too. Defer
+  the unsupported output under `module.deferred_outputs[]`, but keep any
+  independent source-stated scalar legal values as `kind: parameter` rules
+  rather than dropping them into prose.
 - If a source-stated scalar is needed to compute another local scalar, reference
   the named scalar concept instead of repeating its literal value in a formula.
   For example, if the source states a five-year period and a one-fifth fraction,
@@ -580,6 +591,9 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  If those scalar legal values are independently encoded as `kind: parameter`
+  rules in the same file, do not also demote them to prose or rely on
+  `source_values` instead.
   Non-operative legislative findings, preambles, intent clauses, and purpose
   clauses still count for source coverage. Do not turn them into executable
   formulas; add `module.deferred_outputs[]` for the specific subparagraph with
