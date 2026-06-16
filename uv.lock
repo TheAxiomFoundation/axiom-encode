@@ -53,7 +53,7 @@ wheels = [
 
 [[package]]
 name = "axiom-encode"
-version = "0.2.668"
+version = "0.2.669"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
