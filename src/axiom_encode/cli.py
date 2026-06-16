@@ -16621,21 +16621,53 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_embedded_scalar_literals = (
-                    _try_repair_generated_embedded_scalar_literals_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_embedded_scalar_literals: list[str] = []
+                while not can_apply:
+                    repaired_scalar_pass = (
+                        _try_repair_generated_embedded_scalar_literals_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_embedded_scalar_literals:
+                    if not repaired_scalar_pass:
+                        break
+                    repaired_embedded_scalar_literals.extend(repaired_scalar_pass)
                     outcome["auto_repaired_embedded_scalar_literals"] = (
                         repaired_embedded_scalar_literals
                     )
                     print(
                         "  apply=auto_repaired_embedded_scalar_literals:"
-                        + ",".join(repaired_embedded_scalar_literals)
+                        + ",".join(repaired_scalar_pass)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_bare_snapunit_entities = (
+                    _try_repair_generated_bare_snapunit_entity_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_bare_snapunit_entities:
+                    outcome["auto_repaired_bare_snapunit_entity"] = (
+                        repaired_bare_snapunit_entities
+                    )
+                    print(
+                        "  apply=auto_repaired_bare_snapunit_entity:"
+                        + ",".join(repaired_bare_snapunit_entities)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -17762,6 +17794,130 @@ def _embedded_scalar_literal_issue_records(
             continue
         records.append(match.groupdict())
     return records
+
+
+def _try_repair_generated_bare_snapunit_entity_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Scope generated assistance-group rules to Household when SnapUnit is undeclared."""
+    records = _bare_snapunit_entity_issue_records(issues)
+    if not records:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        content = rules_file.read_text()
+        payload = yaml.safe_load(content) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    if _declares_or_imports_snapunit_relation(payload):
+        return []
+    source_text_value = extract_embedded_source_text(content)
+    if not source_text_value:
+        module = payload.get("module")
+        if isinstance(module, dict):
+            fallback_source_text = module.get("source_text")
+            if isinstance(fallback_source_text, str):
+                source_text_value = fallback_source_text
+    source_text = (source_text_value or "").lower()
+    if "snapunit" in source_text or "snap unit" in source_text:
+        return []
+    if "assistance group" not in source_text and "household" not in source_text:
+        return []
+
+    requested_names = {record["rule"] for record in records}
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("entity") or "").strip() != "SnapUnit":
+            continue
+        if name not in requested_names and not _rule_mentions_assistance_group(rule):
+            continue
+        rule["entity"] = "Household"
+        repaired.append(name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _bare_snapunit_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"Filtered entity dependency missing:\s+"
+        r"`(?P<rule>[A-Za-z_][A-Za-z0-9_]*)`\s+uses\s+`entity:\s+SnapUnit`"
+    )
+    for issue in issues:
+        match = pattern.search(issue)
+        if match is None:
+            continue
+        records.append(match.groupdict())
+    return records
+
+
+def _declares_or_imports_snapunit_relation(payload: dict[str, Any]) -> bool:
+    imports = payload.get("imports")
+    if isinstance(imports, list):
+        for item in imports:
+            if isinstance(item, str) and item.rsplit("#", 1)[-1].strip() == "snap_unit":
+                return True
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived_relation":
+            continue
+        relation = rule.get("derived_relation")
+        if not isinstance(relation, dict):
+            continue
+        if str(relation.get("entity") or "").strip() == "SnapUnit":
+            return True
+    return False
+
+
+def _rule_mentions_assistance_group(rule: dict[str, Any]) -> bool:
+    text_parts: list[str] = []
+    for key in ("name", "source"):
+        value = rule.get(key)
+        if isinstance(value, str):
+            text_parts.append(value)
+    proof = rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str):
+                text_parts.append(excerpt)
+    haystack = " ".join(text_parts).lower()
+    return "assistance_group" in haystack or "assistance group" in haystack
 
 
 def _extract_embedded_scalar_literal_record(
