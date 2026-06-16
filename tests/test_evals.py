@@ -2298,6 +2298,38 @@ def test_codex_prompt_timeouts_use_default_for_short_source(tmp_path):
     assert _codex_prompt_timeouts(workspace) == (600, 300)
 
 
+def test_codex_prompt_timeouts_use_env_for_short_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS", "30")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2012",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="short source",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (90, 30)
+
+
+def test_codex_prompt_timeouts_ignore_invalid_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS", "not-a-number")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS", "0")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2012",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="short source",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (600, 300)
+
+
 def test_codex_prompt_timeouts_use_long_limits_for_large_source(tmp_path):
     workspace = prepare_eval_workspace(
         citation="us/statute/7/2014",
@@ -2310,6 +2342,22 @@ def test_codex_prompt_timeouts_use_long_limits_for_large_source(tmp_path):
     )
 
     assert _codex_prompt_timeouts(workspace) == (1800, 900)
+
+
+def test_codex_prompt_timeouts_use_long_env_for_large_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_LONG_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("AXIOM_ENCODE_CODEX_LONG_IDLE_TIMEOUT_SECONDS", "60")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2014",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="x" * 40000,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (240, 60)
 
 
 def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_path):

@@ -6995,10 +6995,36 @@ def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:
         source_length = 0
     if source_length >= _CODEX_LONG_SOURCE_CHAR_THRESHOLD:
         return (
-            _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
-            _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+            _positive_int_env(
+                "AXIOM_ENCODE_CODEX_LONG_TIMEOUT_SECONDS",
+                _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
+            ),
+            _positive_int_env(
+                "AXIOM_ENCODE_CODEX_LONG_IDLE_TIMEOUT_SECONDS",
+                _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+            ),
         )
-    return (_CODEX_DEFAULT_TIMEOUT_SECONDS, _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS)
+    return (
+        _positive_int_env(
+            "AXIOM_ENCODE_CODEX_TIMEOUT_SECONDS",
+            _CODEX_DEFAULT_TIMEOUT_SECONDS,
+        ),
+        _positive_int_env(
+            "AXIOM_ENCODE_CODEX_IDLE_TIMEOUT_SECONDS",
+            _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS,
+        ),
+    )
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def _wait_for_codex_process(
