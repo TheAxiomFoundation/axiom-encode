@@ -5385,11 +5385,7 @@ def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
             and marker_start > 0
             and source_text[marker_start - 1].isspace()
         )
-        if (
-            previous < 0
-            or source_text[previous] in "\n.;:"
-            or follows_spaced_marker
-        ):
+        if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
             yield match
 
 

@@ -20477,10 +20477,7 @@ def _try_repair_generated_invalid_deferred_source_values_for_apply(
                     ".source_values entry `" in str(issue)
                     and "must be an absolute RuleSpec target" in str(issue)
                 )
-                or (
-                    ".source_values must list absolute RuleSpec targets"
-                    in str(issue)
-                )
+                or (".source_values must list absolute RuleSpec targets" in str(issue))
             )
         )
         for issue in issues

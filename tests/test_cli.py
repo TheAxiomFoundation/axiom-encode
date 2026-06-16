@@ -4220,9 +4220,7 @@ rules: []
 """
         )
         result.output_file = str(output_file)
-        applied_file = (
-            args.policy_repo_path / "regulations/7-cfr/275/24/b/3/i.yaml"
-        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/275/24/b/3/i.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
@@ -12897,9 +12895,7 @@ rules:
     def test_admin_agency_aggregate_repair_defers_entity_rule(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = (
-            output_root
-            / "codex-gpt-5.5"
-            / "regulations/7-cfr/275/23/b/2/i/B.yaml"
+            output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/b/2/i/B.yaml"
         )
         rules_file.parent.mkdir(parents=True)
         test_file = rules_file.with_suffix(".test.yaml")
@@ -12978,11 +12974,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        rules_file = (
-            output_root
-            / "codex-gpt-5.5"
-            / "regulations/7-cfr/275/23/e/1.yaml"
-        )
+        rules_file = output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/e/1.yaml"
         rules_file.parent.mkdir(parents=True)
         test_file = rules_file.with_suffix(".test.yaml")
         policy_repo = tmp_path / "rulespec-us"
