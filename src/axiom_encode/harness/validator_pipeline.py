@@ -563,6 +563,7 @@ Scoring rubric:
 GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
+_SOURCE_URL_PATTERN = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
 GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
 )
@@ -2783,6 +2784,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
         cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))
 
     cleaned = "\n".join(cleaned_lines)
+    cleaned = _SOURCE_URL_PATTERN.sub(" ", cleaned)
     cleaned = re.sub(
         r"\[[^\]]*\d[^\]]*\]",
         _strip_superseded_bracketed_numeric_text,

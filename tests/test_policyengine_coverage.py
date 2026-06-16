@@ -91,6 +91,41 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_7_cfr_275_admin_prefix(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/7-cfr/275/23/e/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: investment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2000-01-01'
+        formula: 0.5
+  - name: at_risk_repayment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2000-01-01'
+        formula: 0.5
+  - name: new_investment_federal_match_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2000-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    for item in report["items"]:
+        assert item["mapping_type"] == "not_comparable"
+        assert "7 CFR part 275" in str(item["rationale"])
+
+
 def test_policyengine_coverage_classifies_conclusive_agency_determinations(
     tmp_path,
 ):
