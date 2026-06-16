@@ -93,6 +93,7 @@ from axiom_encode.cli import (
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
+    _scoped_source_text_for_encode_source_id,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -100,6 +101,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
@@ -110,6 +112,7 @@ from axiom_encode.cli import (
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
+    _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
@@ -210,6 +213,32 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     provenance = _require_axiom_encode_version_provenance(repo)
 
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_source_id_encode_scopes_cfr_section_text_to_target_leaf(tmp_path):
+    source = "\n\n".join(
+        [
+            "(b) State agency error rates.",
+            "(2) Determination of payment error rates.",
+            "(i) FNS shall calculate regressed error rates.",
+            "(A) y1' = y1 + b1 (X1 - x1).",
+            "(B) y2' = y2 + b2 (X2 - x2).",
+            "(C) The regressed error rates are r1' = y1'/u and r2' = y2'/u.",
+            "(D) The adjusted regressed payment error rate is r1'' + r2''.",
+            "(d) State agencies' liabilities for payment error rates.",
+        ]
+    )
+
+    scoped = _scoped_source_text_for_encode_source_id(
+        source,
+        source_id="us/regulation/7/275/23/b/2/i/C",
+        policy_repo_path=tmp_path,
+    )
+
+    assert scoped.lstrip().startswith("(C) The regressed error rates")
+    assert "r1' = y1'/u" in scoped
+    assert "adjusted regressed payment error rate" not in scoped
+    assert "liabilities for payment error rates" not in scoped
 
 
 def test_colorado_snap_ecps_uses_absolute_member_relation_only():
@@ -4131,6 +4160,83 @@ rules: []
                             "module.deferred_outputs[0].source_values entry "
                             "`Notice must be published no later than December 1.` "
                             "must be an absolute RuleSpec target with a rule fragment."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_invalid_deferred_source_values:" in output
+        assert "source_values:" not in output_file.read_text()
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_deferred_source_values"] == [
+            "source_values[0]"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_removes_mapping_deferred_source_values(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "7-cfr"
+            / "275"
+            / "24"
+            / "b"
+            / "3"
+            / "i.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  status: entity_not_supported
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/24
+  deferred_outputs:
+    - output: us:regulations/7-cfr/275/24/b/3/i#high_program_access_index_bonus_states
+      reason: FNS administrative bonus selection has no State-agency entity.
+      source_values:
+        high_program_access_index_bonus_state_count: 4
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "regulations/7-cfr/275/24/b/3/i.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "regulations/7-cfr/275/24/b/3/i.yaml: ci: "
+                            "module.deferred_outputs[0].source_values must list "
+                            "absolute RuleSpec targets for source-stated values "
+                            "retained for the deferred output."
                         ],
                         {},
                     ),
@@ -12945,6 +13051,138 @@ rules:
                 },
             }
         ]
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_admin_agency_aggregate_repair_defers_entity_rule(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/b/2/i/B.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+  summary: y2′ = y2 + b2(X2−x2).
+rules:
+  - name: average_allotments_underissued_active_error_rate
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 CFR 275.23(b)(2)(i)(B)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: federal_average + coefficient * difference
+"""
+        )
+        test_file.write_text(
+            """- name: generated_household_formula
+  period: 2026
+  input: {}
+  output:
+    us:regulations/7-cfr/275/23/b/2/i/B#average_allotments_underissued_active_error_rate: 1
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+            metrics=SimpleNamespace(
+                ci_issues=[
+                    "Unsupported administrative aggregate entity: "
+                    "`average_allotments_underissued_active_error_rate` is "
+                    "declared on `Household`."
+                ]
+            ),
+        )
+
+        repaired = _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == [
+            "us:regulations/7-cfr/275/23/b/2/i/B#average_allotments_underissued_active_error_rate"
+        ]
+        assert payload["module"]["status"] == "entity_not_supported"
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": (
+                    "us:regulations/7-cfr/275/23/b/2/i/B"
+                    "#average_allotments_underissued_active_error_rate"
+                ),
+                "reason": (
+                    "The source defines a State agency/FNS aggregate "
+                    "performance, sampling, liability, waiver, or bonus "
+                    "measure, but the generated output was scoped to a "
+                    "household/person/tax/payment-style entity rather than "
+                    "the source-stated administrative entity."
+                ),
+            }
+        ]
+        assert payload["rules"] == []
+        assert yaml.safe_load(test_file.read_text()) == []
+
+    def test_parameter_only_companion_test_repair_empties_parameter_outputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/e/1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: program_administration_investment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 0.5
+  - name: at_risk_repayment_liability_cap_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 0.5
+"""
+        )
+        test_file.write_text(
+            """- name: liability_percentage_caps
+  period: 2026
+  input: {}
+  output:
+    us:regulations/7-cfr/275/23/e/1#program_administration_investment_liability_cap_rate: 0.5
+    us:regulations/7-cfr/275/23/e/1#at_risk_repayment_liability_cap_rate: 0.5
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_parameter_only_companion_tests_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        assert repaired == ["liability_percentage_caps"]
         assert yaml.safe_load(test_file.read_text()) == []
 
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):

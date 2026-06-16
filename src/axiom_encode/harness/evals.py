@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, Callable, Iterator, Literal, Sequence
+from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
 
 import requests
 import yaml
@@ -103,7 +103,15 @@ SUPPORTED_EVAL_ENTITIES = (
     "Business",
     "Employer",
     "Asset",
+    "StateAgency",
 )
+ADMINISTRATIVE_EVAL_ENTITIES = {
+    "stateagency",
+    "snapqualitycontrolfiscalyear",
+    "administrativeclaim",
+    "stateagencyappeal",
+    "bonusaward",
+}
 SUPPORTED_EVAL_PERIODS = ("Year", "Month", "Week", "Day")
 SUPPORTED_EVAL_DTYPES = (
     "Money",
@@ -117,6 +125,28 @@ SUPPORTED_EVAL_DTYPES = (
 )
 _PURE_NUMERIC_EXPRESSION_PATTERN = re.compile(r"^[\d\s()+\-*/.,]+$")
 _ISO_WEEK_PERIOD_PATTERN = re.compile(r"^\d{4}-W\d{2}(?:-\d)?$")
+_ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN = re.compile(
+    r"\b(?:FNS|State\s+agenc(?:y|ies)|State(?:'s)?\s+administration|"
+    r"Federal\s+(?:reviewer|case\s+reviews?|subsample)|"
+    r"national\s+performance\s+measure)\b",
+    flags=re.IGNORECASE,
+)
+_ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN = re.compile(
+    r"\b(?:active\s+case|negative\s+case|payment\s+error|negative\s+error|"
+    r"error\s+rates?|quality\s+control\s+sample|rereview\s+sample|"
+    r"regress(?:ed|ion)|subsample|sample\s+size|liabilit(?:y|ies)|"
+    r"waiver\s+of\s+liability|at-risk|new\s+investment|caseload\s+growth|"
+    r"high\s+performance\s+bonuses?|bonus\s+payments?|program\s+access\s+index|"
+    r"application\s+processing\s+timeliness)\b",
+    flags=re.IGNORECASE,
+)
+_ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
+    r"\b(?:bonus\s+award\s+money|bonus\s+payments?)\b[\s\S]{0,160}"
+    r"\b(?:shall\s+be\s+used\s+only|shall\s+not\s+be\s+used|"
+    r"household\s+benefits?|incentive\s+payments?|"
+    r"SNAP-related\s+expenses?)\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -2711,10 +2741,17 @@ def evaluate_artifact(
         content,
         numeric_grounding_source_text,
     )
+    admin_agency_aggregate_issues = find_admin_agency_aggregate_entity_issues(
+        content,
+        source_text,
+    )
     ci_issues = []
     seen_ci_issues: set[str] = set()
     for issue in (
-        list(ci_result.issues) + ungrounded_numeric_issues + numeric_occurrence_issues
+        list(ci_result.issues)
+        + ungrounded_numeric_issues
+        + numeric_occurrence_issues
+        + admin_agency_aggregate_issues
     ):
         if issue in seen_ci_issues:
             continue
@@ -2724,6 +2761,7 @@ def evaluate_artifact(
         ci_result.passed
         and not ungrounded_numeric_issues
         and not numeric_occurrence_issues
+        and not admin_agency_aggregate_issues
     )
 
     return EvalArtifactMetrics(
@@ -3904,6 +3942,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars when it fits the local schema, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges. The numeric invariant is the named concept: source-stated amounts, rates, thresholds, caps, limits, and table/grid cells should be named so consuming formulas can reference names instead of embedding literals.
+- This numeric invariant applies in mixed deferred or entity-unsupported provisions too. Defer the unsupported output under `module.deferred_outputs[]`, but keep any independent source-stated scalar legal values as `kind: parameter` rules rather than dropping them into prose.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Store source-stated row bounds as private named bound concepts or private indexed table/grid bound columns, and have the selector reference those names while returning integer band ids. If interpolation or clamping needs the active row bounds before native interval-table support exists, store lower/upper bounds as private indexed parameter columns and reference those names in derived formulas; do not repeat bound literals outside the selector. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
 - Do not treat the final interval row as open-ended unless the source row is actually open-ended. If the last source row has an upper bound, the selector must return an out-of-table sentinel above that bound and the principal output must handle that sentinel. Include a companion test above the final bounded row so the generated artifact cannot silently extend the table.
 - The out-of-table sentinel is not itself a source table row. Do not add sentinel entries to indexed parameter tables and do not clamp sentinel cases to the final table row's values. Handle the sentinel before table lookups, using the existing target's source-grounded out-of-range branch when repairing an existing artifact. Use a negative sentinel such as `-1`; do not use the next positive band id such as `6` merely because there are six legal rows, because that positive id is not source-stated and will fail numeric grounding.
@@ -4063,6 +4102,9 @@ RuleSpec requirements:
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  If those scalar legal values are independently encoded as `kind: parameter`
+  rules in the same file, do not also demote them to prose or rely on
+  `source_values` instead.
   Treat category membership phrases such as `person described in section X`,
   `organization described in section X`, or `service described in section X` as
   factual boundary predicates when the current source states the legal effect.
@@ -4277,8 +4319,14 @@ RuleSpec requirements:
   increase plus the base, not the unrounded total. For example, with base
   15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
   and the total is 17300, not 17325.
-- Do not invent new entities, periods, or dtypes.
-- Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
+- Do not invent arbitrary entities. Use existing standard entities when they
+  match the source-stated legal subject. If the source states a legal subject
+  outside the standard benefit/tax/person ontology, introduce a narrow singular
+  PascalCase entity for that subject, such as `StateAgency` for State-agency
+  SNAP administration or `SnapQualityControlFiscalYear` for a national SNAP QC
+  fiscal-year aggregate. Do not use a generic `State`, row-index, or
+  household/person/tax-unit entity for administrative aggregates.
+- Standard `entity:` examples are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
 - Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
@@ -4426,10 +4474,13 @@ RuleSpec requirements:
   untested just because another negative case toggles a different gate.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
-- Every local executable `kind: parameter` and `kind: derived` rule must appear
-  at least once under an `output:` block in the companion `.test.yaml`; do not
-  leave scalar parameters, helper parameters, or helper derived rules
-  unasserted.
+- Every local executable `kind: derived` or `kind: derived_relation` rule must
+  appear at least once under an `output:` block in the companion `.test.yaml`;
+  do not leave helper derived rules unasserted.
+- Do not assert raw `kind: parameter` rules directly in companion test
+  `output:` blocks. Cover parameters through derived outputs that consume them.
+  If a module only contains parameters and has no derived output to assert,
+  leave the companion test file empty.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If
   a module defines outputs on multiple entities, create separate cases for each
   entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or
@@ -5253,29 +5304,252 @@ def _target_source_scope_for_heuristics(
     if not fragments:
         return source_text
 
+    hierarchical_scope = _target_source_scope_by_cfr_hierarchy(source_text, fragments)
+    if hierarchical_scope is not None:
+        return hierarchical_scope
+
     start = 0
-    for fragment in fragments:
-        match = re.search(
-            rf"\({re.escape(fragment)}\)",
-            source_text[start:],
-            flags=re.IGNORECASE,
+    end = len(source_text)
+    search_from = 0
+    for depth, fragment in enumerate(fragments):
+        match = _find_structural_parenthetical_marker(
+            source_text,
+            fragment,
+            search_from,
+            end,
+            depth=depth,
         )
         if not match:
             return source_text
-        start += match.start()
-        search_from = start + len(match.group(0))
+        start = match.start("marker")
+        search_from = match.end("marker")
 
-    sibling_pattern = _sibling_marker_pattern(fragments[-1])
-    end = len(source_text)
-    if sibling_pattern:
-        sibling = re.search(
-            sibling_pattern,
-            source_text[search_from:],
-            flags=re.IGNORECASE,
+        sibling = _find_structural_sibling_marker(
+            source_text,
+            fragment,
+            search_from,
+            end,
+            depth=depth,
         )
         if sibling:
-            end = search_from + sibling.start()
+            end = sibling.start("marker")
     return source_text[start:end]
+
+
+def _target_source_scope_by_cfr_hierarchy(
+    source_text: str,
+    fragments: list[str],
+) -> str | None:
+    """Slice CFR-style parenthetical hierarchy by legal marker level.
+
+    CFR paragraphs reuse marker spellings at deeper levels, such as top-level
+    numeric ``(3)`` paragraphs and nested upper-alpha list item ``(3)`` markers.
+    A simple regex search for ``(3)`` can therefore select the wrong branch. This
+    scanner tracks the conventional CFR marker sequence:
+    lower-alpha, then numeric/lower-roman/upper-alpha repeating.
+    """
+    if any(not _cfr_marker_kind_ordinals(fragment) for fragment in fragments):
+        return None
+
+    stack: list[tuple[str, str, int]] = []
+    target = tuple(fragments)
+    target_start: int | None = None
+    target_level: int | None = None
+
+    for match in _iter_cfr_structural_markers(source_text):
+        token = match.group("token")
+        assigned = _assign_cfr_marker_level(stack, token)
+        if assigned is None:
+            continue
+        level, kind, ordinal = assigned
+        stack = stack[:level]
+        stack.append((kind, token, ordinal))
+        path = tuple(item[1] for item in stack)
+
+        if target_start is None:
+            if path == target:
+                target_start = match.start("marker")
+                target_level = level
+            continue
+
+        if target_level is not None and level <= target_level:
+            return source_text[target_start : match.start("marker")]
+
+    if target_start is not None:
+        return source_text[target_start:]
+    return None
+
+
+def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
+    """Yield parenthetical markers that appear in structural positions."""
+    marker_pattern = re.compile(r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))\s+")
+    for match in marker_pattern.finditer(source_text):
+        marker_start = match.start("marker")
+        line_start = source_text.rfind("\n", 0, marker_start) + 1
+        if not source_text[line_start:marker_start].strip():
+            yield match
+            continue
+
+        previous = match.start("marker") - 1
+        while previous >= 0 and source_text[previous].isspace():
+            previous -= 1
+        follows_spaced_marker = (
+            previous >= 0
+            and source_text[previous] == ")"
+            and marker_start > 0
+            and source_text[marker_start - 1].isspace()
+        )
+        if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
+            yield match
+
+
+def _assign_cfr_marker_level(
+    stack: list[tuple[str, str, int]],
+    token: str,
+) -> tuple[int, str, int] | None:
+    possible = _cfr_marker_kind_ordinals(token)
+    if not possible:
+        return None
+
+    child_level = len(stack)
+    expected_child_kind = _cfr_marker_kind_for_level(child_level)
+    if expected_child_kind == "lower_roman":
+        for kind, ordinal in possible:
+            if kind == expected_child_kind:
+                return (child_level, kind, ordinal)
+
+    for level in range(len(stack) - 1, -1, -1):
+        expected_kind = _cfr_marker_kind_for_level(level)
+        for kind, ordinal in possible:
+            if kind == expected_kind and ordinal > stack[level][2]:
+                return (level, kind, ordinal)
+
+    for kind, ordinal in possible:
+        if kind == expected_child_kind:
+            return (child_level, kind, ordinal)
+    return None
+
+
+def _cfr_marker_kind_for_level(level: int) -> str:
+    if level == 0:
+        return "lower_alpha"
+    return ("numeric", "lower_roman", "upper_alpha")[(level - 1) % 3]
+
+
+def _cfr_marker_kind_ordinals(token: str) -> list[tuple[str, int]]:
+    kinds: list[tuple[str, int]] = []
+    if re.fullmatch(r"\d+", token):
+        kinds.append(("numeric", int(token)))
+    if re.fullmatch(r"[a-z]", token):
+        kinds.append(("lower_alpha", ord(token) - ord("a") + 1))
+    if re.fullmatch(r"[A-Z]", token):
+        kinds.append(("upper_alpha", ord(token) - ord("A") + 1))
+    if re.fullmatch(r"[ivxlcdm]+", token):
+        roman = _lower_roman_to_int(token)
+        if roman is not None:
+            kinds.append(("lower_roman", roman))
+    return kinds
+
+
+def _lower_roman_to_int(token: str) -> int | None:
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(token):
+        value = values.get(char)
+        if value is None:
+            return None
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+    return total or None
+
+
+def _find_structural_parenthetical_marker(
+    source_text: str,
+    fragment: str,
+    start: int,
+    end: int,
+    *,
+    depth: int,
+) -> re.Match[str] | None:
+    """Find a paragraph marker while ignoring inline cross-references.
+
+    eCFR section text often contains references such as ``paragraph (b)(4)``
+    before the actual ``(b)`` paragraph. For target-scope heuristics, prefer
+    markers that look structural: top-level markers must begin a line; nested
+    markers may also appear inline after punctuation, as in ``(2) Heading.
+    (i) Text``.
+    """
+    pattern = _structural_parenthetical_marker_pattern(
+        rf"\({re.escape(fragment)}\)",
+        allow_inline=False,
+    )
+    match = pattern.search(source_text, start, end)
+    if match or depth == 0:
+        return match
+    inline_pattern = _structural_parenthetical_marker_pattern(
+        rf"\({re.escape(fragment)}\)",
+        allow_inline=True,
+    )
+    return inline_pattern.search(source_text, start, end)
+
+
+def _find_structural_sibling_marker(
+    source_text: str,
+    fragment: str,
+    start: int,
+    end: int,
+    *,
+    depth: int,
+) -> re.Match[str] | None:
+    marker = _structural_sibling_marker_fragment(fragment, depth=depth)
+    if not marker:
+        return None
+    pattern = _structural_parenthetical_marker_pattern(
+        marker,
+        allow_inline=False,
+    )
+    match = pattern.search(source_text, start, end)
+    if match or depth == 0:
+        return match
+    inline_pattern = _structural_parenthetical_marker_pattern(
+        marker,
+        allow_inline=True,
+    )
+    return inline_pattern.search(source_text, start, end)
+
+
+def _structural_parenthetical_marker_pattern(
+    marker_pattern: str,
+    *,
+    allow_inline: bool,
+) -> re.Pattern[str]:
+    boundary = r"(?P<prefix>\A|\n"
+    if allow_inline:
+        boundary += r"|[.;:]\s+"
+    boundary += r")"
+    return re.compile(
+        rf"{boundary}\s*(?P<marker>{marker_pattern})\s+",
+    )
+
+
+def _structural_sibling_marker_fragment(fragment: str, *, depth: int) -> str | None:
+    """Return a marker regex for the next same-level structural sibling."""
+    if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
+        return _numeric_sibling_parenthetical_marker(fragment)
+    if _is_roman_parenthetical_fragment(fragment, depth=depth):
+        return r"\([ivxlcdm]+\)"
+    if re.fullmatch(r"[a-z](?:\.\d+)*", fragment, flags=re.IGNORECASE):
+        return _alpha_sibling_parenthetical_marker(fragment, top_level=depth == 0)
+    return None
+
+
+def _is_roman_parenthetical_fragment(fragment: str, *, depth: int) -> bool:
+    """Treat nested lower-case roman markers as roman, not alpha letters."""
+    return depth > 0 and re.fullmatch(r"[ivxlcdm]+", fragment) is not None
 
 
 def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:
@@ -5288,6 +5562,10 @@ def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:
             return parts[idx + 3 :]
     if "regulations" in parts:
         idx = parts.index("regulations")
+        if len(parts) > idx + 4 and re.fullmatch(
+            r"\d+-cfr", parts[idx + 1], flags=re.IGNORECASE
+        ):
+            return parts[idx + 4 :]
         if len(parts) > idx + 3:
             return parts[idx + 3 :]
     return []
@@ -6075,6 +6353,58 @@ def _context_file_hash(source_path: str) -> str | None:
     except OSError:
         return None
     return f"sha256:{digest}"
+
+
+def find_admin_agency_aggregate_entity_issues(
+    content: str,
+    source_text: str,
+) -> list[str]:
+    """Reject executable entity rules for State-agency/FNS aggregate measures."""
+    is_admin_agency_aggregate = (
+        _ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN.search(source_text)
+        and _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN.search(source_text)
+    ) or _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN.search(source_text)
+    if not is_admin_agency_aggregate:
+        return []
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    module = payload.get("module")
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+        if status in {"deferred", "entity_not_supported"}:
+            return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    standard_entities = {entity.lower(): entity for entity in SUPPORTED_EVAL_ENTITIES}
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if not entity:
+            continue
+        normalized_entity = entity.lower()
+        if normalized_entity in ADMINISTRATIVE_EVAL_ENTITIES:
+            continue
+        if normalized_entity not in standard_entities:
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        issues.append(
+            "Unsupported administrative aggregate entity: "
+            f"`{name}` is declared on `{entity}`, but the authoritative source "
+            "defines a State agency/FNS aggregate performance, sampling, "
+            "liability, waiver, or bonus measure. Use a source-stated "
+            "administrative entity such as `StateAgency` instead of a "
+            "household/person/tax/payment entity, or defer only if the "
+            "administrative surface still cannot be represented faithfully."
+        )
+    return issues
 
 
 def _context_file_export_detail(item: EvalContextFile) -> str:

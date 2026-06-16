@@ -60,8 +60,11 @@ from .harness.encoding_db import (
     ReviewResults,
 )
 from .harness.evals import (
+    _canonical_target_ref_prefix,
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
+    _source_identifier_to_relative_rulespec_path,
+    _target_source_scope_for_heuristics,
     evaluate_artifact,
     load_eval_suite_manifest,
     resolve_corpus_source_unit,
@@ -79,6 +82,7 @@ from .harness.validator_pipeline import (
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
+    _engine_rulespec_item_path_for_policy_root,
     _extract_source_verification_text,
     _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
@@ -88,6 +92,7 @@ from .harness.validator_pipeline import (
     _resolve_rulespec_target_file,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_local_item_prefix,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -2900,9 +2905,18 @@ def _rulespec_test_relation_request_name(
     if ":" in key:
         prefix, relative = key.split(":", 1)
         canonical_prefix = _repo_jurisdiction_prefix(policy_repo_path)
-        local_prefix = policy_repo_path.name.removeprefix("rulespec-")
-        if prefix == canonical_prefix and local_prefix != canonical_prefix:
-            return f"{local_prefix}:{relative}"
+        local_prefix = _rulespec_local_item_prefix(policy_repo_path)
+        if (
+            prefix == canonical_prefix
+            and local_prefix
+            and local_prefix != canonical_prefix
+        ):
+            item_path = _engine_rulespec_item_path_for_policy_root(
+                relative,
+                policy_repo_path=policy_repo_path,
+                canonical_prefix=canonical_prefix,
+            )
+            return f"{local_prefix}:{item_path}"
     return key
 
 
@@ -15872,6 +15886,31 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
 # =========================================================================
 
 
+def _scoped_source_text_for_encode_source_id(
+    source_text: str,
+    *,
+    source_id: str,
+    policy_repo_path: Path,
+) -> str:
+    """Return the target leaf source text for source-id encodes when possible."""
+    try:
+        relative_output = _source_identifier_to_relative_rulespec_path(source_id)
+        target_ref_prefix = _canonical_target_ref_prefix(
+            source_id,
+            relative_output,
+            policy_repo_path=policy_repo_path,
+        )
+    except Exception:
+        return source_text
+    if not target_ref_prefix:
+        return source_text
+    scoped_source_text = _target_source_scope_for_heuristics(
+        source_text,
+        target_ref_prefix,
+    )
+    return scoped_source_text if scoped_source_text.strip() else source_text
+
+
 def cmd_encode(args):
     """Encode a corpus-backed source unit through the RuleSpec eval pipeline."""
     model = args.model or DEFAULT_OPENAI_MODEL
@@ -15898,9 +15937,14 @@ def cmd_encode(args):
     source_unit = None
     if source_id:
         source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
+        source_text = _scoped_source_text_for_encode_source_id(
+            source_unit.body,
+            source_id=source_id,
+            policy_repo_path=policy_repo_path,
+        )
         results = run_source_eval(
             source_id=source_id,
-            source_text=source_unit.body,
+            source_text=source_text,
             runner_specs=[runner],
             output_root=args.output,
             policy_path=policy_repo_path,
@@ -16046,6 +16090,36 @@ def cmd_encode(args):
                 print(
                     "  apply=auto_repaired_indexed_parameter_lookups:"
                     + ",".join(repaired_indexed_parameter_lookups)
+                )
+            repaired_admin_aggregate_entities = (
+                _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_admin_aggregate_entities:
+                outcome["auto_repaired_admin_agency_aggregate_entities"] = (
+                    repaired_admin_aggregate_entities
+                )
+                print(
+                    "  apply=auto_repaired_admin_agency_aggregate_entities:"
+                    + ",".join(repaired_admin_aggregate_entities)
+                )
+            repaired_parameter_only_tests = (
+                _try_repair_generated_parameter_only_companion_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_parameter_only_tests:
+                outcome["auto_repaired_parameter_only_companion_tests"] = (
+                    repaired_parameter_only_tests
+                )
+                print(
+                    "  apply=auto_repaired_parameter_only_companion_tests:"
+                    + ",".join(repaired_parameter_only_tests)
                 )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
@@ -20773,11 +20847,18 @@ def _try_repair_generated_invalid_deferred_source_values_for_apply(
     output_root: Path,
     issues: list[str],
 ) -> list[str]:
-    """Remove optional prose source_values from deferred outputs."""
+    """Remove optional invalid source_values from deferred outputs."""
     if not any(
-        "module.deferred_outputs[" in str(issue)
-        and ".source_values entry `" in str(issue)
-        and "must be an absolute RuleSpec target" in str(issue)
+        (
+            "module.deferred_outputs[" in str(issue)
+            and (
+                (
+                    ".source_values entry `" in str(issue)
+                    and "must be an absolute RuleSpec target" in str(issue)
+                )
+                or (".source_values must list absolute RuleSpec targets" in str(issue))
+            )
+        )
         for issue in issues
     ):
         return []
@@ -20869,13 +20950,16 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
         if not isinstance(record, dict):
             continue
         source_values = record.get("source_values")
-        if not isinstance(source_values, list):
+        if source_values is None:
             continue
-        invalid_values = [
-            value
-            for value in source_values
-            if not _looks_like_absolute_rulespec_output_target(value)
-        ]
+        invalid_values = (
+            not isinstance(source_values, list)
+            or not source_values
+            or any(
+                not _looks_like_absolute_rulespec_output_target(value)
+                for value in source_values
+            )
+        )
         if not invalid_values:
             continue
         record.pop("source_values", None)
@@ -21124,6 +21208,178 @@ def _try_repair_generated_missing_deferred_outputs_for_apply(
     payload["rules"] = []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return [output]
+
+
+def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Defer State-agency/FNS aggregate measures emitted on supported entities."""
+    metrics = getattr(result, "metrics", None)
+    issues = list(getattr(metrics, "ci_issues", []) or [])
+    if not any(
+        str(issue).startswith("Unsupported administrative aggregate entity:")
+        for issue in issues
+    ):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        module = {}
+        payload["module"] = module
+    module["status"] = "entity_not_supported"
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    deferred_outputs = []
+    seen_outputs: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if not str(rule.get("entity") or "").strip():
+            continue
+        symbol = str(rule.get("name") or f"deferred_output_{index + 1}").strip()
+        if not symbol:
+            symbol = f"deferred_output_{index + 1}"
+        output = f"{base_anchor}#{symbol}"
+        if output in seen_outputs:
+            continue
+        seen_outputs.add(output)
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "The source defines a State agency/FNS aggregate "
+                    "performance, sampling, liability, waiver, or bonus "
+                    "measure, but the generated output was scoped to a "
+                    "household/person/tax/payment-style entity rather than "
+                    "the source-stated administrative entity."
+                ),
+            }
+        )
+    if not deferred_outputs:
+        output = f"{base_anchor}#deferred_output"
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "The source defines a State agency/FNS administrative "
+                    "aggregate measure, which cannot be encoded as an "
+                    "executable RuleSpec output until that entity is supported."
+                ),
+            }
+        )
+
+    module["deferred_outputs"] = deferred_outputs
+    payload["rules"] = []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+    test_file = _rulespec_test_path(rules_file)
+    if test_file.exists():
+        test_file.write_text("[]\n")
+
+    return [str(record["output"]) for record in deferred_outputs]
+
+
+def _try_repair_generated_parameter_only_companion_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Empty generated tests that only assert local parameter constants."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        return []
+    parameter_names = _parameter_only_rule_names(rules_file)
+    if not parameter_names:
+        return []
+    try:
+        cases = _load_rulespec_test_cases(test_file)
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not cases:
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    repaired_cases: list[str] = []
+    for index, case in enumerate(cases, 1):
+        if not isinstance(case, dict):
+            return []
+        outputs = case.get("output")
+        if not isinstance(outputs, dict) or not outputs:
+            return []
+        for key in outputs:
+            key_text = str(key)
+            if not key_text.startswith(f"{target_base}#"):
+                return []
+            if _rulespec_test_key_fragment(key_text) not in parameter_names:
+                return []
+        repaired_cases.append(str(case.get("name") or f"case_{index}"))
+    if not repaired_cases:
+        return []
+    test_file.write_text("[]\n")
+    return repaired_cases
+
+
+def _parameter_only_rule_names(rules_file: Path) -> set[str]:
+    if not rules_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            return set()
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            return set()
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            return set()
+        names.add(name)
+    return names
 
 
 def _try_repair_generated_nonoperative_source_coverage_for_apply(

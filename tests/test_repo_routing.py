@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from axiom_encode.cli import _rulespec_test_relation_request_name
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline,
@@ -103,6 +104,63 @@ def test_compiled_program_maps_alias_temp_prefix_to_canonical_legal_id(tmp_path)
     }
 
 
+def test_compiled_program_maps_alias_country_subdir_temp_prefix_to_canonical_legal_id(
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    rules_file = policy_root / "regulations" / "7-cfr" / "275" / "23" / "d" / "2.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: payment_liability_amount
+    kind: derived
+    entity: StateAgency
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2003-01-01'
+        formula: payment_error_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "payment_liability_amount",
+                    "id": (
+                        "us-clean.abcd:us/regulations/7-cfr/275/23/d/2"
+                        "#payment_liability_amount"
+                    ),
+                }
+            ],
+            "parameters": [],
+        }
+    }
+
+    derived, _parameters = pipeline._rulespec_program_maps(payload)
+    legal_ids = pipeline._rulespec_legal_ids_by_friendly_output_name(payload)
+
+    assert "us:regulations/7-cfr/275/23/d/2#payment_liability_amount" in derived
+    assert (
+        "us-clean.abcd:us/regulations/7-cfr/275/23/d/2#payment_liability_amount"
+        in derived
+    )
+    assert legal_ids == {
+        "payment_liability_amount": [
+            "us:regulations/7-cfr/275/23/d/2#payment_liability_amount"
+        ]
+    }
+
+
 def test_dataset_rewrites_canonical_same_repo_refs_to_engine_temp_prefix(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
@@ -176,4 +234,64 @@ rules:
     )
     assert dataset["inputs"][1]["name"] == (
         "us-clean.abcd:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year"
+    )
+
+
+def test_dataset_rewrites_country_subdir_canonical_refs_to_engine_temp_prefix(
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    rules_file = policy_root / "regulations" / "7-cfr" / "275" / "23" / "d" / "2.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: payment_liability_amount
+    kind: derived
+    entity: StateAgency
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2003-01-01'
+        formula: payment_error_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            "us:regulations/7-cfr/275/23/d/2#input.payment_error_rate": 0.08,
+        },
+        period={"start": "2003-01-01", "end": "2003-12-31"},
+        query_entity="StateAgency",
+        query_entity_id="state-agency",
+        require_legal_input_keys=True,
+    )
+
+    assert dataset["inputs"][0]["name"] == (
+        "us-clean.abcd:us/regulations/7-cfr/275/23/d/2#input.payment_error_rate"
+    )
+
+
+def test_cli_relation_request_rewrites_country_subdir_canonical_refs(tmp_path):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+
+    relation_name = _rulespec_test_relation_request_name(
+        "us:regulations/7-cfr/275/23/d/1#relation.state_agencies_for_quality_control_fiscal_year",
+        policy_repo_path=policy_root,
+    )
+
+    assert relation_name == (
+        "us-clean.abcd:us/regulations/7-cfr/275/23/d/1"
+        "#relation.state_agencies_for_quality_control_fiscal_year"
     )

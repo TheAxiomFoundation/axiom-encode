@@ -95,6 +95,30 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   source's executable output to the source-stated lower entity, or defer it if
   the needed lower-entity facts cannot be represented. Do not preserve the
   aggregate entity just to keep old output names or tests compatible.
+- State agency/FNS performance reporting, quality-control sampling statistics,
+  error rates, liability amounts, waiver formulas, high-performance bonuses,
+  and similar administrative aggregates are not household benefit rules merely
+  because they mention household cases, allotments, or SNAP participation. Do
+  not put those outputs on `Household`, `Person`, `TaxUnit`, or another
+  benefit-unit entity. If the source states a State-agency administrative
+  amount, rate, liability, waiver, bonus, quality-control statistic, or
+  reporting measure, encode it on a source-stated administrative entity such as
+  `StateAgency`. If the source defines a national fiscal-year aggregate across
+  State agencies, use a source-stated administrative aggregate entity such as
+  `SnapQualityControlFiscalYear` and a relation to StateAgency rows when the
+  formula needs per-State-agency inputs. Introduce a new singular PascalCase
+  entity when the legal subject is outside the existing household/person/tax/
+  benefit-unit ontology and the source gives an executable formula using local
+  facts, parameters, imports, or relation inputs. Defer only when the legal
+  surface cannot be represented faithfully even with a source-stated entity and
+  semantic boundary inputs. Do not drop source-stated scalar legal values
+  solely because the surrounding administrative aggregate has deferred pieces.
+- Bonus award money and bonus-payment spending restrictions are part of that
+  administrative surface. If the source says bonus money may be used only for
+  SNAP-related expenses or may not be used for household benefits or incentive
+  payments, do not invent a household-benefit or generic `Payment` rule unless
+  the source is genuinely per payment. Prefer the source-stated administrative
+  entity, usually `StateAgency` or a narrow award/fund entity.
 - When a definition uses "taxpayer" but also says the amount is "of an
   individual" or applies exclusions for services, income, payments, or statuses
   of an individual/person/employee/member, encode those components on `Person`.
@@ -217,6 +241,10 @@ Hard requirements:
   it fits the local schema, but the invariant is the named concept: consuming
   formulas reference that name, so the concept can later change from a direct
   scalar to a computed formula without rewriting every consumer.
+- This applies in mixed deferred or entity-unsupported provisions too. Defer
+  the unsupported output under `module.deferred_outputs[]`, but keep any
+  independent source-stated scalar legal values as `kind: parameter` rules
+  rather than dropping them into prose.
 - If a source-stated scalar is needed to compute another local scalar, reference
   the named scalar concept instead of repeating its literal value in a formula.
   For example, if the source states a five-year period and a one-fifth fraction,
@@ -329,8 +357,9 @@ _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
   membership in a derived legal unit by filtering a source relation through a
   stated predicate. "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
-  or `Person`, and merely references a program-specific concept without defining
-  who belongs to it, stay on the source-stated structural entity.
+  `Person`, or a source-stated administrative or organizational entity such as
+  `StateAgency`, and merely references a program-specific concept without
+  defining who belongs to it, stay on the source-stated structural entity.
 - For source text that imposes an amount, tax, credit, or limitation on each,
   every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
   merely because the output is tax-related.
@@ -567,6 +596,9 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  If those scalar legal values are independently encoded as `kind: parameter`
+  rules in the same file, do not also demote them to prose or rely on
+  `source_values` instead.
   Non-operative legislative findings, preambles, intent clauses, and purpose
   clauses still count for source coverage. Do not turn them into executable
   formulas; add `module.deferred_outputs[]` for the specific subparagraph with
@@ -823,10 +855,13 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
-- Every local executable `kind: parameter` and `kind: derived` rule must appear
-  at least once under an `output:` block in the companion `.test.yaml`; do not
-  leave scalar parameters, helper parameters, or helper derived rules
-  unasserted.
+- Every local executable `kind: derived` or `kind: derived_relation` rule must
+  appear at least once under an `output:` block in the companion `.test.yaml`;
+  do not leave helper derived rules unasserted.
+- Do not assert raw `kind: parameter` rules directly in companion test
+  `output:` blocks. Cover parameters through derived outputs that consume them.
+  If a module only contains parameters and has no derived output to assert,
+  leave the companion test file empty.
 - Never emit a concrete test case with `output: {}` or an empty `output` map.
   If no executable output can be asserted, leave the test file empty instead of
   adding placeholder cases.

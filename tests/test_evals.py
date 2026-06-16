@@ -43,8 +43,10 @@ from axiom_encode.harness.evals import (
     _run_codex_prompt_eval,
     _select_cross_section_context_files,
     _source_identifier_to_relative_rulespec_path,
+    _target_source_scope_for_heuristics,
     _wait_for_codex_process,
     evaluate_artifact,
+    find_admin_agency_aggregate_entity_issues,
     load_eval_suite_manifest,
     parse_runner_spec,
     prepare_eval_workspace,
@@ -118,6 +120,125 @@ def test_source_identifier_maps_state_manual_to_policies_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us-az/manual/des/faa5/na-child-support-expense/block-2"
     ) == Path("policies/des/faa5/na-child-support-expense/block-2.yaml")
+
+
+def test_admin_agency_aggregate_rejects_household_executable_rule():
+    source_text = (
+        "FNS shall estimate each State agency's active case, payment, and negative "
+        "case error rate. y2′ = y2 + b2(X2−x2), where X2 is the average value of "
+        "allotments underissued to participating households in the State agency "
+        "full quality control sample."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: average_allotments_underissued_active_error_rate
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 CFR 275.23(b)(2)(i)(B)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: y2 + b2 * (x2_full_sample - x2_rereview)
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert issues == [
+        "Unsupported administrative aggregate entity: "
+        "`average_allotments_underissued_active_error_rate` is declared on "
+        "`Household`, but the authoritative source defines a State agency/FNS "
+        "aggregate performance, sampling, liability, waiver, or bonus measure. "
+        "Use a source-stated administrative entity such as `StateAgency` "
+        "instead of a household/person/tax/payment entity, or defer only if the "
+        "administrative surface still cannot be represented faithfully."
+    ]
+
+
+def test_admin_agency_aggregate_rejects_bonus_payment_spending_restriction():
+    source_text = (
+        "Bonus payments shall not be used for household benefits, including "
+        "incentive payments."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/24
+rules:
+  - name: bonus_payment_may_be_used_for_household_benefits
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 7 CFR 275.24(a)(8)(i)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: not payment_is_bonus_payment or not payment_use_is_household_benefit
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert issues == [
+        "Unsupported administrative aggregate entity: "
+        "`bonus_payment_may_be_used_for_household_benefits` is declared on "
+        "`Payment`, but the authoritative source defines a State agency/FNS "
+        "aggregate performance, sampling, liability, waiver, or bonus measure. "
+        "Use a source-stated administrative entity such as `StateAgency` "
+        "instead of a household/person/tax/payment entity, or defer only if the "
+        "administrative surface still cannot be represented faithfully."
+    ]
+
+
+def test_admin_agency_aggregate_allows_state_agency_entity():
+    source_text = (
+        "The amount of the liability shall be equal to the product of the value "
+        "of all allotments issued by the State agency, the difference between "
+        "the State agency's payment error rate and 6 percent, and 10 percent."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: StateAgency
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(d)(2)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: all_allotments_issued_by_state_agency * (state_agency_payment_error_rate - 0.06) * 0.10
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
+def test_admin_agency_aggregate_allows_household_level_source():
+    source_text = (
+        "A household is eligible for SNAP if it meets the household income "
+        "standard and resource test."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/9
+rules:
+  - name: household_snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.9
+    versions:
+      - effective_from: '0001-01-01'
+        formula: household_income_eligible and household_resource_eligible
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
@@ -1142,6 +1263,154 @@ def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
     assert "companion tests may assert" in prompt
     assert "canonical parameter output directly" in prompt
     assert "Explicit rate-only source-boundary artifacts" in prompt
+
+
+def test_target_source_scope_ignores_cross_references_before_structural_marker():
+    source = "\n\n".join(
+        [
+            "(a) Sampling plan. The plan references paragraph (b)(4), paragraph "
+            "(b)(1)(iii), and paragraph (b)(2)(ii) before the actual sample-size "
+            "paragraph.",
+            "(b) Sample size. The State agency shall review active and negative cases.",
+            "(1) Active cases. (i) All active cases shall be selected.",
+            "(ii) Unless the alternate active case formula applies, the sample size is:",
+            "Average monthly reviewable caseload (N) | Minimum annual sample size (n)\n"
+            "60,000 and over | n = 2400\n"
+            "10,000 to 59,999 | n = 300 + [0.042(N-10,000)]\n"
+            "Under 10,000 | n = 300",
+            "(iii) A State agency with the certification may instead use 0.0153.",
+            "(2) Negative cases. (i) Unless the State agency uses paragraph "
+            "(b)(2)(ii), the negative sample size is:",
+            "Average monthly reviewable negative caseload (N) | Minimum annual sample size (n)\n"
+            "5,000 and over | n = 800\n"
+            "500 to 4,999 | n = 150 + [0.144(N-500)]\n"
+            "Under 500 | n = 150",
+            "(ii) A State agency with the certification may determine the negative "
+            "sample size as follows:",
+            "Average monthly reviewable negative caseload (N) | Minimum annual sample size (n)\n"
+            "5,000 and over | n = 680\n"
+            "684 to 4,999 | n = 150 + [0.1224(N-683)]\n"
+            "Under 684 | n = 150",
+            "(iii) In the formulas, n is the required negative sample size.",
+            "(c) Review process.",
+        ]
+    )
+
+    regular_negative = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/2/i",
+    )
+    assert regular_negative.lstrip().startswith("(i) Unless")
+    assert "0.144" in regular_negative
+    assert "0.1224" not in regular_negative
+
+    alternate_negative = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/2/ii",
+    )
+    assert alternate_negative.lstrip().startswith("(ii) A State agency")
+    assert "0.1224" in alternate_negative
+    assert "0.144" not in alternate_negative
+
+    regular_active = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/11/b/1/ii",
+    )
+    assert regular_active.lstrip().startswith("(ii) Unless")
+    assert "0.042" in regular_active
+    assert "0.0153" not in regular_active
+
+
+def test_target_source_scope_distinguishes_alpha_marker_case_by_level():
+    source = "\n\n".join(
+        [
+            "(d) Validation of State Agency error rates.",
+            "(1) Payment error rate. (i) FNS will select a subsample.",
+            "(A) First active subsample formula.",
+            "(B) Second active subsample formula.",
+            "(E) N is the State agency's minimum active case sample size.",
+            "(2) Other payment-error review steps.",
+            "(3) Negative case error rate. (i) FNS will select a subsample of "
+            "completed negative cases as follows:",
+            "Average monthly reviewable negative caseload (N) | Federal subsample target (n')\n"
+            "12,000 and over | n' = 400\n"
+            "1,001 to 11,999 | n' = .011634 N + 40\n"
+            "1,000 and under | n' = 150",
+            "(ii) The negative case record review follows.",
+            "(e) State corrective action.",
+        ]
+    )
+
+    negative_review = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/3/d/3/i",
+    )
+
+    assert negative_review.lstrip().startswith("(i) FNS will select")
+    assert "Federal subsample target" in negative_review
+    assert "Second active subsample formula" not in negative_review
+    assert "(e) State corrective action" not in negative_review
+
+
+def test_target_source_scope_treats_uppercase_alpha_as_non_roman():
+    source = "\n\n".join(
+        [
+            "(b) State agency error rates.",
+            "(2) Determination of payment error rates.",
+            "(i) FNS shall calculate regressed error rates.",
+            "(A) y1' = y1 + b1 (X1 - x1).",
+            "(B) y2' = y2 + b2 (X2 - x2).",
+            "(C) The regressed error rates are r1' = y1'/u and r2' = y2'/u.",
+            "(D) The adjusted regressed payment error rate is r1'' + r2''.",
+            "(ii) Other review steps.",
+        ]
+    )
+
+    regressed_rates = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/23/b/2/i/C",
+    )
+
+    assert regressed_rates.lstrip().startswith("(C) The regressed error rates")
+    assert "r1' = y1'/u" in regressed_rates
+    assert "adjusted regressed payment error rate" not in regressed_rates
+
+
+def test_target_source_scope_prefers_line_start_nested_markers():
+    source = "\n\n".join(
+        [
+            "(f) Good cause.",
+            "(1) Natural disasters. (i) The State agency shall document impacts.",
+            "(ii) (A) The following criteria apply:",
+            "(1) Geographic impact;",
+            "(2) Duration;",
+            "(3) The proportion of caseload affected; and/or",
+            "(4) Operational impact.",
+            "(2) Strikes.",
+            "(3) Caseload growth.",
+            "(i) A State agency may request relief for unusual caseload growth.",
+            "(ii) Criteria apply.",
+            "(iii) If information is insufficient, use this five-step calculation:",
+            "(A) Step 1--determine the base-period average.",
+            "(B) Step 2--determine the percentage increase.",
+            "(C) Step 3--determine the percentage the error rate exceeds the national performance measure.",
+            "(D) Step 4--divide the percentage increase by the percentage excess.",
+            "(E) Step 5--multiply the quotient by the liability amount.",
+            "(iv) Caseload growth of less than 15 percent is not considered.",
+            "(4) Program changes.",
+            "(g) Results of appeals.",
+        ]
+    )
+
+    step_three = _target_source_scope_for_heuristics(
+        source,
+        "us:regulations/7-cfr/275/23/f/3/iii/C",
+    )
+
+    assert step_three.lstrip().startswith("(C) Step 3")
+    assert "percentage the error rate exceeds" in step_three
+    assert "Step 4" not in step_three
+    assert "The proportion of caseload affected" not in step_three
 
 
 def test_build_eval_prompt_does_not_treat_rates_path_as_rate_only(tmp_path):
@@ -3212,6 +3481,14 @@ rules:
         assert metrics.ci_pass
         assert not any("31" in issue for issue in metrics.numeric_occurrence_issues)
 
+    def test_preserves_bracketed_formula_numeric_source_text(self):
+        numbers = validator_pipeline.extract_numbers_from_text(
+            "684 to 4,999 | n = 150 + [ 0.1224(N-683)]"
+        )
+
+        assert 0.1224 in numbers
+        assert 683 in numbers
+
     def test_accepts_pence_threshold_grounded_as_decimal_gbp(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
@@ -4634,12 +4911,13 @@ class TestEvalPrompt:
             include_tests=True,
         )
 
-        assert "Do not invent new entities, periods, or dtypes." in prompt
+        assert "Do not invent arbitrary entities." in prompt
         assert (
-            "Allowed `entity:` values are `Payment`, `Person`, `TaxUnit`, `Household`, "
+            "Standard `entity:` examples are `Payment`, `Person`, `TaxUnit`, `Household`, "
             "`Family`, `TanfUnit`, `SnapUnit`, `SPMUnit`, `Corporation`, `Business`, "
-            "`Employer`, `Asset`."
+            "`Employer`, `Asset`, `StateAgency`."
         ) in prompt
+        assert "introduce a narrow singular" in prompt
         assert "Allowed `period:` values are `Year`, `Month`, `Week`, `Day`." in prompt
         assert "do not use ISO week shorthands like `2025-W01`" in prompt
         assert (
@@ -9244,9 +9522,10 @@ class TestSourceEval:
         assert "mirror the imported file's companion test pattern" in prompt
         assert "Never turn an imported derived rule into a fabricated" in prompt
         assert (
-            "Every local executable `kind: parameter` and `kind: derived` rule"
+            "Every local executable `kind: derived` or `kind: derived_relation` rule"
             in prompt
         )
+        assert "Do not assert raw `kind: parameter` rules directly" in prompt
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (

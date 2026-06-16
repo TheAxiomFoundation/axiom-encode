@@ -16599,6 +16599,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: 42 CFR 600.320 Basic Health Program timely-determination cross-reference predicates are program-administration rules outside PolicyEngine US's one-to-one oracle surface.
 
+  - legal_id_prefix: us:regulations/7-cfr/275/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 7 CFR part 275 encodes SNAP State agency performance reporting, quality-control, payment-error-rate, and Federal/State administrative liability rules. PolicyEngine-US models household SNAP eligibility and benefits, not FNS and State agency administrative reporting or liability determinations; comparable exact mappings should be added only if PolicyEngine later exposes matching targets.
+
   # State agency policy manuals and regulations are not modeled by
   # PolicyEngine-US except where an exact mapping above says otherwise;
   # exact entries take precedence over these jurisdiction-wide prefixes.
