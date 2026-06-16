@@ -17759,13 +17759,100 @@ def _canonical_rulespec_item_id_alias(
 ) -> str | None:
     if ":" not in item_id:
         return None
-    local_prefix = policy_repo_path.name.removeprefix("rulespec-")
+    raw_prefix, raw_path = item_id.split(":", 1)
     canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    if not local_prefix or local_prefix == canonical_prefix:
+    local_prefixes = _rulespec_local_item_prefixes(policy_repo_path)
+    if raw_prefix != canonical_prefix and raw_prefix not in local_prefixes:
         return None
-    if not item_id.startswith(f"{local_prefix}:"):
+    canonical_path = _canonical_rulespec_item_path_for_policy_root(
+        raw_path,
+        policy_repo_path=policy_repo_path,
+        canonical_prefix=canonical_prefix,
+    )
+    alias = f"{canonical_prefix}:{canonical_path}"
+    if alias == item_id:
         return None
-    return f"{canonical_prefix}:{item_id.split(':', 1)[1]}"
+    return alias
+
+
+def _rulespec_local_item_prefixes(policy_repo_path: Path) -> set[str]:
+    """Return noncanonical prefixes the engine may stamp for this checkout."""
+    canonical_prefix = jurisdiction_prefix(policy_repo_path)
+    prefixes: set[str] = set()
+    current = Path(policy_repo_path).resolve()
+    for candidate in (current, *current.parents):
+        name = candidate.name
+        if name.startswith("rulespec-"):
+            prefixes.add(name.removeprefix("rulespec-"))
+            break
+    local_prefix = Path(policy_repo_path).name.removeprefix("rulespec-")
+    if local_prefix:
+        prefixes.add(local_prefix)
+    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
+    if canonical_name and canonical_name.startswith("rulespec-"):
+        prefixes.add(canonical_name.removeprefix("rulespec-"))
+    prefixes.discard(canonical_prefix)
+    return {prefix for prefix in prefixes if prefix}
+
+
+def _rulespec_local_item_prefix(policy_repo_path: Path) -> str | None:
+    """Return the preferred engine-local prefix for same-repo test requests."""
+    canonical_prefix = jurisdiction_prefix(policy_repo_path)
+    current = Path(policy_repo_path).resolve()
+    for candidate in (current, *current.parents):
+        name = candidate.name
+        if name.startswith("rulespec-"):
+            prefix = name.removeprefix("rulespec-")
+            if prefix and prefix != canonical_prefix:
+                return prefix
+            break
+    return None
+
+
+def _rulespec_content_prefix_segment(
+    *,
+    policy_repo_path: Path,
+    canonical_prefix: str,
+) -> str | None:
+    """Return a monorepo content-root path segment when engine ids include it."""
+    policy_path = Path(policy_repo_path)
+    if policy_path.name == canonical_prefix and policy_path.parent.name.startswith(
+        "rulespec-"
+    ):
+        return canonical_prefix
+    if (policy_path / canonical_prefix).is_dir():
+        return canonical_prefix
+    return None
+
+
+def _canonical_rulespec_item_path_for_policy_root(
+    item_path: str,
+    *,
+    policy_repo_path: Path,
+    canonical_prefix: str,
+) -> str:
+    content_segment = _rulespec_content_prefix_segment(
+        policy_repo_path=policy_repo_path,
+        canonical_prefix=canonical_prefix,
+    )
+    if content_segment and item_path.startswith(f"{content_segment}/"):
+        return item_path.split("/", 1)[1]
+    return item_path
+
+
+def _engine_rulespec_item_path_for_policy_root(
+    item_path: str,
+    *,
+    policy_repo_path: Path,
+    canonical_prefix: str,
+) -> str:
+    content_segment = _rulespec_content_prefix_segment(
+        policy_repo_path=policy_repo_path,
+        canonical_prefix=canonical_prefix,
+    )
+    if content_segment and not item_path.startswith(f"{content_segment}/"):
+        return f"{content_segment}/{item_path}"
+    return item_path
 
 
 def _rulespec_public_item_keys(
@@ -18106,12 +18193,17 @@ def _rulespec_engine_request_name_for_test_key(
 ) -> str:
     if not require_legal_input_keys or not _RULESPEC_ABSOLUTE_REFERENCE.match(test_key):
         return runtime_name
-    local_prefix = policy_repo_path.name.removeprefix("rulespec-")
+    local_prefix = _rulespec_local_item_prefix(policy_repo_path)
     canonical_prefix = jurisdiction_prefix(policy_repo_path)
     if local_prefix and local_prefix != canonical_prefix:
         canonical_head = f"{canonical_prefix}:"
         if test_key.startswith(canonical_head):
-            return f"{local_prefix}:{test_key.split(':', 1)[1]}"
+            item_path = _engine_rulespec_item_path_for_policy_root(
+                test_key.split(":", 1)[1],
+                policy_repo_path=policy_repo_path,
+                canonical_prefix=canonical_prefix,
+            )
+            return f"{local_prefix}:{item_path}"
     return test_key
 
 

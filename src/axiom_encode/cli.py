@@ -82,6 +82,7 @@ from .harness.validator_pipeline import (
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
+    _engine_rulespec_item_path_for_policy_root,
     _extract_source_verification_text,
     _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
@@ -91,6 +92,7 @@ from .harness.validator_pipeline import (
     _resolve_rulespec_target_file,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_local_item_prefix,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -2903,9 +2905,18 @@ def _rulespec_test_relation_request_name(
     if ":" in key:
         prefix, relative = key.split(":", 1)
         canonical_prefix = _repo_jurisdiction_prefix(policy_repo_path)
-        local_prefix = policy_repo_path.name.removeprefix("rulespec-")
-        if prefix == canonical_prefix and local_prefix != canonical_prefix:
-            return f"{local_prefix}:{relative}"
+        local_prefix = _rulespec_local_item_prefix(policy_repo_path)
+        if (
+            prefix == canonical_prefix
+            and local_prefix
+            and local_prefix != canonical_prefix
+        ):
+            item_path = _engine_rulespec_item_path_for_policy_root(
+                relative,
+                policy_repo_path=policy_repo_path,
+                canonical_prefix=canonical_prefix,
+            )
+            return f"{local_prefix}:{item_path}"
     return key
 
 
