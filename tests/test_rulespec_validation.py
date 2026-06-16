@@ -975,6 +975,41 @@ rules:
     ]
 
 
+def test_missing_derived_companion_output_strips_country_subdir(tmp_path):
+    policy_repo = tmp_path / "rulespec-nz"
+    rules_file = policy_repo / "nz" / "statutes" / "income_tax" / "rates.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: income_tax_before_credits
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    source: Income Tax Act 2007 Schedule 1
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_income * 0.105
+"""
+    cases = [
+        {
+            "name": "basic",
+            "period": "2026",
+            "input": {},
+            "output": {"nz:statutes/income_tax/rates#income_tax_before_credits": 105},
+        }
+    ]
+
+    issues = find_missing_derived_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == []
+
+
 def test_judgment_positive_companion_output_rejects_never_holds(tmp_path):
     policy_repo = tmp_path / "rulespec-us"
     rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
