@@ -18092,6 +18092,7 @@ def _source_atom_for_embedded_scalar_parameter(
 ) -> dict[str, Any]:
     proof = source_rule.get("metadata", {}).get("proof")
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    fallback_source: dict[str, Any] | None = None
     if isinstance(atoms, list):
         for atom in atoms:
             if not isinstance(atom, dict):
@@ -18099,6 +18100,8 @@ def _source_atom_for_embedded_scalar_parameter(
             source = atom.get("source")
             if not isinstance(source, dict):
                 continue
+            if fallback_source is None:
+                fallback_source = dict(source)
             excerpt = source.get("excerpt")
             if isinstance(excerpt, str) and literal in excerpt:
                 return {
@@ -18106,6 +18109,12 @@ def _source_atom_for_embedded_scalar_parameter(
                     "kind": "parameter",
                     "source": dict(source),
                 }
+    if fallback_source is not None:
+        return {
+            "path": "versions[0].formula",
+            "kind": "parameter",
+            "source": fallback_source,
+        }
     return {
         "path": "versions[0].formula",
         "kind": "parameter",

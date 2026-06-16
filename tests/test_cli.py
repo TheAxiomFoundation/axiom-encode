@@ -4902,6 +4902,53 @@ rules:
             "us-tn:regulations/block-1#snap_standard_deduction_max_household_size"
         )
 
+    def test_embedded_scalar_literal_repair_falls_back_to_source_atom(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies" / "fl.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: maximum_food_assistance_benefit
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: Appendix A-1, Maximum Benefit Effective October 1, 2025
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-fl/manual/example
+          excerpt: Maximum Benefit Effective October 1, 2025; Each Additional Member Add +$218
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "if assistance_group_size <= 10: maximum_food_assistance_benefit_table[assistance_group_size] else: maximum_food_assistance_benefit_table[10]"
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-fl",
+            issues=[
+                "Embedded scalar literal: maximum_food_assistance_benefit line 10 "
+                "embeds 10 in `assistance_group_size <= 10`; extract the value "
+                "to its own named numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["maximum_food_assistance_benefit_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][0]
+        assert parameter["name"] == "maximum_food_assistance_benefit_scalar_limit"
+        atom = parameter["metadata"]["proof"]["atoms"][0]
+        assert atom["source"]["corpus_citation_path"] == "us-fl/manual/example"
+        assert "Maximum Benefit Effective" in atom["source"]["excerpt"]
+
     def test_embedded_scalar_literal_repair_replaces_repeated_expression_literals(
         self, tmp_path
     ):
