@@ -104,6 +104,10 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   aggregate measure and the supported ontology has no StateAgency/FNS review
   entity for it, emit `module.status: entity_not_supported` or `deferred` with
   `rules: []` and a concrete `module.deferred_outputs[]` record.
+- Bonus award money and bonus-payment spending restrictions are part of that
+  administrative surface. If the source says bonus money may be used only for
+  SNAP-related expenses or may not be used for household benefits or incentive
+  payments, do not invent a `Payment` entity rule; defer the output.
 - When a definition uses "taxpayer" but also says the amount is "of an
   individual" or applies exclusions for services, income, payments, or statuses
   of an individual/person/employee/member, encode those components on `Person`.

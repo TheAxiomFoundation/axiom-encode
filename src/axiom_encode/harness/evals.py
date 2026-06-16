@@ -132,6 +132,13 @@ _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN = re.compile(
     r"application\s+processing\s+timeliness)\b",
     flags=re.IGNORECASE,
 )
+_ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
+    r"\b(?:bonus\s+award\s+money|bonus\s+payments?)\b[\s\S]{0,160}"
+    r"\b(?:shall\s+be\s+used\s+only|shall\s+not\s+be\s+used|"
+    r"household\s+benefits?|incentive\s+payments?|"
+    r"SNAP-related\s+expenses?)\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -6336,10 +6343,11 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    if not (
+    is_admin_agency_aggregate = (
         _ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN.search(source_text)
         and _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN.search(source_text)
-    ):
+    ) or _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN.search(source_text)
+    if not is_admin_agency_aggregate:
         return []
     try:
         payload = yaml.safe_load(content)

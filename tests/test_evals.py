@@ -157,6 +157,39 @@ rules:
     ]
 
 
+def test_admin_agency_aggregate_rejects_bonus_payment_spending_restriction():
+    source_text = (
+        "Bonus payments shall not be used for household benefits, including "
+        "incentive payments."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/24
+rules:
+  - name: bonus_payment_may_be_used_for_household_benefits
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 7 CFR 275.24(a)(8)(i)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: not payment_is_bonus_payment or not payment_use_is_household_benefit
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert issues == [
+        "Unsupported administrative aggregate entity: "
+        "`bonus_payment_may_be_used_for_household_benefits` is declared on "
+        "`Payment`, but the authoritative source defines a State agency/FNS "
+        "aggregate performance, sampling, liability, waiver, or bonus measure. "
+        "Emit `module.status: entity_not_supported` or `deferred` with "
+        "`rules: []` until RuleSpec supports that administrative entity."
+    ]
+
+
 def test_admin_agency_aggregate_allows_household_level_source():
     source_text = (
         "A household is eligible for SNAP if it meets the household income "
