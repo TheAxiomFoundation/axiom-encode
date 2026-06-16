@@ -16654,20 +16654,24 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_bare_snapunit_entities = (
-                    _try_repair_generated_bare_snapunit_entity_for_apply(
-                        result,
-                        output_root=args.output,
-                        issues=apply_issues,
+                repaired_bare_snapunit_entities: list[str] = []
+                while not can_apply:
+                    repaired_snapunit_pass = (
+                        _try_repair_generated_bare_snapunit_entity_for_apply(
+                            result,
+                            output_root=args.output,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_bare_snapunit_entities:
+                    if not repaired_snapunit_pass:
+                        break
+                    repaired_bare_snapunit_entities.extend(repaired_snapunit_pass)
                     outcome["auto_repaired_bare_snapunit_entity"] = (
                         repaired_bare_snapunit_entities
                     )
                     print(
                         "  apply=auto_repaired_bare_snapunit_entity:"
-                        + ",".join(repaired_bare_snapunit_entities)
+                        + ",".join(repaired_snapunit_pass)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
