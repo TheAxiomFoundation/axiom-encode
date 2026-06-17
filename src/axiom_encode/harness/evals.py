@@ -260,6 +260,48 @@ def _numeric_concept_name_occurrences(content: str) -> Counter[float]:
     return occurrences
 
 
+def _verification_value_numeric_occurrences(content: str) -> Counter[float]:
+    """Count source values recorded in RuleSpec verification payloads."""
+    occurrences: Counter[float] = Counter()
+
+    def visit(value: object) -> None:
+        if isinstance(value, bool):
+            return
+        if isinstance(value, (int, float)):
+            occurrences.update([float(value)])
+            return
+        if isinstance(value, str):
+            stripped = value.strip().replace(",", "")
+            with contextlib.suppress(ValueError):
+                occurrences.update([float(stripped)])
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                visit(key)
+                visit(item)
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not (
+            isinstance(payload, dict)
+            and payload.get("format") == "rulespec/v1"
+            and isinstance(payload.get("rules"), list)
+        ):
+            return occurrences
+        for rule in payload["rules"]:
+            if not isinstance(rule, dict):
+                continue
+            verification = rule.get("verification")
+            if not isinstance(verification, dict):
+                continue
+            visit(verification.get("values"))
+    return occurrences
+
+
 _SECTION_CROSS_REFERENCE_PATTERN = re.compile(
     r"\b(?:sections?|secs?\.?|regs?\.?|regulations?|paragraphs?)\s+"
     r"\d+(?:\.\d+)+(?:\s*(?:through|to|-|and|,)\s*\d+(?:\.\d+)+)*",
@@ -2963,6 +3005,7 @@ def evaluate_artifact(
         item.value for item in extract_named_scalar_occurrences(content)
     )
     named_scalar_occurrences.update(_numeric_concept_name_occurrences(content))
+    named_scalar_occurrences.update(_verification_value_numeric_occurrences(content))
     named_scalar_occurrences.update(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )

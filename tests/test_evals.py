@@ -4007,6 +4007,52 @@ rules:
         assert metrics.ci_pass
         assert metrics.numeric_occurrence_issues == []
 
+    def test_numeric_occurrence_check_counts_verification_values(self, tmp_path):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction amounts are $209 for household sizes 1 through 3 and $223 for household size 4.
+rules:
+  - name: restates_standard_deduction
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
+      authority: federal
+    verification:
+      values:
+        snap_standard_deduction_table:
+          1: 209
+          2: 209
+          3: 209
+          4: 223
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "The standard deduction amounts are $209 for household sizes "
+                    "1 through 3 and $223 for household size 4."
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == []
+
     def test_repeated_source_scalar_is_covered_by_one_named_definition(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
