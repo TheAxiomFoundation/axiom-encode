@@ -248,6 +248,37 @@ rules:
     assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
+def test_admin_agency_aggregate_allows_long_income_exclusion_list():
+    source_text = (
+        "P.L. No. 100-175, Section 166, Older Americans Act. Funds received by "
+        "persons fifty-five (55) years of age and older under the Senior "
+        "Community Service Employment Program under Title V of the Older "
+        "Americans Act are excluded from income. State agencies and eight "
+        "organizations receive funding under Title V. "
+        + ("Separate income exclusion text. " * 40)
+        + "P.L. No. 101-508 amended Section 402(i) of the Social Security Act. "
+        "At-risk block grant child care payments are excluded from being "
+        "counted as income for SNAP purposes."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.405.2
+rules:
+  - name: payment_excluded_as_income
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1, 4.405.2
+    versions:
+      - effective_from: '0001-01-01'
+        formula: senior_community_service_payment or at_risk_child_care_payment
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/regulation/7/273/10"
