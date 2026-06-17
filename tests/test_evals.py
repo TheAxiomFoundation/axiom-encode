@@ -4053,6 +4053,85 @@ rules:
         assert metrics.ci_pass
         assert metrics.numeric_occurrence_issues == []
 
+    def test_numeric_occurrence_check_counts_deferred_output_reasons(self, tmp_path):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: example:provision#full_deduction_for_aged_households
+      reason: This branch depends on whether the household contains a person aged 60 or older.
+  summary: |-
+    A deduction is 10 dollars unless the household has a person aged 60 or older.
+rules:
+  - name: base_deduction_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '10'
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "A deduction is 10 dollars unless the household has a "
+                    "person aged 60 or older."
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_ignores_deferred_reason_section_numbers(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: example:provision#separate_branch
+      reason: This branch is deferred until Section 4.000.1 is encoded.
+rules: []
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="The operative non-citation amount is 4 dollars.",
+            )
+
+        assert not metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == [
+            "Source numeric value 4 appears 1 time(s), but only 0 named scalar "
+            "definition(s) with that value were found."
+        ]
+
     def test_repeated_source_scalar_is_covered_by_one_named_definition(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
