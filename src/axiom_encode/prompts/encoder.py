@@ -46,6 +46,13 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   those lower-entity results through an explicit relation; it must not multiply
   a unit-level placeholder or aggregate base by the rate unless the source
   defines the base on that unit.
+- For claim, overpayment, overissuance, repayment, recoupment, restitution, or
+  collection rules, treat phrases such as "may not collect more than the
+  amount of the claim", "cannot collect more than", and "limited to the claim"
+  as collectability caps. Encode the established gross claim, required offsets,
+  and collectible final amount as distinct outputs. The final collectible
+  amount must compose the computed claim and required offsets with the
+  collectability cap, not return a bare placeholder such as `claim_amount`.
 - Imported definitions do not override the current source's legal subject. If
   the current source imposes a rate-applied amount on each/every individual,
   person, employee, member, claimant, child, dependent, or spouse, declare this
