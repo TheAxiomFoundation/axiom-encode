@@ -205,6 +205,61 @@ def _matching_numeric_occurrence_count(
     )
 
 
+_DECIMAL_PERCENT_CONCEPT_NAME_RE = re.compile(
+    r"(?<!\d)(?P<integer>\d{1,3})_(?P<fraction>\d{1,4})_percent\b",
+    re.IGNORECASE,
+)
+_CONCEPT_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+
+
+def _numeric_occurrences_from_concept_text(text: str) -> Counter[float]:
+    """Extract numeric semantics from concept names and labels.
+
+    This credits names such as ``under_18`` or ``130_percent`` when a source
+    number is represented by an imported predicate/table rather than a local
+    scalar formula.
+    """
+    normalized = _DECIMAL_PERCENT_CONCEPT_NAME_RE.sub(
+        lambda match: f"{match.group('integer')}.{match.group('fraction')} percent",
+        text,
+    )
+    normalized = normalized.replace("_", " ").replace("-", " ")
+    return Counter(extract_numeric_occurrences_from_text(normalized))
+
+
+def _numeric_concept_name_occurrences(content: str) -> Counter[float]:
+    """Count source numeric values represented in local rule/input names."""
+    occurrences: Counter[float] = Counter()
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not (
+            isinstance(payload, dict)
+            and payload.get("format") == "rulespec/v1"
+            and isinstance(payload.get("rules"), list)
+        ):
+            return occurrences
+        for rule in payload["rules"]:
+            if not isinstance(rule, dict):
+                continue
+            name = str(rule.get("name") or "").strip()
+            if name:
+                occurrences.update(_numeric_occurrences_from_concept_text(name))
+            versions = rule.get("versions")
+            if not isinstance(versions, list):
+                continue
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                formula = version.get("formula")
+                if not isinstance(formula, str):
+                    continue
+                for identifier in set(_CONCEPT_IDENTIFIER_RE.findall(formula)):
+                    occurrences.update(
+                        _numeric_occurrences_from_concept_text(identifier)
+                    )
+    return occurrences
+
+
 _SECTION_CROSS_REFERENCE_PATTERN = re.compile(
     r"\b(?:sections?|secs?\.?|regs?\.?|regulations?|paragraphs?)\s+"
     r"\d+(?:\.\d+)+(?:\s*(?:through|to|-|and|,)\s*\d+(?:\.\d+)+)*",
@@ -2907,6 +2962,7 @@ def evaluate_artifact(
     named_scalar_occurrences = Counter(
         item.value for item in extract_named_scalar_occurrences(content)
     )
+    named_scalar_occurrences.update(_numeric_concept_name_occurrences(content))
     named_scalar_occurrences.update(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )
@@ -3171,20 +3227,26 @@ def _imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
 ) -> Counter[float]:
-    """Count direct scalar definitions from imported RuleSpec files."""
+    """Count numeric values from imported RuleSpec files and import symbols."""
     occurrences: Counter[float] = Counter()
     seen: set[Path] = set()
     for import_target in _extract_import_targets(content):
+        if "#" in import_target:
+            occurrences.update(
+                _numeric_occurrences_from_concept_text(import_target.rsplit("#", 1)[1])
+            )
         for path in _candidate_import_rule_files(import_target, policy_repo_root):
             resolved = path.resolve()
             if resolved in seen or not path.exists():
                 continue
             seen.add(resolved)
             with contextlib.suppress(OSError):
+                imported_content = path.read_text()
                 occurrences.update(
                     item.value
-                    for item in extract_named_scalar_occurrences(path.read_text())
+                    for item in extract_named_scalar_occurrences(imported_content)
                 )
+                occurrences.update(_numeric_concept_name_occurrences(imported_content))
             break
     return occurrences
 

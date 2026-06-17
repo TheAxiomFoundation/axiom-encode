@@ -5489,6 +5489,15 @@ def test_numeric_occurrence_extraction_ignores_comma_conjoined_section_reference
     assert extract_numeric_occurrences_from_text(text) == []
 
 
+def test_numeric_occurrence_extraction_ignores_alternative_code_citations():
+    text = (
+        "The source covers residents of federally subsidized housing under "
+        "12 U.S.C. 1701Q or 1715Z-1 and sets a minimum age of sixty."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [60.0]
+
+
 def test_numeric_occurrence_extraction_ignores_source_urls():
     text = (
         "https://www.legislation.gov.uk/uksi/2006/965/regulation/2 states "

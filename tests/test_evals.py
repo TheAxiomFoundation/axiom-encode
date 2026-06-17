@@ -3902,6 +3902,111 @@ rules:
         assert metrics.ci_pass
         assert metrics.numeric_occurrence_issues == []
 
+    def test_numeric_occurrence_check_counts_imported_numeric_concept_names(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        federal_repo = tmp_path / "rulespec-us"
+        child = (
+            federal_repo
+            / "policies"
+            / "usda"
+            / "snap"
+            / "fy-2026-cola"
+            / "income-eligibility-standards.yaml"
+        )
+        child.parent.mkdir(parents=True)
+        child.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_gross_income_limit_130_percent_fpl_48_states_dc
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_gross_income_limit_130_percent_fpl_48_states_dc_table[household_size]
+"""
+        )
+        parent = policy_repo / "regulations" / "example.yaml"
+        parent.parent.mkdir(parents=True)
+        parent.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Other households must meet the 130% gross income standard.
+imports:
+  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc
+rules:
+  - name: colorado_snap_gross_income_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_gross_income_limit_130_percent_fpl_48_states_dc
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=parent,
+                policy_repo_root=policy_repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Other households must meet the 130% gross income standard.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_counts_formula_identifier_numbers(self, tmp_path):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Children under age 18 qualify.
+rules:
+  - name: qualifying_child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: child_under_18
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Children under age 18 qualify.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == []
+
     def test_repeated_source_scalar_is_covered_by_one_named_definition(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
