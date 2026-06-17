@@ -3553,9 +3553,7 @@ rules:
         assert metrics.ci_pass
         assert metrics.numeric_occurrence_issues == []
 
-    def test_repeated_source_scalar_is_covered_by_one_named_definition(
-        self, tmp_path
-    ):
+    def test_repeated_source_scalar_is_covered_by_one_named_definition(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
             """format: rulespec/v1
@@ -3591,7 +3589,7 @@ rules:
                     "2A. Where earnings are less than £20 in any week and "
                     "would not exceed £20."
                 ),
-        )
+            )
 
         assert metrics.compile_pass
         assert metrics.ci_pass
@@ -3600,9 +3598,7 @@ rules:
         assert metrics.missing_source_numeric_occurrence_count == 0
         assert metrics.numeric_occurrence_issues == []
 
-    def test_numeric_occurrence_check_ignores_section_cross_references(
-        self, tmp_path
-    ):
+    def test_numeric_occurrence_check_ignores_section_cross_references(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
             """format: rulespec/v1
@@ -9485,9 +9481,7 @@ class TestUnexpectedAccessDetection:
 
 
 class TestSourceEval:
-    def test_run_model_eval_passes_skip_reviewers_to_evaluate_artifact(
-        self, tmp_path
-    ):
+    def test_run_model_eval_passes_skip_reviewers_to_evaluate_artifact(self, tmp_path):
         corpus_path = _write_test_corpus_provision(
             tmp_path,
             citation_path="us/statute/7/2017/a",
