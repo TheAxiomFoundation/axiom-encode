@@ -5517,6 +5517,25 @@ def test_numeric_occurrence_extraction_ignores_decimal_subsection_label():
     assert extract_numeric_occurrences_from_text(text) == [0.0475]
 
 
+def test_numeric_occurrence_extraction_ignores_bare_dotted_regulatory_reference():
+    text = (
+        "Household members shall not be counted unless otherwise stated in "
+        "4.304.3. The standard deduction is 8.31% of the federal poverty "
+        "income guidelines."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [pytest.approx(0.0831)]
+
+
+def test_numeric_occurrence_extraction_ignores_form_and_line_identifiers():
+    text = (
+        "Show the shortage on Line 13 of Form FNS-250. Attach Form G-845 "
+        "when verification applies. The monthly excess medical threshold is $35."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [35.0]
+
+
 def test_broad_application_passthrough_rejects_furnishing_output():
     content = """format: rulespec/v1
 module:
@@ -12874,6 +12893,60 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           member_has_provided_ssn
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_individual_residing_with_household_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The following individuals residing with a household shall not be considered
+    household members in determining the household's eligibility or allotment:
+    boarders, roomers, and live-in attendants.
+rules:
+  - name: snap_boarder
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 4.304.31
+    versions:
+      - effective_from: '2025-10-01'
+        formula: person_is_boarder
+  - name: snap_boarder_excluded_from_household_membership
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 4.304.31
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_boarder
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_ineligible_member_exclusion_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Ineligible students and household members who are ineligible due to
+    citizenship status, intentional program violation, or failure to provide a
+    Social Security Number shall be excluded when determining the household
+    size and level of benefits.
+rules:
+  - name: member_excluded_from_household_size_and_benefit_level
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 4.401
+    versions:
+      - effective_from: '2025-10-01'
+        formula: ineligible_student or ineligible_due_to_citizenship_status
 """
 
     assert find_source_scope_consistency_issues(content) == []
