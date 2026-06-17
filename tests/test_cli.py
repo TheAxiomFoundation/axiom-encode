@@ -12772,6 +12772,103 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_synthesizes_local_judgment_dependency_inputs(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us-co"
+        rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.802.62.yaml"
+        test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.802.62.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: failure_to_appear_good_cause_letter_period_calendar_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 10
+  - name: appeal_abandoned_for_failure_to_appear
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          appellant_failed_to_appear_at_duly_scheduled_hearing
+          and appellant_was_given_proper_notice
+          and not appellant_gave_timely_advance_notice_of_acceptable_good_cause_for_inability_to_appear
+  - name: initial_decision_confirms_failure_to_appear_dismissal
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          appeal_abandoned_for_failure_to_appear
+          and appellant_submitted_letter_explaining_failure_to_appear
+          and calendar_days_since_order_of_dismissal_was_mailed <= failure_to_appear_good_cause_letter_period_calendar_days
+          and not administrative_adjudicator_finds_acceptable_good_cause_for_appellant_not_appearing
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("regulations/10-ccr-2506-1/4.802.62.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us-co:regulations/10-ccr-2506-1/4.802.62#initial_decision_confirms_failure_to_appear_dismissal` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_initial_decision_confirms_failure_to_appear_dismissal"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[0]
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.appellant_failed_to_appear_at_duly_scheduled_hearing"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.appellant_was_given_proper_notice"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.appellant_gave_timely_advance_notice_of_acceptable_good_cause_for_inability_to_appear"
+            ]
+            is False
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.appellant_submitted_letter_explaining_failure_to_appear"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.calendar_days_since_order_of_dismissal_was_mailed"
+            ]
+            == 0
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.802.62#input.administrative_adjudicator_finds_acceptable_good_cause_for_appellant_not_appearing"
+            ]
+            is False
+        )
+        assert synthesized["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.802.62#initial_decision_confirms_failure_to_appear_dismissal": "holds"
+        }
+
     def test_judgment_positive_test_repair_breaks_parenthesized_exception(
         self, tmp_path
     ):
