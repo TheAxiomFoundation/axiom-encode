@@ -1074,6 +1074,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "unit-level placeholder or aggregate base by the rate" in prompt
     assert '"per taxpayer per beneficiary"' in prompt
     assert "Do not apply one\n  per-unit cap to a single aggregate amount" in prompt
+    assert "For claim, overpayment, overissuance, repayment" in prompt
+    assert "as collectability caps" in prompt
+    assert "not return a bare placeholder such as `claim_amount`" in prompt
     assert (
         "Imported definitions do not override the current source's legal subject"
         in prompt
