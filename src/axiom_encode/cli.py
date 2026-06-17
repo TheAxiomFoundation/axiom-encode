@@ -8087,10 +8087,16 @@ def cmd_repair_delegated_policy_settings(args):
         original_content,
         rules_file=rules_file,
     )
+    before_unresolved_delegated_issues = _unresolved_delegated_setting_sets_issue_texts(
+        original_content,
+        rules_file=rules_file,
+        policy_repo_path=repo_path,
+    )
     before_delegated_issues = _ordered_unique_strings(
         [
             *(_delegated_policy_setting_issue_texts(before_issues)),
             *before_direct_delegated_issues,
+            *before_unresolved_delegated_issues,
         ]
     )
     if not before_delegated_issues:
@@ -8124,10 +8130,16 @@ def cmd_repair_delegated_policy_settings(args):
         rules_file.read_text(),
         rules_file=rules_file,
     )
+    after_unresolved_delegated_issues = _unresolved_delegated_setting_sets_issue_texts(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo_path,
+    )
     after_delegated_issues = _ordered_unique_strings(
         [
             *(_delegated_policy_setting_issue_texts(after_issues)),
             *after_direct_delegated_issues,
+            *after_unresolved_delegated_issues,
         ]
     )
     if not set(before_delegated_issues) - set(after_delegated_issues):
@@ -19615,6 +19627,60 @@ def _issue_mentions_delegated_policy_setting(issue: str) -> bool:
         or "us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs"
         in issue
     )
+
+
+def _unresolved_delegated_setting_sets_issue_texts(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None,
+) -> list[str]:
+    try:
+        payload = yaml.safe_load(content) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    resolved_targets = _resolved_executable_delegated_setting_targets(
+        _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
+        current_payload=payload,
+        current_rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    unresolved_targets = {
+        normalized
+        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+        if (normalized := _normalize_source_relation_target_ref(setting_target.target))
+        not in resolved_targets
+    }
+    if not unresolved_targets:
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        target = _normalize_source_relation_target_ref(source_relation.get("target"))
+        if target not in unresolved_targets:
+            continue
+        name = str(rule.get("name") or target).strip()
+        issues.append(
+            "RuleSpec source relation "
+            f"`{name}` sets target `{target}`, but the target does not resolve "
+            "to an executable parameter or derived rule in the merged program"
+        )
+    return issues
 
 
 def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
