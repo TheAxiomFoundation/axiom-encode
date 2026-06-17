@@ -7705,6 +7705,9 @@ def _rule_source_scope(
     fallback_source_text: str,
 ) -> tuple[str, str | None] | None:
     source_texts = _rule_proof_source_excerpts(rule)
+    if not source_texts and _rule_proof_source_contexts(rule):
+        # Path-only proof citations are not rule-specific source text.
+        return None
     if not source_texts and fallback_source_text:
         source_texts = [fallback_source_text]
 

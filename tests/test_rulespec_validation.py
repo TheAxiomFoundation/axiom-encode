@@ -14280,6 +14280,40 @@ rules:
     ]
 
 
+def test_source_scope_consistency_skips_mixed_summary_for_path_only_proof():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.803.41
+  summary: |-
+    Households mailed a waiver request must receive a statement of rights and
+    notice that they have fifteen days to return a completed waiver. Completion
+    is voluntary. If the suspected member signs and timely returns the waiver,
+    that person and the head of household receive a notice of disqualification.
+rules:
+  - name: waiver_completion_voluntary_requirement_satisfied
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Day
+    source: 10 CCR 2506-1, section 4.803.41(B)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.803.41
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          not local_office_requires_completion_of_waiver
+          and not local_office_actions_appear_to_require_completion_of_waiver
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_rejects_definite_person_subject_at_unit_scope():
     content = """format: rulespec/v1
 module:
