@@ -11911,6 +11911,103 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_reruns_invalid_input_repair_after_canonical_repair(
+        self, capsys, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        args = self._make_args(
+            tmp_path,
+            backend="codex",
+            citation="10 CCR 2506-1 4.205.32",
+            policy_repo_path=policy_repo,
+            sync=False,
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "10-ccr-2506-1"
+            / "4.205.32.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: eligible_second_period_retroactive_prorated_benefits_required
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_found_eligible
+"""
+        )
+        stale_ref = "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"
+        invalid_ref = "us:statutes/7/2014/e/6/A#input.snap_total_gross_income"
+        test_file = output_file.with_name("4.205.32.test.yaml")
+        test_file.write_text(
+            f"""- name: eligible_household_in_second_period_gets_retroactive_prorated_benefits
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.205.32#input.household_found_eligible: true
+    {stale_ref}: 0
+  output:
+    us-co:regulations/10-ccr-2506-1/4.205.32#eligible_second_period_retroactive_prorated_benefits_required: holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = policy_repo / "regulations/10-ccr-2506-1/4.205.32.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (True, [], {}),
+                    (
+                        False,
+                        [
+                            "regulations/10-ccr-2506-1/4.205.32.yaml: ci: "
+                            "Test case "
+                            "`eligible_household_in_second_period_gets_retroactive_prorated_benefits` "
+                            "input invalid: input "
+                            f"`{invalid_ref}` does not resolve to an input slot in "
+                            "statutes/7/2014/e/6/A.yaml."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_test_yaml_canonical_refs:" in output
+        assert f"apply=auto_repaired_invalid_test_inputs:{invalid_ref}" in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert stale_ref not in test_content
+        assert invalid_ref not in test_content
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_test_inputs"] == [invalid_ref]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_hoist_nested_test_tables_normalizes_entity_rows(self, tmp_path):
         test_file = tmp_path / "3121" / "a" / "2.test.yaml"
         test_file.parent.mkdir(parents=True)
