@@ -6460,6 +6460,68 @@ def find_judgment_positive_companion_output_issues(
     return issues
 
 
+_SYNTHETIC_SOURCE_AUTHORIZED_INPUT_PATTERN = re.compile(
+    r"(?:^|_)source_authorized(?:_|$)"
+)
+
+
+def find_synthetic_source_authorized_input_issues(content: str) -> list[str]:
+    """Reject local inputs that let tests invent source authorization.
+
+    These inputs usually appear when a source-stated prohibition is encoded as a
+    positive entitlement gated by a caller-supplied escape hatch, e.g. a source
+    says a county is not entitled to a postponement but the formula depends on
+    ``county_has_source_authorized_postponement_entitlement``.
+    """
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+
+    local_symbols = _rulespec_executable_names_from_payload(payload)
+    local_symbols.update(_rulespec_data_relation_names(payload))
+    local_symbols.update(_rulespec_import_symbol_names(payload))
+
+    issues: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return issues
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "derived":
+            continue
+        rule_name = _rulespec_rule_name(rule)
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            for identifier in sorted(_formula_local_identifiers(formula)):
+                if identifier in local_symbols:
+                    continue
+                if not _SYNTHETIC_SOURCE_AUTHORIZED_INPUT_PATTERN.search(identifier):
+                    continue
+                key = (rule_name, identifier)
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(
+                    "Synthetic source-authorized local input: "
+                    f"`{rule_name}` depends on local input `{identifier}`. "
+                    "Encode the source-stated authorization, prohibition, or "
+                    "entitlement directly, or import a source-backed upstream "
+                    "authorization rule; do not let tests supply a "
+                    "`source_authorized` escape hatch."
+                )
+    return issues
+
+
 def _rule_versions_are_constant_false(versions: list[Any]) -> bool:
     formulas = [
         str(version.get("formula") or "").strip().lower()
@@ -19919,6 +19981,7 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_sibling_rule_name_collision_issues(content, rules_file))
+        issues.extend(find_synthetic_source_authorized_input_issues(content))
         issues.extend(
             find_child_fragment_reencoding_issues(
                 content,

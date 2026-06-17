@@ -82,6 +82,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_subparagraph_coverage_issues,
     find_source_table_row_scalar_parameter_issues,
     find_source_verification_issues,
+    find_synthetic_source_authorized_input_issues,
     find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_local_input_issues,
     find_tax_filing_status_surviving_spouse_issues,
@@ -1097,6 +1098,34 @@ rules:
     )
 
     assert issues == []
+
+
+def test_synthetic_source_authorized_input_rejected_for_prohibition():
+    content = """format: rulespec/v1
+rules:
+  - name: county_postponement_entitled
+    kind: derived
+    entity: SnapFairHearing
+    dtype: Judgment
+    period: Day
+    source: 10 CCR 2506-1 section 4.802.61(A)(3)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          county_requested_postponement
+          and county_has_source_authorized_postponement_entitlement
+"""
+
+    issues = find_synthetic_source_authorized_input_issues(content)
+
+    assert issues == [
+        "Synthetic source-authorized local input: "
+        "`county_postponement_entitled` depends on local input "
+        "`county_has_source_authorized_postponement_entitlement`. "
+        "Encode the source-stated authorization, prohibition, or entitlement "
+        "directly, or import a source-backed upstream authorization rule; do "
+        "not let tests supply a `source_authorized` escape hatch."
+    ]
 
 
 def test_judgment_positive_companion_output_requires_positive_for_or_false_rule(

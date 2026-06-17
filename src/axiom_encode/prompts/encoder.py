@@ -786,6 +786,12 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   amount but depends on externally determined classifications, official
   designations, statuses, event facts, or source-document categories, encode
   the amount with boundary inputs for those facts instead of deferring.
+- If the source says an actor may not request something, is not entitled to
+  something, or is otherwise categorically prohibited, do not create a local
+  authorization escape-hatch input such as
+  `*_has_source_authorized_*_entitlement` to make the positive entitlement
+  hold. Encode the entitlement as a constant false Judgment or encode the
+  source-stated prohibition/not-entitled rule directly.
 - This includes exclusions conditioned on a reasonable belief that an item can
   be excluded from income under another section. Do not defer solely because
   the cited exclusion section is not encoded; model the source-stated
