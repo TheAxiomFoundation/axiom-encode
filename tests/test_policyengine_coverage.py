@@ -91,6 +91,54 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_nz_income_tax_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-nz"
+        / "nz/statutes/income_tax/schedule_1/individual_income_tax.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_income_tax_bracket_rates
+    kind: parameter
+    indexed_by: bracket
+    versions:
+      - effective_from: '2025-04-01'
+        values:
+          1: 0.105
+  - name: individual_income_tax_bracket_thresholds
+    kind: parameter
+    indexed_by: bracket
+    versions:
+      - effective_from: '2025-04-01'
+        values:
+          1: 15600
+  - name: individual_income_tax_before_credits
+    kind: derived
+    versions:
+      - effective_from: '2025-04-01'
+        formula: taxable_income * individual_income_tax_bracket_rates[1]
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_before_credits"
+        ]["policyengine_variable"]
+        == "income_tax"
+    )
+    assert (
+        items_by_id[
+            "nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_bracket_rates"
+        ]["policyengine_parameter"]
+        == "gov.ird.income_tax.rates.rates"
+    )
+
+
 def test_policyengine_coverage_classifies_7_cfr_275_admin_prefix(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "regulations/7-cfr/275/23/e/1.yaml",

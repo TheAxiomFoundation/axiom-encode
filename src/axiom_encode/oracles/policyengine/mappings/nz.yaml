@@ -1,0 +1,24 @@
+mappings:
+  - legal_id: nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_bracket_rates
+    country: nz
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ird.income_tax.rates.rates
+    candidate_priority: P4
+    rationale: Axiom encodes the Income Tax Act 2007 Schedule 1 table as five statutory marginal rates applying from the first dollar of taxable income. PolicyEngine NZ's adjacent rate parameter includes a zero first bracket and shifts those rates into later bracket keys, so it is not a one-to-one oracle target for this RuleSpec output.
+
+  - legal_id: nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_bracket_thresholds
+    country: nz
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ird.income_tax.thresholds.thresholds
+    candidate_priority: P4
+    rationale: Axiom stores the Schedule 1 taxable-income range upper bounds for the statutory rate table. PolicyEngine NZ's adjacent threshold parameter stores lower-bound starts after a zero-tax first bracket, so the parameter shape and legal boundary do not match this RuleSpec output.
+
+  - legal_id: nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_before_credits
+    country: nz
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: income_tax
+    candidate_priority: P4
+    rationale: Axiom computes the Schedule 1 basic tax before credits from the statutory marginal rates starting at the first dollar of taxable income. PolicyEngine NZ's adjacent income_tax variable currently treats income up to $15,600 as untaxed, so it is not comparable without correcting or adapting the oracle.
