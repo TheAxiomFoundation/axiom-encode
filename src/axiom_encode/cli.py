@@ -27790,8 +27790,9 @@ def _validate_generated_encoding_in_policy_overlay(
             for validator_result in validation.results.values():
                 if validator_result.error:
                     relative_file = validated_file.relative_to(overlay_repo)
+                    validator_name = getattr(validator_result, "validator_name", "ci")
                     issues.append(
-                        f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
+                        f"{relative_file}: {validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
 
@@ -30326,11 +30327,6 @@ def _default_refs_for_missing_input(
         (reference, value)
         for reference, value in baseline_inputs.items()
         if reference.endswith(suffix)
-        and not (
-            target_input_names is not None
-            and input_name not in target_input_names
-            and _rulespec_ref_matches_base(reference, target_ref)
-        )
     ]
     if matches:
         return matches
