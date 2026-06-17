@@ -6466,7 +6466,71 @@ def _rule_versions_are_constant_false(versions: list[Any]) -> bool:
         for version in versions
         if isinstance(version, dict) and isinstance(version.get("formula"), str)
     ]
-    return bool(formulas) and all(formula == "false" for formula in formulas)
+    return bool(formulas) and all(
+        _formula_is_syntactically_unsatisfiable_false(formula) for formula in formulas
+    )
+
+
+def _formula_is_syntactically_unsatisfiable_false(formula: str) -> bool:
+    normalized = re.sub(r"\s+", " ", formula.strip().lower())
+    normalized = _strip_balanced_outer_parentheses(normalized)
+    if normalized == "false":
+        return True
+    conjuncts = _split_top_level_boolean_operator(normalized, "and")
+    return len(conjuncts) > 1 and any(
+        _formula_is_syntactically_unsatisfiable_false(conjunct)
+        for conjunct in conjuncts
+    )
+
+
+def _strip_balanced_outer_parentheses(expression: str) -> str:
+    stripped = expression.strip()
+    while stripped.startswith("(") and stripped.endswith(")"):
+        depth = 0
+        encloses_all = True
+        for index, char in enumerate(stripped):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0 and index != len(stripped) - 1:
+                    encloses_all = False
+                    break
+            if depth < 0:
+                encloses_all = False
+                break
+        if not encloses_all or depth != 0:
+            break
+        stripped = stripped[1:-1].strip()
+    return stripped
+
+
+def _split_top_level_boolean_operator(expression: str, operator: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    index = 0
+    pattern = re.compile(rf"\b{re.escape(operator)}\b")
+    while index < len(expression):
+        char = expression[index]
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            depth = max(depth - 1, 0)
+            index += 1
+            continue
+        if depth == 0:
+            match = pattern.match(expression, index)
+            if match is not None:
+                parts.append(expression[start:index].strip())
+                start = match.end()
+                index = match.end()
+                continue
+        index += 1
+    parts.append(expression[start:].strip())
+    return [part for part in parts if part]
 
 
 def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:
