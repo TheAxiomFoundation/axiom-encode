@@ -6633,6 +6633,44 @@ rules:
             "  or (not (broad_based_categorically_eligible) and regular_income_test)"
         )
 
+    def test_judgment_conditional_repair_rewrites_embedded_branch(self, tmp_path):
+        rules_file = tmp_path / "snap.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: consent_agreement_disqualification_begins_in_accordance_with_rule
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Day
+  versions:
+  - effective_from: '0001-01-01'
+    formula: |-
+      signed_disqualification_consent_agreement_obtained
+      and (
+        if court_imposes_disqualification_period_or_specifies_initiation_date:
+          state_department_disqualifies_household_member_in_accordance_with_court_order
+        else:
+          disqualification_period_begins_within_consent_agreement_disqualification_initiation_deadline_days
+      )
+"""
+        )
+
+        repaired = _rewrite_judgment_conditional_formulas(rules_file)
+
+        assert repaired == [
+            "consent_agreement_disqualification_begins_in_accordance_with_rule"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "signed_disqualification_consent_agreement_obtained and ("
+            "(((court_imposes_disqualification_period_or_specifies_initiation_date) "
+            "and state_department_disqualifies_household_member_in_accordance_with_court_order)\n"
+            "  or (not (court_imposes_disqualification_period_or_specifies_initiation_date) "
+            "and disqualification_period_begins_within_consent_agreement_disqualification_initiation_deadline_days))"
+            ")"
+        )
+
     def test_judgment_numeric_comparison_repair_skips_non_truth_decimals(
         self, tmp_path
     ):
