@@ -30,6 +30,7 @@ from axiom_encode.harness.evals import (
     _command_looks_out_of_bounds,
     _context_file_executable_surfaces,
     _eval_result_from_payload,
+    _evaluate_generated_artifact_with_repairs,
     _format_subparagraph_coverage_checklist,
     _hydrate_eval_root,
     _is_single_amount_table_slice,
@@ -53,11 +54,16 @@ from axiom_encode.harness.evals import (
     prepare_eval_workspace,
     resolve_corpus_source_unit,
     run_eval_suite,
+    run_model_eval,
     run_source_eval,
     select_context_files,
     summarize_readiness,
 )
-from axiom_encode.harness.validator_pipeline import ValidationResult, ValidatorPipeline
+from axiom_encode.harness.validator_pipeline import (
+    ValidationResult,
+    ValidatorPipeline,
+    find_test_input_assignment_issues,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -3093,6 +3099,156 @@ class TestEvaluateArtifact:
             for issue in metrics.ci_issues
         )
 
+    def test_evaluate_artifact_skips_reviewers_when_requested(self, tmp_path):
+        rulespec_file = tmp_path / "24" / "a.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Source text says the amount is $1,000.\n"
+            "rules:\n"
+            "  - name: ctc_amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    versions:\n"
+            "      - effective_from: '2018-01-01'\n"
+            "        formula: 1000\n"
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=True),
+            ),
+            patch.object(ValidatorPipeline, "_run_reviewer") as mock_reviewer,
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Source text says the amount is $1,000.",
+                skip_reviewers=True,
+            )
+
+        mock_reviewer.assert_not_called()
+        assert metrics.generalist_review_pass
+        assert metrics.generalist_review_score is None
+        assert metrics.generalist_review_issues == []
+
+    def test_generated_eval_repairs_unreferenced_proof_imports(self, tmp_path):
+        rulespec_file = tmp_path / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-co:regulations/example#deadline
+rules:
+  - name: result_rule
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              excerpt: missed deadline
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-co:regulations/example#deadline
+              output: deadline
+              hash: sha256:local
+    versions:
+      - effective_from: '2025-01-01'
+        formula: missed_deadline
+"""
+        )
+
+        ci_issue = (
+            "Proof import not referenced: `result_rule` proof imports `deadline`, "
+            "but the rule formula does not reference that imported symbol."
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[ci_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="The office missed the deadline.",
+                skip_reviewers=True,
+            )
+
+        repaired_text = rulespec_file.read_text()
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert "kind: import" not in repaired_text
+        assert "output: deadline" not in repaired_text
+
+    def test_test_input_assignment_ignores_formula_builtins(self):
+        content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: deadline_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 7
+  - name: deadline
+    kind: derived
+    entity: Household
+    dtype: Date
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: date_add_days(application_date, deadline_days)
+  - name: period_span_days
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: days_between(period_start, period_end)
+"""
+        test_cases = [
+            {
+                "name": "deadline case",
+                "input": {"#input.application_date": "2026-01-01"},
+                "output": {
+                    "#deadline": "2026-01-08",
+                    "#period_span_days": 30,
+                },
+            }
+        ]
+
+        assert find_test_input_assignment_issues(content, test_cases) == []
+
     def test_numeric_occurrence_check_uses_embedded_operating_excerpt(self, tmp_path):
         rulespec_file = tmp_path / "statutes" / "7" / "2014" / "a.yaml"
         rulespec_file.parent.mkdir(parents=True)
@@ -3397,7 +3553,7 @@ rules:
         assert metrics.ci_pass
         assert metrics.numeric_occurrence_issues == []
 
-    def test_fails_ci_when_repeated_source_scalar_has_only_one_named_definition(
+    def test_repeated_source_scalar_is_covered_by_one_named_definition(
         self, tmp_path
     ):
         rulespec_file = tmp_path / "example.yaml"
@@ -3435,14 +3591,57 @@ rules:
                     "2A. Where earnings are less than £20 in any week and "
                     "would not exceed £20."
                 ),
+        )
+
+        assert metrics.compile_pass
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 2
+        assert metrics.covered_source_numeric_occurrence_count == 2
+        assert metrics.missing_source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_ignores_section_cross_references(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Households must receive an opportunity to participate within thirty days.
+rules:
+  - name: standard_opportunity_to_participate_deadline_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 30
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "Households shall receive an opportunity to participate within "
+                    "thirty (30) calendar days. The office shall determine delay "
+                    "cause as outlined in Sections 4.205.3 through 4.205.4."
+                ),
             )
 
         assert metrics.compile_pass
-        assert not metrics.ci_pass
-        assert any(
-            "appears 2 time(s), but only 1 named scalar definition(s)" in issue
-            for issue in metrics.ci_issues
-        )
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.numeric_occurrence_issues == []
 
     def test_ignores_bracketed_superseded_numeric_source_text(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
@@ -4482,6 +4681,44 @@ rules:
         test_text = output_file.with_suffix(".test.yaml").read_text()
         assert "pre_effective_zero" not in test_text
         assert "period: 2026-01" in test_text
+
+    def test_materialize_eval_artifact_normalizes_quoted_date_outputs(self, tmp_path):
+        output_file = tmp_path / "source" / "example.yaml"
+        response = """=== FILE: example.yaml ===
+format: rulespec/v1
+module:
+  summary: The deadline is seven days after application.
+rules:
+  - name: deadline_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 7
+  - name: deadline
+    kind: derived
+    entity: Household
+    dtype: Date
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: date_add_days(application_date, deadline_days)
+=== FILE: example.test.yaml ===
+- name: applies
+  period: 2026-01
+  input:
+    '#input.application_date': '2026-01-01'
+  output:
+    '#deadline': '2026-01-08'
+"""
+
+        wrote = _materialize_eval_artifact(response, output_file)
+
+        assert wrote is True
+        test_text = output_file.with_suffix(".test.yaml").read_text()
+        payload = yaml.safe_load(test_text)
+        assert payload[0]["input"]["#input.application_date"] == "2026-01-01"
+        assert payload[0]["output"]["#deadline"] == date(2026, 1, 8)
 
     def test_normalize_test_periods_repairs_misindented_period_end(self):
         rulespec_text = """format: rulespec/v1
@@ -9248,6 +9485,66 @@ class TestUnexpectedAccessDetection:
 
 
 class TestSourceEval:
+    def test_run_model_eval_passes_skip_reviewers_to_evaluate_artifact(
+        self, tmp_path
+    ):
+        corpus_path = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="us/statute/7/2017/a",
+            body="The source amount is 100.",
+        )
+        policy_repo_root = tmp_path / "rulespec-us"
+        policy_repo_root.mkdir()
+
+        with (
+            patch(
+                "axiom_encode.harness.evals._run_prompt_eval",
+            ) as mock_prompt_eval,
+            patch(
+                "axiom_encode.harness.evals.evaluate_artifact",
+            ) as mock_evaluate_artifact,
+        ):
+            mock_prompt_eval.return_value.text = (
+                "=== FILE: a.yaml ===\n"
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  summary: The source amount is 100.\n"
+                "rules:\n"
+                "  - name: source_amount\n"
+                "    kind: parameter\n"
+                "    dtype: Number\n"
+                "    versions:\n"
+                "      - effective_from: '2025-01-01'\n"
+                "        formula: 100\n"
+                "=== FILE: a.test.yaml ===\n"
+                "- name: base\n"
+                "  input: {}\n"
+                "  output:\n"
+                "    source_amount: 100\n"
+            )
+            mock_prompt_eval.return_value.duration_ms = 123
+            mock_prompt_eval.return_value.tokens = None
+            mock_prompt_eval.return_value.estimated_cost_usd = None
+            mock_prompt_eval.return_value.actual_cost_usd = None
+            mock_prompt_eval.return_value.trace = {}
+            mock_prompt_eval.return_value.unexpected_accesses = []
+            mock_prompt_eval.return_value.error = None
+            mock_evaluate_artifact.return_value = None
+
+            run_model_eval(
+                citations=["us/statute/7/2017/a"],
+                runner_specs=["codex:gpt-5.4"],
+                output_root=tmp_path / "out",
+                policy_path=policy_repo_root,
+                runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+                corpus_path=corpus_path,
+                mode="cold",
+                include_tests=True,
+                skip_reviewers=True,
+            )
+
+        assert mock_evaluate_artifact.call_args.kwargs["skip_reviewers"] is True
+
     def test_run_source_eval_uses_explicit_context_without_statute_lookup(
         self, tmp_path
     ):
@@ -9371,10 +9668,12 @@ class TestSourceEval:
                 mode="cold",
                 oracle="policyengine",
                 policyengine_country="uk",
+                skip_reviewers=True,
             )
 
         assert mock_evaluate_artifact.call_args.kwargs["oracle"] == "policyengine"
         assert mock_evaluate_artifact.call_args.kwargs["policyengine_country"] == "uk"
+        assert mock_evaluate_artifact.call_args.kwargs["skip_reviewers"] is True
 
     def test_run_source_eval_passes_policyengine_rule_hint_to_evaluate_artifact(
         self, tmp_path

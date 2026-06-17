@@ -107,7 +107,6 @@ def run_command(
     cwd: Path,
     timeout_seconds: int,
     env: dict[str, str],
-    expected_artifact: Path,
 ) -> tuple[int | None, bool, bool, float, str, str]:
     start = time.time()
     process = subprocess.Popen(
@@ -122,32 +121,17 @@ def run_command(
     )
     timed_out = False
     terminated_after_artifact = False
-    artifact_snapshot: tuple[int, int] | None = None
-    artifact_seen_since: float | None = None
     try:
-        while process.poll() is None:
-            if time.time() - start > timeout_seconds:
-                timed_out = True
-                break
-            if expected_artifact.exists() and expected_artifact.stat().st_size > 0:
-                stat = expected_artifact.stat()
-                snapshot = (stat.st_size, stat.st_mtime_ns)
-                if snapshot == artifact_snapshot:
-                    artifact_seen_since = artifact_seen_since or time.time()
-                    if time.time() - artifact_seen_since >= 1:
-                        terminated_after_artifact = True
-                        break
-                else:
-                    artifact_snapshot = snapshot
-                    artifact_seen_since = time.time()
-            time.sleep(0.5)
-        if timed_out or terminated_after_artifact:
-            os.killpg(process.pid, signal.SIGTERM)
         try:
-            stdout, stderr = process.communicate(timeout=8)
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
+            timed_out = True
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                stdout, stderr = process.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                stdout, stderr = process.communicate()
     except BaseException:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
@@ -287,6 +271,7 @@ def main() -> int:
             str(args.policy_repo),
             "--mode",
             args.mode,
+            "--skip-reviewers",
             "--no-sync",
         ]
         print(
@@ -313,7 +298,6 @@ def main() -> int:
             cwd=Path.cwd(),
             timeout_seconds=args.timeout_seconds,
             env=env,
-            expected_artifact=expected,
         )
         stdout_log.write_text(stdout)
         stderr_log.write_text(stderr)

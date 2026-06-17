@@ -3468,6 +3468,7 @@ class TestCmdEncode:
         args.allow_context = overrides.get("allow_context", [])
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
+        args.skip_reviewers = overrides.get("skip_reviewers", False)
         args.apply = overrides.get("apply", False)
         args.apply_target_only = overrides.get("apply_target_only", False)
         return args
@@ -3510,11 +3511,20 @@ class TestCmdEncode:
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["runner_specs"] == ["codex:test-model"]
         assert mock_run.call_args.kwargs["include_tests"] is True
+        assert mock_run.call_args.kwargs["skip_reviewers"] is False
         assert mock_run.call_args.kwargs["policy_path"] == args.policy_repo_path
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
         )
+
+    def test_encode_passes_skip_reviewers_to_model_eval(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, skip_reviewers=True)
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert mock_run.call_args.kwargs["skip_reviewers"] is True
+        assert "Reviewers: skipped" in capsys.readouterr().out
 
     def test_encode_with_source_id_uses_corpus_source_unit(self, capsys, tmp_path):
         args = self._make_args(
@@ -3554,6 +3564,7 @@ class TestCmdEncode:
             == "standard deduction source text"
         )
         assert mock_run_source.call_args.kwargs["runner_specs"] == ["codex:test-model"]
+        assert mock_run_source.call_args.kwargs["skip_reviewers"] is False
         assert mock_run_source.call_args.kwargs["policy_path"] == args.policy_repo_path
         assert (
             mock_run_source.call_args.kwargs["runtime_axiom_rules_path"]
@@ -3569,6 +3580,39 @@ class TestCmdEncode:
             "RuleSpec source id: us/policies/irs/rev-proc-2025-32/standard-deduction"
             in output
         )
+
+    def test_encode_with_source_id_passes_skip_reviewers(self, capsys, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            citation="us/guidance/irs/rev-proc-2025-32/page-18",
+            source_id="us/policies/irs/rev-proc-2025-32/standard-deduction",
+            skip_reviewers=True,
+            sync=False,
+        )
+        result = self._make_eval_result(True)
+        result.citation = args.source_id
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=SimpleNamespace(
+                    body="standard deduction source text",
+                    citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
+                    source="local",
+                    requested="us/guidance/irs/rev-proc-2025-32/page-18",
+                ),
+            ),
+            patch(
+                "axiom_encode.cli.run_source_eval", return_value=[result]
+            ) as mock_run_source,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_run_source.call_args.kwargs["skip_reviewers"] is True
+        assert "Reviewers: skipped" in capsys.readouterr().out
 
     def test_encode_with_errors(self, capsys, tmp_path):
         args = self._make_args(tmp_path, citation="26 USC 1", model=None)
