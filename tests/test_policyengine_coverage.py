@@ -91,7 +91,7 @@ rules:
     )
 
 
-def test_policyengine_coverage_classifies_nz_income_tax_outputs(tmp_path):
+def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path
         / "rulespec-nz"
@@ -119,24 +119,40 @@ rules:
         formula: taxable_income * individual_income_tax_bracket_rates[1]
 """,
     )
+    _write_rulespec_file(
+        tmp_path / "rulespec-nz" / "nz/statutes/social_security/example.yaml",
+        """format: rulespec/v1
+rules:
+  - name: jobseeker_support_placeholder
+    kind: derived
+    versions:
+      - effective_from: '2025-04-01'
+        formula: 1
+""",
+    )
 
-    report = build_policyengine_coverage_report(tmp_path, program="tax")
+    report = build_policyengine_coverage_report(tmp_path)
 
-    assert report["total_outputs"] == 3
-    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert report["total_outputs"] == 4
+    assert report["status_counts"] == {"known_not_comparable": 4}
     items_by_id = {item["legal_id"]: item for item in report["items"]}
+    income_tax_item = items_by_id[
+        "nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_before_credits"
+    ]
+    assert income_tax_item["mapping_type"] == "not_comparable"
+    assert income_tax_item["policyengine_variable"] is None
+    assert income_tax_item["policyengine_parameter"] is None
+    assert income_tax_item["program"] == "tax"
     assert (
         items_by_id[
-            "nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_before_credits"
-        ]["policyengine_variable"]
-        == "income_tax"
+            "nz:statutes/social_security/example#jobseeker_support_placeholder"
+        ]["program"]
+        == "unknown"
     )
-    assert (
-        items_by_id[
-            "nz:statutes/income_tax/schedule_1/individual_income_tax#individual_income_tax_bracket_rates"
-        ]["policyengine_parameter"]
-        == "gov.ird.income_tax.rates.rates"
-    )
+
+    tax_report = build_policyengine_coverage_report(tmp_path, program="tax")
+    assert tax_report["total_outputs"] == 3
+    assert tax_report["status_counts"] == {"known_not_comparable": 3}
 
 
 def test_policyengine_coverage_classifies_7_cfr_275_admin_prefix(tmp_path):

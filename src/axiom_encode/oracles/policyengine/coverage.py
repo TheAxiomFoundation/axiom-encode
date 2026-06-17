@@ -635,6 +635,8 @@ def _infer_program_from_legal_id(legal_id: str, *, rule_name: str = "") -> str:
         )
     ):
         return "tax"
+    if lowered.startswith("nz:statutes/income_tax/"):
+        return "tax"
     if lowered.startswith("uk:regulations/uksi/2006/965/2"):
         return "child_benefit"
     if lowered.startswith("uk:policies/govuk/child-benefit"):
