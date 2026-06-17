@@ -21810,14 +21810,45 @@ def _rewrite_judgment_conditional_formulas(rules_file: Path) -> list[str]:
 
 def _rewrite_inline_judgment_conditional_formula(formula: str) -> str | None:
     stripped = " ".join(str(formula).strip().split())
-    if not stripped.startswith("if "):
+    if not stripped:
         return None
-    branches = _inline_if_judgment_branches(stripped, [])
+
+    rewritten = _rewrite_judgment_conditional_expression(stripped)
+    if rewritten == stripped:
+        return None
+    return rewritten
+
+
+def _rewrite_judgment_conditional_expression(expression: str) -> str:
+    stripped = expression.strip()
+    if not stripped:
+        return stripped
+
+    if stripped.startswith("if "):
+        branch_formula = _rewrite_top_level_judgment_conditional(stripped)
+        if branch_formula is not None:
+            return branch_formula
+
+    split = _split_inline_if_expression_span(stripped)
+    if split is None:
+        return stripped
+    start, end, condition, true_branch, false_branch = split
+    true_formula = _rewrite_judgment_conditional_expression(true_branch)
+    false_formula = _rewrite_judgment_conditional_expression(false_branch)
+    replacement = (
+        f"((({condition}) and {true_formula})\n"
+        f"  or (not ({condition}) and {false_formula}))"
+    )
+    return f"{stripped[:start].rstrip()}{replacement}{stripped[end:].lstrip()}"
+
+
+def _rewrite_top_level_judgment_conditional(expression: str) -> str | None:
+    branches = _inline_if_judgment_branches(expression, [])
     if not branches:
         return None
     disjuncts: list[str] = []
     for conditions, result in branches:
-        cleaned_result = result.strip()
+        cleaned_result = _rewrite_judgment_conditional_expression(result.strip())
         if not cleaned_result or cleaned_result.startswith("if "):
             return None
         terms = [*_parenthesized_condition_terms(conditions), cleaned_result]
@@ -21848,25 +21879,73 @@ def _inline_if_judgment_branches(
 
 def _split_inline_if_expression(expression: str) -> tuple[str, str, str] | None:
     text = expression.strip()
-    if not text.startswith("if "):
+    split = _split_inline_if_expression_at(text, 0)
+    if split is None or split[1] != len(text):
         return None
-    colon_index = _find_top_level_token(text, ":", start=3)
-    if colon_index is None:
-        return None
-    condition = text[3:colon_index].strip()
-    remainder = text[colon_index + 1 :].strip()
-    else_index = _find_top_level_token(remainder, " else:")
-    if else_index is None:
-        return None
-    true_branch = remainder[:else_index].strip()
-    false_branch = remainder[else_index + len(" else:") :].strip()
-    if not condition or not true_branch or not false_branch:
-        return None
+    _start, _end, condition, true_branch, false_branch = split
     return condition, true_branch, false_branch
 
 
-def _find_top_level_token(text: str, token: str, *, start: int = 0) -> int | None:
-    depth = 0
+def _split_inline_if_expression_span(
+    expression: str,
+) -> tuple[int, int, str, str, str] | None:
+    index = 0
+    while index < len(expression):
+        if not _formula_word_at(expression, index, "if"):
+            index += 1
+            continue
+        split = _split_inline_if_expression_at(expression, index)
+        if split is not None:
+            return split
+        index += 1
+    return None
+
+
+def _split_inline_if_expression_at(
+    text: str,
+    start: int,
+) -> tuple[int, int, str, str, str] | None:
+    if not _formula_word_at(text, start, "if"):
+        return None
+    base_depth = _formula_bracket_depth_before(text, start)
+    head_end = start + len("if")
+    colon_index = _find_top_level_token(
+        text,
+        ":",
+        start=head_end,
+        base_depth=base_depth,
+    )
+    if colon_index is None:
+        return None
+    else_match = _find_inline_else_token(
+        text,
+        colon_index + 1,
+        base_depth=base_depth,
+    )
+    if else_match is None:
+        return None
+    else_index, else_colon_index = else_match
+    end = _find_inline_if_expression_end(
+        text,
+        else_colon_index + 1,
+        base_depth=base_depth,
+    )
+    condition = text[head_end:colon_index].strip()
+    true_branch = text[colon_index + 1 : else_index].strip()
+    false_branch = text[else_colon_index + 1 : end].strip()
+    if not condition or not true_branch or not false_branch:
+        return None
+    return start, end, condition, true_branch, false_branch
+
+
+def _find_top_level_token(
+    text: str,
+    token: str,
+    *,
+    start: int = 0,
+    base_depth: int = 0,
+) -> int | None:
+    depth = base_depth
     quote: str | None = None
     index = max(start, 0)
     while index < len(text):
@@ -21885,13 +21964,136 @@ def _find_top_level_token(text: str, token: str, *, start: int = 0) -> int | Non
             index += 1
             continue
         if char in ")]}":
-            depth = max(0, depth - 1)
+            if depth:
+                depth -= 1
             index += 1
             continue
-        if depth == 0 and text.startswith(token, index):
+        if depth == base_depth and text.startswith(token, index):
             return index
         index += 1
     return None
+
+
+def _find_inline_else_token(
+    text: str,
+    start: int,
+    *,
+    base_depth: int,
+) -> tuple[int, int] | None:
+    depth = base_depth
+    quote: str | None = None
+    nested_conditionals = 0
+    index = max(start, 0)
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if depth != base_depth:
+            index += 1
+            continue
+        if _formula_word_at(text, index, "if"):
+            nested_conditionals += 1
+            index += len("if")
+            continue
+        if _formula_word_at(text, index, "else"):
+            colon_index = _find_inline_else_colon(text, index + len("else"))
+            if colon_index is None:
+                index += 1
+                continue
+            if nested_conditionals:
+                nested_conditionals -= 1
+                index = colon_index + 1
+                continue
+            return index, colon_index
+        index += 1
+    return None
+
+
+def _find_inline_else_colon(text: str, start: int) -> int | None:
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index if index < len(text) and text[index] == ":" else None
+
+
+def _find_inline_if_expression_end(
+    text: str,
+    start: int,
+    *,
+    base_depth: int,
+) -> int:
+    depth = base_depth
+    quote: str | None = None
+    index = max(start, 0)
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth == base_depth:
+                return index
+            depth -= 1
+            index += 1
+            continue
+        if char == "," and depth == base_depth:
+            return index
+        index += 1
+    return len(text)
+
+
+def _formula_bracket_depth_before(text: str, position: int) -> int:
+    depth = 0
+    quote: str | None = None
+    for index, char in enumerate(text[: max(position, 0)]):
+        if quote:
+            if char == quote and (index == 0 or text[index - 1] != "\\"):
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+    return depth
+
+
+def _formula_word_at(text: str, index: int, word: str) -> bool:
+    end = index + len(word)
+    if text[index:end].lower() != word.lower():
+        return False
+    before = text[index - 1] if index > 0 else ""
+    after = text[end] if end < len(text) else ""
+    return not (before.isalnum() or before == "_") and not (
+        after.isalnum() or after == "_"
+    )
 
 
 def _parenthesized_condition_terms(conditions: list[str]) -> list[str]:
