@@ -12584,7 +12584,9 @@ rules:
         }
         assert test_payload[1]["tables"] == test_payload[0]["tables"]
 
-    def test_judgment_positive_test_repair_skips_constant_false_rule(self, tmp_path):
+    def test_judgment_positive_test_repair_skips_unsatisfiable_false_rule(
+        self, tmp_path
+    ):
         repo_path = tmp_path / "rulespec-us-co"
         rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.test.yaml"
@@ -12600,13 +12602,17 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          false
+          claim_is_terminated
+          and voluntary_payment_made_on_terminated_claim
+          and false
 """
         )
         test_file.write_text(
             """- name: terminated_claim_nonreactivation
   period: 2026-01
-  input: {}
+  input:
+    us-co:regulations/10-ccr-2506-1/4.801.43#input.claim_is_terminated: true
+    us-co:regulations/10-ccr-2506-1/4.801.43#input.voluntary_payment_made_on_terminated_claim: true
   output:
     us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim: not_holds
 """

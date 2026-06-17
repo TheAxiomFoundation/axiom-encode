@@ -1053,7 +1053,9 @@ rules:
     ]
 
 
-def test_judgment_positive_companion_output_allows_constant_false_rule(tmp_path):
+def test_judgment_positive_companion_output_allows_unsatisfiable_false_rule(
+    tmp_path,
+):
     policy_repo = tmp_path / "rulespec-us-co"
     rules_file = policy_repo / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -1068,13 +1070,18 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          false
+          claim_is_terminated
+          and voluntary_payment_made_on_terminated_claim
+          and false
 """
     cases = [
         {
             "name": "terminated_claim_nonreactivation",
             "period": "2026-01",
-            "input": {},
+            "input": {
+                "us-co:regulations/10-ccr-2506-1/4.801.43#input.claim_is_terminated": True,
+                "us-co:regulations/10-ccr-2506-1/4.801.43#input.voluntary_payment_made_on_terminated_claim": True,
+            },
             "output": {
                 "us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim": "not_holds"
             },
@@ -1089,6 +1096,53 @@ rules:
     )
 
     assert issues == []
+
+
+def test_judgment_positive_companion_output_requires_positive_for_or_false_rule(
+    tmp_path,
+):
+    policy_repo = tmp_path / "rulespec-us-co"
+    rules_file = policy_repo / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: terminated_claim_reactivation_prohibited
+    kind: derived
+    entity: SnapClaim
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 4.801.43(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          claim_is_terminated
+          or false
+"""
+    cases = [
+        {
+            "name": "not_terminated",
+            "period": "2026-01",
+            "input": {
+                "us-co:regulations/10-ccr-2506-1/4.801.43#input.claim_is_terminated": False,
+            },
+            "output": {
+                "us-co:regulations/10-ccr-2506-1/4.801.43#terminated_claim_reactivation_prohibited": "not_holds"
+            },
+        }
+    ]
+
+    issues = find_judgment_positive_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == [
+        "Judgment rule missing positive companion output coverage: "
+        "`us-co:regulations/10-ccr-2506-1/4.801.43#terminated_claim_reactivation_prohibited` "
+        "is not asserted as `holds` by the companion `.test.yaml` file."
+    ]
 
 
 def test_judgment_positive_companion_output_allows_holds_case(tmp_path):
