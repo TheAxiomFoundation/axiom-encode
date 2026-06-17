@@ -15250,12 +15250,18 @@ def _positive_judgment_formula_input_assignments(
     rules_by_name: dict[str, dict[str, object]],
     imported_outputs: set[str],
 ) -> dict[str, object]:
-    identifiers = _formula_identifiers(formula)
+    negated_group_spans = _negated_parenthesized_expression_spans(formula)
+    positive_context_formula = _formula_with_spans_blank(
+        formula,
+        [(start, end) for start, end, _expression in negated_group_spans],
+    )
+    identifiers = _formula_identifiers(positive_context_formula)
     negated_identifiers = set(
-        re.findall(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula)
+        re.findall(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", positive_context_formula)
     )
     protected_positive_inputs: set[str] = set()
     assignments: dict[str, object] = {}
+    defined_symbols = set(rules_by_name) | imported_outputs
 
     for identifier in sorted(identifiers - negated_identifiers):
         if identifier in rules_by_name or identifier in imported_outputs:
@@ -15267,7 +15273,6 @@ def _positive_judgment_formula_input_assignments(
         )
         protected_positive_inputs.add(identifier)
 
-    defined_symbols = set(rules_by_name) | imported_outputs
     for identifier in sorted(negated_identifiers):
         dependency = rules_by_name.get(identifier)
         if dependency is None:
@@ -15290,7 +15295,197 @@ def _positive_judgment_formula_input_assignments(
         )
         assignments[input_name] = False
 
+    for _start, _end, expression in negated_group_spans:
+        assignments.update(
+            _negated_expression_false_assignments(
+                expression=expression,
+                rules_payload=rules_payload,
+                rules_by_name=rules_by_name,
+                imported_outputs=imported_outputs,
+                protected_positive_inputs=protected_positive_inputs,
+            )
+        )
+
     return assignments
+
+
+def _negated_parenthesized_expression_spans(
+    formula: str,
+) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for match in re.finditer(r"\bnot\s*\(", formula):
+        open_paren = match.end() - 1
+        depth = 0
+        for index in range(open_paren, len(formula)):
+            char = formula[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    spans.append(
+                        (match.start(), index + 1, formula[open_paren + 1 : index])
+                    )
+                    break
+    return spans
+
+
+def _formula_with_spans_blank(formula: str, spans: list[tuple[int, int]]) -> str:
+    chars = list(formula)
+    for start, end in spans:
+        for index in range(max(start, 0), min(end, len(chars))):
+            chars[index] = " "
+    return "".join(chars)
+
+
+def _negated_expression_false_assignments(
+    *,
+    expression: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+    protected_positive_inputs: set[str],
+) -> dict[str, object]:
+    identifiers = _formula_identifiers(expression)
+    defined_symbols = set(rules_by_name) | imported_outputs
+    assignments: dict[str, object] = {}
+
+    for identifier in sorted(identifiers):
+        if identifier in protected_positive_inputs or identifier in imported_outputs:
+            continue
+        dependency = rules_by_name.get(identifier)
+        if dependency is not None:
+            dependency_formula = _first_rule_formula(dependency)
+            if not dependency_formula:
+                continue
+            for dependency_input in sorted(_formula_identifiers(dependency_formula)):
+                if (
+                    dependency_input in defined_symbols
+                    or dependency_input in protected_positive_inputs
+                    or _factual_input_appears_numeric(
+                        dependency_input,
+                        rules_payload=rules_payload,
+                    )
+                ):
+                    continue
+                assignments[dependency_input] = False
+            continue
+        if _factual_input_appears_numeric(identifier, rules_payload=rules_payload):
+            continue
+        assignments[identifier] = False
+
+    if assignments:
+        return assignments
+
+    scalar_values = _local_scalar_formula_values_by_name(rules_payload)
+    for identifier in sorted(identifiers):
+        if identifier in defined_symbols or identifier in protected_positive_inputs:
+            continue
+        if not _factual_input_appears_numeric(identifier, rules_payload=rules_payload):
+            continue
+        value = _numeric_false_assignment_for_expression(
+            input_name=identifier,
+            expression=expression,
+            scalar_values=scalar_values,
+        )
+        if value is not None:
+            assignments[identifier] = value
+    return assignments
+
+
+def _numeric_false_assignment_for_expression(
+    *,
+    input_name: str,
+    expression: str,
+    scalar_values: dict[str, float],
+) -> int | float | None:
+    token = re.escape(input_name)
+    value_token = r"-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*"
+    right_pattern = re.compile(
+        rf"\b{token}\b\s*(?P<op><=|>=|<|>)\s*(?P<threshold>{value_token})"
+    )
+    left_pattern = re.compile(
+        rf"(?P<threshold>{value_token})\s*(?P<op><=|>=|<|>)\s*\b{token}\b"
+    )
+    for match in right_pattern.finditer(expression):
+        return _comparison_false_input_value(
+            operator=match["op"],
+            threshold=_formula_numeric_threshold_value(
+                match["threshold"], scalar_values=scalar_values
+            ),
+            input_on_left=True,
+        )
+    for match in left_pattern.finditer(expression):
+        if match["threshold"] == input_name:
+            continue
+        return _comparison_false_input_value(
+            operator=match["op"],
+            threshold=_formula_numeric_threshold_value(
+                match["threshold"], scalar_values=scalar_values
+            ),
+            input_on_left=False,
+        )
+    return None
+
+
+def _formula_numeric_threshold_value(
+    token: str, *, scalar_values: dict[str, float]
+) -> float | None:
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", token):
+        with contextlib.suppress(ValueError):
+            return float(token)
+    return scalar_values.get(token)
+
+
+def _comparison_false_input_value(
+    *, operator: str, threshold: float | None, input_on_left: bool
+) -> int | float:
+    high_default = 999999
+    low_default = 0
+    if input_on_left:
+        if operator == "<":
+            return _threshold_or_default(threshold, high_default)
+        if operator == "<=":
+            return (
+                _above_upper_bound_value(threshold)
+                if threshold is not None
+                else high_default
+            )
+        if operator == ">":
+            return _threshold_or_default(threshold, low_default)
+        if operator == ">=":
+            return (
+                _below_lower_bound_value(threshold)
+                if threshold is not None
+                else low_default
+            )
+    if operator == "<":
+        return _threshold_or_default(threshold, low_default)
+    if operator == "<=":
+        return (
+            _below_lower_bound_value(threshold)
+            if threshold is not None
+            else low_default
+        )
+    if operator == ">":
+        return _threshold_or_default(threshold, high_default)
+    return (
+        _above_upper_bound_value(threshold) if threshold is not None else high_default
+    )
+
+
+def _threshold_or_default(threshold: float | None, default: int) -> int | float:
+    if threshold is None:
+        return default
+    if threshold.is_integer():
+        return int(threshold)
+    return threshold
+
+
+def _below_lower_bound_value(threshold: float) -> int | float:
+    if threshold.is_integer():
+        return int(threshold) - 1
+    return threshold - max(1.0, abs(threshold) * 0.01)
 
 
 def _positive_generated_test_input_value(
