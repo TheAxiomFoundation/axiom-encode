@@ -148,6 +148,7 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     r"SNAP-related\s+expenses?)\b",
     flags=re.IGNORECASE,
 )
+_ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -6856,10 +6857,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = (
-        _ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN.search(source_text)
-        and _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN.search(source_text)
-    ) or _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN.search(source_text)
+    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
     if not is_admin_agency_aggregate:
         return []
     try:
@@ -6901,6 +6899,34 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
+    """Return true only when administrative subjects and measures are local."""
+    if _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN.search(source_text):
+        return True
+
+    subject_matches = list(
+        _ADMIN_AGENCY_AGGREGATE_SUBJECT_PATTERN.finditer(source_text)
+    )
+    if not subject_matches:
+        return False
+    measure_matches = list(
+        _ADMIN_AGENCY_AGGREGATE_MEASURE_PATTERN.finditer(source_text)
+    )
+    if not measure_matches:
+        return False
+
+    for subject_match in subject_matches:
+        subject_center = (subject_match.start() + subject_match.end()) // 2
+        for measure_match in measure_matches:
+            measure_center = (measure_match.start() + measure_match.end()) // 2
+            if (
+                abs(subject_center - measure_center)
+                <= _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW
+            ):
+                return True
+    return False
 
 
 def _context_file_export_detail(item: EvalContextFile) -> str:
