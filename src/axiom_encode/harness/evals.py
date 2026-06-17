@@ -4006,6 +4006,27 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     time (issue #71).
     """
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if parts and ":" in parts[0]:
+        jurisdiction, source_root = parts[0].split(":", 1)
+        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
+            tail = parts[1:]
+            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
+            if (
+                tail
+                and jurisdiction == "us"
+                and source_root
+                in {
+                    "regulation",
+                    "regulations",
+                }
+            ):
+                tail = _canonical_us_regulation_tail(tail)
+            if tail and jurisdiction == "uk":
+                tail = _canonical_uk_legislation_tail(tail)
+            if tail:
+                if _preserve_state_statute_dotted_leaf(jurisdiction, root, tail):
+                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
+                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         tail = parts[1:]
         if tail:
