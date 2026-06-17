@@ -7933,6 +7933,68 @@ rules:
             "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#colorado_snap_allotment": 292
         }
 
+    def test_remove_unknown_dependent_test_outputs_moves_local_input_value(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-co"
+        rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+        test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
+        target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
+        rules_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+- us-co:regulations/10-ccr-2506-1/4.403
+rules:
+- name: snap_gross_monthly_earned_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: snap_countable_earned_income
+"""
+        )
+        target_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: ongoing_month
+  period: 2026-01
+  input: {}
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 1000
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_earned_income: 1000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `ongoing_month` output "
+                        "`us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income` "
+                        "does not resolve to a derived rule, or parameter in "
+                        "regulations/10-ccr-2506-1/4.403.yaml."
+                    )
+                )
+            }
+        )
+
+        changed = _remove_unknown_dependent_test_outputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            validations=[(rules_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = yaml.safe_load(test_file.read_text())
+        assert repaired[0]["input"] == {
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.snap_countable_earned_income": 1000
+        }
+        assert repaired[0]["output"] == {
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_earned_income": 1000
+        }
+
     def test_remove_unknown_test_output_refs_drops_stale_outputs(self, tmp_path):
         test_file = tmp_path / "policy.test.yaml"
         test_file.write_text(
