@@ -12453,6 +12453,141 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_retries_unsafe_deferral_after_positive_repair(
+        self, capsys, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        args = self._make_args(
+            tmp_path,
+            backend="codex",
+            citation="us-co/regulation/10-ccr-2506-1/4.400",
+            policy_repo_path=policy_repo,
+            sync=False,
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        imported_file = policy_repo / "regulations/10-ccr-2506-1/4.206.yaml"
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: standard_eligibility_nonfinancial_criteria_met
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: nonfinancial_criteria_met
+"""
+        )
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "10-ccr-2506-1"
+            / "4.400.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-co:regulations/10-ccr-2506-1/4.206#standard_eligibility_household
+rules:
+  - name: standard_eligibility_resources_value_considered
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: standard_eligibility_household and household_resources_value_considered
+"""
+        )
+        test_file = output_file.with_name("4.400.test.yaml")
+        test_file.write_text(
+            """- name: resources_not_considered_when_resources_value_not_considered
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.400#input.household_resources_value_considered: false
+  output:
+    us-co:regulations/10-ccr-2506-1/4.400#standard_eligibility_resources_value_considered: not_holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = policy_repo / "regulations/10-ccr-2506-1/4.400.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "regulations/10-ccr-2506-1/4.400.yaml: ci: "
+                            "Judgment rule missing positive companion output coverage: "
+                            "`us-co:regulations/10-ccr-2506-1/4.400#standard_eligibility_resources_value_considered` "
+                            "is not asserted as `holds` by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "regulations/10-ccr-2506-1/4.400.yaml: ci: Test case "
+                            "`auto_positive_standard_eligibility_resources_value_considered` "
+                            "execution failed: missing input "
+                            "`standard_eligibility_household` for entity `case-4` "
+                            "over 2026-01-01..2026-01-31"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        positive_case = "auto_positive_standard_eligibility_resources_value_considered"
+        deferred_target = (
+            "us-co:regulations/10-ccr-2506-1/4.400#"
+            "standard_eligibility_resources_value_considered"
+        )
+        assert f"apply=auto_repaired_judgment_positive_tests:{positive_case}" in output
+        assert f"apply=auto_deferred_unsafe_formula_outputs:{deferred_target}" in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        content = output_file.read_text()
+        assert "#standard_eligibility_household" not in content
+        payload = yaml.safe_load(content)
+        assert all(
+            rule.get("name") != "standard_eligibility_resources_value_considered"
+            for rule in payload.get("rules", [])
+            if isinstance(rule, dict)
+        )
+        assert deferred_target in content
+        assert (
+            "standard_eligibility_resources_value_considered"
+            not in test_file.read_text()
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_judgment_positive_tests"] == [positive_case]
+        assert run.outcome["auto_deferred_unsafe_formula_outputs"] == [deferred_target]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repeats_scalar_relation_row_repair(self, capsys, tmp_path):
         policy_repo = tmp_path / "rulespec-us-ny"
         policy_repo.mkdir()
