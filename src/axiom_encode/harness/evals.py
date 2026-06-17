@@ -3058,6 +3058,7 @@ _EVAL_COMPANION_REPAIR_MARKERS = (
     "Derived rule missing companion output coverage:",
     "Zero branch test coverage missing:",
     "mixes derived output entities",
+    "input invalid: relation ",
 )
 _EVAL_SCALAR_REPAIR_MARKERS = (
     "Proof import not referenced:",
@@ -3095,6 +3096,22 @@ def _apply_generated_eval_repairs(
     # Reuse the CLI's deterministic companion-test repair helpers lazily to
     # avoid an import cycle: cli imports this module during startup.
     from axiom_encode import cli as cli_helpers
+
+    scalar_relation_issues = []
+    for issue in companion_issues:
+        parsed = cli_helpers._parse_scalar_relation_row_issue(str(issue))
+        if parsed is not None:
+            scalar_relation_issues.append(parsed)
+    if scalar_relation_issues:
+        repairs.extend(
+            f"relation_row:{name}"
+            for name in cli_helpers._repair_scalar_relation_rows(
+                rules_file=rulespec_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo_root,
+                parsed_issues=scalar_relation_issues,
+            )
+        )
 
     if any("mixes derived output entities" in str(issue) for issue in companion_issues):
         repairs.extend(

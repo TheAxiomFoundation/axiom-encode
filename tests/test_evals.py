@@ -3413,6 +3413,75 @@ rules:
             for case in repaired_tests
         )
 
+    def test_generated_eval_repairs_scalar_relation_rows(self, tmp_path):
+        repo = tmp_path / "rulespec-us-co"
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j#relation.member_of_household
+rules:
+  - name: household_has_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(member_of_household, member_of_household.snap_member_is_elderly_or_disabled) > 0
+"""
+        )
+        rulespec_file.with_name("example.test.yaml").write_text(
+            """- name: elderly_case
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - true
+  output:
+    us-co:regulations/example#household_has_elderly_or_disabled_member: holds
+"""
+        )
+        relation_issue = (
+            "Test case `elderly_case` input invalid: relation "
+            "`us:statutes/7/2012/j#relation.member_of_household` item #1 "
+            "must be a mapping"
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[relation_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="An elderly or disabled member qualifies the household.",
+                skip_reviewers=True,
+            )
+
+        repaired_tests = yaml.safe_load(
+            rulespec_file.with_name("example.test.yaml").read_text()
+        )
+        rows = repaired_tests[0]["input"][
+            "us:statutes/7/2012/j#relation.member_of_household"
+        ]
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert rows == [
+            {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
+
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = tmp_path / "rulespec-us-co"
         rulespec_file = repo / "regulations" / "example.yaml"
