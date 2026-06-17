@@ -3079,11 +3079,12 @@ def _apply_generated_eval_repairs(
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
     repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
 
-    if not issues or not all(
-        any(marker in str(issue) for marker in _EVAL_COMPANION_REPAIR_MARKERS)
-        or any(marker in str(issue) for marker in _EVAL_SCALAR_REPAIR_MARKERS)
+    companion_issues = [
+        issue
         for issue in issues
-    ):
+        if any(marker in str(issue) for marker in _EVAL_COMPANION_REPAIR_MARKERS)
+    ]
+    if not companion_issues:
         return repairs
 
     relative_output = _relative_rulespec_source_path(rulespec_file)
@@ -3095,7 +3096,7 @@ def _apply_generated_eval_repairs(
     # avoid an import cycle: cli imports this module during startup.
     from axiom_encode import cli as cli_helpers
 
-    if any("mixes derived output entities" in str(issue) for issue in issues):
+    if any("mixes derived output entities" in str(issue) for issue in companion_issues):
         repairs.extend(
             f"mixed_entity:{name}"
             for name in cli_helpers._repair_mixed_derived_entity_output_tests(
@@ -3112,7 +3113,7 @@ def _apply_generated_eval_repairs(
             test_file=test_file,
             repo_path=policy_repo_root,
             relative_output=relative_output,
-            issues=issues,
+            issues=companion_issues,
         )
     )
     repairs.extend(
@@ -3123,7 +3124,7 @@ def _apply_generated_eval_repairs(
             repo_path=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             relative_output=relative_output,
-            issues=issues,
+            issues=companion_issues,
             test_failure_checker=cli_helpers._rulespec_companion_test_failures,
         )
     )
@@ -3134,7 +3135,7 @@ def _apply_generated_eval_repairs(
             test_file=test_file,
             repo_path=policy_repo_root,
             relative_output=relative_output,
-            issues=issues,
+            issues=companion_issues,
         )
     )
     return repairs

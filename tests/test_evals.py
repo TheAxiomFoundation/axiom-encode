@@ -3332,6 +3332,87 @@ rules:
             for case in repaired_tests
         )
 
+    def test_generated_eval_repairs_companions_with_unrelated_issues(self, tmp_path):
+        repo = tmp_path / "rulespec-us-co"
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: work_study_exemption
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: enrolled_in_work_study
+"""
+        )
+        rulespec_file.with_name("example.test.yaml").write_text(
+            """- name: existing_negative
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-co:regulations/example#input.enrolled_in_work_study: false
+  output:
+    us-co:regulations/example#work_study_exemption: not_holds
+"""
+        )
+        companion_issue = (
+            "Judgment rule missing positive companion output coverage: "
+            "`us-co:regulations/example#work_study_exemption` is not asserted "
+            "as `holds` by the companion `.test.yaml` file."
+        )
+        unrelated_issue = (
+            "Source scope mismatch: `work_study_exemption` is declared on "
+            "`Person`, but the embedded source states a household/unit-scoped test."
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult(
+                        "ci",
+                        passed=False,
+                        issues=[companion_issue, unrelated_issue],
+                    ),
+                    ValidationResult("ci", passed=False, issues=[unrelated_issue]),
+                ],
+            ) as mock_ci,
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Students in work study are exempt.",
+                skip_reviewers=True,
+            )
+
+        repaired_tests = yaml.safe_load(
+            rulespec_file.with_name("example.test.yaml").read_text()
+        )
+        assert mock_ci.call_count == 2
+        assert not metrics.ci_pass
+        assert metrics.ci_issues == [unrelated_issue]
+        assert any(
+            case.get("output", {}).get("us-co:regulations/example#work_study_exemption")
+            == "holds"
+            for case in repaired_tests
+        )
+
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = tmp_path / "rulespec-us-co"
         rulespec_file = repo / "regulations" / "example.yaml"

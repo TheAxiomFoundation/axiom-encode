@@ -770,7 +770,12 @@ _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN = re.compile(
     r"\b[A-Z]-\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\b"
 )
 _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
-    r"\bForm\s+[A-Z]?\d+[A-Za-z0-9-]*\b",
+    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9-]*|[A-Z]?\d+[A-Za-z0-9-]*)|"
+    r"[A-Z]{2,8}-\d+[A-Za-z0-9-]*)\b",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
+    r"\bLine\s+\d+[A-Za-z]?\b",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
@@ -779,6 +784,9 @@ _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\d+(?:[.-]\d+)*(?:\([A-Za-z0-9]+\))*"
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN = re.compile(
+    r"(?<![\w$£€])\d+(?:\.\d+){2,}(?![\w%])"
 )
 _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"\b(?:section|sec\.?)\s+\d+(?:[.-]\d+)*"
@@ -2798,7 +2806,9 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_FORM_LINE_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
@@ -7318,7 +7328,11 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
+    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
+    r"|"
+    r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
+    r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
+    r"(?:a\s+)?household\b",
     flags=re.IGNORECASE,
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
