@@ -8250,7 +8250,10 @@ def _normalize_test_case_value(value: object) -> object:
         expression = value.strip()
         if _PURE_NUMERIC_EXPRESSION_PATTERN.fullmatch(expression):
             try:
-                return yaml.safe_load(_format_safe_numeric_expression(expression))
+                formatted = _format_safe_numeric_expression(expression)
+                if formatted is None:
+                    return value
+                return yaml.safe_load(formatted)
             except (TypeError, ValueError, yaml.YAMLError):
                 return value
         return value
