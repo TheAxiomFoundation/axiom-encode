@@ -15316,6 +15316,24 @@ def _positive_judgment_formula_input_assignments(
     rules_by_name: dict[str, dict[str, object]],
     imported_outputs: set[str],
 ) -> dict[str, object]:
+    assignments, _protected = _positive_judgment_formula_input_assignments_for_formula(
+        formula=formula,
+        rules_payload=rules_payload,
+        rules_by_name=rules_by_name,
+        imported_outputs=imported_outputs,
+        seen_rules=set(),
+    )
+    return assignments
+
+
+def _positive_judgment_formula_input_assignments_for_formula(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+    seen_rules: set[str],
+) -> tuple[dict[str, object], set[str]]:
     negated_group_spans = _negated_parenthesized_expression_spans(formula)
     positive_context_formula = _formula_with_spans_blank(
         formula,
@@ -15330,7 +15348,26 @@ def _positive_judgment_formula_input_assignments(
     defined_symbols = set(rules_by_name) | imported_outputs
 
     for identifier in sorted(identifiers - negated_identifiers):
-        if identifier in rules_by_name or identifier in imported_outputs:
+        dependency = rules_by_name.get(identifier)
+        if dependency is not None:
+            if _rule_is_derived_judgment(dependency) and identifier not in seen_rules:
+                dependency_formula = _first_rule_formula(dependency)
+                if dependency_formula:
+                    (
+                        dependency_assignments,
+                        dependency_protected_inputs,
+                    ) = _positive_judgment_formula_input_assignments_for_formula(
+                        formula=dependency_formula,
+                        rules_payload=rules_payload,
+                        rules_by_name=rules_by_name,
+                        imported_outputs=imported_outputs,
+                        seen_rules=seen_rules | {identifier},
+                    )
+                    for input_name, value in dependency_assignments.items():
+                        assignments.setdefault(input_name, value)
+                    protected_positive_inputs.update(dependency_protected_inputs)
+            continue
+        if identifier in imported_outputs:
             continue
         assignments[identifier] = _positive_generated_test_input_value(
             identifier,
@@ -15372,7 +15409,14 @@ def _positive_judgment_formula_input_assignments(
             )
         )
 
-    return assignments
+    return assignments, protected_positive_inputs
+
+
+def _rule_is_derived_judgment(rule: dict[str, object]) -> bool:
+    return (
+        str(rule.get("kind") or "").strip().lower() == "derived"
+        and str(rule.get("dtype") or "").strip().lower() == "judgment"
+    )
 
 
 def _negated_parenthesized_expression_spans(
@@ -15560,14 +15604,37 @@ def _positive_generated_test_input_value(
     rules_payload: dict[str, object],
     formula: str,
 ) -> object:
+    comparison_value = _numeric_positive_assignment_for_expression(
+        input_name=input_name,
+        expression=formula,
+    )
+    if comparison_value is not None:
+        return comparison_value
     if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
         return True
-    token = re.escape(input_name)
-    if re.search(rf"\b{token}\b\s*(?:<|<=)", formula):
-        return 0
-    if re.search(rf"(?:>|>=)\s*\b{token}\b", formula):
-        return 0
     return 999999
+
+
+def _numeric_positive_assignment_for_expression(
+    *,
+    input_name: str,
+    expression: str,
+) -> int | None:
+    token = re.escape(input_name)
+    value_token = r"-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*"
+    right_pattern = re.compile(
+        rf"\b{token}\b\s*(?P<op><=|>=|<|>)\s*(?P<threshold>{value_token})"
+    )
+    left_pattern = re.compile(
+        rf"(?P<threshold>{value_token})\s*(?P<op><=|>=|<|>)\s*\b{token}\b"
+    )
+    for match in right_pattern.finditer(expression):
+        return 0 if match["op"] in {"<", "<="} else 999999
+    for match in left_pattern.finditer(expression):
+        if match["threshold"] == input_name:
+            continue
+        return 999999 if match["op"] in {"<", "<="} else 0
+    return None
 
 
 def _preferred_false_breaker_input(
