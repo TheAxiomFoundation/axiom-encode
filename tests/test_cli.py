@@ -13195,6 +13195,110 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_near_target_test_input_prefix_typo(
+        self, capsys, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        args = self._make_args(
+            tmp_path,
+            backend="codex",
+            citation="10 CCR 2506-1 4.801.4",
+            policy_repo_path=policy_repo,
+            sync=False,
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "10-ccr-2506-1"
+            / "4.801.4.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: collection_action_required
+    kind: derived
+    entity: SnapClaim
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not payment_received_in_full
+"""
+        )
+        wrong_ref = (
+            "us-co:regulations/10-cc-2506-1/4.801.4#input.payment_received_in_full"
+        )
+        correct_ref = (
+            "us-co:regulations/10-ccr-2506-1/4.801.4#input.payment_received_in_full"
+        )
+        test_file = output_file.with_name("4.801.4.test.yaml")
+        test_file.write_text(
+            f"""- name: household_collection_suspension_and_nondelinquency_controls
+  period: 2026-01
+  input:
+    {wrong_ref}: false
+    {correct_ref}: false
+  output:
+    us-co:regulations/10-ccr-2506-1/4.801.4#collection_action_required: holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "regulations/10-ccr-2506-1/4.801.4.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "regulations/10-ccr-2506-1/4.801.4.yaml: ci: "
+                            "Test case "
+                            "`household_collection_suspension_and_nondelinquency_controls` "
+                            "input invalid: input "
+                            f"`{wrong_ref}` points to a RuleSpec file that "
+                            "could not be resolved: "
+                            "rulespec-us-co/regulations/10-cc-2506-1/4.801.4.yaml."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            f"apply=auto_repaired_target_prefix_typos:{wrong_ref}->{correct_ref}"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert wrong_ref not in test_content
+        assert test_content.count(correct_ref) == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_target_prefix_typos"] == [
+            f"{wrong_ref}->{correct_ref}"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_fills_imported_inputs_after_invalid_input_repair(
         self, capsys, tmp_path
     ):

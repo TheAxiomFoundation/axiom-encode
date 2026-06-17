@@ -16350,6 +16350,64 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
     return refs
 
 
+def _unresolved_test_input_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    pattern = (
+        r"input `(?P<input>[^`]+)` points to a RuleSpec file that could not be "
+        r"resolved"
+    )
+    for issue in issues:
+        for match in re.finditer(pattern, str(issue)):
+            refs.add(match.group("input").strip())
+    return refs
+
+
+def _current_target_replacement_for_near_ref_typo(
+    input_ref: str,
+    *,
+    target_base: str,
+) -> str | None:
+    if "#input." not in input_ref:
+        return None
+    input_base, fragment = input_ref.split("#", 1)
+    if input_base == target_base or not fragment.startswith("input."):
+        return None
+
+    input_jurisdiction = _rulespec_ref_jurisdiction(input_base)
+    target_jurisdiction = _rulespec_ref_jurisdiction(target_base)
+    if input_jurisdiction and input_jurisdiction != target_jurisdiction:
+        return None
+
+    input_tail = _rulespec_ref_without_jurisdiction(input_base).strip("/")
+    target_tail = _rulespec_ref_without_jurisdiction(target_base).strip("/")
+    if not input_tail or not target_tail:
+        return None
+
+    input_parts = Path(input_tail).parts
+    target_parts = Path(target_tail).parts
+    if (
+        len(input_parts) != len(target_parts)
+        or not input_parts
+        or input_parts[0] != target_parts[0]
+        or input_parts[-1] != target_parts[-1]
+    ):
+        return None
+
+    similarity = difflib.SequenceMatcher(None, input_tail, target_tail).ratio()
+    if similarity < 0.97:
+        return None
+    return f"{target_base}#{fragment}"
+
+
+def _rulespec_ref_jurisdiction(ref: str) -> str | None:
+    if ":" not in ref:
+        return None
+    prefix, tail = ref.split(":", 1)
+    if "/" in prefix or "#" in prefix or not tail:
+        return None
+    return prefix
+
+
 def _mixed_derived_output_case_names(issues: list[str]) -> set[str]:
     return {
         match.group("case").strip()
@@ -18858,6 +18916,41 @@ def cmd_encode(args):
                     outcome["overlay_validation_success"] = bool(can_apply)
                 if repaired_input_refs:
                     outcome["auto_repaired_import_output_inputs"] = repaired_input_refs
+            if not can_apply:
+                repaired_target_ref_typos: list[str] = []
+                while not can_apply:
+                    repaired_refs = _try_repair_generated_target_prefix_typos_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_target_ref_typos.extend(repaired_refs)
+                    outcome["auto_repaired_target_prefix_typos"] = (
+                        repaired_target_ref_typos
+                    )
+                    print(
+                        "  apply=auto_repaired_target_prefix_typos:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_target_ref_typos:
+                    outcome["auto_repaired_target_prefix_typos"] = (
+                        repaired_target_ref_typos
+                    )
             if not can_apply:
                 repaired_invalid_input_refs: list[str] = []
                 while not can_apply:
@@ -26280,6 +26373,58 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
+
+
+def _try_repair_generated_target_prefix_typos_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Normalize generated-test refs that typo the current target's path."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    replacements: dict[str, str] = {}
+    for input_ref in _unresolved_test_input_refs_from_issues(issues):
+        replacement = _current_target_replacement_for_near_ref_typo(
+            input_ref, target_base=target_base
+        )
+        if replacement is not None:
+            replacements[input_ref] = replacement
+    if not replacements:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    if not _replace_mapping_keys_recursive(test_payload, replacements):
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return [f"{old}->{new}" for old, new in sorted(replacements.items())]
 
 
 def _try_repair_generated_imported_test_inputs_for_apply(
