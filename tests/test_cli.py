@@ -22,6 +22,7 @@ from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
+    _append_exception_positive_companion_tests_if_missing,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
     _append_generated_zero_branch_tests_if_missing,
@@ -11286,6 +11287,79 @@ rules:
         assert run.outcome["auto_repaired_exception_tests"] == [case_name]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_exception_companion_repair_requires_matching_positive_signature(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us-co"
+        test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: vista_payment_excluded_when_client_was_receiving_snap_at_joining
+  period: 2024-06
+  input:
+    us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_vista_payment: true
+    us-co:regulations/10-ccr-2506-1/4.403#input.client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined: true
+    us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_rental_or_lease_income_from_self_employment_property: false
+    us-co:regulations/10-ccr-2506-1/4.403#input.household_member_actively_manages_property_average_hours_per_week: 0
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#payment_considered_earned_income: not_holds
+- name: actively_managed_rental_self_employment_property_income_counted
+  period: 2024-06
+  input:
+    us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_vista_payment: false
+    us-co:regulations/10-ccr-2506-1/4.403#input.client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined: false
+    us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_rental_or_lease_income_from_self_employment_property: true
+    us-co:regulations/10-ccr-2506-1/4.403#input.household_member_actively_manages_property_average_hours_per_week: 20
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#payment_considered_earned_income: holds
+"""
+        )
+
+        repaired = _append_exception_positive_companion_tests_if_missing(
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            issues=[
+                "regulations/10-ccr-2506-1/4.403.yaml: ci: "
+                "Exception test coverage missing: "
+                "`payment_considered_earned_income` negates "
+                "`client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined`, "
+                "but no companion test sets "
+                "`#input.client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined` "
+                "true and expects `payment_considered_earned_income` to be "
+                "not_holds while an otherwise identical positive companion sets "
+                "that exception false and expects holds."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_payment_considered_earned_income_"
+            "client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        companion = test_payload[2]
+        assert (
+            companion["input"][
+                "us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_vista_payment"
+            ]
+            is True
+        )
+        assert (
+            companion["input"][
+                "us-co:regulations/10-ccr-2506-1/4.403#input.client_was_receiving_snap_benefits_when_joined_vista_or_initial_vista_exclusion_determined"
+            ]
+            is False
+        )
+        assert (
+            companion["input"][
+                "us-co:regulations/10-ccr-2506-1/4.403#input.payment_is_rental_or_lease_income_from_self_employment_property"
+            ]
+            is False
+        )
+        assert companion["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.403#payment_considered_earned_income": "holds"
+        }
 
     def test_encode_apply_auto_repairs_exception_negative_after_positive_companion(
         self, capsys, tmp_path
