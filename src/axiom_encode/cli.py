@@ -14623,6 +14623,8 @@ def _has_exception_positive_companion_case(
     rule_name: str,
     exception_input: str,
 ) -> bool:
+    negative_signatures: set[tuple[tuple[str, str], ...]] = set()
+    positive_signatures: set[tuple[tuple[str, str], ...]] = set()
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
@@ -14630,15 +14632,31 @@ def _has_exception_positive_companion_case(
         outputs = test_case.get("output")
         if not isinstance(inputs, dict) or not isinstance(outputs, dict):
             continue
-        if not _case_sets_exception_input(
+        sets_exception_false = _case_sets_exception_input(
             inputs, exception_input=exception_input, value=False
-        ):
-            continue
-        if _case_asserts_rule_value(
+        )
+        sets_exception_true = _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=True
+        )
+        if sets_exception_false and _case_asserts_rule_value(
             outputs, rule_name=rule_name, normalized_value="holds"
         ):
-            return True
-    return False
+            positive_signatures.add(
+                _case_input_signature_without_exception(
+                    inputs,
+                    exception_input=exception_input,
+                )
+            )
+        if sets_exception_true and _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="not_holds"
+        ):
+            negative_signatures.add(
+                _case_input_signature_without_exception(
+                    inputs,
+                    exception_input=exception_input,
+                )
+            )
+    return bool(negative_signatures.intersection(positive_signatures))
 
 
 def _has_exception_negative_companion_case(
@@ -14647,6 +14665,8 @@ def _has_exception_negative_companion_case(
     rule_name: str,
     exception_input: str,
 ) -> bool:
+    positive_signatures: set[tuple[tuple[str, str], ...]] = set()
+    negative_signatures: set[tuple[tuple[str, str], ...]] = set()
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
@@ -14654,15 +14674,56 @@ def _has_exception_negative_companion_case(
         outputs = test_case.get("output")
         if not isinstance(inputs, dict) or not isinstance(outputs, dict):
             continue
-        if not _case_sets_exception_input(
+        sets_exception_true = _case_sets_exception_input(
             inputs, exception_input=exception_input, value=True
-        ):
-            continue
-        if _case_asserts_rule_value(
+        )
+        sets_exception_false = _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=False
+        )
+        if sets_exception_true and _case_asserts_rule_value(
             outputs, rule_name=rule_name, normalized_value="not_holds"
         ):
-            return True
-    return False
+            negative_signatures.add(
+                _case_input_signature_without_exception(
+                    inputs,
+                    exception_input=exception_input,
+                )
+            )
+        if sets_exception_false and _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="holds"
+        ):
+            positive_signatures.add(
+                _case_input_signature_without_exception(
+                    inputs,
+                    exception_input=exception_input,
+                )
+            )
+    return bool(positive_signatures.intersection(negative_signatures))
+
+
+def _case_input_signature_without_exception(
+    inputs: dict[object, object],
+    *,
+    exception_input: str,
+) -> tuple[tuple[str, str], ...]:
+    exception_fragment = f"input.{exception_input}"
+    signature: dict[str, str] = {}
+    for key, value in inputs.items():
+        fragment = _rulespec_test_key_fragment(key)
+        if fragment == exception_fragment:
+            continue
+        signature[fragment] = _normalized_test_value_for_signature(value)
+    return tuple(sorted(signature.items()))
+
+
+def _normalized_test_value_for_signature(value: object) -> str:
+    if isinstance(value, dict | list | tuple):
+        return yaml.safe_dump(
+            value,
+            sort_keys=True,
+            allow_unicode=False,
+        ).strip()
+    return _normalized_generated_test_scalar(value)
 
 
 def _case_sets_exception_input(
