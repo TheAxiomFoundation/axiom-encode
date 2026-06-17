@@ -29354,6 +29354,7 @@ def _remove_unknown_dependent_test_outputs(
     """Remove obsolete output assertions from dependent tests."""
     changed: list[Path] = []
     target_path = overlay_repo / relative_output
+    jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
     for validated_file, validation in validations:
         if validated_file == target_path:
             continue
@@ -29365,14 +29366,77 @@ def _remove_unknown_dependent_test_outputs(
             for result in validation.results.values()
             if getattr(result, "error", None)
         ]
-        removed = _remove_unknown_test_output_refs(
-            test_file=test_path,
-            issues=issues,
-        )
-        if not removed:
+        unknown_refs = _unknown_output_refs_from_issues(issues)
+        if not unknown_refs:
             continue
+        try:
+            relative_validated = validated_file.relative_to(overlay_repo)
+            test_cases = yaml.safe_load(test_path.read_text()) or []
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if not isinstance(test_cases, list):
+            continue
+
+        dependent_base = (
+            f"{jurisdiction}:{_relative_rulespec_import_target(relative_validated)}"
+        )
+        local_input_names = _dependent_local_formula_input_names(
+            validated_file,
+            repo_path=overlay_repo,
+        )
+        removable_refs = _expand_refs_with_matching_test_output_keys(
+            test_cases,
+            unknown_refs,
+        )
+        if not removable_refs:
+            continue
+
+        file_changed = False
+        for test_case in test_cases:
+            if not isinstance(test_case, dict):
+                continue
+            outputs = test_case.get("output")
+            if not isinstance(outputs, dict):
+                continue
+            for output_ref in list(outputs):
+                output_text = str(output_ref)
+                if output_text not in removable_refs:
+                    continue
+                output_name = output_text.rsplit("#", 1)[-1].strip()
+                output_value = outputs.pop(output_ref)
+                if output_name in local_input_names:
+                    inputs = test_case.setdefault("input", {})
+                    if isinstance(inputs, dict):
+                        input_ref = f"{dependent_base}#input.{output_name}"
+                        inputs.setdefault(input_ref, output_value)
+                file_changed = True
+        if not file_changed:
+            continue
+        test_path.write_text(
+            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+        )
         changed.append(test_path)
     return changed
+
+
+def _dependent_local_formula_input_names(
+    rules_file: Path,
+    *,
+    repo_path: Path,
+) -> set[str]:
+    try:
+        rules_content = rules_file.read_text()
+        payload = yaml.safe_load(rules_content) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    input_names = _local_factual_input_names_from_rules_content(rules_content)
+    imports = payload.get("imports") if isinstance(payload, dict) else []
+    if isinstance(imports, list):
+        input_names -= _imported_module_exported_rule_names(
+            imports,
+            repo_path=repo_path,
+        )
+    return input_names
 
 
 def _remove_cross_module_dependent_test_outputs(
