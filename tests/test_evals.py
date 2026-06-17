@@ -1150,6 +1150,11 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
     assert "Never introduce an import cycle" in prompt
+    assert (
+        "Never create a derived rule whose formula references that same rule's name"
+        in prompt
+    )
+    assert "no local derived rule formula references its own\n      rule name" in prompt
     assert "directly or transitively" in prompt
     assert "numeric boundary input" in prompt
     assert "do not import that consumer section" in prompt
@@ -5899,6 +5904,7 @@ class TestEvalPrompt:
         assert "Hard requirement for IRC sections 2, 6013, and 7703" not in prompt
         assert "section 151 deduction is `allowed` or `allowable`" not in prompt
         assert "Never introduce an import cycle" in prompt
+        assert "same rule's name" in prompt
         assert "rate-bearing source" in prompt
         assert "cycle with a foundational base definition" in prompt
         assert "rate or rate" in prompt

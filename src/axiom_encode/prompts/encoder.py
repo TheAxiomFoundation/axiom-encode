@@ -717,6 +717,13 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   eligibility predicates: if importing a rate-bearing source would complete a
   cycle with a foundational base definition, keep the rate as a source-named
   boundary input and continue encoding the non-cyclic base formula.
+- Never create a derived rule whose formula references that same rule's name.
+  The derived rule name must be the legal conclusion or compliance output, while
+  required facts inside the formula must use distinct source-named local inputs.
+  For example, do not define `x_has_bona_fide_need` as
+  `x_has_bona_fide_need and other_conditions`; instead name the derived output
+  `x_arrangement_valid` and reference a separate factual input such as
+  `bona_fide_need_for_x_arrangement`.
 - When the requested source defines a base, net amount, includable amount, wage
   base, income base, deduction base, or similar amount that a tax, contribution,
   credit, or deduction section will consume, do not import that consumer section
@@ -1226,6 +1233,10 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
      indexed numeric concepts; formulas may use structural integer keys only to
      select from those concepts. If an exact same-path child scalar is available
      in context, import it instead of duplicating it locally.
+  1a. Dependency inventory: no local derived rule formula references its own
+      rule name. If a legal phrase is both a required fact and a desired output,
+      rename the output to the conclusion and keep the required fact as a
+      distinct local input.
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
