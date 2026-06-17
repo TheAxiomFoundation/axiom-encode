@@ -12606,6 +12606,74 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_breaks_parenthesized_exception(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us-co"
+        rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.yaml"
+        test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: wioa_on_the_job_training_parental_control_age_limit
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 19
+  - name: wioa_on_the_job_training_earnings_earned_income
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          wioa_on_the_job_training_earnings
+          and not (household_member_age < wioa_on_the_job_training_parental_control_age_limit and household_member_under_parental_control_of_another_adult_member)
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us-co:regulations/10-ccr-2506-1/4.403#wioa_on_the_job_training_earnings_earned_income` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_wioa_on_the_job_training_earnings_earned_income"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[0]
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.403#input.wioa_on_the_job_training_earnings"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.403#input.household_member_under_parental_control_of_another_adult_member"
+            ]
+            is False
+        )
+        assert (
+            "us-co:regulations/10-ccr-2506-1/4.403#input.household_member_age"
+            not in synthesized["input"]
+        )
+        assert synthesized["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.403#wioa_on_the_job_training_earnings_earned_income": "holds"
+        }
+
     def test_repair_judgment_positive_tests_repeats_until_validation_passes(
         self, tmp_path
     ):
