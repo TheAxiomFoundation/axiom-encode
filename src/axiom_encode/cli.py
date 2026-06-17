@@ -1250,6 +1250,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_embedded_scalars_parser = subparsers.add_parser(
+        "repair-embedded-scalar-literals",
+        help="Apply signed deterministic repairs for embedded formula scalar literals",
+    )
+    repair_embedded_scalars_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_embedded_scalars_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_embedded_scalars_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_co_snap_refs_parser = subparsers.add_parser(
         "repair-colorado-snap-federal-refs",
         help="Apply signed deterministic repairs for Colorado SNAP federal reference drift",
@@ -1994,6 +2016,8 @@ def main():
         cmd_repair_tax_status_components(args)
     elif args.command == "repair-missing-source-proofs":
         cmd_repair_missing_source_proofs(args)
+    elif args.command == "repair-embedded-scalar-literals":
+        cmd_repair_embedded_scalar_literals(args)
     elif args.command == "repair-colorado-snap-federal-refs":
         cmd_repair_colorado_snap_federal_refs(args)
     elif args.command == "repair-california-snap-shelter-surface":
@@ -11118,6 +11142,115 @@ def cmd_repair_missing_source_proofs(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_embedded_scalar_literals(args):
+    """Apply signed deterministic repairs for embedded formula scalar literals."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    original_content = rules_file.read_text()
+    before_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    before_issues = [
+        result.error for result in before_validation.results.values() if result.error
+    ]
+    before_scalar_keys = _embedded_scalar_literal_issue_keys(before_issues)
+    if not before_scalar_keys:
+        print("No embedded scalar literal repairs found.")
+        return
+
+    repaired_content, repaired_rules = _repair_embedded_scalar_literals(
+        original_content,
+        relative_output=relative_output,
+        policy_repo_path=repo_path,
+        issues=before_issues,
+    )
+    if repaired_content == original_content:
+        print("No embedded scalar literal repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    rules_file.write_text(repaired_content)
+    after_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    after_issues = [
+        result.error for result in after_validation.results.values() if result.error
+    ]
+    after_scalar_keys = _embedded_scalar_literal_issue_keys(after_issues)
+    repaired_scalar_keys = before_scalar_keys - after_scalar_keys
+    if not repaired_scalar_keys:
+        rules_file.write_text(original_content)
+        print("Repair failed validation; restored original file.")
+        print(
+            "- Embedded scalar repair did not clear any reported scalar literal issues."
+        )
+        for issue in after_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="embedded-scalar-literal-v1",
+            tool="axiom-encode repair-embedded-scalar-literals",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied embedded scalar literal repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    if after_issues:
+        print(f"Pending validation issues remain for later repair: {len(after_issues)}")
+    print(f"manifest={manifest_path}")
+
+
 def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     if (
         "surviving spouse" not in content.lower()
@@ -17890,6 +18023,7 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
+    source_paths = _rulespec_module_source_paths(payload)
 
     target_anchor = _relative_output_to_anchor(
         relative_output,
@@ -17905,6 +18039,7 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
             record,
             target_anchor=target_anchor,
             existing_names=existing_names,
+            corpus_citation_path=source_paths[0] if source_paths else None,
         )
         if changed:
             repaired.append(changed)
@@ -17931,6 +18066,64 @@ def _embedded_scalar_literal_issue_records(
             continue
         records.append(match.groupdict())
     return records
+
+
+def _embedded_scalar_literal_issue_keys(
+    issues: list[str],
+) -> set[tuple[str, str, str]]:
+    return {
+        (record["rule"], record["literal"], record["expression"])
+        for record in _embedded_scalar_literal_issue_records(issues)
+    }
+
+
+def _repair_embedded_scalar_literals(
+    content: str,
+    *,
+    relative_output: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> tuple[str, list[str]]:
+    records = _embedded_scalar_literal_issue_records(issues)
+    if not records:
+        return content, []
+    try:
+        payload = yaml.safe_load(content) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return content, []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return content, []
+    source_paths = _rulespec_module_source_paths(payload)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_names = {
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
+    }
+    repaired: list[str] = []
+    for record in records:
+        changed = _extract_embedded_scalar_literal_record(
+            rules,
+            record,
+            target_anchor=target_anchor,
+            existing_names=existing_names,
+            corpus_citation_path=source_paths[0] if source_paths else None,
+        )
+        if changed:
+            repaired.append(changed)
+            existing_names.add(changed)
+
+    if not repaired:
+        return content, []
+    return (
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
+        repaired,
+    )
 
 
 def _try_repair_generated_bare_snapunit_entity_for_apply(
@@ -18063,6 +18256,7 @@ def _extract_embedded_scalar_literal_record(
     *,
     target_anchor: str,
     existing_names: set[str],
+    corpus_citation_path: str | None = None,
 ) -> str | None:
     rule_name = record["rule"]
     literal = record["literal"]
@@ -18119,6 +18313,7 @@ def _extract_embedded_scalar_literal_record(
                 rule,
                 name=parameter_name,
                 literal=literal,
+                corpus_citation_path=corpus_citation_path,
             )
             rules.insert(index, parameter_rule)
         return parameter_name
@@ -18184,6 +18379,7 @@ def _embedded_scalar_parameter_rule(
     *,
     name: str,
     literal: str,
+    corpus_citation_path: str | None = None,
 ) -> dict[str, Any]:
     first_effective_from = "0001-01-01"
     versions = source_rule.get("versions")
@@ -18206,6 +18402,7 @@ def _embedded_scalar_parameter_rule(
                     _source_atom_for_embedded_scalar_parameter(
                         source_rule,
                         literal=literal,
+                        corpus_citation_path=corpus_citation_path,
                     )
                 ]
             }
@@ -18226,6 +18423,7 @@ def _source_atom_for_embedded_scalar_parameter(
     source_rule: dict[str, Any],
     *,
     literal: str,
+    corpus_citation_path: str | None = None,
 ) -> dict[str, Any]:
     proof = source_rule.get("metadata", {}).get("proof")
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
@@ -18251,6 +18449,16 @@ def _source_atom_for_embedded_scalar_parameter(
             "path": "versions[0].formula",
             "kind": "parameter",
             "source": fallback_source,
+        }
+    if corpus_citation_path:
+        source: dict[str, Any] = {"corpus_citation_path": corpus_citation_path}
+        span = source_rule.get("source")
+        if isinstance(span, str) and span.strip():
+            source["span"] = span.strip()
+        return {
+            "path": "versions[0].formula",
+            "kind": "parameter",
+            "source": source,
         }
     return {
         "path": "versions[0].formula",

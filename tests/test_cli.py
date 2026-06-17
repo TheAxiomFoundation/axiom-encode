@@ -64,6 +64,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_policy_composition,
     _repair_colorado_snap_program_tests,
+    _repair_embedded_scalar_literals,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
@@ -138,6 +139,7 @@ from axiom_encode.cli import (
     cmd_oracle_coverage,
     cmd_repair_arizona_snap_composition,
     cmd_repair_current_year_final_amounts,
+    cmd_repair_embedded_scalar_literals,
     cmd_repair_imported_test_inputs,
     cmd_repair_judgment_positive_tests,
     cmd_repair_missing_source_proofs,
@@ -19274,6 +19276,181 @@ rules:
         assert "kind: formula" in repaired
         assert "corpus_citation_path: us/regulation/7/273/1" in repaired
         assert "span: '7 CFR 273.1(a)'" in repaired
+
+    def test_repair_embedded_scalar_literals_extracts_parameter(self, tmp_path):
+        content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2
+rules:
+  - name: snap_self_employment_income_annualized_under_4_402_2
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 10 CCR 2506-1 section 4.402.2(A)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: annual_self_employment_income / 12
+"""
+        issues = [
+            "Embedded scalar literal: "
+            "snap_self_employment_income_annualized_under_4_402_2 line 14 "
+            "embeds 12 in `annual_self_employment_income / 12`; "
+            "extract the value to its own named numeric concept or indexed table/grid value"
+        ]
+
+        repaired, repaired_rules = _repair_embedded_scalar_literals(
+            content,
+            relative_output=Path("regulations/10-ccr-2506-1/4.402.2.yaml"),
+            policy_repo_path=tmp_path / "rulespec-us-co",
+            issues=issues,
+        )
+
+        assert repaired_rules == [
+            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
+        ]
+        assert (
+            "name: snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
+            in repaired
+        )
+        assert "formula: '12'" in repaired
+        assert (
+            "corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2" in repaired
+        )
+        assert "span: 10 CCR 2506-1 section 4.402.2(A)(1)" in repaired
+        assert (
+            "formula: annual_self_employment_income / "
+            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
+            in repaired
+        )
+        assert (
+            "target: us-co:regulations/10-ccr-2506-1/4.402.2"
+            "#snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
+            in repaired
+        )
+
+    def test_repair_embedded_scalar_literals_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us-co"
+        target = policy_repo / "regulations/10-ccr-2506-1/4.402.2.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2
+rules:
+  - name: snap_self_employment_income_annualized_under_4_402_2
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 10 CCR 2506-1 section 4.402.2(A)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: annual_self_employment_income / 12
+  - name: snap_contract_income_annualized_under_4_402_2
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 10 CCR 2506-1 section 4.402.2(A)(2)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: annual_contract_income / 12
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("regulations/10-ccr-2506-1/4.402.2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                content = path.read_text()
+                if "annual_self_employment_income / 12" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "scalar": SimpleNamespace(
+                                error=(
+                                    "Embedded scalar literal: "
+                                    "snap_self_employment_income_annualized_under_4_402_2 "
+                                    "line 14 embeds 12 in "
+                                    "`annual_self_employment_income / 12`; "
+                                    "extract the value to its own named numeric concept "
+                                    "or indexed table/grid value"
+                                )
+                            )
+                        },
+                    )
+                if "annual_contract_income / 12" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "scalar": SimpleNamespace(
+                                error=(
+                                    "Embedded scalar literal: "
+                                    "snap_contract_income_annualized_under_4_402_2 "
+                                    "line 24 embeds 12 in "
+                                    "`annual_contract_income / 12`; "
+                                    "extract the value to its own named numeric concept "
+                                    "or indexed table/grid value"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "proof": SimpleNamespace(
+                            error=(
+                                "Proof missing: "
+                                "snap_self_employment_income_annualized_under_4_402_2 "
+                                "is awaiting a separate repair"
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_embedded_scalar_literals(args)
+
+        content = target.read_text()
+        assert (
+            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
+            in content
+        )
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.402.2.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "embedded-scalar-literal-v1"
+        assert payload["tool"] == "axiom-encode repair-embedded-scalar-literals"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "regulations/10-ccr-2506-1/4.402.2.yaml",
+        ]
 
     def test_repair_missing_source_proofs_allows_pending_tax_branch_repair(
         self, tmp_path
