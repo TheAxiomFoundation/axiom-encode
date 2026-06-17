@@ -1,0 +1,1 @@
+Add a signed deterministic `repair-embedded-scalar-literals` command for existing RuleSpec files, reusing the apply-time scalar extraction path and accepting pending non-scalar validation issues for later repair cycles.
