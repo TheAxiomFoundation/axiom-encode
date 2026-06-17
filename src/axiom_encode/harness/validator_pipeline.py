@@ -6439,6 +6439,8 @@ def find_judgment_positive_companion_output_issues(
             for version in versions
         ):
             continue
+        if _rule_versions_are_constant_false(versions):
+            continue
         name = _rulespec_rule_name(rule)
         target = _canonical_rulespec_file_target(
             policy_repo_path=policy_repo_path,
@@ -6456,6 +6458,15 @@ def find_judgment_positive_companion_output_issues(
         )
 
     return issues
+
+
+def _rule_versions_are_constant_false(versions: list[Any]) -> bool:
+    formulas = [
+        str(version.get("formula") or "").strip().lower()
+        for version in versions
+        if isinstance(version, dict) and isinstance(version.get("formula"), str)
+    ]
+    return bool(formulas) and all(formula == "false" for formula in formulas)
 
 
 def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:

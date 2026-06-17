@@ -12584,6 +12584,54 @@ rules:
         }
         assert test_payload[1]["tables"] == test_payload[0]["tables"]
 
+    def test_judgment_positive_test_repair_skips_constant_false_rule(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us-co"
+        rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
+        test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: voluntary_payment_reactivates_terminated_claim
+    kind: derived
+    entity: SnapClaim
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          false
+"""
+        )
+        test_file.write_text(
+            """- name: terminated_claim_nonreactivation
+  period: 2026-01
+  input: {}
+  output:
+    us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim: not_holds
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("regulations/10-ccr-2506-1/4.801.43.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == []
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert len(test_payload) == 1
+        assert test_payload[0]["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim": "not_holds"
+        }
+
     def test_judgment_positive_test_repair_synthesizes_formula_inputs(self, tmp_path):
         repo_path = tmp_path / "rulespec-us"
         rules_file = repo_path / "statutes" / "26" / "3303.yaml"
