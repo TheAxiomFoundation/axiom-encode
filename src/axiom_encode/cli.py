@@ -1521,6 +1521,14 @@ def main():
         help="Do not sync the completed run to Supabase even when credentials are configured",
     )
     encode_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help=(
+            "Skip slower LLM reviewer checks after deterministic compile/CI "
+            "validation. Useful for bulk eval and stress runs."
+        ),
+    )
+    encode_parser.add_argument(
         "--apply",
         action="store_true",
         help=(
@@ -15934,6 +15942,7 @@ def cmd_encode(args):
     os.environ.setdefault("AXIOM_CORPUS_REPO", str(corpus_path))
 
     source_id = getattr(args, "source_id", None)
+    skip_reviewers = bool(getattr(args, "skip_reviewers", False))
     source_unit = None
     if source_id:
         source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
@@ -15956,6 +15965,7 @@ def cmd_encode(args):
             runtime_axiom_rules_path=axiom_rules_path,
             mode=args.mode,
             extra_context_paths=[Path(path) for path in args.allow_context],
+            skip_reviewers=skip_reviewers,
         )
     else:
         results = run_model_eval(
@@ -15968,6 +15978,7 @@ def cmd_encode(args):
             mode=args.mode,
             extra_context_paths=[Path(path) for path in args.allow_context],
             include_tests=True,
+            skip_reviewers=skip_reviewers,
         )
 
     result = results[0]
@@ -15977,6 +15988,8 @@ def cmd_encode(args):
     print(f"Policy repo: {policy_repo_path}")
     print(f"Runner: {runner}")
     print(f"Mode: {args.mode}")
+    if skip_reviewers:
+        print("Reviewers: skipped")
     if source_unit is not None:
         print(f"Corpus source: {source_unit.citation_path} ({source_unit.source})")
         print(f"RuleSpec source id: {source_id}")

@@ -36,6 +36,7 @@ uv run axiom-encode encode <citation_path> \
   --axiom-rules-engine-path /Users/maxghenis/TheAxiomFoundation/axiom-rules-engine \
   --policy-repo-path /Users/maxghenis/TheAxiomFoundation/rulespec-us-co-manual-stress-20260616 \
   --mode repo-augmented \
+  --skip-reviewers \
   --no-sync
 ```
 
@@ -44,10 +45,10 @@ stdout/stderr per provision, and then runs deterministic compile/CI validation
 against the scratch artifact. It does not install results into a live RuleSpec
 repo.
 
-The harness currently terminates the encoder process after the expected YAML
-artifact is non-empty and stable. That is a workaround because `encode` runs the
-generalist reviewer through `evaluate_artifact`, and there is not yet a clean
-bulk/deterministic encode mode that skips the LLM reviewer tier.
+The harness now uses `encode --skip-reviewers` so each encoder process exits
+normally after deterministic compile/CI validation. Earlier smoke runs killed
+the encoder once the expected YAML artifact stabilized; those rows are marked
+with `terminated_after_artifact: true` in their JSONL output.
 
 ## Runs
 

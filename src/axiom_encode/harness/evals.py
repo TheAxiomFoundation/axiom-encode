@@ -73,6 +73,7 @@ from .validator_pipeline import (
     extract_numeric_occurrences_from_text,
     find_deferred_output_issues,
     find_ungrounded_numeric_issues,
+    find_unused_import_issues,
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
     repair_copied_cross_reference_summary,
@@ -191,12 +192,191 @@ def _matching_numeric_occurrence_count(
     occurrences: Counter[float],
     value: float,
 ) -> int:
-    """Count occurrences whose float value closely matches the source value."""
-    return sum(
-        count
-        for occurrence_value, count in occurrences.items()
-        if numeric_value_is_grounded(occurrence_value, {value})
+    """Return whether a named scalar covers the source value.
+
+    This is a value-coverage gate, not a duplicate-definition gate. One named
+    scalar should cover repeated source mentions of the same amount or deadline.
+    """
+    return int(
+        any(
+            numeric_value_is_grounded(occurrence_value, {value})
+            for occurrence_value in occurrences
+        )
     )
+
+
+_SECTION_CROSS_REFERENCE_PATTERN = re.compile(
+    r"\b(?:sections?|secs?\.?|regs?\.?|regulations?|paragraphs?)\s+"
+    r"\d+(?:\.\d+)+(?:\s*(?:through|to|-|and|,)\s*\d+(?:\.\d+)+)*",
+    re.IGNORECASE,
+)
+
+
+def _numeric_occurrence_source_text(source_text: str) -> str:
+    """Drop citation-like cross-references before source numeric coverage checks."""
+    return _SECTION_CROSS_REFERENCE_PATTERN.sub("", source_text)
+
+
+_UNREFERENCED_PROOF_IMPORT_RE = re.compile(
+    r"Proof import not referenced:\s*`(?P<rule>[^`]+)`\s+"
+    r"proof imports\s+`(?P<symbol>[^`]+)`"
+)
+
+
+def _strip_yaml_scalar_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _yaml_list_item_block_end(
+    lines: list[str],
+    *,
+    start: int,
+    start_indent: int,
+) -> int:
+    index = start + 1
+    while index < len(lines):
+        line = lines[index]
+        if line.strip():
+            indent = len(line) - len(line.lstrip())
+            if indent <= start_indent:
+                break
+        index += 1
+    return index
+
+
+def _proof_import_atom_block_imported_symbol(block: str) -> str:
+    if not re.search(r"(?m)^\s*kind:\s*import\s*$", block):
+        return ""
+    output_match = re.search(r"(?m)^\s*output:\s*(.+?)\s*$", block)
+    if output_match:
+        return _strip_yaml_scalar_quotes(output_match.group(1).strip())
+    target_match = re.search(r"(?m)^\s*target:\s*(.+?)\s*$", block)
+    if not target_match:
+        return ""
+    target = _strip_yaml_scalar_quotes(target_match.group(1).strip())
+    if "#" not in target:
+        return ""
+    return target.rsplit("#", 1)[1].strip()
+
+
+def _remove_unreferenced_proof_import_atom_blocks(
+    content: str,
+    *,
+    stale_pairs: set[tuple[str, str]],
+) -> tuple[str, list[str]]:
+    lines = content.splitlines(keepends=True)
+    repaired_lines: list[str] = []
+    removed: list[str] = []
+    current_rule = ""
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        rule_match = re.match(r"^\s*-\s+name:\s*(.+?)\s*$", line)
+        if rule_match:
+            current_rule = _strip_yaml_scalar_quotes(rule_match.group(1).strip())
+
+        item_match = re.match(r"^(\s*)-\s+path:\s*", line)
+        if current_rule and item_match:
+            block_end = _yaml_list_item_block_end(
+                lines,
+                start=index,
+                start_indent=len(item_match.group(1)),
+            )
+            block = "".join(lines[index:block_end])
+            imported_symbol = _proof_import_atom_block_imported_symbol(block)
+            if imported_symbol and (current_rule, imported_symbol) in stale_pairs:
+                removed.append(f"{current_rule}:{imported_symbol}")
+                index = block_end
+                continue
+
+        repaired_lines.append(line)
+        index += 1
+
+    return "".join(repaired_lines), removed
+
+
+def _unused_import_items(content: str) -> list[str]:
+    items: list[str] = []
+    for issue in find_unused_import_issues(content):
+        match = re.search(r"Unused import `([^`]+)`", issue)
+        if match:
+            items.append(match.group(1))
+    return items
+
+
+def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
+    unused_imports = _unused_import_items(content)
+    if not unused_imports:
+        return content, []
+
+    unused = set(unused_imports)
+    repaired_lines: list[str] = []
+    in_imports = False
+    imports_indent = 0
+    removed: list[str] = []
+
+    for line in content.splitlines(keepends=True):
+        imports_match = re.match(r"^(\s*)imports:\s*$", line)
+        if imports_match:
+            in_imports = True
+            imports_indent = len(imports_match.group(1))
+            repaired_lines.append(line)
+            continue
+
+        if in_imports:
+            stripped = line.strip()
+            if stripped:
+                indent = len(line) - len(line.lstrip())
+                item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
+                if item_match and indent >= imports_indent:
+                    item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
+                    if item in unused:
+                        removed.append(item)
+                        continue
+                elif indent <= imports_indent:
+                    in_imports = False
+
+        repaired_lines.append(line)
+
+    return "".join(repaired_lines), removed
+
+
+def _remove_unreferenced_proof_import_atoms(
+    rules_file: Path,
+    issues: Sequence[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    stale_pairs: set[tuple[str, str]] = set()
+    for issue in issues:
+        for match in _UNREFERENCED_PROOF_IMPORT_RE.finditer(str(issue)):
+            stale_pairs.add((match["rule"].strip(), match["symbol"].strip()))
+    if not stale_pairs:
+        return []
+
+    original_content = rules_file.read_text()
+    try:
+        payload = yaml.safe_load(original_content) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired_content, removed = _remove_unreferenced_proof_import_atom_blocks(
+        original_content,
+        stale_pairs=stale_pairs,
+    )
+    if not removed:
+        return []
+    repaired_content, pruned_imports = _prune_unused_imports(repaired_content)
+    rules_file.write_text(repaired_content)
+    return sorted([*removed, *[f"unused_import:{item}" for item in pruned_imports]])
 
 
 def _is_empty_nonassertable_artifact(content: str) -> bool:
@@ -486,6 +666,7 @@ def run_model_eval(
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     include_tests: bool = False,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     results: list[EvalResult] = []
@@ -503,6 +684,7 @@ def run_model_eval(
                     mode=mode,
                     extra_context_paths=extra_context_paths or [],
                     include_tests=include_tests,
+                    skip_reviewers=skip_reviewers,
                 )
             )
 
@@ -522,6 +704,7 @@ def run_source_eval(
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
     policyengine_rule_hint: str | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one corpus-backed source unit."""
     results: list[EvalResult] = []
@@ -541,6 +724,7 @@ def run_source_eval(
                 oracle=oracle,
                 policyengine_country=policyengine_country,
                 policyengine_rule_hint=policyengine_rule_hint,
+                skip_reviewers=skip_reviewers,
             )
         )
 
@@ -2586,6 +2770,7 @@ def evaluate_artifact(
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
     policyengine_rule_hint: str | None = None,
+    skip_reviewers: bool = False,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     with _rulespec_validation_target(
@@ -2661,20 +2846,27 @@ def evaluate_artifact(
                 "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
                 "is an acceptable representation."
             )
-        try:
-            generalist_review_result = pipeline._run_reviewer(
-                "generalist-reviewer",
-                validation_file,
-                oracle_context or None,
-                review_context=review_context,
-            )
-        except Exception as exc:
+        if skip_reviewers:
             generalist_review_result = ValidationResult(
                 validator_name="generalist-reviewer",
-                passed=False,
-                error=str(exc),
-                issues=[f"Reviewer error: {exc}"],
+                passed=True,
+                issues=[],
             )
+        else:
+            try:
+                generalist_review_result = pipeline._run_reviewer(
+                    "generalist-reviewer",
+                    validation_file,
+                    oracle_context or None,
+                    review_context=review_context,
+                )
+            except Exception as exc:
+                generalist_review_result = ValidationResult(
+                    validator_name="generalist-reviewer",
+                    passed=False,
+                    error=str(exc),
+                    issues=[f"Reviewer error: {exc}"],
+                )
 
     content = rulespec_file.read_text()
     embedded_source = extract_embedded_source_text(content)
@@ -2688,7 +2880,9 @@ def evaluate_artifact(
     )
     source_numbers = extract_numbers_from_text(numeric_grounding_source_text or "")
     source_numeric_occurrences = Counter(
-        extract_numeric_occurrences_from_text(numeric_validation_source_text or "")
+        extract_numeric_occurrences_from_text(
+            _numeric_occurrence_source_text(numeric_validation_source_text or "")
+        )
     )
     if _is_empty_nonassertable_artifact(content):
         source_numeric_occurrences = Counter()
@@ -2722,9 +2916,10 @@ def evaluate_artifact(
     covered_source_numeric_occurrence_count = 0
     missing_source_numeric_occurrence_count = 0
     for value, expected_count in sorted(source_numeric_occurrences.items()):
-        covered_count = min(
-            expected_count,
-            _matching_numeric_occurrence_count(named_scalar_occurrences, value),
+        covered_count = (
+            expected_count
+            if _matching_numeric_occurrence_count(named_scalar_occurrences, value)
+            else 0
         )
         if inline_table_formula_occurrences.get(value):
             covered_count = max(covered_count, expected_count)
@@ -2795,6 +2990,46 @@ def evaluate_artifact(
         taxsim_pass=taxsim_result.passed if taxsim_result is not None else None,
         taxsim_score=taxsim_result.score if taxsim_result is not None else None,
         taxsim_issues=taxsim_result.issues if taxsim_result is not None else [],
+    )
+
+
+def _evaluate_generated_artifact_with_repairs(
+    rulespec_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    source_text: str,
+    oracle: EvalOracleMode = "none",
+    policyengine_country: str = "auto",
+    policyengine_rule_hint: str | None = None,
+    skip_reviewers: bool = False,
+) -> EvalArtifactMetrics | None:
+    metrics = evaluate_artifact(
+        rulespec_file=rulespec_file,
+        policy_repo_root=policy_repo_root,
+        axiom_rules_path=axiom_rules_path,
+        source_text=source_text,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+        skip_reviewers=skip_reviewers,
+    )
+    if metrics is None:
+        return None
+    repaired = _remove_unreferenced_proof_import_atoms(
+        rulespec_file,
+        metrics.ci_issues,
+    )
+    if not repaired:
+        return metrics
+    return evaluate_artifact(
+        rulespec_file=rulespec_file,
+        policy_repo_root=policy_repo_root,
+        axiom_rules_path=axiom_rules_path,
+        source_text=source_text,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+        skip_reviewers=skip_reviewers,
     )
 
 
@@ -3087,6 +3322,7 @@ def _run_single_eval(
     mode: EvalMode,
     extra_context_paths: list[Path],
     include_tests: bool = False,
+    skip_reviewers: bool = False,
 ) -> EvalResult:
     source_unit = resolve_corpus_source_unit(citation, corpus_path)
     source_text = source_unit.body
@@ -3163,11 +3399,12 @@ def _run_single_eval(
 
     metrics = None
     if output_file.exists():
-        metrics = evaluate_artifact(
+        metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
+            skip_reviewers=skip_reviewers,
         )
     validation_error = _eval_artifact_validation_error(metrics)
 
@@ -3226,6 +3463,7 @@ def _run_single_source_eval(
     oracle: EvalOracleMode,
     policyengine_country: str,
     policyengine_rule_hint: str | None,
+    skip_reviewers: bool = False,
 ) -> EvalResult:
     """Run one eval on a corpus-backed source unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
@@ -3298,7 +3536,7 @@ def _run_single_source_eval(
 
     metrics = None
     if output_file.exists():
-        metrics = evaluate_artifact(
+        metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
@@ -3306,6 +3544,7 @@ def _run_single_source_eval(
             oracle=oracle,
             policyengine_country=policyengine_country,
             policyengine_rule_hint=policyengine_rule_hint,
+            skip_reviewers=skip_reviewers,
         )
     validation_error = _eval_artifact_validation_error(metrics)
 
@@ -8309,6 +8548,23 @@ def _normalize_test_case_value(value: object) -> object:
     return normalized
 
 
+def _normalize_test_case_output_value(value: object) -> object:
+    """Normalize generated expected outputs that need YAML-native scalar types."""
+    if isinstance(value, list):
+        return [_normalize_test_case_output_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _normalize_test_case_output_value(inner)
+            for key, inner in value.items()
+        }
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return value
+    return _normalize_test_case_value(value)
+
+
 def _period_precedes_effective_month(period: object, effective_date: date) -> bool:
     """Return True when an explicit period falls before the effective month."""
     effective_month = effective_date.strftime("%Y-%m")
@@ -8424,14 +8680,19 @@ def _normalize_test_periods_to_effective_dates(
                 normalized_case.get("period")
             )
 
-        for key in ("input", "inputs", "output"):
+        for key in ("input", "inputs"):
             if key in normalized_case and isinstance(normalized_case[key], dict):
                 normalized_case[key] = {
                     child_key: _normalize_test_case_value(child_value)
                     for child_key, child_value in normalized_case[key].items()
                 }
+        if "output" in normalized_case and isinstance(normalized_case["output"], dict):
+            normalized_case["output"] = {
+                child_key: _normalize_test_case_output_value(child_value)
+                for child_key, child_value in normalized_case["output"].items()
+            }
         if "expect" in normalized_case:
-            normalized_case["expect"] = _normalize_test_case_value(
+            normalized_case["expect"] = _normalize_test_case_output_value(
                 normalized_case["expect"]
             )
         return normalized_case
