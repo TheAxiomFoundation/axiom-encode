@@ -18514,6 +18514,85 @@ rules:
             },
         ]
 
+    def test_repair_scalar_relation_rows_from_generated_count_where_formula(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        rules_file = (
+            tmp_path / "generated" / "regulations" / "10-ccr-2506-1" / "4.208.1.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Colorado SNAP certification-period guidelines.
+rules:
+  - name: member_of_certification_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_qualifies_for_twenty_four_month_certification_period
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          len(member_of_certification_household) > 0
+          and count_where(member_of_certification_household, member_is_aged_60_or_older_or_has_disability) == len(member_of_certification_household)
+"""
+        )
+        test_file = rules_file.with_name("4.208.1.test.yaml")
+        test_file.write_text(
+            """- name: mixed_age_household_does_not_qualify
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household:
+      - true
+      - false
+  output:
+    us-co:regulations/10-ccr-2506-1/4.208.1#household_qualifies_for_twenty_four_month_certification_period: not_holds
+"""
+        )
+
+        repaired = _repair_scalar_relation_rows(
+            rules_file=rules_file,
+            test_file=test_file,
+            policy_repo_path=policy_repo,
+            parsed_issues=[
+                (
+                    "mixed_age_household_does_not_qualify",
+                    "us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household",
+                    1,
+                ),
+                (
+                    "mixed_age_household_does_not_qualify",
+                    "us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household",
+                    2,
+                ),
+            ],
+        )
+
+        assert repaired == [
+            "mixed_age_household_does_not_qualify:"
+            "us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household[1]",
+            "mixed_age_household_does_not_qualify:"
+            "us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household[2]",
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][
+            "us-co:regulations/10-ccr-2506-1/4.208.1#relation.member_of_certification_household"
+        ] == [
+            {
+                "us-co:regulations/10-ccr-2506-1/4.208.1#input.member_is_aged_60_or_older_or_has_disability": True
+            },
+            {
+                "us-co:regulations/10-ccr-2506-1/4.208.1#input.member_is_aged_60_or_older_or_has_disability": False
+            },
+        ]
+
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us-ny"

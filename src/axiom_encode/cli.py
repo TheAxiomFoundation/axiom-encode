@@ -22895,7 +22895,8 @@ def _relation_row_replacement_from_generated_rules(
     New generated files can define a relation and immediately test it before any
     companion exists; in that case a scalar row like `- 30000` is unambiguous
     only when the formulas reference exactly one child fact through
-    `relation_name.child_fact`.
+    `relation_name.child_fact` or a boolean aggregate such as
+    `count_where(relation_name, child_fact)`.
     """
     if rules_file is None or not rules_file.exists():
         return None
@@ -22936,6 +22937,10 @@ def _single_relation_child_fact_names(
         rf"(?<![A-Za-z0-9_]){escaped_relation}\."
         r"(?P<child>[A-Za-z_][A-Za-z0-9_]*)\b"
     )
+    aggregate_pattern = re.compile(
+        rf"\b(?:count_where|any_where|all_where)\(\s*{escaped_relation}\s*,\s*"
+        r"(?P<child>[A-Za-z_][A-Za-z0-9_]*)\b(?!\s*\.)"
+    )
     child_names: set[str] = set()
     for rule in rules:
         if not isinstance(rule, dict):
@@ -22951,6 +22956,9 @@ def _single_relation_child_fact_names(
                 continue
             child_names.update(
                 match.group("child") for match in child_pattern.finditer(formula)
+            )
+            child_names.update(
+                match.group("child") for match in aggregate_pattern.finditer(formula)
             )
     return child_names
 
