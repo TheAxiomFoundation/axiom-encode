@@ -8354,7 +8354,73 @@ def _clean_generated_file_content(content: str) -> str:
         stripped,
     )
     stripped = _normalize_backslash_escaped_yaml_apostrophes(stripped)
+    stripped = _normalize_semicolon_separated_yaml_excerpts(stripped)
     return stripped + ("\n" if stripped and not stripped.endswith("\n") else "")
+
+
+def _normalize_semicolon_separated_yaml_excerpts(content: str) -> str:
+    """Repair excerpt lines emitted as multiple adjacent quoted scalars."""
+    if "excerpt:" not in content or not re.search(r"['\"]\s*;\s*['\"]", content):
+        return content
+
+    repaired_lines: list[str] = []
+    for line in content.splitlines(keepends=True):
+        repaired_lines.append(_normalize_semicolon_separated_yaml_excerpt_line(line))
+    return "".join(repaired_lines)
+
+
+def _normalize_semicolon_separated_yaml_excerpt_line(line: str) -> str:
+    body = line.rstrip("\r\n")
+    newline = line[len(body) :]
+    match = re.match(r"^(?P<prefix>\s*excerpt:\s*)(?P<rest>.+?)\s*$", body)
+    if not match:
+        return line
+    parsed = _parse_semicolon_separated_quoted_scalars(match.group("rest").strip())
+    if parsed is None or len(parsed) < 2:
+        return line
+    joined = "; ".join(parsed)
+    escaped = joined.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{match.group("prefix")}"{escaped}"{newline}'
+
+
+def _parse_semicolon_separated_quoted_scalars(text: str) -> list[str] | None:
+    values: list[str] = []
+    index = 0
+    while index < len(text):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text) or text[index] not in {"'", '"'}:
+            return None
+        quote = text[index]
+        index += 1
+        value: list[str] = []
+        while index < len(text):
+            char = text[index]
+            next_char = text[index + 1] if index + 1 < len(text) else ""
+            if char == "\\" and next_char:
+                value.append(next_char)
+                index += 2
+                continue
+            if quote == "'" and char == "'" and next_char == "'":
+                value.append("'")
+                index += 2
+                continue
+            if char == quote:
+                index += 1
+                break
+            value.append(char)
+            index += 1
+        else:
+            return None
+        values.append("".join(value))
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index == len(text):
+            return values
+        if text[index] != ";":
+            return None
+        index += 1
+    return values
 
 
 def _normalize_backslash_escaped_yaml_apostrophes(content: str) -> str:

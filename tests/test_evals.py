@@ -5149,6 +5149,38 @@ class TestGeneratedBundleCleaning:
         ]
         assert excerpt == "benefits received as a result of the individual's service"
 
+    def test_clean_generated_file_content_repairs_semicolon_excerpts(self):
+        content = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Payment exclusions.\n"
+            "rules:\n"
+            "  - name: excluded_payment_limit\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    metadata:\n"
+            "      proof:\n"
+            "        atoms:\n"
+            "          - source:\n"
+            '              excerpt: "per capita Payments ... of two thousand dollars ($2,000) or less"; "up to two thousand dollars ($2,000) per year"; "The first two thousand dollars ($2,000) of each payment is excluded"\n'
+            "    versions:\n"
+            "      - effective_from: '0001-01-01'\n"
+            "        formula: 2000\n"
+        )
+
+        cleaned = _clean_generated_file_content(content)
+        payload = yaml.safe_load(cleaned)
+
+        excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert excerpt == (
+            "per capita Payments ... of two thousand dollars ($2,000) or less; "
+            "up to two thousand dollars ($2,000) per year; "
+            "The first two thousand dollars ($2,000) of each payment is excluded"
+        )
+
     def test_materialize_eval_artifact_rejects_non_rulespec_bundle(self, tmp_path):
         output_file = tmp_path / "source" / "example.yaml"
         response = (
