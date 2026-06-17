@@ -3207,6 +3207,205 @@ rules:
         assert "kind: import" not in repaired_text
         assert "output: deadline" not in repaired_text
 
+    def test_generated_eval_repairs_unused_imports(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        rulespec_file = repo / "statutes" / "26" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/source#unused_rate
+  - us:statutes/26/source#used_rate
+rules:
+  - name: copied_rate
+    kind: derived
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: used_rate
+"""
+        )
+
+        ci_issue = (
+            "Unused import `us:statutes/26/source#unused_rate`: imported symbol "
+            "`unused_rate` is not referenced by any formula or proof import."
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[ci_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="The copied rate uses the used rate.",
+                skip_reviewers=True,
+            )
+
+        repaired_text = rulespec_file.read_text()
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert "unused_rate" not in repaired_text
+        assert "used_rate" in repaired_text
+
+    def test_generated_eval_repairs_positive_judgment_companions(self, tmp_path):
+        repo = tmp_path / "rulespec-us-co"
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: work_study_exemption
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: enrolled_in_work_study
+"""
+        )
+        rulespec_file.with_name("example.test.yaml").write_text(
+            """- name: existing_negative
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-co:regulations/example#input.enrolled_in_work_study: false
+  output:
+    us-co:regulations/example#work_study_exemption: not_holds
+"""
+        )
+        ci_issue = (
+            "Judgment rule missing positive companion output coverage: "
+            "`us-co:regulations/example#work_study_exemption` is not asserted "
+            "as `holds` by the companion `.test.yaml` file."
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[ci_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Students in work study are exempt.",
+                skip_reviewers=True,
+            )
+
+        repaired_tests = yaml.safe_load(
+            rulespec_file.with_name("example.test.yaml").read_text()
+        )
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert any(
+            case.get("output", {}).get("us-co:regulations/example#work_study_exemption")
+            == "holds"
+            for case in repaired_tests
+        )
+
+    def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
+        repo = tmp_path / "rulespec-us-co"
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: benefit_limit
+    kind: parameter
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 100
+  - name: benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 'if household_eligible: benefit_limit else: 0'
+"""
+        )
+        rulespec_file.with_name("example.test.yaml").write_text(
+            """- name: positive
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-co:regulations/example#input.household_eligible: true
+  output:
+    us-co:regulations/example#benefit_amount: 100
+"""
+        )
+        ci_issue = (
+            "Zero branch test coverage missing: `benefit_amount` has a formula "
+            "branch that returns 0, but no companion test asserts that output "
+            "is zero."
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[ci_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Eligible households receive a $100 benefit limit; otherwise zero.",
+                skip_reviewers=True,
+            )
+
+        repaired_tests = yaml.safe_load(
+            rulespec_file.with_name("example.test.yaml").read_text()
+        )
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert any(
+            case.get("output", {}).get("us-co:regulations/example#benefit_amount") == 0
+            for case in repaired_tests
+        )
+
     def test_test_input_assignment_ignores_formula_builtins(self):
         content = """format: rulespec/v1
 module:

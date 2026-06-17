@@ -221,6 +221,7 @@ _UNREFERENCED_PROOF_IMPORT_RE = re.compile(
     r"Proof import not referenced:\s*`(?P<rule>[^`]+)`\s+"
     r"proof imports\s+`(?P<symbol>[^`]+)`"
 )
+_UNUSED_IMPORT_RE = re.compile(r"Unused import `(?P<target>[^`]+)`")
 
 
 def _strip_yaml_scalar_quotes(value: str) -> str:
@@ -377,6 +378,23 @@ def _remove_unreferenced_proof_import_atoms(
     repaired_content, pruned_imports = _prune_unused_imports(repaired_content)
     rules_file.write_text(repaired_content)
     return sorted([*removed, *[f"unused_import:{item}" for item in pruned_imports]])
+
+
+def _prune_unused_imports_from_file(
+    rules_file: Path,
+    issues: Sequence[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    if not any(_UNUSED_IMPORT_RE.search(str(issue)) for issue in issues):
+        return []
+
+    original_content = rules_file.read_text()
+    repaired_content, removed = _prune_unused_imports(original_content)
+    if not removed or repaired_content == original_content:
+        return []
+    rules_file.write_text(repaired_content)
+    return sorted(removed)
 
 
 def _is_empty_nonassertable_artifact(content: str) -> bool:
@@ -3015,11 +3033,13 @@ def _evaluate_generated_artifact_with_repairs(
     )
     if metrics is None:
         return None
-    repaired = _remove_unreferenced_proof_import_atoms(
-        rulespec_file,
-        metrics.ci_issues,
+    repairs = _apply_generated_eval_repairs(
+        rulespec_file=rulespec_file,
+        policy_repo_root=policy_repo_root,
+        axiom_rules_path=axiom_rules_path,
+        issues=metrics.ci_issues,
     )
-    if not repaired:
+    if not repairs:
         return metrics
     return evaluate_artifact(
         rulespec_file=rulespec_file,
@@ -3031,6 +3051,93 @@ def _evaluate_generated_artifact_with_repairs(
         policyengine_rule_hint=policyengine_rule_hint,
         skip_reviewers=skip_reviewers,
     )
+
+
+_EVAL_COMPANION_REPAIR_MARKERS = (
+    "Judgment rule missing positive companion output coverage:",
+    "Derived rule missing companion output coverage:",
+    "Zero branch test coverage missing:",
+    "mixes derived output entities",
+)
+_EVAL_SCALAR_REPAIR_MARKERS = (
+    "Proof import not referenced:",
+    "Unused import `",
+)
+
+
+def _apply_generated_eval_repairs(
+    *,
+    rulespec_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Apply deterministic generated-artifact repairs before final eval scoring."""
+    repairs: list[str] = []
+    proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
+    repairs.extend(f"proof_import:{name}" for name in proof_repairs)
+    unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
+    repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
+
+    if not issues or not all(
+        any(marker in str(issue) for marker in _EVAL_COMPANION_REPAIR_MARKERS)
+        or any(marker in str(issue) for marker in _EVAL_SCALAR_REPAIR_MARKERS)
+        for issue in issues
+    ):
+        return repairs
+
+    relative_output = _relative_rulespec_source_path(rulespec_file)
+    test_file = _rulespec_test_path(rulespec_file)
+    if relative_output is None or not test_file.exists():
+        return repairs
+
+    # Reuse the CLI's deterministic companion-test repair helpers lazily to
+    # avoid an import cycle: cli imports this module during startup.
+    from axiom_encode import cli as cli_helpers
+
+    if any("mixes derived output entities" in str(issue) for issue in issues):
+        repairs.extend(
+            f"mixed_entity:{name}"
+            for name in cli_helpers._repair_mixed_derived_entity_output_tests(
+                rules_file=rulespec_file,
+                test_file=test_file,
+                repo_path=policy_repo_root,
+                relative_output=relative_output,
+            )
+        )
+    repairs.extend(
+        f"derived_output:{name}"
+        for name in cli_helpers._append_generated_derived_output_tests_if_missing(
+            rules_file=rulespec_file,
+            test_file=test_file,
+            repo_path=policy_repo_root,
+            relative_output=relative_output,
+            issues=issues,
+        )
+    )
+    repairs.extend(
+        f"judgment_positive:{name}"
+        for name in cli_helpers._append_generated_judgment_positive_tests_if_missing(
+            rules_file=rulespec_file,
+            test_file=test_file,
+            repo_path=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            relative_output=relative_output,
+            issues=issues,
+            test_failure_checker=cli_helpers._rulespec_companion_test_failures,
+        )
+    )
+    repairs.extend(
+        f"zero_branch:{name}"
+        for name in cli_helpers._append_generated_zero_branch_tests_if_missing(
+            rules_file=rulespec_file,
+            test_file=test_file,
+            repo_path=policy_repo_root,
+            relative_output=relative_output,
+            issues=issues,
+        )
+    )
+    return repairs
 
 
 def _validation_policy_repo_root(validation_file: Path, policy_repo_root: Path) -> Path:
