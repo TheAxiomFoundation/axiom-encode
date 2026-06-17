@@ -90,6 +90,7 @@ from .harness.validator_pipeline import (
     _matching_delegated_setting_rule_names,
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
+    _rule_versions_are_constant_false,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_local_item_prefix,
@@ -15161,6 +15162,10 @@ def _append_generated_judgment_positive_tests_if_missing(
     repaired: list[str] = []
     for target in output_targets:
         rule_name = target.rsplit("#", 1)[-1]
+        rule = derived_rules_by_target.get(target)
+        versions = rule.get("versions") if isinstance(rule, dict) else None
+        if isinstance(versions, list) and _rule_versions_are_constant_false(versions):
+            continue
         if _test_payload_has_rule_output_value(
             test_payload, rule_name=rule_name, normalized_value="holds"
         ):
@@ -15174,7 +15179,7 @@ def _append_generated_judgment_positive_tests_if_missing(
             case_name=case_name,
             target=f"{target_base}#{rule_name}",
             target_base=target_base,
-            rule=derived_rules_by_target.get(target),
+            rule=rule,
             rules_payload=rules_payload,
             rules_by_name=rules_by_name,
             test_payload=test_payload,

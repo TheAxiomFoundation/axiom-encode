@@ -1053,6 +1053,44 @@ rules:
     ]
 
 
+def test_judgment_positive_companion_output_allows_constant_false_rule(tmp_path):
+    policy_repo = tmp_path / "rulespec-us-co"
+    rules_file = policy_repo / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: voluntary_payment_reactivates_terminated_claim
+    kind: derived
+    entity: SnapClaim
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 4.801.43(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          false
+"""
+    cases = [
+        {
+            "name": "terminated_claim_nonreactivation",
+            "period": "2026-01",
+            "input": {},
+            "output": {
+                "us-co:regulations/10-ccr-2506-1/4.801.43#voluntary_payment_reactivates_terminated_claim": "not_holds"
+            },
+        }
+    ]
+
+    issues = find_judgment_positive_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == []
+
+
 def test_judgment_positive_companion_output_allows_holds_case(tmp_path):
     policy_repo = tmp_path / "rulespec-us"
     rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
