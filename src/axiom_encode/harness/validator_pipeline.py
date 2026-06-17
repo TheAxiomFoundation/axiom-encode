@@ -14990,7 +14990,8 @@ def _rulespec_import_prefix_static(import_path: str) -> str | None:
 
 def _formula_local_identifiers(formula: str) -> set[str]:
     """Return non-builtin identifiers referenced by a RuleSpec formula."""
-    return set(_RULESPEC_IDENTIFIER.findall(formula)) - _RULESPEC_FORMULA_BUILTINS
+    scrubbed = _QUOTED_STRING_PATTERN.sub(" ", formula)
+    return set(_RULESPEC_IDENTIFIER.findall(scrubbed)) - _RULESPEC_FORMULA_BUILTINS
 
 
 def _normalize_identifier(value: str) -> str:
