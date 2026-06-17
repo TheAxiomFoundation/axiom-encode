@@ -19380,6 +19380,35 @@ rules:
         assert "corpus_citation_path: us/regulation/7/273/1" in repaired
         assert "span: '7 CFR 273.1(a)'" in repaired
 
+    def test_repair_missing_source_proofs_handles_unindented_rules_sequence(
+        self,
+    ):
+        content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.403
+rules:
+- name: snap_countable_employee_wage_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: 10 CCR 2506-1 section 4.403(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "if excluded_income:\\n    0\\nelse:\\n    employee_wages_received"
+"""
+
+        repaired, repaired_rules = _repair_missing_source_proof_atoms(content)
+
+        assert repaired_rules == ["snap_countable_employee_wage_income"]
+        assert "proof_validation:\n    required: true" in repaired
+        assert "metadata:\n    proof:\n      atoms:" in repaired
+        assert "kind: formula" in repaired
+        assert "corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.403" in repaired
+        assert "span: 10 CCR 2506-1 section 4.403(A)" in repaired
+
     def test_repair_embedded_scalar_literals_extracts_parameter(self, tmp_path):
         content = """format: rulespec/v1
 module:
