@@ -138,6 +138,7 @@ from axiom_encode.cli import (
     cmd_oracle_candidates,
     cmd_oracle_coverage,
     cmd_repair_arizona_snap_composition,
+    cmd_repair_bare_snapunit_entities,
     cmd_repair_current_year_final_amounts,
     cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
@@ -10469,15 +10470,6 @@ rules:
                     return SimpleNamespace(
                         all_passed=False,
                         results={
-                            "delegated": SimpleNamespace(
-                                error=(
-                                    "Delegated policy setting missing "
-                                    "source_relation: "
-                                    "`heating_cooling_standard_utility_allowance` "
-                                    "encodes a state-set SNAP standard utility "
-                                    "allowance."
-                                )
-                            ),
                             "numeric": SimpleNamespace(
                                 error=(
                                     "Source numeric value `10` is not represented in "
@@ -10536,6 +10528,110 @@ rules:
         assert (
             manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
         )
+
+    def test_repair_bare_snapunit_entities_uses_module_summary_context(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-co"
+        rules_file = repo / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Colorado SNAP household utility allowance standards.
+rules:
+- name: snap_standard_utility_allowance
+  kind: derived
+  entity: SnapUnit
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 594
+- name: snap_limited_utility_allowance
+  kind: derived
+  entity: SnapUnit
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 377
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("regulations/10-ccr-2506-1/4.407.31.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                payload = yaml.safe_load(rules_file.read_text())
+                entities = {
+                    rule["name"]: rule.get("entity")
+                    for rule in payload["rules"]
+                    if isinstance(rule, dict)
+                }
+                if entities["snap_standard_utility_allowance"] == "SnapUnit":
+                    error = (
+                        "Filtered entity dependency missing: "
+                        "`snap_standard_utility_allowance` uses "
+                        "`entity: SnapUnit`, but this RuleSpec file does not "
+                        "declare `SnapUnit` with a `kind: derived_relation` rule "
+                        "or import its declaring relation (`snap_unit`)."
+                    )
+                elif entities["snap_limited_utility_allowance"] == "SnapUnit":
+                    error = (
+                        "Filtered entity dependency missing: "
+                        "`snap_limited_utility_allowance` uses "
+                        "`entity: SnapUnit`, but this RuleSpec file does not "
+                        "declare `SnapUnit` with a `kind: derived_relation` rule "
+                        "or import its declaring relation (`snap_unit`)."
+                    )
+                else:
+                    error = (
+                        "Source numeric value `10` is not represented in a "
+                        "non-test RuleSpec file."
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={"issue": SimpleNamespace(error=error)},
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_bare_snapunit_entities(args)
+
+        output = capsys.readouterr().out
+        assert (
+            "Applied bare SnapUnit entity repair to "
+            "regulations/10-ccr-2506-1/4.407.31.yaml"
+        ) in output
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == [
+            "Household",
+            "Household",
+        ]
+        manifest = (
+            repo / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.407.31.json"
+        )
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "bare-snapunit-entity-v1"
+        assert manifest_payload["tool"] == "axiom-encode repair-bare-snapunit-entities"
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
