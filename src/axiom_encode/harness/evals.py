@@ -302,6 +302,32 @@ def _verification_value_numeric_occurrences(content: str) -> Counter[float]:
     return occurrences
 
 
+def _deferred_output_numeric_occurrences(content: str) -> Counter[float]:
+    """Count source values explicitly scoped to deferred output reasons."""
+    occurrences: Counter[float] = Counter()
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not (
+            isinstance(payload, dict)
+            and payload.get("format") == "rulespec/v1"
+            and isinstance(payload.get("module"), dict)
+            and isinstance(payload["module"].get("deferred_outputs"), list)
+        ):
+            return occurrences
+        for deferred_output in payload["module"]["deferred_outputs"]:
+            if not isinstance(deferred_output, dict):
+                continue
+            reason = deferred_output.get("reason")
+            if not isinstance(reason, str):
+                continue
+            occurrences.update(
+                extract_numeric_occurrences_from_text(
+                    _numeric_occurrence_source_text(reason)
+                )
+            )
+    return occurrences
+
+
 _SECTION_CROSS_REFERENCE_PATTERN = re.compile(
     r"\b(?:sections?|secs?\.?|regs?\.?|regulations?|paragraphs?)\s+"
     r"\d+(?:\.\d+)+(?:\s*(?:through|to|-|and|,)\s*\d+(?:\.\d+)+)*",
@@ -3006,6 +3032,7 @@ def evaluate_artifact(
     )
     named_scalar_occurrences.update(_numeric_concept_name_occurrences(content))
     named_scalar_occurrences.update(_verification_value_numeric_occurrences(content))
+    named_scalar_occurrences.update(_deferred_output_numeric_occurrences(content))
     named_scalar_occurrences.update(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )
