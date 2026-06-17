@@ -18791,6 +18791,43 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_self_references: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_self_referential_derived_rules_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_self_references.extend(repaired_refs)
+                    outcome["auto_repaired_self_referential_derived_rules"] = (
+                        repaired_self_references
+                    )
+                    print(
+                        "  apply=auto_repaired_self_referential_derived_rules:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_self_references:
+                    outcome["auto_repaired_self_referential_derived_rules"] = (
+                        repaired_self_references
+                    )
+            if not can_apply:
                 repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
                     result,
                     output_root=args.output,
@@ -26778,6 +26815,141 @@ def _try_repair_generated_unreferenced_proof_imports_for_apply(
         rules_file=rules_file,
         issues=issues,
     )
+
+
+def _try_repair_generated_self_referential_derived_rules_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rename generated same-name local facts that cause derived cycles."""
+    rule_names = _cyclic_derived_rule_names_from_issues(issues)
+    if not rule_names:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    target_anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    return _rename_self_referential_derived_rule_inputs(
+        rules_file=rules_file,
+        test_file=test_file,
+        target_anchor=target_anchor,
+        rule_names=rule_names,
+    )
+
+
+def _cyclic_derived_rule_names_from_issues(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r"cyclic derived dependency detected involving:\s*"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    )
+    for issue in issues:
+        for match in pattern.finditer(str(issue)):
+            name = match["name"].strip()
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
+def _rename_self_referential_derived_rule_inputs(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    target_anchor: str,
+    rule_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict):
+        return []
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    existing_rule_names = {
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
+    }
+    requested = set(rule_names)
+    replacements: dict[str, str] = {}
+    changed_rules = False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if rule_name not in requested or rule.get("kind") != "derived":
+            continue
+        replacement_name = _self_reference_input_name(
+            rule_name, existing_names=existing_rule_names
+        )
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        token = re.compile(rf"\b{re.escape(rule_name)}\b")
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            repaired_formula = token.sub(replacement_name, formula)
+            if repaired_formula != formula:
+                version["formula"] = repaired_formula
+                rule_changed = True
+        if rule_changed:
+            replacements[rule_name] = replacement_name
+            changed_rules = True
+
+    if not changed_rules:
+        return []
+    rules_file.write_text(
+        yaml.safe_dump(rules_payload, sort_keys=False, allow_unicode=False)
+    )
+
+    if test_file.exists():
+        try:
+            test_payload = yaml.safe_load(test_file.read_text()) or []
+        except (OSError, ValueError, yaml.YAMLError):
+            test_payload = None
+        if isinstance(test_payload, list):
+            key_replacements = {
+                f"{target_anchor}#input.{old}": f"{target_anchor}#input.{new}"
+                for old, new in replacements.items()
+            }
+            if _replace_mapping_keys_recursive(test_payload, key_replacements):
+                test_file.write_text(
+                    yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+                )
+
+    return [f"{old}->{new}" for old, new in sorted(replacements.items())]
+
+
+def _self_reference_input_name(rule_name: str, *, existing_names: set[str]) -> str:
+    base = f"{rule_name}_fact"
+    if base not in existing_names:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in existing_names:
+        suffix += 1
+    return f"{base}_{suffix}"
 
 
 def _try_repair_generated_invalid_test_inputs_for_apply(
