@@ -35,6 +35,7 @@ from axiom_encode.harness.evals import (
     _is_single_amount_table_slice,
     _materialize_eval_artifact,
     _normalize_nonannual_test_period_value,
+    _normalize_test_case_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
     _resolve_eval_output_path,
@@ -4621,6 +4622,9 @@ rules:
 
         assert "pre_effective_month_zero" not in test_text
         assert "period: 2026-01" in test_text
+
+    def test_normalize_test_case_value_preserves_invalid_numeric_expression(self):
+        assert _normalize_test_case_value("30 / 0") == "30 / 0"
 
     def test_materialize_eval_artifact_adds_missing_oracle_hint_output_from_rulespec(
         self, tmp_path
