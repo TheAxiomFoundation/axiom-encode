@@ -24048,6 +24048,18 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "")
     }
+    unresolved_import_symbols = _unexported_import_symbols_for_missing_inputs(
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+        issues=issues,
+    )
+    if unresolved_import_symbols:
+        for rule_name, rule in rules_by_name.items():
+            identifiers = _generated_rule_formula_identifiers(rule)
+            if not identifiers.intersection(unresolved_import_symbols):
+                continue
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("unresolved_import_symbol")
     for import_item in unrelated_same_section_imports:
         imported_symbols = _imported_symbols_for_unrelated_same_section_issue(
             import_item,
@@ -24168,6 +24180,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "This output is deferred until the same-section definition can be "
                 "imported or composed without borrowing the unrelated concept."
             )
+        elif "unresolved_import_symbol" in reasons:
+            reason = (
+                "Generated rule depended on an import fragment that the referenced "
+                "RuleSpec file does not export. This output is deferred until the "
+                "referenced source exports the intended concept or the dependency "
+                "can be corrected without inventing a local fact."
+            )
         else:
             reason = (
                 "Generated rule used a thresholded, capped, base-limited, or "
@@ -24198,6 +24217,8 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             isinstance(rule, dict) and str(rule.get("name") or "") in affected_rules
         )
     ]
+    if unresolved_import_symbols:
+        _remove_imports_with_fragments(payload, unresolved_import_symbols)
     if not payload["rules"]:
         module.setdefault("status", "deferred")
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
@@ -24208,6 +24229,67 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         rule_names=affected_rules,
     )
     return deferred_targets
+
+
+def _unexported_import_symbols_for_missing_inputs(
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> set[str]:
+    missing_inputs = _missing_input_names_from_issues(issues)
+    if not missing_inputs or not rules_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+
+    unresolved: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if fragment not in missing_inputs:
+            continue
+        parsed = _parse_same_repo_rulespec_import_ref(
+            raw_import,
+            repo_path=policy_repo_path,
+        )
+        if parsed is None or parsed.symbol is None:
+            continue
+        exported_symbols = _rulespec_exported_rule_names(parsed.path)
+        exported_symbols.update(_deferred_output_names(parsed.path))
+        if parsed.symbol not in exported_symbols:
+            unresolved.add(parsed.symbol)
+    return unresolved
+
+
+def _remove_imports_with_fragments(
+    payload: dict[str, object],
+    fragments: set[str],
+) -> None:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return
+    kept_imports: list[object] = []
+    for raw_import in imports:
+        if (
+            isinstance(raw_import, str)
+            and "#" in raw_import
+            and raw_import.rsplit("#", 1)[1].strip() in fragments
+        ):
+            continue
+        kept_imports.append(raw_import)
+    if kept_imports:
+        payload["imports"] = kept_imports
+    else:
+        payload.pop("imports", None)
 
 
 def _imported_symbols_for_unrelated_same_section_issue(
