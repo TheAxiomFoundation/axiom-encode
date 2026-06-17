@@ -18489,6 +18489,43 @@ def cmd_encode(args):
                         repaired_invalid_input_refs
                     )
             if not can_apply:
+                repaired_imported_inputs: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_imported_test_inputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_imported_inputs.extend(repaired_refs)
+                    outcome["auto_repaired_imported_test_inputs"] = (
+                        repaired_imported_inputs
+                    )
+                    print(
+                        "  apply=auto_repaired_imported_test_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_imported_inputs:
+                    outcome["auto_repaired_imported_test_inputs"] = (
+                        repaired_imported_inputs
+                    )
+            if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -25705,6 +25742,45 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
+
+
+def _try_repair_generated_imported_test_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Fill deterministic defaults for imported inputs in generated tests."""
+    if not issues:
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    validation = argparse.Namespace(
+        results={
+            str(index): argparse.Namespace(error=str(issue))
+            for index, issue in enumerate(issues)
+        }
+    )
+    assignments = _missing_input_assignments_from_validation(validation)
+    if not assignments:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    repaired = _complete_missing_imported_test_inputs(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        validation=validation,
+    )
+    if not repaired:
+        return []
+    return sorted({assignment["input"] for assignment in assignments})
 
 
 _SECTION_1401_A_OUTPUT = (

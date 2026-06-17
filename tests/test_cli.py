@@ -12580,6 +12580,113 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_fills_imported_inputs_after_invalid_input_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+
+        imported_file = args.policy_repo_path / "statutes" / "26" / "1" / "h.yaml"
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_capital_gain
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, long_term_capital_gains - investment_income_amount)
+"""
+        )
+
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "199A.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1/h#net_capital_gain
+rules: []
+"""
+        )
+        test_file = output_file.with_name("199A.test.yaml")
+        invalid_ref = "us:statutes/26/1#input.long_term_capital_gains"
+        test_file.write_text(
+            f"""- name: qbi_case
+  input:
+    {invalid_ref}: 100
+    us:statutes/26/1/h#input.long_term_capital_gains: 100
+  output:
+    us:statutes/26/199A#qbi_taxable_income_limit: 20000
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/199A.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/199A.yaml: ci: Test case "
+                            "`qbi_case` input invalid: input "
+                            f"`{invalid_ref}` does not resolve to an input slot "
+                            "in statutes/26/1.yaml."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/199A.yaml: ci: Test case "
+                            "`qbi_case` execution failed: missing input "
+                            "`investment_income_amount`"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert f"apply=auto_repaired_invalid_test_inputs:{invalid_ref}" in output
+        assert (
+            "apply=auto_repaired_imported_test_inputs:investment_income_amount"
+            in output
+        )
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert invalid_ref not in test_content
+        assert "us:statutes/26/1/h#input.long_term_capital_gains: 100" in test_content
+        assert "us:statutes/26/1/h#input.investment_income_amount: 0" in test_content
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_test_inputs"] == [invalid_ref]
+        assert run.outcome["auto_repaired_imported_test_inputs"] == [
+            "investment_income_amount"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_removes_unreferenced_proof_imports(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
