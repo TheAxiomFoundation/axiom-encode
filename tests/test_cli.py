@@ -10064,6 +10064,12 @@ rules:
     us:statutes/26/153#input.amount: 5
   output:
     us:statutes/26/153#conditional_amount: 5
+- name: second_positive_case
+  period: 2026
+  input:
+    us:statutes/26/153#input.amount: 7
+  output:
+    us:statutes/26/153#conditional_amount: 7
 """
         )
         args = SimpleNamespace(
@@ -10090,6 +10096,28 @@ rules:
                                 error=(
                                     "Test input assignment missing: "
                                     "`positive_case` does not assign "
+                                    "#input.qualifying_condition. Every test for a "
+                                    "proof-required RuleSpec module must set all local "
+                                    "factual inputs, including false facts, so tests "
+                                    "cannot pass through implicit defaults."
+                                )
+                            ),
+                            "numeric": SimpleNamespace(
+                                error=(
+                                    "Source numeric value `10` is not represented in "
+                                    "a non-test RuleSpec file."
+                                )
+                            ),
+                        },
+                    )
+                if self.__class__.call_count == 2:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "assignments": SimpleNamespace(
+                                error=(
+                                    "Test input assignment missing: "
+                                    "`second_positive_case` does not assign "
                                     "#input.qualifying_condition. Every test for a "
                                     "proof-required RuleSpec module must set all local "
                                     "factual inputs, including false facts, so tests "
@@ -10135,6 +10163,10 @@ rules:
         cases = yaml.safe_load(test_file.read_text())
         assert cases[0]["input"] == {
             "us:statutes/26/153#input.amount": 5,
+            "us:statutes/26/153#input.qualifying_condition": False,
+        }
+        assert cases[1]["input"] == {
+            "us:statutes/26/153#input.amount": 7,
             "us:statutes/26/153#input.qualifying_condition": False,
         }
         manifest = repo / ".axiom/encoding-manifests/statutes/26/153.json"

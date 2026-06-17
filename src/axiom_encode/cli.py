@@ -7630,60 +7630,59 @@ def cmd_repair_test_input_assignments(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
-    initial_validation = ValidatorPipeline(
-        policy_repo_path=repo_path,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=False,
-        require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
-    initial_issues = [
-        result.error for result in initial_validation.results.values() if result.error
-    ]
-    assignment_issues = [
-        issue
-        for issue in initial_issues
-        if _parse_test_input_assignment_issue(str(issue)) is not None
-    ]
-    initial_assignment_signatures = _test_input_assignment_issue_signatures(
-        assignment_issues
-    )
-    repaired_test_cases = _fill_missing_test_input_assignments(
-        rules_file=rules_file,
-        test_file=test_file,
-        policy_repo_path=repo_path,
-        relative_output=relative_output,
-        issues=assignment_issues,
-    )
+    repaired_test_cases: list[str] = []
+    seen_assignment_signatures: set[tuple[str, str]] = set()
+    while True:
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        pending_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        assignment_issues = [
+            issue
+            for issue in pending_issues
+            if _parse_test_input_assignment_issue(str(issue)) is not None
+        ]
+        if not assignment_issues:
+            break
+        assignment_signatures = _test_input_assignment_issue_signatures(
+            assignment_issues
+        )
+        if (
+            not assignment_signatures
+            or assignment_signatures <= seen_assignment_signatures
+        ):
+            test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original test file.")
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+        seen_assignment_signatures.update(assignment_signatures)
+        repaired_now = _fill_missing_test_input_assignments(
+            rules_file=rules_file,
+            test_file=test_file,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            issues=assignment_issues,
+        )
+        if not repaired_now:
+            test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original test file.")
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+        repaired_test_cases.extend(repaired_now)
+
     if not repaired_test_cases:
         print("No test input assignment repairs found.")
         return
 
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-
-    validation = ValidatorPipeline(
-        policy_repo_path=repo_path,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=False,
-        require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
-    pending_issues = [
-        result.error for result in validation.results.values() if result.error
-    ]
-    if not validation.all_passed:
-        remaining_assignment_signatures = _test_input_assignment_issue_signatures(
-            pending_issues
-        )
-        made_assignment_progress = (
-            bool(initial_assignment_signatures - remaining_assignment_signatures)
-            and remaining_assignment_signatures < initial_assignment_signatures
-        )
-        if not made_assignment_progress:
-            test_file.write_text(original_test_content)
-            print("Repair failed validation; restored original test file.")
-            for issue in pending_issues:
-                print(f"- {issue}")
-            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
