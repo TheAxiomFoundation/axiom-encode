@@ -17453,6 +17453,91 @@ rules:
 
         assert inputs == {"adjusted_gross_income"}
 
+    def test_unsafe_formula_repair_defers_missing_unexported_import_symbol(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us-co"
+        imported = policy_repo / "regulations/10-ccr-2506-1/4.206.yaml"
+        generated = (
+            output_root / "codex-test-model" / "regulations/10-ccr-2506-1/4.400.yaml"
+        )
+        imported.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: standard_income_criteria_met
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: gross_income_standard_met and net_income_standard_met
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us-co:regulations/10-ccr-2506-1/4.206#standard_eligibility_household
+rules:
+  - name: issuance_month_prospective_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: reasonably_anticipated_monthly_income
+  - name: standard_eligibility_resource_value_considered
+    kind: derived
+    entity: Household
+    dtype: Boolean
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: standard_eligibility_household and household_resources_value_considered
+"""
+        )
+        generated.with_name("4.400.test.yaml").write_text(
+            """- name: standard_eligibility_household_resources_are_considered
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.400#input.household_resources_value_considered: true
+  output:
+    us-co:regulations/10-ccr-2506-1/4.400#standard_eligibility_resource_value_considered: true
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/10-ccr-2506-1/4.400.yaml: ci: Test case "
+                "`standard_eligibility_household_resources_are_considered` "
+                "execution failed: missing input `standard_eligibility_household`"
+            ],
+        )
+
+        assert repaired == [
+            "us-co:regulations/10-ccr-2506-1/4.400#standard_eligibility_resource_value_considered"
+        ]
+        content = generated.read_text()
+        assert "standard_eligibility_household\n" not in content
+        assert "#standard_eligibility_household" not in content
+        assert "issuance_month_prospective_income" in content
+        assert "module:" in content
+        assert "deferred_outputs:" in content
+        assert "referenced RuleSpec" in content
+        assert "file does not export" in content
+        assert (
+            "standard_eligibility_resource_value_considered"
+            not in generated.with_name("4.400.test.yaml").read_text()
+        )
+
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"
