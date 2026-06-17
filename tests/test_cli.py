@@ -7849,7 +7849,19 @@ rules:
         target_file = repo / "statutes/26/32/c/2.yaml"
         rules_file.parent.mkdir(parents=True)
         target_file.parent.mkdir(parents=True)
-        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: bridge_output
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: snap_countable_earned_income
+"""
+        )
         target_file.write_text("format: rulespec/v1\nrules: []\n")
         test_file.write_text(
             """- name: mixed_case
@@ -7892,7 +7904,19 @@ rules:
         target_file = repo / "statutes/26/32/c/2.yaml"
         rules_file.parent.mkdir(parents=True)
         target_file.parent.mkdir(parents=True)
-        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: bridge_output
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: snap_countable_earned_income
+"""
+        )
         target_file.write_text("format: rulespec/v1\nrules: []\n")
         test_file.write_text(
             """- name: stale_cross_module_input
@@ -7937,6 +7961,88 @@ rules:
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
             in repaired
         )
+
+    def test_remove_invalid_dependent_test_inputs_batches_target_stale_refs(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-co"
+        rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+        test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
+        target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
+        rules_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: bridge_output
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: snap_countable_earned_income
+"""
+        )
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: replacement_output
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: valid_replacement_input
+"""
+        )
+        reported_ref = "us-co:regulations/10-ccr-2506-1/4.403#input.old_rental_hours"
+        stale_ref = "us-co:regulations/10-ccr-2506-1/4.403#input.old_rental_income"
+        valid_ref = (
+            "us-co:regulations/10-ccr-2506-1/4.403#input.valid_replacement_input"
+        )
+        test_file.write_text(
+            f"""- name: ongoing_month
+  period: 2026-01
+  input:
+    {reported_ref}: 0
+    {stale_ref}: 100
+    {valid_ref}: 200
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.local_bridge: 1
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 1000
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#colorado_snap_allotment: 292
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `ongoing_month` input invalid: input "
+                        f"`{reported_ref}` does not resolve to an input slot "
+                        "in regulations/10-ccr-2506-1/4.403.yaml."
+                    )
+                )
+            }
+        )
+
+        changed = _remove_invalid_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            validations=[(rules_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = yaml.safe_load(test_file.read_text())
+        assert repaired[0]["input"] == {
+            valid_ref: 200,
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.local_bridge": 1,
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.snap_countable_earned_income": 1000,
+        }
+        assert repaired[0]["output"] == {
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#colorado_snap_allotment": 292
+        }
 
     def test_remove_unknown_dependent_test_outputs_drops_stale_ref(self, tmp_path):
         repo = tmp_path / "rulespec-us-co"
@@ -8238,6 +8344,99 @@ rules:
         )
         assert (
             "us:statutes/26/32/c/2#input.individual_is_nonresident_alien"
+            not in repaired
+        )
+
+    def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-co"
+        target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
+        dependent_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+        sibling_import_file = repo / "regulations/10-ccr-2506-1/4.404.yaml"
+        test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
+        target_file.parent.mkdir(parents=True)
+        dependent_file.parent.mkdir(parents=True, exist_ok=True)
+        sibling_import_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: rental_self_employment_property_income_considered_earned_income
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: average_hours_per_week_actively_managing_property >= 20
+"""
+        )
+        sibling_import_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_countable_unearned_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_rental_property_management_hours_per_week < 20:
+              rental_property_gross_income
+          else:
+              0
+"""
+        )
+        dependent_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-co:regulations/10-ccr-2506-1/4.403
+  - us-co:regulations/10-ccr-2506-1/4.404
+rules:
+  - name: snap_total_monthly_unearned_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_countable_unearned_income
+"""
+        )
+        test_file.write_text(
+            """- name: dependent_case
+  input: {}
+  output:
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_monthly_unearned_income: 100
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `dependent_case` execution failed: missing input "
+                        "`average_rental_property_management_hours_per_week` for "
+                        "entity `case-1` over 2026-01-01..2026-01-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            validations=[(dependent_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = test_file.read_text()
+        assert (
+            "us-co:regulations/10-ccr-2506-1/4.404#input.average_rental_property_management_hours_per_week: 0"
+            in repaired
+        )
+        assert (
+            "us-co:regulations/10-ccr-2506-1/4.403#input.average_rental_property_management_hours_per_week"
             not in repaired
         )
 
@@ -11085,6 +11284,116 @@ rules:
         assert "us:statutes/26/24#ctc_qualifying_child: holds" in test_content
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_exception_tests"] == [case_name]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_auto_repairs_exception_negative_after_positive_companion(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "7" / "2014" / "e.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: title_i_vista_payment_is_earned_income
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          payment_received_under_title_i_vista
+          and not household_specified_for_title_i_exclusion
+"""
+        )
+        test_file = output_file.with_name("e.test.yaml")
+        test_file.write_text("[]\n")
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/7/2014/e.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/7/2014/e.yaml: ci: "
+                            "Judgment rule missing positive companion output coverage: "
+                            "`us:statutes/7/2014/e#title_i_vista_payment_is_earned_income` "
+                            "is not asserted as `holds` by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/7/2014/e.yaml: ci: "
+                            "Exception test coverage missing: "
+                            "`title_i_vista_payment_is_earned_income` negates "
+                            "`household_specified_for_title_i_exclusion`, "
+                            "but no companion test sets "
+                            "`#input.household_specified_for_title_i_exclusion` "
+                            "true and expects "
+                            "`title_i_vista_payment_is_earned_income` to be not_holds "
+                            "while an otherwise identical positive companion sets that "
+                            "exception false and expects holds."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        positive_case = "auto_positive_title_i_vista_payment_is_earned_income"
+        negative_case = (
+            "auto_negative_title_i_vista_payment_is_earned_income_"
+            "household_specified_for_title_i_exclusion"
+        )
+        assert f"apply=auto_repaired_judgment_positive_tests:{positive_case}" in output
+        assert f"apply=auto_repaired_exception_tests:{negative_case}" in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["name"] == positive_case
+        assert (
+            test_payload[0]["input"][
+                "us:statutes/7/2014/e#input.household_specified_for_title_i_exclusion"
+            ]
+            is False
+        )
+        assert test_payload[1]["name"] == negative_case
+        assert (
+            test_payload[1]["input"][
+                "us:statutes/7/2014/e#input.household_specified_for_title_i_exclusion"
+            ]
+            is True
+        )
+        assert (
+            test_payload[1]["output"][
+                "us:statutes/7/2014/e#title_i_vista_payment_is_earned_income"
+            ]
+            == "not_holds"
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_judgment_positive_tests"] == [positive_case]
+        assert run.outcome["auto_repaired_exception_tests"] == [negative_case]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 

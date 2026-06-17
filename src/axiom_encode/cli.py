@@ -14426,7 +14426,7 @@ def _append_exception_positive_companion_tests_if_missing(
     relative_output: Path,
     issues: list[str],
 ) -> list[str]:
-    """Clone generated negative exception tests into paired positive companions."""
+    """Clone generated exception tests into missing paired companions."""
     if not issues or not test_file.exists():
         return []
     repair_specs = _exception_test_repair_specs_from_issues(issues)
@@ -14451,30 +14451,48 @@ def _append_exception_positive_companion_tests_if_missing(
         if isinstance(test_case, dict)
     }
     for rule_name, exception_input in repair_specs:
-        case_name = (
-            f"auto_positive_{_safe_test_name(rule_name)}_"
-            f"{_safe_test_name(exception_input)}"
-        )
-        if case_name in existing_case_names:
-            continue
-        if _has_exception_positive_companion_case(
+        if not _has_exception_positive_companion_case(
             test_payload,
             rule_name=rule_name,
             exception_input=exception_input,
         ):
-            continue
-        companion = _build_exception_positive_companion_case(
+            case_name = _unique_generated_test_name(
+                f"auto_positive_{_safe_test_name(rule_name)}_"
+                f"{_safe_test_name(exception_input)}",
+                existing_case_names,
+            )
+            companion = _build_exception_positive_companion_case(
+                test_payload,
+                target_base=target_base,
+                case_name=case_name,
+                rule_name=rule_name,
+                exception_input=exception_input,
+            )
+            if companion is not None:
+                test_payload.append(companion)
+                existing_case_names.add(case_name)
+                repaired.append(case_name)
+        if not _has_exception_negative_companion_case(
             test_payload,
-            target_base=target_base,
-            case_name=case_name,
             rule_name=rule_name,
             exception_input=exception_input,
-        )
-        if companion is None:
-            continue
-        test_payload.append(companion)
-        existing_case_names.add(case_name)
-        repaired.append(case_name)
+        ):
+            case_name = _unique_generated_test_name(
+                f"auto_negative_{_safe_test_name(rule_name)}_"
+                f"{_safe_test_name(exception_input)}",
+                existing_case_names,
+            )
+            companion = _build_exception_negative_companion_case(
+                test_payload,
+                target_base=target_base,
+                case_name=case_name,
+                rule_name=rule_name,
+                exception_input=exception_input,
+            )
+            if companion is not None:
+                test_payload.append(companion)
+                existing_case_names.add(case_name)
+                repaired.append(case_name)
 
     if not repaired:
         return []
@@ -14552,6 +14570,53 @@ def _build_exception_positive_companion_case(
     return None
 
 
+def _build_exception_negative_companion_case(
+    test_payload: list[object],
+    *,
+    target_base: str,
+    case_name: str,
+    rule_name: str,
+    exception_input: str,
+) -> dict[str, object] | None:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=False
+        ):
+            continue
+        if not _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="holds"
+        ):
+            continue
+        companion = copy.deepcopy(test_case)
+        companion["name"] = case_name
+        companion_inputs = companion.get("input")
+        companion_outputs = companion.get("output")
+        if not isinstance(companion_inputs, dict) or not isinstance(
+            companion_outputs, dict
+        ):
+            return None
+        _set_exception_input_value(
+            companion_inputs,
+            target_base=target_base,
+            exception_input=exception_input,
+            value=True,
+        )
+        _set_rule_output_value(
+            companion_outputs,
+            target_base=target_base,
+            rule_name=rule_name,
+            value="not_holds",
+        )
+        return companion
+    return None
+
+
 def _has_exception_positive_companion_case(
     test_payload: list[object],
     *,
@@ -14571,6 +14636,30 @@ def _has_exception_positive_companion_case(
             continue
         if _case_asserts_rule_value(
             outputs, rule_name=rule_name, normalized_value="holds"
+        ):
+            return True
+    return False
+
+
+def _has_exception_negative_companion_case(
+    test_payload: list[object],
+    *,
+    rule_name: str,
+    exception_input: str,
+) -> bool:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=True
+        ):
+            continue
+        if _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="not_holds"
         ):
             return True
     return False
@@ -18452,6 +18541,35 @@ def cmd_encode(args):
                         repaired_positive_cases
                     )
             if not can_apply:
+                repaired_exception_cases = list(
+                    outcome.get("auto_repaired_exception_tests") or []
+                )
+                repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_test_cases:
+                    repaired_exception_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_exception_tests"] = repaired_exception_cases
+                    print(
+                        "  apply=auto_repaired_exception_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_refs: list[str] = []
                 while not can_apply:
                     repaired_refs = (
@@ -18709,6 +18827,35 @@ def cmd_encode(args):
                     ]
                     print(
                         "  apply=auto_repaired_judgment_positive_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_exception_cases = list(
+                    outcome.get("auto_repaired_exception_tests") or []
+                )
+                repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_test_cases:
+                    repaired_exception_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_exception_tests"] = repaired_exception_cases
+                    print(
+                        "  apply=auto_repaired_exception_tests:"
                         + ",".join(repaired_test_cases)
                     )
                     can_apply, apply_issues, supplemental_files = (
@@ -27643,8 +27790,9 @@ def _validate_generated_encoding_in_policy_overlay(
             for validator_result in validation.results.values():
                 if validator_result.error:
                     relative_file = validated_file.relative_to(overlay_repo)
+                    validator_name = getattr(validator_result, "validator_name", "ci")
                     issues.append(
-                        f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
+                        f"{relative_file}: {validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
 
@@ -29414,6 +29562,17 @@ def _remove_invalid_dependent_test_inputs(
         f"{_repo_jurisdiction_prefix(overlay_repo)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
+    target_input_names: set[str] = set()
+    target_output_names: set[str] = set()
+    target_file = overlay_repo / relative_output
+    if target_file.exists():
+        with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+            target_content = target_file.read_text()
+            target_input_names = _local_factual_input_names_from_rules_content(
+                target_content
+            )
+            target_payload = yaml.safe_load(target_content) or {}
+            target_output_names = set(_rules_by_name_from_payload(target_payload))
     changed: list[Path] = []
     for validated_file, validation in validations:
         if validated_file == overlay_repo / relative_output:
@@ -29447,15 +29606,121 @@ def _remove_invalid_dependent_test_inputs(
             test_payload = yaml.safe_load(content) or []
         except (OSError, ValueError, yaml.YAMLError):
             continue
+        has_target_invalid_ref = any(
+            _rulespec_ref_matches_base(input_ref, target_ref)
+            for input_ref in invalid_refs
+        )
+        if has_target_invalid_ref:
+            invalid_refs.update(
+                _stale_target_input_refs_in_test_payload(
+                    test_payload,
+                    target_ref=target_ref,
+                    target_input_names=target_input_names,
+                )
+            )
         removable_refs = _expand_refs_with_matching_test_input_keys(
             test_payload,
             invalid_refs,
         )
         updated = _remove_input_refs_from_test_cases(content, removable_refs)
+        if has_target_invalid_ref:
+            try:
+                updated_payload = yaml.safe_load(updated) or []
+            except (OSError, ValueError, yaml.YAMLError):
+                updated_payload = None
+            if isinstance(updated_payload, list) and _remove_stale_target_outputs(
+                updated_payload,
+                target_ref=target_ref,
+                target_output_names=target_output_names,
+                dependent_ref=dependent_ref,
+                local_input_names=_dependent_local_formula_input_names(
+                    validated_file,
+                    repo_path=overlay_repo,
+                ),
+            ):
+                updated = yaml.safe_dump(
+                    updated_payload,
+                    sort_keys=False,
+                    allow_unicode=False,
+                )
         if updated == content:
             continue
         test_path.write_text(updated)
         changed.append(test_path)
+    return changed
+
+
+def _stale_target_input_refs_in_test_payload(
+    test_payload: object,
+    *,
+    target_ref: str,
+    target_input_names: set[str],
+) -> set[str]:
+    if not isinstance(test_payload, list):
+        return set()
+    stale_refs: set[str] = set()
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        for input_ref in _rulespec_input_refs_from_value(inputs):
+            if not _rulespec_ref_matches_base(input_ref, target_ref):
+                continue
+            if "#input." not in input_ref:
+                continue
+            input_name = input_ref.split("#input.", 1)[1].strip()
+            if input_name and input_name not in target_input_names:
+                stale_refs.add(input_ref)
+    return stale_refs
+
+
+def _rulespec_input_refs_from_value(value: object) -> set[str]:
+    refs: set[str] = set()
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_text = str(key)
+            if "#input." in key_text:
+                refs.add(key_text)
+            refs.update(_rulespec_input_refs_from_value(nested))
+    elif isinstance(value, list):
+        for item in value:
+            refs.update(_rulespec_input_refs_from_value(item))
+    return refs
+
+
+def _remove_stale_target_outputs(
+    test_payload: list[object],
+    *,
+    target_ref: str,
+    target_output_names: set[str],
+    dependent_ref: str,
+    local_input_names: set[str],
+) -> bool:
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for output_ref in list(outputs):
+            output_text = str(output_ref)
+            if not _rulespec_ref_matches_base(output_text, target_ref):
+                continue
+            if "#" not in output_text:
+                continue
+            output_name = output_text.rsplit("#", 1)[1].strip()
+            if not output_name or output_name in target_output_names:
+                continue
+            output_value = outputs.pop(output_ref)
+            if output_name in local_input_names:
+                inputs = test_case.setdefault("input", {})
+                if isinstance(inputs, dict):
+                    inputs.setdefault(
+                        f"{dependent_ref}#input.{output_name}",
+                        output_value,
+                    )
+            changed = True
     return changed
 
 
@@ -29675,13 +29940,17 @@ def _complete_missing_dependent_test_inputs(
         f"{_repo_jurisdiction_prefix(overlay_repo)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    baseline_inputs = _load_test_input_baseline(
-        _rulespec_test_path(overlay_repo / relative_output)
-    )
-    imported_inputs = _imported_input_refs_by_name(
-        overlay_repo / relative_output,
+    target_file = overlay_repo / relative_output
+    target_baseline_inputs = _load_test_input_baseline(_rulespec_test_path(target_file))
+    target_imported_inputs = _imported_input_refs_by_name(
+        target_file,
         repo_path=overlay_repo,
     )
+    target_input_names: set[str] = set()
+    with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+        target_input_names = _local_factual_input_names_from_rules_content(
+            target_file.read_text()
+        )
     changed: list[Path] = []
     for validated_file, validation in validations:
         if validated_file == overlay_repo / relative_output:
@@ -29689,6 +29958,14 @@ def _complete_missing_dependent_test_inputs(
         test_path = _rulespec_test_path(validated_file)
         if not test_path.exists():
             continue
+        try:
+            relative_validated = validated_file.relative_to(overlay_repo)
+        except ValueError:
+            continue
+        dependent_ref = (
+            f"{_repo_jurisdiction_prefix(overlay_repo)}:"
+            f"{_relative_rulespec_import_target(relative_validated)}"
+        )
         missing_inputs: set[str] = set()
         for validator_result in validation.results.values():
             error = validator_result.error or ""
@@ -29696,6 +29973,28 @@ def _complete_missing_dependent_test_inputs(
                 missing_inputs.add(match.group("input"))
         if not missing_inputs:
             continue
+        baseline_inputs = dict(target_baseline_inputs)
+        baseline_inputs.update(_load_test_input_baseline(test_path))
+        imported_inputs = _merge_imported_input_refs_by_name(
+            _imported_input_refs_by_name(
+                validated_file,
+                repo_path=overlay_repo,
+            ),
+            target_imported_inputs,
+        )
+        local_input_refs: dict[str, list[str]] = {}
+        for input_name in sorted(
+            _dependent_local_formula_input_names(validated_file, repo_path=overlay_repo)
+        ):
+            _append_unique_input_ref(
+                local_input_refs,
+                input_name,
+                f"{dependent_ref}#input.{input_name}",
+            )
+        imported_inputs = _merge_imported_input_refs_by_name(
+            local_input_refs,
+            imported_inputs,
+        )
         content = test_path.read_text()
         updated = content
         for input_name in sorted(missing_inputs):
@@ -29704,6 +30003,7 @@ def _complete_missing_dependent_test_inputs(
                 target_ref=target_ref,
                 baseline_inputs=baseline_inputs,
                 imported_inputs=imported_inputs,
+                target_input_names=target_input_names,
             ):
                 updated = _insert_input_default_in_test_cases(
                     updated,
@@ -29714,6 +30014,17 @@ def _complete_missing_dependent_test_inputs(
             test_path.write_text(updated)
             changed.append(test_path)
     return changed
+
+
+def _merge_imported_input_refs_by_name(
+    *input_maps: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for input_map in input_maps:
+        for input_name, input_refs in input_map.items():
+            for input_ref in input_refs:
+                _append_unique_input_ref(merged, input_name, input_ref)
+    return merged
 
 
 def _complete_missing_imported_test_inputs(
@@ -29979,9 +30290,10 @@ def _import_base_to_repo_file(import_base: str, *, repo_path: Path) -> Path | No
         return None
     if ":" in normalized:
         _, normalized = normalized.split(":", 1)
-    relative = Path(normalized)
-    if relative.suffix not in {".yaml", ".yml"}:
-        relative = relative.with_suffix(".yaml")
+    if normalized.endswith((".yaml", ".yml")):
+        relative = Path(normalized)
+    else:
+        relative = Path(f"{normalized}.yaml")
     return repo_path / relative
 
 
@@ -30008,6 +30320,7 @@ def _default_refs_for_missing_input(
     target_ref: str,
     baseline_inputs: dict[str, object],
     imported_inputs: dict[str, list[str]] | None = None,
+    target_input_names: set[str] | None = None,
 ) -> list[tuple[str, object]]:
     suffix = f"#input.{input_name}"
     matches = [
@@ -30023,6 +30336,8 @@ def _default_refs_for_missing_input(
     ]
     if imported_matches:
         return imported_matches
+    if target_input_names is not None and input_name not in target_input_names:
+        return []
     return [
         (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
     ]
@@ -30037,10 +30352,14 @@ def _infer_missing_input_default(input_name: str) -> object:
         "amount",
         "base",
         "count",
+        "cost",
+        "costs",
         "credit",
         "deduction",
         "expense",
         "gross",
+        "hour",
+        "hours",
         "income",
         "limit",
         "net",
