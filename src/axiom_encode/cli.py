@@ -1022,6 +1022,53 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_mixed_outputs_parser = subparsers.add_parser(
+        "repair-mixed-derived-entity-output-tests",
+        help=(
+            "Apply signed deterministic repairs for tests that mix derived "
+            "outputs from multiple entities"
+        ),
+    )
+    repair_mixed_outputs_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_mixed_outputs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_mixed_outputs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_delegated_policy_settings_parser = subparsers.add_parser(
+        "repair-delegated-policy-settings",
+        help="Apply signed deterministic repairs for delegated policy setting edges",
+    )
+    repair_delegated_policy_settings_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_delegated_policy_settings_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_delegated_policy_settings_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_judgment_positive_tests_parser = subparsers.add_parser(
         "repair-judgment-positive-tests",
         help="Apply signed deterministic repairs for missing positive Judgment tests",
@@ -2039,6 +2086,10 @@ def main():
         cmd_repair_test_input_assignments(args)
     elif args.command == "repair-invalid-test-inputs":
         cmd_repair_invalid_test_inputs(args)
+    elif args.command == "repair-mixed-derived-entity-output-tests":
+        cmd_repair_mixed_derived_entity_output_tests(args)
+    elif args.command == "repair-delegated-policy-settings":
+        cmd_repair_delegated_policy_settings(args)
     elif args.command == "repair-judgment-positive-tests":
         cmd_repair_judgment_positive_tests(args)
     elif args.command == "repair-unused-imports":
@@ -7859,6 +7910,231 @@ def cmd_repair_invalid_test_inputs(args):
     if not validation.all_passed:
         message += (
             f" with pending validation issues still remaining: {len(pending_issues)}"
+        )
+    print(message)
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_mixed_derived_entity_output_tests(args):
+    """Apply signed repairs for tests whose derived outputs span entities."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    before_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    before_issues = [
+        result.error for result in before_validation.results.values() if result.error
+    ]
+    before_mixed_cases = _mixed_derived_output_case_names(before_issues)
+    if not before_mixed_cases:
+        print("No mixed derived-entity output test repairs found.")
+        return
+
+    repaired_cases = _repair_mixed_derived_entity_output_tests(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    )
+    if not repaired_cases:
+        print("No mixed derived-entity output test repairs found.")
+        return
+
+    after_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    after_issues = [
+        result.error for result in after_validation.results.values() if result.error
+    ]
+    after_mixed_cases = _mixed_derived_output_case_names(after_issues)
+    if not before_mixed_cases - after_mixed_cases:
+        test_file.write_text(original_test_content)
+        print("Repair failed validation; restored original test file.")
+        print("- Mixed derived-entity output repair did not clear any reported cases.")
+        for issue in after_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="mixed-derived-entity-output-test-v1",
+            tool="axiom-encode repair-mixed-derived-entity-output-tests",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    message = (
+        "Applied mixed derived-entity output test repair to "
+        f"{relative_output}: {', '.join(repaired_cases)}"
+    )
+    if not after_validation.all_passed:
+        message += (
+            f" with pending validation issues still remaining: {len(after_issues)}"
+        )
+    print(message)
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_delegated_policy_settings(args):
+    """Apply signed repairs for delegated policy setting source relations."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    before_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    before_issues = [
+        result.error for result in before_validation.results.values() if result.error
+    ]
+    before_delegated_issues = _delegated_policy_setting_issue_texts(before_issues)
+    if not before_delegated_issues:
+        print("No delegated policy setting repairs found.")
+        return
+
+    generated_result = argparse.Namespace(
+        output_file=str(rules_file),
+        runner=repo_path.name,
+    )
+    repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+        generated_result,
+        output_root=repo_path.parent,
+        policy_repo_path=repo_path,
+        issues=before_issues,
+    )
+    if not repaired:
+        print("No delegated policy setting repairs found.")
+        return
+
+    after_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    after_issues = [
+        result.error for result in after_validation.results.values() if result.error
+    ]
+    after_delegated_issues = _delegated_policy_setting_issue_texts(after_issues)
+    if not set(before_delegated_issues) - set(after_delegated_issues):
+        rules_file.write_text(original_content)
+        print("Repair failed validation; restored original file.")
+        print("- Delegated policy setting repair did not clear any reported issues.")
+        for issue in after_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="delegated-policy-setting-v1",
+            tool="axiom-encode repair-delegated-policy-settings",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    message = (
+        "Applied delegated policy setting repair to "
+        f"{relative_output}: {', '.join(repaired)}"
+    )
+    if not after_validation.all_passed:
+        message += (
+            f" with pending validation issues still remaining: {len(after_issues)}"
         )
     print(message)
     print(f"manifest={manifest_path}")
@@ -15558,6 +15834,22 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
             for match in re.finditer(pattern, text):
                 refs.add(match.group("input").strip())
     return refs
+
+
+def _mixed_derived_output_case_names(issues: list[str]) -> set[str]:
+    return {
+        match.group("case").strip()
+        for issue in issues
+        for match in _MIXED_DERIVED_OUTPUT_ENTITIES_RE.finditer(str(issue))
+    }
+
+
+def _delegated_policy_setting_issue_texts(issues: list[str]) -> list[str]:
+    return [
+        str(issue)
+        for issue in issues
+        if _issue_mentions_delegated_policy_setting(str(issue))
+    ]
 
 
 def _unknown_output_refs_from_issues(issues: list[str]) -> set[str]:
