@@ -16027,10 +16027,12 @@ def _ordered_unique_strings(values: list[str]) -> list[str]:
 
 def _unknown_output_refs_from_issues(issues: list[str]) -> set[str]:
     refs: set[str] = set()
-    pattern = r"unknown executable output (?P<output>\S+)"
     for issue in issues:
-        for match in re.finditer(pattern, str(issue)):
+        text = str(issue)
+        for match in re.finditer(r"unknown executable output (?P<output>\S+)", text):
             refs.add(match.group("output").strip())
+        for match in _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN.finditer(text):
+            refs.add(match.group(1).strip())
     return refs
 
 
@@ -27454,6 +27456,23 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            removed_unknown_outputs = _remove_unknown_dependent_test_outputs(
+                overlay_repo=overlay_repo,
+                relative_output=relative_output,
+                validations=validations,
+            )
+            if removed_unknown_outputs:
+                for path in removed_unknown_outputs:
+                    supplemental_files[path.relative_to(overlay_repo)] = (
+                        path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             removed_cross_module_outputs = _remove_cross_module_dependent_test_outputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
@@ -29324,6 +29343,36 @@ def _invalid_dependent_test_input_ref_is_removable(
         _ABSOLUTE_RULESPEC_REF_RE.match(input_ref)
         and not _rulespec_ref_matches_base(input_ref, dependent_ref)
     )
+
+
+def _remove_unknown_dependent_test_outputs(
+    *,
+    overlay_repo: Path,
+    relative_output: Path,
+    validations: list[tuple[Path, object]],
+) -> list[Path]:
+    """Remove obsolete output assertions from dependent tests."""
+    changed: list[Path] = []
+    target_path = overlay_repo / relative_output
+    for validated_file, validation in validations:
+        if validated_file == target_path:
+            continue
+        test_path = _rulespec_test_path(validated_file)
+        if not test_path.exists():
+            continue
+        issues = [
+            str(result.error)
+            for result in validation.results.values()
+            if getattr(result, "error", None)
+        ]
+        removed = _remove_unknown_test_output_refs(
+            test_file=test_path,
+            issues=issues,
+        )
+        if not removed:
+            continue
+        changed.append(test_path)
+    return changed
 
 
 def _remove_cross_module_dependent_test_outputs(

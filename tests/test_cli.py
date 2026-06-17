@@ -53,6 +53,7 @@ from axiom_encode.cli import (
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
+    _remove_unknown_dependent_test_outputs,
     _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
     _repair_bare_indexed_parameter_references,
@@ -7883,6 +7884,54 @@ rules:
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
             in repaired
         )
+
+    def test_remove_unknown_dependent_test_outputs_drops_stale_ref(self, tmp_path):
+        repo = tmp_path / "rulespec-us-co"
+        rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+        test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
+        target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
+        rules_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        target_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: ongoing_month_derives_income_eligibility_and_colorado_allotment
+  period:
+    period_kind: month
+    start: '2026-01-01'
+    end: '2026-01-31'
+  input: {}
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 1200
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#colorado_snap_allotment: 292
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case "
+                        "`ongoing_month_derives_income_eligibility_and_colorado_allotment` "
+                        "output "
+                        "`us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income` "
+                        "does not resolve to a derived rule, or parameter in "
+                        "regulations/10-ccr-2506-1/4.403.yaml."
+                    )
+                )
+            }
+        )
+
+        changed = _remove_unknown_dependent_test_outputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/10-ccr-2506-1/4.403.yaml"),
+            validations=[(rules_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = yaml.safe_load(test_file.read_text())
+        assert repaired[0]["output"] == {
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#colorado_snap_allotment": 292
+        }
 
     def test_remove_unknown_test_output_refs_drops_stale_outputs(self, tmp_path):
         test_file = tmp_path / "policy.test.yaml"
