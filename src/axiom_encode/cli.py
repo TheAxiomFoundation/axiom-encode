@@ -19440,12 +19440,34 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         relative_output,
         policy_repo_path=policy_repo_path,
     )
+    resolved_setting_targets = _resolved_executable_delegated_setting_targets(
+        _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
+        current_payload=payload,
+        current_rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    unresolved_setting_targets = {
+        normalized
+        for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS
+        if (normalized := _normalize_source_relation_target_ref(setting_target.target))
+        not in resolved_setting_targets
+    }
+    repaired: list[str] = []
+    repaired.extend(
+        _drop_unresolved_delegated_setting_sets_relations(
+            payload,
+            rules,
+            unresolved_targets=unresolved_setting_targets,
+        )
+    )
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return repaired
     existing_names = {
         str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
     }
     source_relation_additions: list[dict[str, Any]] = []
     wrapper_additions: list[dict[str, Any]] = []
-    repaired: list[str] = []
     retargeted_wrappers, retargeted_relations = (
         _repair_delegated_setting_relation_targets(
             rules,
@@ -19454,6 +19476,7 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
             policy_repo_path=policy_repo_path,
             target_anchor=target_anchor,
             existing_names=existing_names,
+            resolvable_targets=set(resolved_setting_targets),
         )
     )
     if retargeted_wrappers:
@@ -19464,12 +19487,12 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
                 existing_names.add(wrapper_name)
     repaired.extend(retargeted_relations)
     for setting_target in _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS:
-        target_rule = _rulespec_rule_for_absolute_ref(
-            setting_target.target,
-            current_payload=payload,
-            current_rules_file=rules_file,
-            policy_repo_path=policy_repo_path,
+        normalized_setting_target = _normalize_source_relation_target_ref(
+            setting_target.target
         )
+        target_rule = resolved_setting_targets.get(normalized_setting_target or "")
+        if target_rule is None:
+            continue
         target_kind = _rulespec_rule_kind(target_rule)
         existing_relation = _generated_source_relation_for_target(
             rules,
@@ -19817,6 +19840,69 @@ def _generated_source_relation_for_target(
     return None
 
 
+def _resolved_executable_delegated_setting_targets(
+    setting_targets: tuple[Any, ...],
+    *,
+    current_payload: dict[str, Any],
+    current_rules_file: Path,
+    policy_repo_path: Path | None,
+) -> dict[str, dict[str, Any]]:
+    resolved: dict[str, dict[str, Any]] = {}
+    for setting_target in setting_targets:
+        normalized_target = _normalize_source_relation_target_ref(setting_target.target)
+        if not normalized_target:
+            continue
+        target_rule = _rulespec_rule_for_absolute_ref(
+            setting_target.target,
+            current_payload=current_payload,
+            current_rules_file=current_rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if target_rule is None or not _is_executable_rulespec_rule(target_rule):
+            continue
+        resolved[normalized_target] = target_rule
+    return resolved
+
+
+def _drop_unresolved_delegated_setting_sets_relations(
+    payload: dict[str, Any],
+    rules: list[Any],
+    *,
+    unresolved_targets: set[str],
+) -> list[str]:
+    if not unresolved_targets:
+        return []
+
+    retained_rules: list[Any] = []
+    dropped: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            retained_rules.append(rule)
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            retained_rules.append(rule)
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            retained_rules.append(rule)
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            retained_rules.append(rule)
+            continue
+        target_ref = _normalize_source_relation_target_ref(
+            source_relation.get("target")
+        )
+        if target_ref not in unresolved_targets:
+            retained_rules.append(rule)
+            continue
+        dropped.append(str(rule.get("name") or target_ref).strip())
+
+    if not dropped:
+        return []
+    payload["rules"] = retained_rules
+    return dropped
+
+
 def _repair_delegated_setting_relation_targets(
     rules: list[Any],
     *,
@@ -19825,6 +19911,7 @@ def _repair_delegated_setting_relation_targets(
     policy_repo_path: Path | None,
     target_anchor: str,
     existing_names: set[str],
+    resolvable_targets: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Retarget generated SNAP utility `sets` relations to canonical hooks."""
     canonical_targets = {
@@ -19863,12 +19950,22 @@ def _repair_delegated_setting_relation_targets(
         setting_target = _delegated_setting_target_for_value_name(value_name)
         if setting_target is None:
             continue
+        normalized_setting_target = _normalize_source_relation_target_ref(
+            setting_target.target
+        )
+        if (
+            resolvable_targets is not None
+            and normalized_setting_target not in resolvable_targets
+        ):
+            continue
         target_rule = _rulespec_rule_for_absolute_ref(
             setting_target.target,
             current_payload=current_payload,
             current_rules_file=current_rules_file,
             policy_repo_path=policy_repo_path,
         )
+        if target_rule is None or not _is_executable_rulespec_rule(target_rule):
+            continue
         target_kind = _rulespec_rule_kind(target_rule)
         target_symbol = setting_target.target.rsplit("#", 1)[-1]
         relation_stem = target_symbol.removesuffix("_state_option")
