@@ -154,6 +154,7 @@ from axiom_encode.cli import (
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
+    cmd_repair_zero_branch_tests,
     cmd_retire,
     cmd_runs,
     cmd_session_end,
@@ -9834,6 +9835,113 @@ rules:
         assert cases[0]["output"] == {
             "us:statutes/26/36B/b/3/A#applicable_percentage": 0
         }
+
+    def test_repair_zero_branch_tests_derives_hidden_zero_issues(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "151.yaml"
+        test_file = repo / "statutes" / "26" / "151.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: first_zero_branch_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if first_condition:
+              first_amount
+          else:
+              0
+  - name: second_zero_branch_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if second_condition:
+              second_amount
+          else:
+              0
+"""
+        )
+        test_file.write_text(
+            """- name: positive_first
+  period: 2026
+  input:
+    us:statutes/26/151#input.first_condition: true
+    us:statutes/26/151#input.first_amount: 5
+  output:
+    us:statutes/26/151#first_zero_branch_amount: 5
+- name: positive_second
+  period: 2026
+  input:
+    us:statutes/26/151#input.second_condition: true
+    us:statutes/26/151#input.second_amount: 7
+  output:
+    us:statutes/26/151#second_zero_branch_amount: 7
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("statutes/26/151.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "scope": SimpleNamespace(
+                            error=(
+                                "Source scope mismatch: `some_rule` is declared "
+                                "on `TaxUnit`, but the embedded source states a "
+                                "person-scoped rule."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        output = capsys.readouterr().out
+        assert "Applied zero-branch test repair to statutes/26/151.yaml" in output
+        assert "with pending validation issues still remaining: 1" in output
+        test_content = test_file.read_text()
+        assert "auto_zero_first_zero_branch_amount" in test_content
+        assert "auto_zero_second_zero_branch_amount" in test_content
+        manifest = repo / ".axiom/encoding-manifests/statutes/26/151.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "zero-branch-test-v1"
+        assert payload["tool"] == "axiom-encode repair-zero-branch-tests"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/151.yaml",
+            "statutes/26/151.test.yaml",
+        ]
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
