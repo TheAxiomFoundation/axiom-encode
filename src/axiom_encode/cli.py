@@ -19132,6 +19132,44 @@ def cmd_encode(args):
                         repaired_input_cases
                     )
             if not can_apply:
+                repaired_invalid_input_refs = list(
+                    outcome.get("auto_repaired_invalid_test_inputs") or []
+                )
+                while not can_apply:
+                    repaired_refs = _try_repair_generated_invalid_test_inputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                    if not repaired_refs:
+                        break
+                    for repaired_ref in repaired_refs:
+                        if repaired_ref not in repaired_invalid_input_refs:
+                            repaired_invalid_input_refs.append(repaired_ref)
+                    outcome["auto_repaired_invalid_test_inputs"] = (
+                        repaired_invalid_input_refs
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_test_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_invalid_input_refs:
+                    outcome["auto_repaired_invalid_test_inputs"] = (
+                        repaired_invalid_input_refs
+                    )
+            if not can_apply:
                 repaired_scalar_rows = list(
                     outcome.get("auto_repaired_scalar_relation_rows") or []
                 )
