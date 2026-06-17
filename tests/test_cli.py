@@ -89,6 +89,7 @@ from axiom_encode.cli import (
     _repair_shared_statutory_rate_names,
     _repair_snap_2014c_income_standard_test_inputs,
     _repair_tax_filing_status_branches,
+    _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
@@ -121,6 +122,7 @@ from axiom_encode.cli import (
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
+    _unit_scoped_person_definition_issue_names,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     _write_overlay_eval_source_metadata_for_generated_output,
@@ -7493,6 +7495,57 @@ rules:
 
         assert _medicaid_magi_income_helper_issue_names(issues) == [
             "household_income_at_or_below_state_section_1931_income_standard"
+        ]
+
+    def test_unit_scoped_person_definition_issue_names(self):
+        issues = [
+            "Source scope mismatch: `llc_or_s_corporation_owner_earned_income` "
+            "is declared on `Person`, but the embedded source states a "
+            "household/unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the person-level test."
+        ]
+
+        assert _unit_scoped_person_definition_issue_names(issues) == [
+            "llc_or_s_corporation_owner_earned_income"
+        ]
+
+    def test_repair_unit_scoped_person_definition_entities_uses_dominant_unit(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "regulations/10-ccr-2506-1/4.403.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: llc_or_s_corporation_owner_earned_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: salary_payments_for_services_as_employee
+- name: boarder_income_to_household
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: direct_boarder_payments_to_household
+"""
+        )
+
+        repaired = _repair_unit_scoped_person_definition_entities(
+            rules_file=rules_file,
+            target_names=["llc_or_s_corporation_owner_earned_income"],
+        )
+
+        assert repaired == ["llc_or_s_corporation_owner_earned_income"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == [
+            "Household",
+            "Household",
         ]
 
     def test_inline_medicaid_magi_income_helpers_removes_one_use_income_helper(
