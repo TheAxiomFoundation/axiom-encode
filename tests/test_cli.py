@@ -139,11 +139,13 @@ from axiom_encode.cli import (
     cmd_oracle_coverage,
     cmd_repair_arizona_snap_composition,
     cmd_repair_current_year_final_amounts,
+    cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
     cmd_repair_imported_test_inputs,
     cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
     cmd_repair_missing_source_proofs,
+    cmd_repair_mixed_derived_entity_output_tests,
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
@@ -10277,6 +10279,263 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "invalid-test-input-v1"
         assert payload["tool"] == "axiom-encode repair-invalid-test-inputs"
+
+    def test_repair_mixed_derived_entity_output_tests_keeps_unrelated_issues(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "3121" / "l.yaml"
+        test_file = repo / "statutes" / "26" / "3121" / "l.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: agreement_covers_foreign_affiliate_service
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_is_citizen_or_resident_of_united_states
+  - name: termination_of_subsection_l_agreement_prohibited
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agreement_under_subsection_l
+  - name: overpayment_claim_filing_limit_years
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 2
+"""
+        )
+        test_file.write_text(
+            """- name: excluded_service_and_unadjustable_overpayment
+  period: 2026
+  input:
+    us:statutes/26/3121/l#input.employee_is_citizen_or_resident_of_united_states: false
+    us:statutes/26/3121/l#input.agreement_under_subsection_l: true
+  output:
+    us:statutes/26/3121/l#agreement_covers_foreign_affiliate_service: not_holds
+    us:statutes/26/3121/l#termination_of_subsection_l_agreement_prohibited: holds
+    us:statutes/26/3121/l#overpayment_claim_filing_limit_years: 2
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("statutes/26/3121/l.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            call_count = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                self.__class__.call_count += 1
+                if self.__class__.call_count == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "mixed": SimpleNamespace(
+                                error=(
+                                    "Test case "
+                                    "`excluded_service_and_unadjustable_overpayment` "
+                                    "mixes derived output entities "
+                                    "(Employer, Person); put outputs for each "
+                                    "entity in separate test cases."
+                                )
+                            ),
+                            "numeric": SimpleNamespace(
+                                error=(
+                                    "Source numeric value `10` is not represented in "
+                                    "a non-test RuleSpec file."
+                                )
+                            ),
+                        },
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "numeric": SimpleNamespace(
+                            error=(
+                                "Source numeric value `10` is not represented in a "
+                                "non-test RuleSpec file."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_mixed_derived_entity_output_tests(args)
+
+        output = capsys.readouterr().out
+        assert (
+            "Applied mixed derived-entity output test repair to statutes/26/3121/l.yaml"
+        ) in output
+        assert "with pending validation issues still remaining: 1" in output
+        cases = yaml.safe_load(test_file.read_text())
+        assert [case["name"] for case in cases] == [
+            "excluded_service_and_unadjustable_overpayment",
+            "excluded_service_and_unadjustable_overpayment_employer_outputs",
+        ]
+        assert (
+            "us:statutes/26/3121/l#overpayment_claim_filing_limit_years"
+            in cases[0]["output"]
+        )
+        manifest = repo / ".axiom/encoding-manifests/statutes/26/3121/l.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "mixed-derived-entity-output-test-v1"
+        assert (
+            payload["tool"] == "axiom-encode repair-mixed-derived-entity-output-tests"
+        )
+
+    def test_repair_delegated_policy_settings_keeps_unrelated_issues(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-nc"
+        rules_file = repo / "policies" / "fns" / "utility-allowances.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: North Carolina FNS SNAP utility allowance table.
+rules:
+- name: heating_cooling_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '637'
+- name: non_heating_non_cooling_basic_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '392'
+- name: telephone_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  source: FNS 360.01(A)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '42'
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("policies/fns/utility-allowances.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            call_count = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                self.__class__.call_count += 1
+                if self.__class__.call_count == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "delegated": SimpleNamespace(
+                                error=(
+                                    "Delegated policy setting missing "
+                                    "source_relation: "
+                                    "`heating_cooling_standard_utility_allowance` "
+                                    "encodes a state-set SNAP standard utility "
+                                    "allowance."
+                                )
+                            ),
+                            "numeric": SimpleNamespace(
+                                error=(
+                                    "Source numeric value `10` is not represented in "
+                                    "a non-test RuleSpec file."
+                                )
+                            ),
+                        },
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "numeric": SimpleNamespace(
+                            error=(
+                                "Source numeric value `10` is not represented in a "
+                                "non-test RuleSpec file."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_delegated_policy_settings(args)
+
+        output = capsys.readouterr().out
+        assert (
+            "Applied delegated policy setting repair to "
+            "policies/fns/utility-allowances.yaml"
+        ) in output
+        assert "with pending validation issues still remaining: 1" in output
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
+        relation_targets = [
+            rule["source_relation"]["target"]
+            for rule in payload["rules"]
+            if rule.get("kind") == "source_relation"
+        ]
+        assert (
+            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+            in relation_targets
+        )
+        manifest = (
+            repo / ".axiom/encoding-manifests/policies/fns/utility-allowances.json"
+        )
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "delegated-policy-setting-v1"
+        assert (
+            manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
+        )
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
