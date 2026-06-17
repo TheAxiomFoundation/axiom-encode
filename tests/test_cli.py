@@ -153,6 +153,7 @@ from axiom_encode.cli import (
     cmd_repair_snap_273_10_allotment,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
+    cmd_repair_test_input_assignments,
     cmd_repair_unreferenced_proof_imports,
     cmd_repair_zero_branch_tests,
     cmd_retire,
@@ -10031,6 +10032,115 @@ rules:
         assert "auto_zero_zero_branch_amount" in test_file.read_text()
         manifest = repo / ".axiom/encoding-manifests/statutes/26/152.json"
         assert json.loads(manifest.read_text())["model"] == "zero-branch-test-v1"
+
+    def test_repair_test_input_assignments_keeps_unrelated_issues(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "153.yaml"
+        test_file = repo / "statutes" / "26" / "153.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: conditional_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if qualifying_condition:
+              amount
+          else:
+              0
+"""
+        )
+        test_file.write_text(
+            """- name: positive_case
+  period: 2026
+  input:
+    us:statutes/26/153#input.amount: 5
+  output:
+    us:statutes/26/153#conditional_amount: 5
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("statutes/26/153.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            call_count = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                self.__class__.call_count += 1
+                if self.__class__.call_count == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "assignments": SimpleNamespace(
+                                error=(
+                                    "Test input assignment missing: "
+                                    "`positive_case` does not assign "
+                                    "#input.qualifying_condition. Every test for a "
+                                    "proof-required RuleSpec module must set all local "
+                                    "factual inputs, including false facts, so tests "
+                                    "cannot pass through implicit defaults."
+                                )
+                            ),
+                            "numeric": SimpleNamespace(
+                                error=(
+                                    "Source numeric value `10` is not represented in "
+                                    "a non-test RuleSpec file."
+                                )
+                            ),
+                        },
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "numeric": SimpleNamespace(
+                            error=(
+                                "Source numeric value `10` is not represented in a "
+                                "non-test RuleSpec file."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_test_input_assignments(args)
+
+        output = capsys.readouterr().out
+        assert "Applied test input assignment repair to statutes/26/153.yaml" in output
+        assert "with pending validation issues still remaining: 1" in output
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:statutes/26/153#input.amount": 5,
+            "us:statutes/26/153#input.qualifying_condition": False,
+        }
+        manifest = repo / ".axiom/encoding-manifests/statutes/26/153.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "test-input-assignment-v1"
+        assert payload["tool"] == "axiom-encode repair-test-input-assignments"
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path

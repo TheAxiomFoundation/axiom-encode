@@ -978,6 +978,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_test_input_assignments_parser = subparsers.add_parser(
+        "repair-test-input-assignments",
+        help="Apply signed deterministic repairs for missing generated test inputs",
+    )
+    repair_test_input_assignments_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_test_input_assignments_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_test_input_assignments_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_judgment_positive_tests_parser = subparsers.add_parser(
         "repair-judgment-positive-tests",
         help="Apply signed deterministic repairs for missing positive Judgment tests",
@@ -1991,6 +2013,8 @@ def main():
         cmd_repair_current_year_final_amounts(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
+    elif args.command == "repair-test-input-assignments":
+        cmd_repair_test_input_assignments(args)
     elif args.command == "repair-judgment-positive-tests":
         cmd_repair_judgment_positive_tests(args)
     elif args.command == "repair-unused-imports":
@@ -7576,6 +7600,129 @@ def cmd_repair_zero_branch_tests(args):
             [result.error for result in validation.results.values() if result.error]
         )
         message += f" with pending validation issues still remaining: {pending_count}"
+    print(message)
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_test_input_assignments(args):
+    """Apply signed deterministic repairs for missing generated test inputs."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    initial_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    initial_issues = [
+        result.error for result in initial_validation.results.values() if result.error
+    ]
+    assignment_issues = [
+        issue
+        for issue in initial_issues
+        if _parse_test_input_assignment_issue(str(issue)) is not None
+    ]
+    initial_assignment_signatures = _test_input_assignment_issue_signatures(
+        assignment_issues
+    )
+    repaired_test_cases = _fill_missing_test_input_assignments(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=repo_path,
+        relative_output=relative_output,
+        issues=assignment_issues,
+    )
+    if not repaired_test_cases:
+        print("No test input assignment repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    pending_issues = [
+        result.error for result in validation.results.values() if result.error
+    ]
+    if not validation.all_passed:
+        remaining_assignment_signatures = _test_input_assignment_issue_signatures(
+            pending_issues
+        )
+        made_assignment_progress = (
+            bool(initial_assignment_signatures - remaining_assignment_signatures)
+            and remaining_assignment_signatures < initial_assignment_signatures
+        )
+        if not made_assignment_progress:
+            test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original test file.")
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="test-input-assignment-v1",
+            tool="axiom-encode repair-test-input-assignments",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    message = (
+        "Applied test input assignment repair to "
+        f"{relative_output}: {', '.join(repaired_test_cases)}"
+    )
+    if not validation.all_passed:
+        message += (
+            f" with pending validation issues still remaining: {len(pending_issues)}"
+        )
     print(message)
     print(f"manifest={manifest_path}")
 
@@ -25578,6 +25725,19 @@ def _test_case_has_imported_inputs(inputs: object, *, target_anchor: str) -> boo
         if not _rulespec_ref_matches_base(key_text, target_anchor):
             return True
     return False
+
+
+def _test_input_assignment_issue_signatures(
+    issues: list[str],
+) -> set[tuple[str, str]]:
+    signatures: set[tuple[str, str]] = set()
+    for issue in issues:
+        parsed = _parse_test_input_assignment_issue(str(issue))
+        if parsed is None:
+            continue
+        case_name, missing_inputs = parsed
+        signatures.update((case_name, input_name) for input_name in missing_inputs)
+    return signatures
 
 
 def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | None:
