@@ -11663,6 +11663,136 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_self_referential_generated_derived_rules(
+        self, capsys, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        args = self._make_args(
+            tmp_path,
+            backend="codex",
+            citation="10 CCR 2506-1 4.203.3",
+            policy_repo_path=policy_repo,
+            sync=False,
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "regulations"
+            / "10-ccr-2506-1"
+            / "4.203.3.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: emergency_authorized_representative_designation_valid
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          emergency_authorized_representative_designated_in_writing
+  - name: emergency_authorized_representative_obtains_ebt_card_for_household
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          emergency_authorized_representative_designation_valid
+          and emergency_authorized_representative_obtains_ebt_card_for_household
+"""
+        )
+        test_file = output_file.with_name("4.203.3.test.yaml")
+        target_anchor = "us-co:regulations/10-ccr-2506-1/4.203.3"
+        test_file.write_text(
+            f"""- name: emergency_representative_designation_valid
+  period: 2026-01
+  input:
+    {target_anchor}#input.emergency_authorized_representative_designated_in_writing: true
+    {target_anchor}#input.emergency_authorized_representative_obtains_ebt_card_for_household: true
+  output:
+    {target_anchor}#emergency_authorized_representative_obtains_ebt_card_for_household: holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = policy_repo / "regulations/10-ccr-2506-1/4.203.3.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "regulations/10-ccr-2506-1/4.203.3.yaml: compile: "
+                            "Axiom rules engine compile failed: cyclic derived "
+                            "dependency detected involving: "
+                            "emergency_authorized_representative_obtains_ebt_card_for_household"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        repaired = (
+            "emergency_authorized_representative_obtains_ebt_card_for_household"
+            "->emergency_authorized_representative_obtains_ebt_card_for_household_fact"
+        )
+        output = capsys.readouterr().out
+        assert (
+            f"apply=auto_repaired_self_referential_derived_rules:{repaired}" in output
+        )
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        rules_payload = yaml.safe_load(output_file.read_text())
+        repaired_rule = rules_payload["rules"][1]
+        assert (
+            "emergency_authorized_representative_obtains_ebt_card_for_household_fact"
+            in repaired_rule["versions"][0]["formula"]
+        )
+        assert (
+            "\nand emergency_authorized_representative_obtains_ebt_card_for_household\n"
+            not in f"\n{repaired_rule['versions'][0]['formula']}\n"
+        )
+        test_content = test_file.read_text()
+        assert (
+            f"{target_anchor}#input."
+            "emergency_authorized_representative_obtains_ebt_card_for_household_fact"
+            in test_content
+        )
+        assert (
+            f"{target_anchor}#input."
+            "emergency_authorized_representative_obtains_ebt_card_for_household:"
+            not in test_content
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_self_referential_derived_rules"] == [repaired]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_reruns_invalid_input_repair_after_assignment_repair(
         self, capsys, tmp_path
     ):
