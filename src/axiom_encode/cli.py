@@ -99,6 +99,7 @@ from .harness.validator_pipeline import (
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
     extract_embedded_source_text,
+    find_delegated_policy_setting_issues,
     find_interval_table_reencoding_candidates,
     find_proof_import_reference_issues,
     find_structured_scale_parameter_issue_records,
@@ -1061,6 +1062,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_delegated_policy_settings_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_bare_snapunit_parser = subparsers.add_parser(
+        "repair-bare-snapunit-entities",
+        help="Apply signed deterministic repairs for undeclared generated SnapUnit rules",
+    )
+    repair_bare_snapunit_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_bare_snapunit_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_bare_snapunit_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -2090,6 +2113,8 @@ def main():
         cmd_repair_mixed_derived_entity_output_tests(args)
     elif args.command == "repair-delegated-policy-settings":
         cmd_repair_delegated_policy_settings(args)
+    elif args.command == "repair-bare-snapunit-entities":
+        cmd_repair_bare_snapunit_entities(args)
     elif args.command == "repair-judgment-positive-tests":
         cmd_repair_judgment_positive_tests(args)
     elif args.command == "repair-unused-imports":
@@ -8058,7 +8083,16 @@ def cmd_repair_delegated_policy_settings(args):
     before_issues = [
         result.error for result in before_validation.results.values() if result.error
     ]
-    before_delegated_issues = _delegated_policy_setting_issue_texts(before_issues)
+    before_direct_delegated_issues = find_delegated_policy_setting_issues(
+        original_content,
+        rules_file=rules_file,
+    )
+    before_delegated_issues = _ordered_unique_strings(
+        [
+            *(_delegated_policy_setting_issue_texts(before_issues)),
+            *before_direct_delegated_issues,
+        ]
+    )
     if not before_delegated_issues:
         print("No delegated policy setting repairs found.")
         return
@@ -8071,7 +8105,7 @@ def cmd_repair_delegated_policy_settings(args):
         generated_result,
         output_root=repo_path.parent,
         policy_repo_path=repo_path,
-        issues=before_issues,
+        issues=_ordered_unique_strings([*before_issues, *before_delegated_issues]),
     )
     if not repaired:
         print("No delegated policy setting repairs found.")
@@ -8086,7 +8120,16 @@ def cmd_repair_delegated_policy_settings(args):
     after_issues = [
         result.error for result in after_validation.results.values() if result.error
     ]
-    after_delegated_issues = _delegated_policy_setting_issue_texts(after_issues)
+    after_direct_delegated_issues = find_delegated_policy_setting_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+    )
+    after_delegated_issues = _ordered_unique_strings(
+        [
+            *(_delegated_policy_setting_issue_texts(after_issues)),
+            *after_direct_delegated_issues,
+        ]
+    )
     if not set(before_delegated_issues) - set(after_delegated_issues):
         rules_file.write_text(original_content)
         print("Repair failed validation; restored original file.")
@@ -8133,6 +8176,120 @@ def cmd_repair_delegated_policy_settings(args):
         f"{relative_output}: {', '.join(repaired)}"
     )
     if not after_validation.all_passed:
+        message += (
+            f" with pending validation issues still remaining: {len(after_issues)}"
+        )
+    print(message)
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_bare_snapunit_entities(args):
+    """Apply signed repairs for generated SnapUnit rules with no relation."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    def validate_issues() -> list[str]:
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        return [result.error for result in validation.results.values() if result.error]
+
+    before_issues = validate_issues()
+    before_snapunit_names = {
+        record["rule"] for record in _bare_snapunit_entity_issue_records(before_issues)
+    }
+    if not before_snapunit_names:
+        print("No bare SnapUnit entity repairs found.")
+        return
+
+    generated_result = argparse.Namespace(
+        output_file=str(rules_file),
+        runner=repo_path.name,
+    )
+    repaired: list[str] = []
+    current_issues = before_issues
+    while True:
+        repaired_pass = _try_repair_generated_bare_snapunit_entity_for_apply(
+            generated_result,
+            output_root=repo_path.parent,
+            issues=current_issues,
+        )
+        if not repaired_pass:
+            break
+        repaired.extend(repaired_pass)
+        current_issues = validate_issues()
+        if not _bare_snapunit_entity_issue_records(current_issues):
+            break
+
+    after_issues = validate_issues()
+    after_snapunit_names = {
+        record["rule"] for record in _bare_snapunit_entity_issue_records(after_issues)
+    }
+    if not before_snapunit_names - after_snapunit_names:
+        rules_file.write_text(original_content)
+        print("Repair failed validation; restored original file.")
+        print("- Bare SnapUnit entity repair did not clear any reported rules.")
+        for issue in after_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="bare-snapunit-entity-v1",
+            tool="axiom-encode repair-bare-snapunit-entities",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    message = (
+        "Applied bare SnapUnit entity repair to "
+        f"{relative_output}: {', '.join(_ordered_unique_strings(repaired))}"
+    )
+    if after_issues:
         message += (
             f" with pending validation issues still remaining: {len(after_issues)}"
         )
@@ -15852,6 +16009,10 @@ def _delegated_policy_setting_issue_texts(issues: list[str]) -> list[str]:
     ]
 
 
+def _ordered_unique_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(value) for value in values if str(value)))
+
+
 def _unknown_output_refs_from_issues(issues: list[str]) -> set[str]:
     refs: set[str] = set()
     pattern = r"unknown executable output (?P<output>\S+)"
@@ -18900,6 +19061,10 @@ def _try_repair_generated_bare_snapunit_entity_for_apply(
             fallback_source_text = module.get("source_text")
             if isinstance(fallback_source_text, str):
                 source_text_value = fallback_source_text
+            if not source_text_value:
+                fallback_summary = module.get("summary")
+                if isinstance(fallback_summary, str):
+                    source_text_value = fallback_summary
     source_text = (source_text_value or "").lower()
     if "snapunit" in source_text or "snap unit" in source_text:
         return []
