@@ -141,6 +141,7 @@ from axiom_encode.cli import (
     cmd_repair_current_year_final_amounts,
     cmd_repair_embedded_scalar_literals,
     cmd_repair_imported_test_inputs,
+    cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
     cmd_repair_missing_source_proofs,
     cmd_repair_nonnegative_floors,
@@ -10173,6 +10174,109 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "test-input-assignment-v1"
         assert payload["tool"] == "axiom-encode repair-test-input-assignments"
+
+    def test_repair_invalid_test_inputs_keeps_unrelated_issues(self, capsys, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "153.yaml"
+        test_file = repo / "statutes" / "26" / "153.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: conditional_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: amount
+"""
+        )
+        test_file.write_text(
+            """- name: positive_case
+  period: 2026
+  input:
+    us:statutes/26/153#input.amount: 5
+    us:statutes/26/153#input.annual: false
+  output:
+    us:statutes/26/153#conditional_amount: 5
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("statutes/26/153.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            call_count = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                self.__class__.call_count += 1
+                if self.__class__.call_count == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "execution": SimpleNamespace(
+                                error=(
+                                    "Test case `positive_case` execution failed: "
+                                    "dataset input "
+                                    "`us:statutes/26/153#input.annual` must use an "
+                                    "absolute legal RuleSpec reference that resolves "
+                                    "to an input slot, derived rule, or parameter in "
+                                    "the compiled program"
+                                )
+                            ),
+                            "numeric": SimpleNamespace(
+                                error=(
+                                    "Source numeric value `10` is not represented in "
+                                    "a non-test RuleSpec file."
+                                )
+                            ),
+                        },
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "numeric": SimpleNamespace(
+                            error=(
+                                "Source numeric value `10` is not represented in a "
+                                "non-test RuleSpec file."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_invalid_test_inputs(args)
+
+        output = capsys.readouterr().out
+        assert "Applied invalid test input repair to statutes/26/153.yaml" in output
+        assert "with pending validation issues still remaining: 1" in output
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:statutes/26/153#input.amount": 5,
+        }
+        manifest = repo / ".axiom/encoding-manifests/statutes/26/153.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "invalid-test-input-v1"
+        assert payload["tool"] == "axiom-encode repair-invalid-test-inputs"
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path

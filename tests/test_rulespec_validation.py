@@ -5789,6 +5789,54 @@ rules:
     assert find_test_input_assignment_issues(content, test_cases) == []
 
 
+def test_test_input_assignment_ignores_quoted_string_literals():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: weekly_factor
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        value: 52
+  - name: annual_factor
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1
+  - name: income_factor
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if income_pay_frequency == "weekly":
+              weekly_factor
+          elif income_pay_frequency == "annual":
+              annual_factor
+          else:
+              1
+"""
+    test_cases = [
+        {
+            "name": "weekly_income",
+            "input": {
+                "us:statutes/7/2014#input.income_pay_frequency": "weekly",
+            },
+            "output": {
+                "us:statutes/7/2014#income_factor": 52,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_test_input_assignment_treats_local_indexed_by_selector_as_dependency():
     content = """format: rulespec/v1
 module:
