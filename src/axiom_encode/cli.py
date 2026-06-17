@@ -18014,6 +18014,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_unit_scoped_definitions = (
+                    _try_repair_generated_unit_scoped_person_definition_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_unit_scoped_definitions:
+                    outcome["auto_repaired_unit_scoped_person_definition"] = (
+                        repaired_unit_scoped_definitions
+                    )
+                    print(
+                        "  apply=auto_repaired_unit_scoped_person_definition:"
+                        + ",".join(repaired_unit_scoped_definitions)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_person_scoped_definitions = (
                     _try_repair_generated_person_scoped_definition_for_apply(
                         result,
@@ -25297,6 +25325,111 @@ def _remove_test_outputs_for_rule_names(test_file: Path, rule_names: set[str]) -
         test_file.write_text(
             yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
         )
+
+
+def _try_repair_generated_unit_scoped_person_definition_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Move generated Person definitions to the source-stated unit scope."""
+    target_names = _unit_scoped_person_definition_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_unit_scoped_person_definition_entities(
+        rules_file=rules_file,
+        target_names=target_names,
+    )
+
+
+def _unit_scoped_person_definition_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _repair_unit_scoped_person_definition_entities(
+    *,
+    rules_file: Path,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    unit_entity = _dominant_unit_entity_name(rules)
+    by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    repaired: list[str] = []
+    for target_name in dict.fromkeys(target_names):
+        target_rule = by_name.get(target_name)
+        if not isinstance(target_rule, dict):
+            continue
+        if _set_rule_entity_to_unit(target_rule, unit_entity=unit_entity):
+            repaired.append(target_name)
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _dominant_unit_entity_name(rules: list[object]) -> str:
+    canonical = {
+        "family": "Family",
+        "household": "Household",
+        "snapunit": "SnapUnit",
+        "spmunit": "SPMUnit",
+        "taxunit": "TaxUnit",
+    }
+    counts: dict[str, int] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        normalized = str(rule.get("entity") or "").replace("_", "").lower()
+        if normalized not in _UNIT_ENTITY_NAMES:
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+    if not counts:
+        return "Household"
+    dominant = max(counts, key=lambda name: (counts[name], name))
+    return canonical.get(dominant, "Household")
+
+
+def _set_rule_entity_to_unit(
+    rule: dict[str, object],
+    *,
+    unit_entity: str,
+) -> bool:
+    entity = str(rule.get("entity") or "").strip()
+    if entity != "Person":
+        return False
+    rule["entity"] = unit_entity
+    return True
 
 
 def _try_repair_generated_person_scoped_definition_for_apply(
