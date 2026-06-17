@@ -11080,6 +11080,17 @@ def cmd_repair_missing_source_proofs(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
+    before_validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    before_issues = [
+        result.error for result in before_validation.results.values() if result.error
+    ]
+    before_missing_proof_rules = _missing_source_proof_issue_rule_names(before_issues)
+
     rules_file.write_text(repaired_content)
     validation = ValidatorPipeline(
         policy_repo_path=repo_path,
@@ -11091,7 +11102,16 @@ def cmd_repair_missing_source_proofs(args):
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        if _only_pending_tax_filing_status_branch_issues(
+        after_missing_proof_rules = _missing_source_proof_issue_rule_names(issues)
+        repaired_missing_proof_rules = (
+            before_missing_proof_rules - after_missing_proof_rules
+        )
+        if repaired_missing_proof_rules:
+            print(
+                "Applied missing source proof repair with pending validation "
+                f"issues still remaining: {len(issues)}"
+            )
+        elif _only_pending_tax_filing_status_branch_issues(
             issues
         ) or _only_pending_nonnegative_amount_reduction_issues(issues):
             print(
@@ -13099,6 +13119,15 @@ def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool
         or "Nonnegative taxable income missing floor:" in issue
         for issue in issues
     )
+
+
+def _missing_source_proof_issue_rule_names(issues: list[str]) -> set[str]:
+    names: set[str] = set()
+    for issue in issues:
+        match = re.match(r"Proof missing: rule `([^`]+)` ", issue)
+        if match is not None:
+            names.add(match.group(1))
+    return names
 
 
 def _rulespec_module_source_paths(payload: dict[str, object]) -> list[str]:
