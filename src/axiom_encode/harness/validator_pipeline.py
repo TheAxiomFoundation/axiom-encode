@@ -712,6 +712,10 @@ _FRACTION_WORD_PATTERN = (
     r"(?:one[-\s]+half|one[-\s]+third|two[-\s]+thirds|"
     r"one[-\s]+quarter|three[-\s]+quarters)"
 )
+_STANDALONE_FRACTION_WORD_PATTERN = re.compile(
+    rf"\b({_FRACTION_WORD_PATTERN})\b",
+    re.IGNORECASE,
+)
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -2510,6 +2514,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
         numbers.add(value)
         occupied_spans.append(span)
     numbers.update(_extract_percentage_context_values(text))
+    for span, value in _iter_standalone_fraction_word_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_cardinal_word_number_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -2529,17 +2538,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for match in _ORDINAL_WORD_PATTERN.finditer(text):
         numbers.add(_ORDINAL_WORD_VALUES[match.group(1).lower()])
 
-    text_lower = text.lower()
-    for phrase, value in _FRACTION_WORD_VALUES.items():
-        if phrase in text_lower:
-            numbers.add(value)
-        if phrase.replace(" ", "-") in text_lower:
-            numbers.add(value)
-
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         if glyph in text:
             numbers.add(value)
 
+    text_lower = text.lower()
     for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
         numbers.add(_CARDINAL_WORD_VALUES[match.group(1)])
 
@@ -2723,6 +2726,15 @@ def _parse_fraction_word(text: str) -> float | None:
     return _FRACTION_WORD_VALUES.get(normalized)
 
 
+def _iter_standalone_fraction_word_matches(
+    text: str,
+) -> Iterator[tuple[tuple[int, int], float]]:
+    for match in _STANDALONE_FRACTION_WORD_PATTERN.finditer(text):
+        value = _parse_fraction_word(match.group(1))
+        if value is not None:
+            yield match.span(1), value
+
+
 def _extract_percentage_context_values(text: str) -> set[float]:
     """Return decimal rate equivalents for numbers in percentage table contexts."""
     values: set[float] = set()
@@ -2901,6 +2913,12 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     spans: list[tuple[int, int]] = []
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
+        occurrences.append(value)
+        spans.append(span)
+
+    for span, value in _iter_standalone_fraction_word_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
         occurrences.append(value)
         spans.append(span)
 
