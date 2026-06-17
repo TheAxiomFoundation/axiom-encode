@@ -2355,6 +2355,10 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
     parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    if parts and ":" in parts[0]:
+        _jurisdiction, source_root = parts[0].split(":", 1)
+        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
+            return True
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         return True
     return len(parts) >= 3 and parts[1] in {
@@ -2673,22 +2677,23 @@ def _select_cross_section_context_files(
     source_text: str,
     policy_root: Path,
 ) -> list[Path]:
-    """Select existing RuleSpecs for cited USC sections outside this section."""
-    try:
-        parts = parse_usc_citation(citation)
-    except Exception:
+    """Select existing RuleSpecs for cited sections outside this section."""
+    current_section = _section_for_eval_identifier(citation)
+    if current_section is None:
         return []
 
-    target_rel = citation_to_relative_rulespec_path(parts)
+    target_rel = _target_rel_for_eval_identifier(citation)
+    if target_rel is None:
+        return []
     selected: list[Path] = []
     seen: set[Path] = set()
     for cited_parts, _start, _end in _iter_cited_usc_sections(source_text):
-        if cited_parts.section == parts.section:
+        if cited_parts.section == current_section:
             continue
-        cited_parts = CitationParts(
-            parts.title, cited_parts.section, cited_parts.fragments
-        )
-        for candidate_rel in _cited_context_candidate_paths(cited_parts):
+        for candidate_rel in _cited_context_candidate_paths_for_eval_identifier(
+            citation,
+            cited_parts,
+        ):
             if candidate_rel == target_rel:
                 continue
             candidates = _cited_context_candidates(
@@ -2707,6 +2712,102 @@ def _select_cross_section_context_files(
                     seen.add(resolved)
             break
     return selected
+
+
+def _section_for_eval_identifier(citation: str) -> str | None:
+    """Return the current legal section for USC or corpus-backed identifiers."""
+    if _looks_like_corpus_citation_path(citation):
+        target_rel = _target_rel_for_eval_identifier(citation)
+        if target_rel is None:
+            return None
+        parts = list(target_rel.parts)
+        if len(parts) >= 3 and parts[0] in {"regulations", "statutes"}:
+            return Path(parts[2]).stem
+        return None
+
+    try:
+        return parse_usc_citation(citation).section
+    except Exception:
+        return None
+
+
+def _cited_context_candidate_paths_for_eval_identifier(
+    citation: str,
+    cited_parts: CitationParts,
+) -> list[Path]:
+    """Return candidate RuleSpec paths for a source-text section citation."""
+    if not _looks_like_corpus_citation_path(citation):
+        try:
+            current_parts = parse_usc_citation(citation)
+        except Exception:
+            current_parts = None
+        if current_parts is None:
+            return []
+        return _cited_context_candidate_paths(
+            CitationParts(
+                current_parts.title,
+                cited_parts.section,
+                cited_parts.fragments,
+            )
+        )
+
+    target_rel = _target_rel_for_eval_identifier(citation)
+    if target_rel is None:
+        return []
+    return _same_source_cited_context_candidate_paths(target_rel, cited_parts)
+
+
+def _same_source_cited_context_candidate_paths(
+    target_rel: Path,
+    cited_parts: CitationParts,
+) -> list[Path]:
+    """Return same-instrument candidates for non-USC corpus-backed citations."""
+    parts = list(target_rel.parts)
+    if len(parts) >= 3 and parts[0] == "regulations":
+        base = Path(parts[0]) / parts[1]
+        return _dotted_section_context_candidate_paths(base, cited_parts)
+    if len(parts) >= 3 and parts[0] == "statutes":
+        return _cited_context_candidate_paths(
+            CitationParts(parts[1], cited_parts.section, cited_parts.fragments)
+        )
+    return []
+
+
+def _dotted_section_context_candidate_paths(
+    base: Path,
+    cited_parts: CitationParts,
+) -> list[Path]:
+    """Return exact and dotted-ancestor candidates for state regulation sections."""
+    paths: list[Path] = []
+    section = cited_parts.section
+    for length in range(len(cited_parts.fragments), -1, -1):
+        paths.append(
+            _dotted_section_context_path(
+                base,
+                section,
+                cited_parts.fragments[:length],
+            )
+        )
+    if re.fullmatch(r"\d+(?:\.\d+)+", section):
+        segments = section.split(".")
+        for length in range(len(segments) - 1, 0, -1):
+            paths.append(base / f"{'.'.join(segments[:length])}.yaml")
+
+    unique: list[Path] = []
+    for path in paths:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def _dotted_section_context_path(
+    base: Path,
+    section: str,
+    fragments: tuple[str, ...],
+) -> Path:
+    if not fragments:
+        return base / f"{section}.yaml"
+    return base / section / Path(*fragments[:-1]) / f"{fragments[-1]}.yaml"
 
 
 def _source_text_requests_cited_subsection_rates(source_text: str) -> bool:
@@ -2883,8 +2984,15 @@ def _relative_rulespec_path_to_import_target(
 
 def _target_rel_for_eval_identifier(citation: str) -> Path | None:
     """Return the canonical RuleSpec target path for corpus or USC citations."""
-    if _looks_like_corpus_citation_path(citation.strip().strip("/")):
-        return _source_identifier_to_relative_rulespec_path(citation)
+    normalized = citation.strip().strip("/")
+    first_part = normalized.split("/", 1)[0]
+    if ":" in first_part:
+        _jurisdiction, source_root = first_part.split(":", 1)
+        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
+            rest = normalized.split(":", 1)[1]
+            return _source_identifier_to_relative_rulespec_path(rest)
+    if _looks_like_corpus_citation_path(normalized):
+        return _source_identifier_to_relative_rulespec_path(normalized)
     try:
         return citation_to_relative_rulespec_path(citation)
     except Exception:
@@ -6507,10 +6615,10 @@ def _missing_cited_statute_targets(
     context_files: list[EvalContextFile],
 ) -> list[tuple[str, str]]:
     """Return cited statute targets that are not available as copied context."""
-    try:
-        parts = parse_usc_citation(citation)
-    except Exception:
+    current_section = _section_for_eval_identifier(citation)
+    if current_section is None:
         return []
+    import_prefix = _import_prefix_for_eval_identifier(citation)
 
     available = {
         _normalize_prompt_import_target(item.import_path) for item in context_files
@@ -6519,19 +6627,29 @@ def _missing_cited_statute_targets(
     seen: set[str] = set()
     for cited_parts, _start, _end in _iter_cited_usc_sections(source_text):
         section = cited_parts.section
-        if section == parts.section:
+        if section == current_section:
             continue
-        target_parts = CitationParts(parts.title, section, cited_parts.fragments)
-        target = _relative_rulespec_path_to_import_target(
-            citation_to_relative_rulespec_path(target_parts).with_suffix(""),
-            prefix="us",
+        candidate_paths = _cited_context_candidate_paths_for_eval_identifier(
+            citation,
+            cited_parts,
         )
-        normalized = _normalize_prompt_import_target(target)
+        if not candidate_paths:
+            continue
+        candidate_targets = [
+            _relative_rulespec_path_to_import_target(path, prefix=import_prefix)
+            for path in candidate_paths
+        ]
+        normalized_candidates = [
+            _normalize_prompt_import_target(target) for target in candidate_targets
+        ]
         if any(
             _prompt_import_covers(available_target, normalized)
             for available_target in available
+            for normalized in normalized_candidates
         ):
             continue
+        target = candidate_targets[0]
+        normalized = normalized_candidates[0]
         if normalized in seen:
             continue
         seen.add(normalized)
@@ -6542,6 +6660,23 @@ def _missing_cited_statute_targets(
         )
         missing.append((label, target))
     return missing
+
+
+def _import_prefix_for_eval_identifier(citation: str) -> str | None:
+    """Return the canonical import prefix implied by an eval identifier."""
+    normalized = citation.strip().strip("/")
+    first_part = normalized.split("/", 1)[0]
+    if ":" in first_part:
+        prefix, _rest = first_part.split(":", 1)
+        return prefix or None
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) >= 3 and parts[0] not in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return parts[0]
+    try:
+        parse_usc_citation(citation)
+    except Exception:
+        return None
+    return "us"
 
 
 def _normalize_prompt_import_target(import_target: str) -> str:
@@ -6555,10 +6690,18 @@ def _normalize_prompt_import_target(import_target: str) -> str:
 
 def _prompt_import_covers(available: str, expected: str) -> bool:
     """Return whether an available prompt import covers an expected target."""
-    return (
+    if (
         available == expected
         or available.startswith(expected + "/")
         or expected.startswith(available + "/")
+    ):
+        return True
+    available_parts = available.split("/")
+    expected_parts = expected.split("/")
+    return (
+        len(available_parts) == len(expected_parts)
+        and available_parts[:-1] == expected_parts[:-1]
+        and expected_parts[-1].startswith(available_parts[-1] + ".")
     )
 
 
@@ -6640,11 +6783,31 @@ def _import_target_to_statute_citation(import_path: str) -> _StatuteCitation | N
     try:
         statutes_index = parts.index("statutes")
     except ValueError:
-        return None
-    if len(parts) <= statutes_index + 2:
-        return None
-    section = parts[statutes_index + 2]
-    fragments = tuple(parts[statutes_index + 3 :])
+        statutes_index = None
+    if statutes_index is not None:
+        if len(parts) <= statutes_index + 2:
+            return None
+        section = parts[statutes_index + 2]
+        fragments = tuple(parts[statutes_index + 3 :])
+    else:
+        try:
+            regulations_index = parts.index("regulations")
+        except ValueError:
+            return None
+        if len(parts) <= regulations_index + 2:
+            return None
+        regulation_root = parts[regulations_index + 1]
+        if re.fullmatch(r"\d+-ccr-\d+-\d+", regulation_root, flags=re.IGNORECASE):
+            section = parts[regulations_index + 2]
+            fragments = tuple(parts[regulations_index + 3 :])
+        elif (
+            re.fullmatch(r"\d+-cfr", regulation_root, flags=re.IGNORECASE)
+            and len(parts) > regulations_index + 3
+        ):
+            section = f"{parts[regulations_index + 2]}.{parts[regulations_index + 3]}"
+            fragments = tuple(parts[regulations_index + 4 :])
+        else:
+            return None
     if not re.fullmatch(r"[0-9][A-Za-z0-9.-]*", section):
         return None
     if not all(_is_citation_fragment(fragment) for fragment in fragments):

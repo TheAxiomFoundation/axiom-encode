@@ -9240,6 +9240,96 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_state_regulation_cross_section_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "rulespec-us-co"
+        regulations_root = policy_repo_root / "regulations" / "10-ccr-2506-1"
+        regulations_root.mkdir(parents=True)
+        disqualification_period = regulations_root / "4.803.2.yaml"
+        disqualification_period.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: consent_agreement_disqualification_start_deadline_calendar_days\n"
+            "    kind: parameter\n"
+            "    dtype: Integer\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2026-01-01'\n"
+            "        formula: '30'\n"
+        )
+        fair_hearing_parent = regulations_root / "4.411.yaml"
+        fair_hearing_parent.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: fair_hearing_request_deadline_days\n"
+            "    kind: parameter\n"
+            "    dtype: Integer\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2026-01-01'\n"
+            "        formula: '90'\n"
+        )
+        source_text = (
+            "Disqualification shall continue uninterrupted until completed, "
+            "regardless of household eligibility, and shall be imposed in "
+            "accordance with Section 4.803.2, F unless contrary to the court "
+            "order. The household may also request a hearing under Section "
+            "4.411.1."
+        )
+
+        selected = _select_cross_section_context_files(
+            "us-co/regulation/10-ccr-2506-1/4.804.1",
+            source_text,
+            policy_repo_root,
+        )
+
+        assert selected == [disqualification_period, fair_hearing_parent]
+
+        workspace = prepare_eval_workspace(
+            citation="us-co/regulation/10-ccr-2506-1/4.804.1",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=source_text,
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            source_metadata_payload={
+                "corpus_citation_path": "us-co/regulation/10-ccr-2506-1/4.804.1",
+            },
+            extra_context_paths=[],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert (
+            copied_sources[str(disqualification_period)]["import_path"]
+            == "us-co:regulations/10-ccr-2506-1/4.803.2"
+        )
+        assert (
+            copied_sources[str(fair_hearing_parent)]["import_path"]
+            == "us-co:regulations/10-ccr-2506-1/4.411"
+        )
+
+        prompt = _build_eval_prompt(
+            "us-co/regulation/10-ccr-2506-1/4.804.1",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="4.804.1.yaml",
+            target_ref_prefix="us-co:regulations/10-ccr-2506-1/4.804.1",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Mandatory cited RuleSpec imports detected" in prompt
+        assert "`us-co:regulations/10-ccr-2506-1/4.803.2`" in prompt
+        assert "`us-co:regulations/10-ccr-2506-1/4.411`" in prompt
+        assert "Missing cited RuleSpec sources detected" not in prompt
+        assert "us:statutes/us-co:regulations" not in prompt
+
     def test_prepare_eval_workspace_adds_child_context_for_unavailable_cited_parent(
         self, tmp_path
     ):
