@@ -123,6 +123,12 @@ def test_source_identifier_maps_corpus_regulation_to_repo_path():
     ) == Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
 
 
+def test_source_identifier_maps_colon_prefixed_regulation_to_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us-co:regulations/10-ccr-2506-1/4.804.1"
+    ) == Path("regulations/10-ccr-2506-1/4.804.1.yaml")
+
+
 def test_source_identifier_maps_state_manual_to_policies_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us-az/manual/des/faa5/na-child-support-expense/block-2"
@@ -515,6 +521,24 @@ def test_resolve_eval_output_path_uses_repo_relative_source_root_directly():
         "policies/otda/snap/fy-2026-benefit-calculation",
         requested_source="us/guidance/usda/fns/snap-fy2026-cola/page-1",
     ) == Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
+
+
+def test_resolve_eval_output_path_uses_colon_prefixed_rulespec_source_id(tmp_path):
+    repo = tmp_path / "rulespec-us-co"
+    repo.mkdir()
+
+    source_id = "us-co:regulations/10-ccr-2506-1/4.804.1"
+    relative_output = _resolve_eval_output_path(source_id)
+
+    assert relative_output == Path("regulations/10-ccr-2506-1/4.804.1.yaml")
+    assert (
+        _canonical_target_ref_prefix(
+            source_id,
+            relative_output,
+            policy_repo_path=repo,
+        )
+        == "us-co:regulations/10-ccr-2506-1/4.804.1"
+    )
 
 
 def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_text():
