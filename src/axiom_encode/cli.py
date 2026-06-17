@@ -105,6 +105,7 @@ from .harness.validator_pipeline import (
     find_tax_filing_status_local_input_issues,
     find_tax_status_component_local_input_issues,
     find_unused_import_issues,
+    find_zero_branch_test_coverage_issues,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
@@ -7476,12 +7477,25 @@ def cmd_repair_zero_branch_tests(args):
     initial_issues = [
         result.error for result in initial_validation.results.values() if result.error
     ]
+    zero_branch_issues = _zero_branch_coverage_issues_for_files(
+        rules_file=rules_file,
+        test_file=test_file,
+    )
+    if not zero_branch_issues:
+        zero_branch_issues = [
+            issue
+            for issue in initial_issues
+            if "Zero branch test coverage missing: " in issue
+        ]
+    initial_zero_branch_outputs = set(
+        _zero_branch_output_names_from_issues(zero_branch_issues)
+    )
     repaired_test_cases = _append_generated_zero_branch_tests_if_missing(
         rules_file=rules_file,
         test_file=test_file,
         repo_path=repo_path,
         relative_output=relative_output,
-        issues=initial_issues,
+        issues=zero_branch_issues,
     )
     if not repaired_test_cases:
         print("No zero-branch test repairs found.")
@@ -7497,14 +7511,30 @@ def cmd_repair_zero_branch_tests(args):
         require_policy_proofs=True,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
-        test_file.write_text(original_test_content)
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        print("Repair failed validation; restored original test file.")
-        for issue in issues:
-            print(f"- {issue}")
-        sys.exit(1)
+        remaining_zero_branch_outputs = set(
+            _zero_branch_output_names_from_issues(
+                _zero_branch_coverage_issues_for_files(
+                    rules_file=rules_file,
+                    test_file=test_file,
+                )
+            )
+        )
+        introduced_non_zero_issues = _non_zero_branch_issues(
+            issues
+        ) - _non_zero_branch_issues(initial_issues)
+        made_zero_branch_progress = (
+            bool(initial_zero_branch_outputs - remaining_zero_branch_outputs)
+            and remaining_zero_branch_outputs < initial_zero_branch_outputs
+        )
+        if introduced_non_zero_issues or not made_zero_branch_progress:
+            test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original test file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
@@ -7536,10 +7566,16 @@ def cmd_repair_zero_branch_tests(args):
             axiom_encode_git=axiom_encode_git,
         )
 
-    print(
+    message = (
         "Applied zero-branch test repair to "
         f"{relative_output}: {', '.join(repaired_test_cases)}"
     )
+    if not validation.all_passed:
+        pending_count = len(
+            [result.error for result in validation.results.values() if result.error]
+        )
+        message += f" with pending validation issues still remaining: {pending_count}"
+    print(message)
     print(f"manifest={manifest_path}")
 
 
@@ -13617,6 +13653,31 @@ def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         "Zero branch test coverage missing: " in issue for issue in issues
     )
+
+
+def _zero_branch_coverage_issues_for_files(
+    *, rules_file: Path, test_file: Path
+) -> list[str]:
+    """Compute zero-branch issues directly, even when earlier validators mask them."""
+    if not rules_file.exists() or not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    try:
+        content = rules_file.read_text()
+    except OSError:
+        return []
+    return find_zero_branch_test_coverage_issues(content, test_cases)
+
+
+def _non_zero_branch_issues(issues: list[str]) -> set[str]:
+    return {
+        issue
+        for issue in issues
+        if "Zero branch test coverage missing: " not in str(issue)
+    }
 
 
 def _only_pending_exception_test_coverage_issues(issues: list[str]) -> bool:
