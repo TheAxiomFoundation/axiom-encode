@@ -137,6 +137,11 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "unused/proof-only import" in ENCODER_PROMPT
     assert "directly or transitively" in ENCODER_PROMPT
     assert "numeric boundary input" in ENCODER_PROMPT
+    assert (
+        "Never create a derived rule whose formula references that same rule's name"
+        in ENCODER_PROMPT
+    )
+    assert "bona_fide_need_for_x_arrangement" in ENCODER_PROMPT
     assert "rate-bearing source" in ENCODER_PROMPT
     assert "cycle with a foundational base definition" in ENCODER_PROMPT
     assert "defines a base, net amount" in ENCODER_PROMPT
