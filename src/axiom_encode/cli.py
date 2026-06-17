@@ -13102,6 +13102,12 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     repaired_lines, repaired_rules = _insert_missing_source_proof_atoms(
         lines, repairs_by_rule
     )
+    if set(repaired_rules) != set(repairs_by_rule):
+        structured_content, structured_rules = (
+            _insert_missing_source_proof_atoms_structured(payload, repairs_by_rule)
+        )
+        if structured_rules:
+            return structured_content, structured_rules
     return "".join(repaired_lines), repaired_rules
 
 
@@ -13255,6 +13261,63 @@ def _insert_missing_source_proof_atoms(
         repaired_rules.append(rule_name)
 
     return output, repaired_rules
+
+
+def _insert_missing_source_proof_atoms_structured(
+    payload: dict[str, object],
+    repairs_by_rule: dict[str, dict[str, str]],
+) -> tuple[str, list[str]]:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        module = {}
+        payload["module"] = module
+    proof_validation = module.get("proof_validation")
+    if not isinstance(proof_validation, dict):
+        module["proof_validation"] = {"required": True}
+    else:
+        proof_validation["required"] = True
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False), []
+
+    repaired_rules: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        repair = repairs_by_rule.get(rule_name)
+        if repair is None:
+            continue
+        metadata = rule.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            rule["metadata"] = metadata
+        proof = metadata.get("proof")
+        if not isinstance(proof, dict):
+            proof = {}
+            metadata["proof"] = proof
+        atoms = proof.get("atoms")
+        if isinstance(atoms, list) and atoms:
+            continue
+        source: dict[str, str] = {
+            "corpus_citation_path": repair["corpus_citation_path"],
+        }
+        if repair["span"]:
+            source["span"] = repair["span"]
+        proof["atoms"] = [
+            {
+                "path": "versions[0].formula",
+                "kind": repair["kind"],
+                "source": source,
+            }
+        ]
+        repaired_rules.append(rule_name)
+
+    return (
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
+        repaired_rules,
+    )
 
 
 def _source_proof_insertion(
