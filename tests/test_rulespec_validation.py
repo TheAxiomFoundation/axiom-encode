@@ -4272,6 +4272,28 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_textual_half_across_line_break():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/example/source
+rules:
+  - name: departing_resident_partial_allotment_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    source_text = (
+        "the center shall provide the resident with one\n"
+        "half of his/her monthly allotment"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
 def test_rulespec_grounding_does_not_trust_module_summary():
     content = """format: rulespec/v1
 module:
