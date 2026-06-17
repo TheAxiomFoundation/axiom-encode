@@ -4294,6 +4294,25 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_half_time_as_fraction():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/example/source
+rules:
+  - name: full_time_enrollment_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    source_text = "a person enrolled at least half-time in an accredited school"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
 def test_rulespec_grounding_does_not_trust_module_summary():
     content = """format: rulespec/v1
 module:

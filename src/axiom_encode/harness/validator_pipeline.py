@@ -702,6 +702,7 @@ _UNICODE_FRACTION_VALUES = {
     "⅞": 0.875,
 }
 _FRACTION_WORD_VALUES = {
+    "half time": 0.5,
     "one half": 0.5,
     "one third": 1 / 3,
     "two thirds": 2 / 3,
@@ -709,7 +710,7 @@ _FRACTION_WORD_VALUES = {
     "three quarters": 0.75,
 }
 _FRACTION_WORD_PATTERN = (
-    r"(?:one[-\s]+half|one[-\s]+third|two[-\s]+thirds|"
+    r"(?:half[-\s]+time|one[-\s]+half|one[-\s]+third|two[-\s]+thirds|"
     r"one[-\s]+quarter|three[-\s]+quarters)"
 )
 _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
