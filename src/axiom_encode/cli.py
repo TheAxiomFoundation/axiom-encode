@@ -19445,25 +19445,104 @@ def cmd_encode(args):
                 print(f"  apply=blocked_validation:{detail}")
             if can_apply:
                 try:
-                    applied = _apply_generated_encoding_result(
-                        result,
-                        output_root=args.output,
+                    output_file = Path(str(getattr(result, "output_file", "") or ""))
+                    relative_output = _relative_generated_output_path(
+                        result, output_root=args.output
+                    )
+                    canonical_repaired_files = _enforce_canonical_concept_registry(
+                        candidate_files=[output_file, _rulespec_test_path(output_file)],
+                        relative_output=relative_output,
                         policy_repo_path=policy_repo_path,
-                        run_id=logged_run.id,
-                        supplemental_files=supplemental_files,
                     )
                 except RuntimeError as exc:
-                    outcome["status"] = "apply_blocked_manifest"
-                    outcome["apply_error"] = str(exc)
-                    outcome["final_success"] = False
-                    print(f"  apply=blocked_manifest:{exc}")
+                    can_apply = False
+                    apply_issues = [str(exc)]
+                    outcome["overlay_validation_success"] = False
                 else:
-                    print("  apply=" + ",".join(str(path) for path in applied))
-                    apply_passed = True
-                    outcome["status"] = "apply_applied"
-                    outcome["apply_success"] = True
-                    outcome["final_success"] = True
-                    outcome["applied_files"] = [str(path) for path in applied]
+                    if canonical_repaired_files:
+                        can_apply, apply_issues, supplemental_files = (
+                            _validate_generated_encoding_in_policy_overlay(
+                                result,
+                                output_root=args.output,
+                                policy_repo_path=policy_repo_path,
+                                axiom_rules_path=axiom_rules_path,
+                                validate_dependents=not bool(
+                                    getattr(args, "apply_target_only", False)
+                                ),
+                            )
+                        )
+                        outcome["overlay_validation_success"] = bool(can_apply)
+                        if not can_apply:
+                            repaired_invalid_input_refs = list(
+                                outcome.get("auto_repaired_invalid_test_inputs") or []
+                            )
+                            while not can_apply:
+                                repaired_refs = (
+                                    _try_repair_generated_invalid_test_inputs_for_apply(
+                                        result,
+                                        output_root=args.output,
+                                        issues=apply_issues,
+                                    )
+                                )
+                                if not repaired_refs:
+                                    break
+                                for repaired_ref in repaired_refs:
+                                    if repaired_ref not in repaired_invalid_input_refs:
+                                        repaired_invalid_input_refs.append(repaired_ref)
+                                outcome["auto_repaired_invalid_test_inputs"] = (
+                                    repaired_invalid_input_refs
+                                )
+                                print(
+                                    "  apply=auto_repaired_invalid_test_inputs:"
+                                    + ",".join(repaired_refs)
+                                )
+                                can_apply, apply_issues, supplemental_files = (
+                                    _validate_generated_encoding_in_policy_overlay(
+                                        result,
+                                        output_root=args.output,
+                                        policy_repo_path=policy_repo_path,
+                                        axiom_rules_path=axiom_rules_path,
+                                        validate_dependents=not bool(
+                                            getattr(args, "apply_target_only", False)
+                                        ),
+                                    )
+                                )
+                                outcome["overlay_validation_success"] = bool(can_apply)
+                            if repaired_invalid_input_refs:
+                                outcome["auto_repaired_invalid_test_inputs"] = (
+                                    repaired_invalid_input_refs
+                                )
+                if not can_apply:
+                    detail = (
+                        apply_issues[0]
+                        if apply_issues
+                        else f"standalone_failed: {result.error or 'validation failed'}"
+                    )
+                    outcome["status"] = "apply_blocked_validation"
+                    outcome["apply_error"] = detail
+                    outcome["final_success"] = False
+                    print(f"  apply=blocked_validation:{detail}")
+                else:
+                    try:
+                        applied = _apply_generated_encoding_result(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            run_id=logged_run.id,
+                            supplemental_files=supplemental_files,
+                        )
+                    except RuntimeError as exc:
+                        outcome["status"] = "apply_blocked_manifest"
+                        outcome["apply_error"] = str(exc)
+                        outcome["final_success"] = False
+                        print(f"  apply=blocked_manifest:{exc}")
+                    else:
+                        print("  apply=" + ",".join(str(path) for path in applied))
+                        apply_passed = True
+                        outcome["status"] = "apply_applied"
+                        outcome["apply_success"] = True
+                        outcome["final_success"] = True
+                        outcome["applied_files"] = [str(path) for path in applied]
     repair_manifest = _record_encode_outcome(
         db_path=db_path,
         result=result,
@@ -28050,12 +28129,12 @@ def _enforce_canonical_concept_registry(
     candidate_files: list[Path],
     relative_output: Path,
     policy_repo_path: Path | None = None,
-) -> None:
+) -> list[Path]:
     """Refuse to apply a generated encoding that violates the concept registry.
 
     Raises RuntimeError listing every violation so the encoder caller can
-    surface them. Run before any file copy so a bad encode never lands in
-    the live rules repo.
+    surface them. Returns repaired test files. Run before any file copy so a
+    bad encode never lands in the live rules repo.
     """
     registry = load_concept_registry()
     apply_anchor = _relative_output_to_anchor(
@@ -28073,7 +28152,7 @@ def _enforce_canonical_concept_registry(
         files, registry, apply_anchor=apply_anchor
     )
     if not violations:
-        return
+        return repaired
     lines = [str(v) for v in violations]
     raise RuntimeError(
         "Canonical concept registry violations — refusing to apply:\n  "
