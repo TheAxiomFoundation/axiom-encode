@@ -9868,6 +9868,8 @@ rules:
         formula: |-
           if second_condition:
               second_amount
+          elif backup_condition:
+              backup_amount
           else:
               0
 """
@@ -9934,6 +9936,7 @@ rules:
         test_content = test_file.read_text()
         assert "auto_zero_first_zero_branch_amount" in test_content
         assert "auto_zero_second_zero_branch_amount" in test_content
+        assert "#input.elif" not in test_content
         manifest = repo / ".axiom/encoding-manifests/statutes/26/151.json"
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "zero-branch-test-v1"
@@ -9942,6 +9945,92 @@ rules:
             "statutes/26/151.yaml",
             "statutes/26/151.test.yaml",
         ]
+
+    def test_repair_zero_branch_tests_keeps_unmasked_legacy_issues(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "152.yaml"
+        test_file = repo / "statutes" / "26" / "152.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: zero_branch_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if condition:
+              amount
+          else:
+              0
+"""
+        )
+        test_file.write_text(
+            """- name: positive_case
+  period: 2026
+  input:
+    us:statutes/26/152#input.condition: true
+    us:statutes/26/152#input.amount: 5
+  output:
+    us:statutes/26/152#zero_branch_amount: 5
+"""
+        )
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("statutes/26/152.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            call_count = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                self.__class__.call_count += 1
+                if self.__class__.call_count == 1:
+                    error = (
+                        "Zero branch test coverage missing: "
+                        "`zero_branch_amount` has a formula branch that returns 0."
+                    )
+                else:
+                    error = (
+                        "Test case `legacy_case` mixes derived output entities "
+                        "(Household, Person); put outputs for each entity in "
+                        "separate test cases."
+                    )
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={"ci": SimpleNamespace(error=error)},
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        output = capsys.readouterr().out
+        assert "Applied zero-branch test repair to statutes/26/152.yaml" in output
+        assert "with pending validation issues still remaining: 1" in output
+        assert "auto_zero_zero_branch_amount" in test_file.read_text()
+        manifest = repo / ".axiom/encoding-manifests/statutes/26/152.json"
+        assert json.loads(manifest.read_text())["model"] == "zero-branch-test-v1"
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path

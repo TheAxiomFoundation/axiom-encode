@@ -7522,14 +7522,15 @@ def cmd_repair_zero_branch_tests(args):
                 )
             )
         )
-        introduced_non_zero_issues = _non_zero_branch_issues(
-            issues
-        ) - _non_zero_branch_issues(initial_issues)
+        repaired_case_issues = _issues_for_repaired_test_cases(
+            issues,
+            repaired_test_cases,
+        )
         made_zero_branch_progress = (
             bool(initial_zero_branch_outputs - remaining_zero_branch_outputs)
             and remaining_zero_branch_outputs < initial_zero_branch_outputs
         )
-        if introduced_non_zero_issues or not made_zero_branch_progress:
+        if repaired_case_issues or not made_zero_branch_progress:
             test_file.write_text(original_test_content)
             print("Repair failed validation; restored original test file.")
             for issue in issues:
@@ -13672,12 +13673,15 @@ def _zero_branch_coverage_issues_for_files(
     return find_zero_branch_test_coverage_issues(content, test_cases)
 
 
-def _non_zero_branch_issues(issues: list[str]) -> set[str]:
-    return {
+def _issues_for_repaired_test_cases(
+    issues: list[str],
+    repaired_test_cases: list[str],
+) -> list[str]:
+    return [
         issue
         for issue in issues
-        if "Zero branch test coverage missing: " not in str(issue)
-    }
+        if any(case_name in str(issue) for case_name in repaired_test_cases)
+    ]
 
 
 def _only_pending_exception_test_coverage_issues(issues: list[str]) -> bool:
@@ -15449,6 +15453,7 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
         "ceil",
         "count_where",
         "else",
+        "elif",
         "false",
         "floor",
         "if",
