@@ -14086,6 +14086,34 @@ def find_rule_name_path_suffix_issues(
     return []
 
 
+def find_mixed_case_rule_name_token_issues(content: str) -> list[str]:
+    """Reject accidental mixed-case word tokens in exported rule names."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        for token in name.split("_"):
+            if any(ch.islower() for ch in token) and any(ch.isupper() for ch in token):
+                issues.append(
+                    "Rule name token uses accidental mixed case: "
+                    f"rule `{name}` contains token `{token}`. Use lowercase "
+                    "semantic acronyms such as `ipv`; reserve uppercase for "
+                    "source-stated legal fragments like `D`, `7C`, or `7527A`."
+                )
+                break
+    return issues
+
+
 def _path_suffix_tokens_for_rule_name(
     section: str,
     fragments: tuple[str, ...],
@@ -19778,6 +19806,7 @@ class ValidatorPipeline:
         )
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
+        issues.extend(find_mixed_case_rule_name_token_issues(content))
         # Read the requested-source target from the nearby eval workspace or
         # the durable apply manifest so subparagraph-coverage scoping respects
         # encoder intent even when the corpus served a parent-fallback source

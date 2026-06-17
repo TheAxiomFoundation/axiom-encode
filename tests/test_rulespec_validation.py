@@ -59,6 +59,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_missing_child_exception_import_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
+    find_mixed_case_rule_name_token_issues,
     find_nonnegative_amount_reduction_issues,
     find_out_of_scope_rule_source_issues,
     find_partial_extent_zeroing_issues,
@@ -7818,6 +7819,41 @@ rules:
         )
         == []
     )
+
+
+def test_mixed_case_rule_name_token_rejects_accidental_acronym_case():
+    content = """format: rulespec/v1
+rules:
+  - name: first_ipV_disqualification_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+"""
+
+    issues = find_mixed_case_rule_name_token_issues(content)
+
+    assert issues == [
+        "Rule name token uses accidental mixed case: rule "
+        "`first_ipV_disqualification_months` contains token `ipV`. Use "
+        "lowercase semantic acronyms such as `ipv`; reserve uppercase for "
+        "source-stated legal fragments like `D`, `7C`, or `7527A`."
+    ]
+
+
+def test_mixed_case_rule_name_token_allows_legal_fragments():
+    content = """format: rulespec/v1
+rules:
+  - name: aggregate_advance_payments_under_section_7527A
+    kind: derived
+  - name: paragraph_7C_or_10_cash_remuneration_deduction_threshold
+    kind: parameter
+  - name: subsection_a_1_D_applies_to_readily_tradable_instrument_payment
+    kind: derived
+"""
+
+    assert find_mixed_case_rule_name_token_issues(content) == []
 
 
 def test_sibling_rule_name_collision_rejects_duplicate_exports(tmp_path):
