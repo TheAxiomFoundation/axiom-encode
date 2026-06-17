@@ -6671,6 +6671,58 @@ rules:
             ")"
         )
 
+    def test_judgment_conditional_repair_rewrites_scalar_comparison_branch(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "hearings.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: exceptions_filing_timely
+  kind: derived
+  entity: SnapAppeal
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: |-
+      notice_of_intent_to_file_exceptions_timely
+      and calendar_days_from_initial_decision_mailing_to_exceptions
+      <= exceptions_due_calendar_days
+         + mailing_extension_calendar_days
+         + (if ooa_granted_good_cause_extension_for_exceptions: exceptions_extension_max_calendar_days else: 0)
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_judgment_conditionals_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "regulations/10-ccr-2506-1/4.802.63.yaml: ci: "
+                "Judgment conditional formula unsupported: "
+                "`exceptions_filing_timely` uses `if ... else ...` in a Judgment formula. "
+                "Judgment formulas must be boolean expressions using `and`, `or`, `not`, "
+                "comparisons, and parentheses; rewrite branch logic as equivalent boolean "
+                "logic instead of returning one judgment expression or another."
+            ],
+        )
+
+        assert repaired == ["exceptions_filing_timely"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "notice_of_intent_to_file_exceptions_timely and ("
+            "((ooa_granted_good_cause_extension_for_exceptions) "
+            "and calendar_days_from_initial_decision_mailing_to_exceptions "
+            "<= exceptions_due_calendar_days + mailing_extension_calendar_days "
+            "+ (exceptions_extension_max_calendar_days))\n"
+            "  or (not (ooa_granted_good_cause_extension_for_exceptions) "
+            "and calendar_days_from_initial_decision_mailing_to_exceptions "
+            "<= exceptions_due_calendar_days + mailing_extension_calendar_days + (0)))"
+        )
+
     def test_judgment_numeric_comparison_repair_skips_non_truth_decimals(
         self, tmp_path
     ):

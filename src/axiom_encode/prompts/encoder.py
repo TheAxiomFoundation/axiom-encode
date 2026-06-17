@@ -1142,6 +1142,10 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   boolean expressions using `and`, `or`, `not`, comparisons, and parentheses.
   For example, encode `if exempt: net_ok else: net_ok and gross_ok` as
   `net_ok and (exempt or gross_ok)`.
+  If a Judgment compares against a scalar that varies by condition, do not embed
+  `(if condition: extra else: 0)` inside the comparison. Either create a scalar
+  helper for the allowed amount or branch the Judgment directly, for example
+  `(condition and days <= base + extra) or (not condition and days <= base)`.
 - When using negated conjuncts, write them as a multiline formula with each
   `not <predicate>` term on its own line joined by `and`, rather than one
   compact `not A and not B` line.

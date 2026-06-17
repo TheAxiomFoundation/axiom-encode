@@ -21122,6 +21122,8 @@ def _issue_mentions_judgment_conditional_shape(issue: str) -> bool:
     return (
         "expression shape not supported in judgment position" in text
         and "discriminant" in text
+    ) or (
+        "judgment conditional formula unsupported" in text and "if ... else ..." in text
     )
 
 
@@ -21896,6 +21898,10 @@ def _rewrite_judgment_conditional_expression(expression: str) -> str:
         if branch_formula is not None:
             return branch_formula
 
+    comparison_formula = _rewrite_scalar_conditional_comparison_in_judgment(stripped)
+    if comparison_formula != stripped:
+        return _rewrite_judgment_conditional_expression(comparison_formula)
+
     split = _split_inline_if_expression_span(stripped)
     if split is None:
         return stripped
@@ -21907,6 +21913,113 @@ def _rewrite_judgment_conditional_expression(expression: str) -> str:
         f"  or (not ({condition}) and {false_formula}))"
     )
     return f"{stripped[:start].rstrip()}{replacement}{stripped[end:].lstrip()}"
+
+
+def _rewrite_scalar_conditional_comparison_in_judgment(expression: str) -> str:
+    split = _split_inline_if_expression_span(expression)
+    if split is None:
+        return expression
+    start, end, condition, true_branch, false_branch = split
+    term_start, term_end = _top_level_boolean_term_span_containing(
+        expression,
+        start,
+    )
+    raw_term = expression[term_start:term_end]
+    leading = len(raw_term) - len(raw_term.lstrip())
+    trailing = len(raw_term) - len(raw_term.rstrip())
+    trimmed_start = term_start + leading
+    trimmed_end = term_end - trailing
+    term = expression[trimmed_start:trimmed_end]
+    if _top_level_comparison_operator(term) is None:
+        return expression
+    relative_start = start - trimmed_start
+    relative_end = end - trimmed_start
+    if relative_start < 0 or relative_end > len(term):
+        return expression
+
+    true_term = f"{term[:relative_start]}{true_branch}{term[relative_end:]}".strip()
+    false_term = f"{term[:relative_start]}{false_branch}{term[relative_end:]}".strip()
+    if not true_term or not false_term:
+        return expression
+    replacement = (
+        f"((({condition}) and {true_term})\n  or (not ({condition}) and {false_term}))"
+    )
+    return f"{expression[:trimmed_start]}{replacement}{expression[trimmed_end:]}"
+
+
+def _top_level_boolean_term_span_containing(
+    text: str,
+    position: int,
+) -> tuple[int, int]:
+    depth = 0
+    quote: str | None = None
+    start = 0
+    end = len(text)
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote and (index == 0 or text[index - 1] != "\\"):
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if depth == 0 and (
+            _formula_word_at(text, index, "and") or _formula_word_at(text, index, "or")
+        ):
+            if index < position:
+                start = index + (3 if text[index : index + 3].lower() == "and" else 2)
+                index = start
+                continue
+            end = index
+            break
+        index += 1
+    return start, end
+
+
+def _top_level_comparison_operator(text: str) -> tuple[int, str] | None:
+    depth = 0
+    quote: str | None = None
+    operators = ("<=", ">=", "==", "!=", "<", ">")
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote and (index == 0 or text[index - 1] != "\\"):
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if depth == 0:
+            for operator in operators:
+                if text.startswith(operator, index):
+                    return index, operator
+        index += 1
+    return None
 
 
 def _rewrite_top_level_judgment_conditional(expression: str) -> str | None:
