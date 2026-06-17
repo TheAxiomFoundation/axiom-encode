@@ -13830,6 +13830,74 @@ rules:
             "us:statutes/26/3306/d#pay_period_result": "holds",
         }
 
+    def test_imported_rule_name_collision_repair_resolves_cross_prefix_imports(
+        self, tmp_path
+    ):
+        state_repo = tmp_path / "rulespec-us-co"
+        federal_repo = tmp_path / "rulespec-us"
+        imported_file = federal_repo / "regulations/7-cfr/273/5.yaml"
+        rules_file = state_repo / "regulations/10-ccr-2506-1/4.306.yaml"
+        test_file = state_repo / "regulations/10-ccr-2506-1/4.306.test.yaml"
+        imported_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_student_enrollment_status_active
+    kind: derived
+    versions:
+      - effective_from: '2019-06-14'
+        formula: student_school_term_has_begun
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/5
+rules:
+  - name: snap_student_enrollment_status_active
+    kind: derived
+    versions:
+      - effective_from: '2019-06-14'
+        formula: student_started_classes
+  - name: colorado_student_status
+    kind: derived
+    versions:
+      - effective_from: '2019-06-14'
+        formula: snap_student_enrollment_status_active
+"""
+        )
+        test_file.write_text(
+            """- name: active_case
+  output:
+    us-co:regulations/10-ccr-2506-1/4.306#snap_student_enrollment_status_active: holds
+    us-co:regulations/10-ccr-2506-1/4.306#colorado_student_status: holds
+"""
+        )
+
+        repaired = _repair_imported_rule_name_collisions(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=state_repo,
+            relative_output=Path("regulations/10-ccr-2506-1/4.306.yaml"),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["snap_student_enrollment_status_active"]
+        assert [rule["name"] for rule in rules_payload["rules"]] == [
+            "local_snap_student_enrollment_status_active",
+            "colorado_student_status",
+        ]
+        assert (
+            rules_payload["rules"][1]["versions"][0]["formula"]
+            == "local_snap_student_enrollment_status_active"
+        )
+        assert test_cases[0]["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.306#local_snap_student_enrollment_status_active": "holds",
+            "us-co:regulations/10-ccr-2506-1/4.306#colorado_student_status": "holds",
+        }
+
     def test_upstream_placement_duplicate_repair_imports_existing_target(
         self, tmp_path
     ):

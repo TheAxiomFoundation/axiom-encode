@@ -28442,9 +28442,16 @@ def _imported_module_exported_rule_names(
         if not isinstance(raw_import, str):
             continue
         resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
-        if resolved is None:
+        import_file = (
+            resolved[1]
+            if resolved is not None
+            else _rulespec_file_for_absolute_module_ref(
+                raw_import,
+                policy_repo_path=repo_path,
+            )
+        )
+        if import_file is None:
             continue
-        _, import_file = resolved
         try:
             resolved_file = import_file.resolve()
         except OSError:
