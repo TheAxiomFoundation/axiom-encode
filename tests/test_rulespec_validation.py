@@ -8062,6 +8062,58 @@ rules:
     assert find_sibling_rule_name_collision_issues(content, rules_file) == []
 
 
+def test_sibling_rule_name_collision_caches_sibling_names(
+    monkeypatch,
+    tmp_path,
+):
+    rules_file = (
+        tmp_path / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    )
+    sibling = rules_file.with_name("B.yaml")
+    rules_file.parent.mkdir(parents=True)
+    sibling.write_text(
+        """format: rulespec/v1
+rules:
+  - name: care_responsibility_exemption_applies
+    kind: derived
+"""
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: title_iv_or_unemployment_work_registration_exemption_applies
+    kind: derived
+"""
+
+    validator_pipeline._rulespec_rule_names_from_file_cached.cache_clear()
+    original_safe_load = validator_pipeline.yaml.safe_load
+    load_count = 0
+
+    def counting_safe_load(stream):
+        nonlocal load_count
+        load_count += 1
+        return original_safe_load(stream)
+
+    monkeypatch.setattr(
+        validator_pipeline.yaml,
+        "safe_load",
+        counting_safe_load,
+    )
+
+    for _ in range(2):
+        assert find_sibling_rule_name_collision_issues(content, rules_file) == []
+
+    assert load_count == 3
+
+    sibling.write_text(
+        sibling.read_text().replace(
+            "care_responsibility_exemption_applies",
+            "care_responsibility_exemption_for_dependent_applies",
+        )
+    )
+    assert find_sibling_rule_name_collision_issues(content, rules_file) == []
+    assert load_count == 5
+
+
 def test_child_fragment_reencoding_rejects_parent_copying_child_inputs(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
@@ -10962,6 +11014,77 @@ rules:
     )
 
     assert issue is None
+
+
+def test_rulespec_reference_summary_cache_reuses_unchanged_file(
+    monkeypatch,
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "regulations" / "7-cfr" / "273" / "10.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_size + snap_net_income
+"""
+    )
+
+    validator_pipeline._rulespec_reference_summary_cached.cache_clear()
+    original_safe_load = validator_pipeline.yaml.safe_load
+    load_count = 0
+
+    def counting_safe_load(stream):
+        nonlocal load_count
+        load_count += 1
+        return original_safe_load(stream)
+
+    monkeypatch.setattr(
+        validator_pipeline.yaml,
+        "safe_load",
+        counting_safe_load,
+    )
+
+    for reference in (
+        "us:regulations/7-cfr/273/10#input.household_size",
+        "us:regulations/7-cfr/273/10#input.snap_net_income",
+    ):
+        issue = validator_pipeline._rulespec_absolute_test_reference_issue(
+            reference,
+            label="input",
+            policy_repo_path=repo,
+            allow_input_slots=True,
+            allow_relations=False,
+            allow_outputs=False,
+        )
+        assert issue is None
+
+    assert load_count == 1
+
+    rules_file.write_text(
+        rules_file.read_text().replace(
+            "household_size + snap_net_income",
+            "household_size + snap_net_income + shelter_deduction",
+        )
+    )
+    issue = validator_pipeline._rulespec_absolute_test_reference_issue(
+        "us:regulations/7-cfr/273/10#input.shelter_deduction",
+        label="input",
+        policy_repo_path=repo,
+        allow_input_slots=True,
+        allow_relations=False,
+        allow_outputs=False,
+    )
+
+    assert issue is None
+    assert load_count == 2
 
 
 def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
