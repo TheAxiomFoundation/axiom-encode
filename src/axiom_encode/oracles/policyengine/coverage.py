@@ -21,6 +21,15 @@ from .registry import PolicyEngineMapping, load_policyengine_registry
 
 EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
 ORACLE_COVERAGE_STATUSES = {"comparable", "known_not_comparable", "unmapped"}
+PROGRAM_SURFACE_STATUSES = {
+    "deferred_jurisdiction",
+    "input_only",
+    "out_of_scope",
+    "pe_in_progress",
+    "pending_oracle_mapping",
+    "pending_rulespec_encoding",
+    "wired",
+}
 _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
     for token in ("medicaid", "chip", "aca")
@@ -107,10 +116,53 @@ class PolicyEngineCandidateItem:
         }
 
 
+@dataclass(frozen=True)
+class PolicyEngineProgramSurfaceItem:
+    """One PolicyEngine program variable classified against Axiom wiring."""
+
+    country: str
+    program_id: str
+    program_name: str
+    category: str
+    policyengine_status: str
+    coverage: str
+    variable: str
+    axiom_status: str
+    source_type: str = "program"
+    agency: str | None = None
+    state: str | None = None
+    priority: str | None = None
+    rationale: str | None = None
+    mapping_count: int = 0
+    comparable_mapping_count: int = 0
+    legal_ids: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, str | int | list[str] | None]:
+        return {
+            "country": self.country,
+            "program_id": self.program_id,
+            "program_name": self.program_name,
+            "category": self.category,
+            "policyengine_status": self.policyengine_status,
+            "coverage": self.coverage,
+            "variable": self.variable,
+            "axiom_status": self.axiom_status,
+            "source_type": self.source_type,
+            "agency": self.agency,
+            "state": self.state,
+            "priority": self.priority,
+            "rationale": self.rationale,
+            "mapping_count": self.mapping_count,
+            "comparable_mapping_count": self.comparable_mapping_count,
+            "legal_ids": list(self.legal_ids),
+        }
+
+
 def build_policyengine_coverage_report(
     root: Path,
     *,
     program: str | None = None,
+    include_program_surfaces: bool = False,
 ) -> dict[str, Any]:
     """Classify executable RuleSpec outputs against the PolicyEngine registry."""
     registry = load_policyengine_registry()
@@ -132,7 +184,7 @@ def build_policyengine_coverage_report(
     for item in items:
         repo_counts.setdefault(item.repo, Counter())[item.status] += 1
 
-    return {
+    report = {
         "oracle": "policyengine",
         "root": str(root),
         "total_outputs": len(items),
@@ -148,6 +200,60 @@ def build_policyengine_coverage_report(
             for repo, counter in sorted(repo_counts.items())
         ],
         "items": [item.as_dict() for item in items],
+    }
+    if include_program_surfaces:
+        report["program_surfaces"] = build_policyengine_program_surface_report(
+            program=program,
+            registry=registry,
+        )
+    return report
+
+
+def build_policyengine_program_surface_report(
+    *,
+    country: str = "us",
+    program: str | None = None,
+    manifest_path: Path | None = None,
+    registry=None,
+) -> dict[str, Any]:
+    """Classify PolicyEngine program variables against the Axiom registry."""
+    registry = registry or load_policyengine_registry()
+    payload = _load_policyengine_program_surface_manifest(
+        country=country,
+        manifest_path=manifest_path,
+    )
+    surfaces = [
+        _program_surface_item_from_payload(raw_surface, registry=registry)
+        for raw_surface in payload["surfaces"]
+    ]
+    if program:
+        surfaces = [
+            surface
+            for surface in surfaces
+            if _program_surface_matches_filter(surface, program)
+        ]
+    status_counts = Counter(surface.axiom_status for surface in surfaces)
+    priority_counts = Counter(
+        surface.priority for surface in surfaces if surface.priority
+    )
+    unwired_statuses = {
+        "deferred_jurisdiction",
+        "pending_oracle_mapping",
+        "pending_rulespec_encoding",
+    }
+    pending_surfaces = [
+        surface for surface in surfaces if surface.axiom_status in unwired_statuses
+    ]
+    return {
+        "oracle": "policyengine",
+        "country": country,
+        "program": program,
+        "source": payload.get("source", {}),
+        "total_surfaces": len(surfaces),
+        "status_counts": dict(sorted(status_counts.items())),
+        "priority_counts": dict(sorted(priority_counts.items())),
+        "pending_surfaces": len(pending_surfaces),
+        "items": [surface.as_dict() for surface in surfaces],
     }
 
 
@@ -450,6 +556,111 @@ def _load_policyengine_variable_names() -> set[str] | None:
         return set(CountryTaxBenefitSystem().variables)
     except Exception:
         return None
+
+
+def _load_policyengine_program_surface_manifest(
+    *,
+    country: str,
+    manifest_path: Path | None,
+) -> dict[str, Any]:
+    path = (
+        manifest_path
+        if manifest_path is not None
+        else Path(__file__).with_name("program_surfaces") / f"{country}.yaml"
+    )
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        raise ValueError(
+            f"Unable to load PolicyEngine surface manifest {path}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"PolicyEngine surface manifest must be an object: {path}")
+    raw_surfaces = payload.get("surfaces")
+    if not isinstance(raw_surfaces, list):
+        raise ValueError(
+            f"PolicyEngine surface manifest surfaces must be a list: {path}"
+        )
+    for index, raw_surface in enumerate(raw_surfaces):
+        if not isinstance(raw_surface, dict):
+            raise ValueError(
+                f"PolicyEngine surface manifest entry {index} must be an object: {path}"
+            )
+        missing = [
+            key
+            for key in (
+                "country",
+                "program_id",
+                "program_name",
+                "category",
+                "policyengine_status",
+                "coverage",
+                "variable",
+                "axiom_status",
+            )
+            if not raw_surface.get(key)
+        ]
+        if missing:
+            raise ValueError(
+                f"PolicyEngine surface manifest entry {index} missing "
+                f"{', '.join(missing)}: {path}"
+            )
+        status = str(raw_surface.get("axiom_status"))
+        if status not in PROGRAM_SURFACE_STATUSES - {"wired"}:
+            raise ValueError(
+                f"Unsupported PolicyEngine surface status for "
+                f"{raw_surface.get('variable')}: {status}"
+            )
+    return payload
+
+
+def _program_surface_item_from_payload(
+    payload: dict[str, Any],
+    *,
+    registry,
+) -> PolicyEngineProgramSurfaceItem:
+    variable = str(payload["variable"])
+    country = str(payload.get("country") or "us")
+    mappings = registry.mappings_for_policyengine_variable(variable, country=country)
+    axiom_status = "wired" if mappings else str(payload["axiom_status"])
+    return PolicyEngineProgramSurfaceItem(
+        country=country,
+        program_id=str(payload["program_id"]),
+        program_name=str(payload["program_name"]),
+        category=str(payload["category"]),
+        policyengine_status=str(payload["policyengine_status"]),
+        coverage=str(payload["coverage"]),
+        variable=variable,
+        axiom_status=axiom_status,
+        source_type=str(payload.get("source_type") or "program"),
+        agency=payload.get("agency"),
+        state=payload.get("state"),
+        priority=payload.get("priority"),
+        rationale=payload.get("rationale"),
+        mapping_count=len(mappings),
+        comparable_mapping_count=sum(1 for mapping in mappings if mapping.comparable),
+        legal_ids=tuple(mapping.legal_id for mapping in mappings),
+    )
+
+
+def _program_surface_matches_filter(
+    surface: PolicyEngineProgramSurfaceItem,
+    program: str,
+) -> bool:
+    programs = _program_filter_values(program)
+    normalized = program.lower()
+    if surface.program_id in programs or surface.variable in programs:
+        return True
+    if normalized == "tax" and surface.category.lower() == "taxes":
+        return True
+    if normalized == "health" and surface.category.lower() == "healthcare":
+        return True
+    if normalized in {"ccap", "ccdf", "child_care"}:
+        return surface.program_id in {"ccdf", "ne_childcare"} or any(
+            token in surface.variable
+            for token in ("ccap", "ccdf", "child_care", "childcare", "caps")
+        )
+    return False
 
 
 def _load_rulespec_payload(path: Path) -> dict[str, Any] | None:

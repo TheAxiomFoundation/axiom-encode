@@ -122,6 +122,24 @@ class PolicyEngineOracleRegistry:
             and (country is None or mapping.country == country)
         ]
 
+    def mappings_for_policyengine_variable(
+        self, policyengine_variable: str, *, country: str | None = None
+    ) -> list[PolicyEngineMapping]:
+        """Return exact and prefix mappings that reference a PE variable."""
+        mappings = [
+            mapping
+            for mapping in self.mappings_by_legal_id.values()
+            if mapping.policyengine_variable == policyengine_variable
+            and (country is None or mapping.country == country)
+        ]
+        mappings.extend(
+            mapping
+            for mapping in self.prefix_mappings
+            if mapping.policyengine_variable == policyengine_variable
+            and (country is None or mapping.country == country)
+        )
+        return sorted(mappings, key=lambda mapping: mapping.legal_id)
+
     def validate(self) -> list[str]:
         issues: list[str] = []
         seen: set[str] = set()
