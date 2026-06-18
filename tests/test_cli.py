@@ -9985,6 +9985,7 @@ rules:
 imports:
 - us:regulations/7-cfr/273/10
 - us:statutes/7/2017/a
+  - us:statutes/7/2014/e/6/A
 rules:
 - name: state_agency_rounds_thirty_percent_net_income_up
   kind: parameter
@@ -10089,6 +10090,15 @@ rules:
             "+ (max(co_resident_group_size - 8, 0) * "
             "snap_gross_income_limit_165_percent_fpl_48_states_dc_additional_member)"
         )
+        limit_atom = limit_rule["metadata"]["proof"]["atoms"][0]
+        assert limit_atom == {
+            "path": "versions[0].formula",
+            "kind": "formula",
+            "source": {
+                "corpus_citation_path": "us-co/regulation/10-ccr-2506-1/4.401",
+                "span": "10 CCR 2506-1 section 4.401(A)(4)",
+            },
+        }
         eligibility_rule = next(
             item
             for item in payload["rules"]
@@ -10104,6 +10114,8 @@ rules:
             "and co_resident_gross_income <= "
             "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
         )
+        eligibility_atom = eligibility_rule["metadata"]["proof"]["atoms"][0]
+        assert eligibility_atom == limit_atom
 
     def test_repair_colorado_snap_policy_composition_extracts_boarder_table_bound(
         self, tmp_path

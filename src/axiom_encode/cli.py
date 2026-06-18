@@ -5116,6 +5116,10 @@ def _repair_colorado_snap_401(path: Path) -> None:
         content,
         "snap_gross_income_limit_165_percent_fpl_table_max_household_size",
     )
+    proof_metadata = _generated_formula_proof_metadata(
+        corpus_citation_path="us-co/regulation/10-ccr-2506-1/4.401",
+        span="10 CCR 2506-1 section 4.401(A)(4)",
+    )
     content = _upsert_rule_text(
         content,
         {
@@ -5126,6 +5130,7 @@ def _repair_colorado_snap_401(path: Path) -> None:
             "period": "Month",
             "unit": "USD",
             "source": "10 CCR 2506-1 section 4.401(A)(4)",
+            "metadata": proof_metadata,
             "versions": [
                 {
                     "effective_from": "2025-10-01",
@@ -5149,6 +5154,7 @@ def _repair_colorado_snap_401(path: Path) -> None:
             "dtype": "Judgment",
             "period": "Month",
             "source": "10 CCR 2506-1 section 4.401(A)(4)",
+            "metadata": proof_metadata,
             "versions": [
                 {
                     "effective_from": "2025-10-01",
@@ -5377,12 +5383,21 @@ def _ensure_yaml_import_text(
     before_import: str | None = None,
 ) -> str:
     import_indent = _yaml_sequence_item_indent(content, "imports")
+    content = _remove_misindented_yaml_sequence_item_text(
+        content,
+        section="imports",
+        item=import_target,
+        item_indent=import_indent,
+    )
     import_line = f"{import_indent}- {import_target}\n"
-    if re.search(rf"(?m)^\s*-\s+{re.escape(import_target)}$", content):
+    if re.search(
+        rf"(?m)^{re.escape(import_indent)}-\s+{re.escape(import_target)}$",
+        content,
+    ):
         return content
     if before_import is not None:
         before_match = re.search(
-            rf"(?m)^(\s*)-\s+{re.escape(before_import)}$",
+            rf"(?m)^{re.escape(import_indent)}-\s+{re.escape(before_import)}$",
             content,
         )
         if before_match is not None:
@@ -5472,6 +5487,40 @@ def _yaml_sequence_item_indent(content: str, section: str) -> str:
     return "  "
 
 
+def _remove_misindented_yaml_sequence_item_text(
+    content: str,
+    *,
+    section: str,
+    item: str,
+    item_indent: str,
+) -> str:
+    match = re.search(
+        rf"(?ms)^{re.escape(section)}:\s*\n(?P<body>.*?)(?=^[A-Za-z_][^:\n]*:\s*$|\Z)",
+        content,
+    )
+    if match is None:
+        return content
+    repaired_lines: list[str] = []
+    changed = False
+    for line in match.group("body").splitlines(keepends=True):
+        item_match = re.match(r"^(\s*)-\s+(.+?)(\r?\n)?$", line)
+        if (
+            item_match is not None
+            and item_match.group(1) != item_indent
+            and item_match.group(2).strip() == item
+        ):
+            changed = True
+            continue
+        repaired_lines.append(line)
+    if not changed:
+        return content
+    return (
+        content[: match.start("body")]
+        + "".join(repaired_lines)
+        + content[match.end("body") :]
+    )
+
+
 def _render_generated_rule_yaml(
     rule: dict[str, object], *, item_indent: str = "  "
 ) -> str:
@@ -5484,6 +5533,14 @@ def _render_generated_rule_yaml(
         value = rule.get(key)
         if value is not None:
             lines.append(f"{body_indent}{key}: {value}")
+    metadata = rule.get("metadata")
+    if metadata is not None:
+        lines.extend(
+            _render_generated_rule_metadata_yaml(
+                metadata,
+                body_indent=body_indent,
+            )
+        )
     versions = rule.get("versions")
     if not isinstance(versions, list) or not versions:
         raise RuntimeError("Generated rule missing versions")
@@ -5500,6 +5557,71 @@ def _render_generated_rule_yaml(
     formula_lines = str(version["formula"]).splitlines() or [""]
     lines.extend(f"{formula_indent}{line}" for line in formula_lines)
     return "\n".join(lines) + "\n"
+
+
+def _render_generated_rule_metadata_yaml(
+    metadata: object,
+    *,
+    body_indent: str,
+) -> list[str]:
+    if not isinstance(metadata, dict):
+        raise RuntimeError("Generated rule metadata must be a mapping")
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        raise RuntimeError("Generated rule metadata only supports proof mappings")
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list) or not atoms:
+        raise RuntimeError("Generated rule proof metadata requires atoms")
+    lines = [
+        f"{body_indent}metadata:",
+        f"{body_indent}  proof:",
+        f"{body_indent}    atoms:",
+    ]
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            raise RuntimeError("Generated rule proof atom must be a mapping")
+        source = atom.get("source")
+        if not isinstance(source, dict):
+            raise RuntimeError("Generated rule proof atom requires a source mapping")
+        corpus_citation_path = source.get("corpus_citation_path")
+        span = source.get("span")
+        if corpus_citation_path is None or span is None:
+            raise RuntimeError("Generated rule proof source requires path and span")
+        lines.extend(
+            [
+                f"{body_indent}      - path: {atom.get('path', 'versions[0].formula')}",
+                f"{body_indent}        kind: {atom.get('kind', 'formula')}",
+                f"{body_indent}        source:",
+                f"{body_indent}          corpus_citation_path: {corpus_citation_path}",
+                f"{body_indent}          span: {_yaml_single_quoted_scalar(str(span))}",
+            ]
+        )
+    return lines
+
+
+def _yaml_single_quoted_scalar(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _generated_formula_proof_metadata(
+    *,
+    corpus_citation_path: str,
+    span: str,
+) -> dict[str, object]:
+    return {
+        "proof": {
+            "atoms": [
+                {
+                    "path": "versions[0].formula",
+                    "kind": "formula",
+                    "source": {
+                        "corpus_citation_path": corpus_citation_path,
+                        "span": span,
+                    },
+                }
+            ]
+        }
+    }
 
 
 def _ensure_yaml_mapping_line_after_key(
