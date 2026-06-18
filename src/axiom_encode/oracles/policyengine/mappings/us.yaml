@@ -643,6 +643,34 @@ mappings:
     candidate_priority: P4
     rationale: Axiom composition helper combining Colorado income, resource, work, student, citizenship, transfer, and application rules; PE eligibility is adjacent but not this composed legal output.
 
+  - legal_id: us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit
+    country: us
+    program: ccap
+    mapping_type: direct_variable
+    policyengine_variable: co_ccap_smi
+    result_multiplier: 0.85
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CCAP monthly state median income limit; PolicyEngine exposes the monthly SMI helper and the legal output is 85 percent of it.
+
+  - legal_id: us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#gross_income_within_state_median_income_ceiling
+    country: us
+    program: ccap
+    mapping_type: not_comparable
+    policyengine_variable: co_ccap_smi_eligible
+    candidate_priority: P2
+    rationale: PolicyEngine's Colorado CCAP SMI eligibility predicate uses a strict less-than comparison, while 8 CCR 1403-1 3.111(H)(1) says gross income must not exceed 85 percent of state median income.
+
+  - legal_id: us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#income_and_asset_eligible_for_ccap_low_income_guidelines
+    country: us
+    program: ccap
+    mapping_type: not_comparable
+    policyengine_variable: co_ccap_entry_income_eligible
+    candidate_priority: P2
+    rationale: PolicyEngine's Colorado CCAP entry income predicate does not include the 3.111(H)(4)(c) one-million-dollar asset cap and uses PE's separate FPG entry-rate predicate.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
     country: us
     program: snap

@@ -5270,6 +5270,80 @@ rules:
     assert tax["test_output_count"] == 1
 
 
+def test_policyengine_coverage_maps_colorado_ccap_smi_limit(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-co"
+        / "regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_state_median_income_85_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: state_median_income_85_monthly_by_family_size[family_size]
+  - name: gross_income_within_state_median_income_ceiling
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_monthly_gross_income <= monthly_state_median_income_85_limit
+  - name: income_and_asset_eligible_for_ccap_low_income_guidelines
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: gross_income_within_state_median_income_ceiling and assets_within_ccap_limit
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-co"
+        / "regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines.test.yaml",
+        """- name: family size four limit
+  period: 2025-10
+  input:
+    us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#input.family_size: 4
+  output:
+    us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit: 9828.83
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ccap")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 2,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    smi_limit = items_by_id[
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit"
+    ]
+    income_predicate = items_by_id[
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#gross_income_within_state_median_income_ceiling"
+    ]
+    combined_predicate = items_by_id[
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#income_and_asset_eligible_for_ccap_low_income_guidelines"
+    ]
+    assert smi_limit["policyengine_variable"] == "co_ccap_smi"
+    assert smi_limit["tested"] is True
+    assert smi_limit["test_output_count"] == 1
+    assert income_predicate["status"] == "known_not_comparable"
+    assert income_predicate["policyengine_variable"] == "co_ccap_smi_eligible"
+    assert combined_predicate["status"] == "known_not_comparable"
+    assert (
+        combined_predicate["policyengine_variable"] == "co_ccap_entry_income_eligible"
+    )
+
+
 def test_policyengine_coverage_maps_colorado_taxable_income_base(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/2.yaml",

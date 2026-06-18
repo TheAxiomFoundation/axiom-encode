@@ -2344,6 +2344,13 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
     assert gross_income_limit_mapping.result_multiplier == 1.3
+    colorado_ccap_smi_limit_mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit",
+        country="us",
+    )
+    assert colorado_ccap_smi_limit_mapping.mapping_type == "direct_variable"
+    assert colorado_ccap_smi_limit_mapping.policyengine_variable == "co_ccap_smi"
+    assert colorado_ccap_smi_limit_mapping.result_multiplier == 0.85
     section_2014c_net_failure_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line",
         country="us",
@@ -3987,6 +3994,52 @@ def test_policyengine_tax_scenario_builds_refundable_credit_inputs(tmp_path):
     assert "'refundable_ctc': {'2026': 1200}" in script
     assert "'recovery_rebate_credit': {'2026': 0}" in script
     assert "'refundable_payroll_tax_credit': {'2026': 100}" in script
+
+
+def test_policyengine_scenario_uses_legal_id_adapter_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    legal_id = (
+        "us-co:regulations/8-ccr-1403-1/3.111/"
+        "h-low-income-eligibility-guidelines#input.family_size"
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "co_ccap_smi",
+        {
+            "period": "2025-10",
+            legal_id: 4,
+        },
+        "2025",
+    )
+
+    assert "'state_code_str': {'2025': 'CO'}" in script
+    assert "'spm_unit_size': {'2025': 4}" in script
+
+
+def test_policyengine_mappability_ignores_unrelated_legal_inputs_when_mapped():
+    registry = load_policyengine_registry()
+    mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit",
+        country="us",
+    )
+    inputs = {
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#input.family_size": 4,
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#input.household_assets": 1_000_000,
+    }
+
+    projected = ValidatorPipeline._pe_us_projectable_inputs_for_mappability(
+        inputs,
+        "co_ccap_smi",
+        mapping=mapping,
+    )
+
+    assert list(projected) == [
+        "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#input.family_size"
+    ]
 
 
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):

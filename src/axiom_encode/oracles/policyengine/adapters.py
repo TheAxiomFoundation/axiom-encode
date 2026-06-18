@@ -384,6 +384,14 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("monthly_state_median_income_85_limit",),
+        pe_var="co_ccap_smi",
+        monthly=True,
+        spm=True,
+        annual_direct_spm_overrides=(("family_size", "spm_unit_size"),),
+        default_state_code="CO",
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("snap_excess_shelter_deduction",),
         pe_var="snap_excess_shelter_expense_deduction",
         monthly=True,
