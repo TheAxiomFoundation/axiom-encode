@@ -161,7 +161,7 @@ rules:
     }
 
 
-def test_dataset_rewrites_canonical_same_repo_refs_to_engine_temp_prefix(tmp_path):
+def test_dataset_preserves_canonical_same_repo_refs_for_alias_checkout(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
     rules_file = checkout / "statutes" / "26" / "63" / "f.yaml"
@@ -227,17 +227,17 @@ rules:
     )
 
     assert dataset["relations"][0]["name"] == (
-        "us-clean.abcd:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f"
+        "us:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f"
     )
     assert dataset["inputs"][0]["name"] == (
-        "us-clean.abcd:statutes/26/151#input.tin_included_on_return_claiming_exemption"
+        "us:statutes/26/151#input.tin_included_on_return_claiming_exemption"
     )
     assert dataset["inputs"][1]["name"] == (
-        "us-clean.abcd:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year"
+        "us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year"
     )
 
 
-def test_dataset_rewrites_country_subdir_canonical_refs_to_engine_temp_prefix(
+def test_dataset_preserves_country_subdir_canonical_refs_for_alias_checkout(
     tmp_path,
 ):
     checkout = tmp_path / "rulespec-us-clean.abcd"
@@ -276,11 +276,11 @@ rules:
     )
 
     assert dataset["inputs"][0]["name"] == (
-        "us-clean.abcd:us/regulations/7-cfr/275/23/d/2#input.payment_error_rate"
+        "us:regulations/7-cfr/275/23/d/2#input.payment_error_rate"
     )
 
 
-def test_cli_relation_request_rewrites_country_subdir_canonical_refs(tmp_path):
+def test_cli_relation_request_preserves_country_subdir_canonical_refs(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
     policy_root = checkout / "us"
@@ -292,6 +292,6 @@ def test_cli_relation_request_rewrites_country_subdir_canonical_refs(tmp_path):
     )
 
     assert relation_name == (
-        "us-clean.abcd:us/regulations/7-cfr/275/23/d/1"
+        "us:regulations/7-cfr/275/23/d/1"
         "#relation.state_agencies_for_quality_control_fiscal_year"
     )

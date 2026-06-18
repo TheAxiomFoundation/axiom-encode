@@ -2608,7 +2608,7 @@ rules:
             if "compile" in cmd:
                 program_path = Path(cmd[cmd.index("--program") + 1])
                 compile_programs.append(program_path)
-                item_id = "us-clean.abcd:statutes/1/alias#benefit"
+                item_id = "us:statutes/1/alias#benefit"
                 compiled_ids.append(item_id)
                 output_path = Path(cmd[cmd.index("--output") + 1])
                 output_path.write_text(
@@ -2667,7 +2667,7 @@ rules:
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
-        assert compiled_ids == ["us-clean.abcd:statutes/1/alias#benefit"]
+        assert compiled_ids == ["us:statutes/1/alias#benefit"]
         assert len(compile_programs) == 1
         assert "rulespec-us" in compile_programs[0].parts
         assert "rulespec-us-clean.abcd" not in str(compile_programs[0])
@@ -2754,7 +2754,7 @@ rules:
                             "results": [
                                 {
                                     "outputs": {
-                                        "us-clean.abcd:statutes/1/relation#benefit": {
+                                        "us:statutes/1/relation#benefit": {
                                             "kind": "scalar",
                                             "value": {"kind": "integer", "value": 5},
                                         }
@@ -2784,7 +2784,7 @@ rules:
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
-        assert relation_names == ["us-clean.abcd:statutes/1/relation#relation.members"]
+        assert relation_names == ["us:statutes/1/relation#relation.members"]
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"

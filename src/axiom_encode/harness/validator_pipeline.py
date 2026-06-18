@@ -18404,20 +18404,9 @@ def _rulespec_engine_request_name_for_test_key(
     require_legal_input_keys: bool,
     policy_repo_path: Path,
 ) -> str:
-    if not require_legal_input_keys or not _RULESPEC_ABSOLUTE_REFERENCE.match(test_key):
-        return runtime_name
-    local_prefix = _rulespec_local_item_prefix(policy_repo_path)
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    if local_prefix and local_prefix != canonical_prefix:
-        canonical_head = f"{canonical_prefix}:"
-        if test_key.startswith(canonical_head):
-            item_path = _engine_rulespec_item_path_for_policy_root(
-                test_key.split(":", 1)[1],
-                policy_repo_path=policy_repo_path,
-                canonical_prefix=canonical_prefix,
-            )
-            return f"{local_prefix}:{item_path}"
-    return test_key
+    if require_legal_input_keys and _RULESPEC_ABSOLUTE_REFERENCE.match(test_key):
+        return test_key
+    return runtime_name
 
 
 def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[str]:
