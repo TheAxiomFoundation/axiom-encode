@@ -17665,19 +17665,22 @@ def _candidate_rulespec_repo_roots(
     if policy_repo_path is not None:
         policy_root = Path(policy_repo_path).resolve()
         add(policy_root)
-        add(policy_root.parent)
         add(policy_root / "_axiom")
+
+    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
+    for raw_root in env_roots.split(os.pathsep):
+        if raw_root.strip():
+            add(Path(raw_root.strip()))
+
+    if policy_repo_path is not None:
+        policy_root = Path(policy_repo_path).resolve()
+        add(policy_root.parent)
         add(policy_root.parent / "_axiom")
         if policy_root.parent.name.startswith("rulespec-"):
             # A monorepo jurisdiction directory: sibling checkouts live next
             # to the monorepo itself.
             add(policy_root.parent.parent)
             add(policy_root.parent.parent / "_axiom")
-
-    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-    for raw_root in env_roots.split(os.pathsep):
-        if raw_root.strip():
-            add(Path(raw_root.strip()))
 
     cwd = Path.cwd()
     add(cwd)
