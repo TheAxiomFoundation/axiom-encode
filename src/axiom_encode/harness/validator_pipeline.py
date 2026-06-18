@@ -18489,19 +18489,26 @@ class ValidatorPipeline:
     def _rulespec_compile_env(self) -> dict[str, str]:
         """Build an env that can resolve canonical RuleSpec repo imports."""
         env = self._pythonpath_env()
-        roots = [self.policy_repo_path, self.policy_repo_path.parent]
+        roots: list[Path] = []
         if Path(self.policy_repo_path).parent.name.startswith("rulespec-"):
             # A monorepo jurisdiction directory: sibling checkouts live next
             # to the monorepo checkout itself.
-            roots.append(Path(self.policy_repo_path).parent.parent)
+            incidental_roots = [
+                self.policy_repo_path.parent,
+                self.policy_repo_path.parent.parent,
+            ]
+        else:
+            incidental_roots = [self.policy_repo_path.parent]
         alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
         if alias_parent is not None:
-            roots.insert(0, alias_parent)
+            roots.append(alias_parent)
+        roots.append(self.policy_repo_path)
         existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
         if existing_roots:
             roots.extend(
                 Path(root) for root in existing_roots.split(os.pathsep) if root
             )
+        roots.extend(incidental_roots)
         deduped_roots: list[str] = []
         seen: set[str] = set()
         for root in roots:
