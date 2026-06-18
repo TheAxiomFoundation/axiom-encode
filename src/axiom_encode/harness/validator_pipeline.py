@@ -14947,6 +14947,24 @@ def _formula_references_symbol(formula_text: str, symbol: str) -> bool:
 
 
 def _rulespec_rule_names_from_file(path: Path) -> set[str]:
+    try:
+        stat = path.stat()
+        cache_path = path.resolve()
+    except OSError:
+        return set()
+    return _rulespec_rule_names_from_file_cached(
+        cache_path,
+        stat.st_mtime_ns,
+        stat.st_size,
+    )
+
+
+@functools.lru_cache(maxsize=8192)
+def _rulespec_rule_names_from_file_cached(
+    path: Path,
+    _mtime_ns: int,
+    _size: int,
+) -> set[str]:
     with contextlib.suppress(OSError):
         return _rulespec_rule_names_from_content(path.read_text())
     return set()
@@ -18200,6 +18218,29 @@ def _rulespec_formula_identifiers(payload: Any) -> set[str]:
 
 
 def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
+    try:
+        stat = target_file.stat()
+        cache_path = target_file.resolve()
+    except OSError:
+        return _RuleSpecReferenceSummary(
+            derived=frozenset(),
+            parameters=frozenset(),
+            relations=frozenset(),
+            input_slots=frozenset(),
+        )
+    return _rulespec_reference_summary_cached(
+        cache_path,
+        stat.st_mtime_ns,
+        stat.st_size,
+    )
+
+
+@functools.lru_cache(maxsize=8192)
+def _rulespec_reference_summary_cached(
+    target_file: Path,
+    _mtime_ns: int,
+    _size: int,
+) -> _RuleSpecReferenceSummary:
     try:
         payload = yaml.safe_load(target_file.read_text()) or {}
     except (OSError, yaml.YAMLError, ValueError):
