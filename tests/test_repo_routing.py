@@ -73,6 +73,48 @@ def test_canonical_compile_path_exposes_temp_checkout_file_under_origin_name(tmp
     assert compile_path.resolve() == rules_file.resolve()
 
 
+def test_canonical_compile_path_keeps_monorepo_jurisdiction_under_country_alias(
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us-co"
+    rules_file = policy_root / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    compile_path = _canonical_rulespec_compile_path(rules_file, policy_root)
+
+    assert "rulespec-us" in compile_path.parts
+    assert "rulespec-us-co" not in compile_path.parts
+    assert compile_path.parts[-5:] == (
+        "rulespec-us",
+        "us-co",
+        "regulations",
+        "10-ccr-2506-1",
+        "4.407.31.yaml",
+    )
+    assert compile_path.resolve() == rules_file.resolve()
+
+
+def test_compile_env_exposes_monorepo_for_jurisdiction_subdir(tmp_path):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us-co"
+    policy_root.mkdir()
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    env = pipeline._rulespec_compile_env()
+    roots = [Path(root) for root in env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)]
+
+    alias_parent = next(root for root in roots if (root / "rulespec-us").is_symlink())
+    assert (alias_parent / "rulespec-us").resolve() == checkout.resolve()
+
+
 def test_compiled_program_maps_alias_temp_prefix_to_canonical_legal_id(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")

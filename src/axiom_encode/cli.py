@@ -8086,11 +8086,19 @@ def cmd_repair_delegated_policy_settings(args):
         rules_file=rules_file,
         policy_repo_path=repo_path,
     )
+    before_missing_import_delegated_issues = (
+        _missing_delegated_setting_import_issue_texts(
+            original_content,
+            rules_file=rules_file,
+            policy_repo_path=repo_path,
+        )
+    )
     before_delegated_issues = _ordered_unique_strings(
         [
             *(_delegated_policy_setting_issue_texts(before_issues)),
             *before_direct_delegated_issues,
             *before_unresolved_delegated_issues,
+            *before_missing_import_delegated_issues,
         ]
     )
     if not before_delegated_issues:
@@ -8129,11 +8137,19 @@ def cmd_repair_delegated_policy_settings(args):
         rules_file=rules_file,
         policy_repo_path=repo_path,
     )
+    after_missing_import_delegated_issues = (
+        _missing_delegated_setting_import_issue_texts(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo_path,
+        )
+    )
     after_delegated_issues = _ordered_unique_strings(
         [
             *(_delegated_policy_setting_issue_texts(after_issues)),
             *after_direct_delegated_issues,
             *after_unresolved_delegated_issues,
+            *after_missing_import_delegated_issues,
         ]
     )
     if not set(before_delegated_issues) - set(after_delegated_issues):
@@ -8158,9 +8174,9 @@ def cmd_repair_delegated_policy_settings(args):
             backend="deterministic",
             model="delegated-policy-setting-v1",
             tool="axiom-encode repair-delegated-policy-settings",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
+            citation=_relative_output_to_anchor(
+                relative_output,
+                policy_repo_path=repo_path,
             ),
             generation_prompt_sha256=None,
             trace_file=None,
@@ -20902,6 +20918,69 @@ def _unresolved_delegated_setting_sets_issue_texts(
     return issues
 
 
+def _missing_delegated_setting_import_issue_texts(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None,
+) -> list[str]:
+    try:
+        payload = yaml.safe_load(content) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    resolved_targets = _resolved_executable_delegated_setting_targets(
+        _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
+        current_payload=payload,
+        current_rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if not resolved_targets:
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "sets":
+            continue
+        target = _normalize_source_relation_target_ref(source_relation.get("target"))
+        if target not in resolved_targets:
+            continue
+        if _rulespec_payload_imports_target(payload, target):
+            continue
+        import_target = target.split("#", 1)[0].strip()
+        name = str(rule.get("name") or target).strip()
+        issues.append(
+            "RuleSpec source relation "
+            f"`{name}` sets target `{target}`, but this module does not import "
+            f"`{import_target}`"
+        )
+    return issues
+
+
+def _rulespec_payload_imports_target(payload: dict[str, Any], target: str) -> bool:
+    import_target = target.split("#", 1)[0].strip()
+    if not import_target:
+        return False
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return False
+    return import_target in {
+        str(item).split("#", 1)[0].strip() for item in imports if isinstance(item, str)
+    }
+
+
 def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> bool:
     import_target = target.split("#", 1)[0].strip()
     if not import_target:
@@ -28969,8 +29048,15 @@ def _relative_generated_output_path(
 def _relative_output_to_anchor(
     relative_output: Path, *, policy_repo_path: Path | None = None
 ) -> str:
-    """Convert a generated file's relative path to its `us:...` anchor."""
+    """Convert a generated file's relative path to its RuleSpec anchor."""
     rel = relative_output.with_suffix("")
+    parts = rel.parts
+    if (
+        len(parts) >= 2
+        and parts[1] in {"policies", "regulations", "statutes"}
+        and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+    ):
+        return f"{parts[0]}:{Path(*parts[1:]).as_posix()}"
     jurisdiction = (
         _repo_jurisdiction_prefix(policy_repo_path) if policy_repo_path else "us"
     )
