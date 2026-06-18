@@ -6105,6 +6105,8 @@ def _find_duplicate_upstream_executable_issues(
                 continue
             if candidate.target == current_target:
                 continue
+            if _rulespec_targets_are_equivalent(candidate.target, current_target):
+                continue
             if Path(candidate.source_file).resolve() == current_file:
                 continue
             if _rulespec_target_is_descendant_of(current_target, candidate.target):
@@ -6123,9 +6125,40 @@ def _find_duplicate_upstream_executable_issues(
 
 def _rulespec_target_is_descendant_of(target: str, ancestor: str) -> bool:
     """Return whether a RuleSpec target is a more-specific path under ancestor."""
-    target_base = _rulespec_target_base(target)
-    ancestor_base = _rulespec_target_base(ancestor)
+    target_base = _canonical_rulespec_target_identity_base(target)
+    ancestor_base = _canonical_rulespec_target_identity_base(ancestor)
     return target_base.startswith(f"{ancestor_base}/")
+
+
+def _rulespec_targets_are_equivalent(left: str, right: str) -> bool:
+    return _canonical_rulespec_target_identity_base(
+        left
+    ) == _canonical_rulespec_target_identity_base(right) and _target_symbol(
+        left
+    ) == _target_symbol(right)
+
+
+def _canonical_rulespec_target_identity_base(target: str) -> str:
+    """Normalize country-monorepo and per-jurisdiction target prefixes.
+
+    CI validates files in a country monorepo checkout while also loading a
+    second dependency checkout named like ``rulespec-us``. The same physical
+    country file can therefore be represented as either
+    ``us-co:regulations/...`` or ``us:rulespec-us/us-co/regulations/...``.
+    These are the same RuleSpec target for placement purposes.
+    """
+    base = _rulespec_target_base(target)
+    prefix, separator, relative = base.partition(":")
+    if not separator:
+        return base
+    relative = relative.strip("/")
+    parts = tuple(part for part in relative.split("/") if part)
+    if parts and parts[0] == f"rulespec-{prefix}":
+        remainder = parts[1:]
+        if remainder and remainder[0].startswith(f"{prefix}-"):
+            return "/".join(remainder)
+        return "/".join((prefix, *remainder))
+    return "/".join((prefix, *parts))
 
 
 def _rulespec_target_base(target: str) -> str:

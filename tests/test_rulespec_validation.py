@@ -9665,6 +9665,21 @@ rules:
     assert "us:statutes/26/151/d#exemption_amount" in issues[0]
 
 
+def test_upstream_placement_target_identity_matches_country_monorepo_alias():
+    assert validator_pipeline._rulespec_targets_are_equivalent(
+        "us-co:regulations/10-ccr-2506-1/4.130.1#snap_limit",
+        "us:rulespec-us/us-co/regulations/10-ccr-2506-1/4.130.1#snap_limit",
+    )
+    assert validator_pipeline._rulespec_target_is_descendant_of(
+        "us-co:regulations/10-ccr-2506-1/4.130.1/a#snap_limit",
+        "us:rulespec-us/us-co/regulations/10-ccr-2506-1/4.130.1#snap_limit",
+    )
+    assert not validator_pipeline._rulespec_targets_are_equivalent(
+        "us-co:regulations/10-ccr-2506-1/4.130.1#snap_limit",
+        "us:statutes/7/2014#snap_limit",
+    )
+
+
 def test_upstream_placement_allows_distinct_local_rule_with_same_name(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
