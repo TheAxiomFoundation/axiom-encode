@@ -5,6 +5,7 @@ import pytest
 from axiom_encode.oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_coverage_report,
+    build_policyengine_program_surface_report,
 )
 
 
@@ -89,6 +90,64 @@ rules:
     assert (
         statuses_by_id["us:statutes/7/9999#snap_unclassified_new_output"] == "unmapped"
     )
+
+
+def test_policyengine_program_surface_report_overlays_legal_registry(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: federal_income_tax
+    program_name: Federal income taxes
+    category: Taxes
+    policyengine_status: complete
+    coverage: US
+    variable: income_tax
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Should be overridden by the legal-ID registry.
+  - country: us
+    program_id: wic
+    program_name: WIC
+    category: Benefits
+    policyengine_status: complete
+    coverage: US
+    variable: wic
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs RuleSpec encoding.
+  - country: us
+    program_id: fdpir
+    program_name: FDPIR
+    category: Benefits
+    policyengine_status: partial
+    coverage: US
+    variable: fdpir
+    axiom_status: input_only
+    priority: P1
+    rationale: PE treats this as input-only.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_program_surface_report(manifest_path=manifest)
+
+    assert report["total_surfaces"] == 3
+    assert report["status_counts"] == {
+        "input_only": 1,
+        "pending_rulespec_encoding": 1,
+        "wired": 1,
+    }
+    assert report["pending_surfaces"] == 1
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    assert items_by_variable["income_tax"]["axiom_status"] == "wired"
+    assert items_by_variable["income_tax"]["mapping_count"] >= 1
+    assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
+    assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
 
 
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):

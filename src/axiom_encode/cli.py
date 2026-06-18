@@ -690,6 +690,19 @@ def main():
         help="Exit non-zero when a comparable output is absent from companion tests",
     )
     oracle_coverage_parser.add_argument(
+        "--include-program-surfaces",
+        action="store_true",
+        help="Include PolicyEngine program-variable surface wiring coverage",
+    )
+    oracle_coverage_parser.add_argument(
+        "--fail-on-pending-program-surfaces",
+        action="store_true",
+        help=(
+            "Exit non-zero when an included PolicyEngine program variable is "
+            "pending RuleSpec encoding, pending oracle mapping, or deferred"
+        ),
+    )
+    oracle_coverage_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
 
@@ -3517,12 +3530,29 @@ def cmd_oracle_coverage(args):
         sys.exit(2)
 
     root = (args.root or _default_rulespec_inventory_root()).resolve()
-    report = build_policyengine_coverage_report(root, program=args.program)
+    include_program_surfaces = getattr(args, "include_program_surfaces", False) is True
+    fail_on_pending_program_surfaces = (
+        getattr(args, "fail_on_pending_program_surfaces", False) is True
+    )
+    report = build_policyengine_coverage_report(
+        root,
+        program=args.program,
+        include_program_surfaces=include_program_surfaces,
+    )
 
     unmapped = int(report["status_counts"].get("unmapped", 0))
     untested_comparable = int(report.get("untested_comparable", 0))
-    should_fail = (args.fail_on_unmapped and unmapped) or (
-        args.fail_on_untested_comparable and untested_comparable
+    pending_program_surfaces = int(
+        (report.get("program_surfaces") or {}).get("pending_surfaces", 0)
+    )
+    should_fail = (
+        (args.fail_on_unmapped and unmapped)
+        or (args.fail_on_untested_comparable and untested_comparable)
+        or (
+            fail_on_pending_program_surfaces
+            and include_program_surfaces
+            and pending_program_surfaces
+        )
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -3536,6 +3566,18 @@ def cmd_oracle_coverage(args):
     print(f"Status: {_format_counter(report['status_counts'])}")
     print(f"Untested comparable outputs: {untested_comparable}")
     print(f"Programs: {_format_counter(report['program_counts'])}")
+    if report.get("program_surfaces"):
+        surfaces = report["program_surfaces"]
+        print(
+            "PolicyEngine program surfaces: "
+            f"{surfaces['total_surfaces']} "
+            f"status={_format_counter(surfaces['status_counts'])} "
+            f"pending={surfaces['pending_surfaces']}"
+        )
+        print(
+            "PolicyEngine surface priorities: "
+            f"{_format_counter(surfaces['priority_counts'])}"
+        )
     print()
 
     for repo in report["repos"]:
@@ -3568,6 +3610,29 @@ def cmd_oracle_coverage(args):
             print(f"  - {item['legal_id']}")
         if len(untested_items) > args.limit:
             print(f"  - ... {len(untested_items) - args.limit} more")
+
+    program_surfaces = report.get("program_surfaces") or {}
+    pending_surface_items = [
+        item
+        for item in program_surfaces.get("items", [])
+        if item.get("axiom_status")
+        in {
+            "deferred_jurisdiction",
+            "pending_oracle_mapping",
+            "pending_rulespec_encoding",
+        }
+    ]
+    if pending_surface_items:
+        print()
+        print(f"Pending PolicyEngine program surfaces (first {args.limit}):")
+        for item in pending_surface_items[: args.limit]:
+            state = f" [{item['state']}]" if item.get("state") else ""
+            print(
+                f"  - {item['variable']}{state}: "
+                f"{item['axiom_status']} ({item['program_id']})"
+            )
+        if len(pending_surface_items) > args.limit:
+            print(f"  - ... {len(pending_surface_items) - args.limit} more")
 
     sys.exit(1 if should_fail else 0)
 

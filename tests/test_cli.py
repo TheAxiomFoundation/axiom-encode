@@ -1764,6 +1764,55 @@ class TestCmdValidate:
         assert "Untested comparable outputs: 1" in output
         assert "us:statutes/26/3101/a#oasdi_wage_tax_rate" in output
 
+    def test_oracle_coverage_fail_on_pending_program_surfaces_exits_nonzero(
+        self, capsys, tmp_path
+    ):
+        args = MagicMock()
+        args.root = tmp_path
+        args.oracle = "policyengine"
+        args.program = None
+        args.limit = 25
+        args.fail_on_unmapped = False
+        args.fail_on_untested_comparable = False
+        args.include_program_surfaces = True
+        args.fail_on_pending_program_surfaces = True
+        args.json = False
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_coverage_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(tmp_path),
+                "total_outputs": 0,
+                "status_counts": {},
+                "untested_comparable": 0,
+                "program_counts": {},
+                "repos": [],
+                "items": [],
+                "program_surfaces": {
+                    "total_surfaces": 1,
+                    "status_counts": {"pending_rulespec_encoding": 1},
+                    "priority_counts": {"P1": 1},
+                    "pending_surfaces": 1,
+                    "items": [
+                        {
+                            "variable": "wic",
+                            "axiom_status": "pending_rulespec_encoding",
+                            "program_id": "wic",
+                            "state": None,
+                        }
+                    ],
+                },
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_coverage(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "PolicyEngine program surfaces: 1" in output
+        assert "wic: pending_rulespec_encoding" in output
+
     def test_oracle_candidates_prints_priority_queue(self, capsys, tmp_path):
         args = MagicMock()
         args.root = tmp_path
