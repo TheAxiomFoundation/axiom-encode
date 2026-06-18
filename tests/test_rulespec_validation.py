@@ -130,8 +130,38 @@ def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     roots = pipeline._rulespec_compile_env()["AXIOM_RULESPEC_REPO_ROOTS"].split(
         os.pathsep
     )
-    assert roots[:2] == [str(policy_repo), str(repo_parent)]
+    assert roots[0] == str(policy_repo)
     assert str(existing_root) in roots
+    assert str(repo_parent) in roots
+    assert roots.index(str(existing_root)) < roots.index(str(repo_parent))
+
+
+def test_rulespec_compile_env_prefers_configured_roots_over_stale_parent(
+    monkeypatch,
+    tmp_path,
+):
+    repo_parent = tmp_path / "worktrees"
+    policy_repo = repo_parent / "rulespec-us-co"
+    policy_repo.mkdir(parents=True)
+    stale_sibling = repo_parent / "rulespec-us"
+    stale_sibling.mkdir()
+    configured_parent = tmp_path / "configured-roots"
+    (configured_parent / "rulespec-us").mkdir(parents=True)
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    roots = pipeline._rulespec_compile_env()["AXIOM_RULESPEC_REPO_ROOTS"].split(
+        os.pathsep
+    )
+    assert roots[0] == str(policy_repo)
+    assert str(configured_parent) in roots
+    assert str(repo_parent) in roots
+    assert roots.index(str(configured_parent)) < roots.index(str(repo_parent))
 
 
 def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp_path):
@@ -199,8 +229,10 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
     assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
     assert captured_env is not None
     roots = captured_env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
-    assert roots[:2] == [str(policy_repo), str(repo_parent)]
+    assert roots[0] == str(policy_repo)
     assert str(stale_root) in roots
+    assert str(repo_parent) in roots
+    assert roots.index(str(stale_root)) < roots.index(str(repo_parent))
 
 
 def test_rulespec_target_resolution_prefers_configured_roots(monkeypatch, tmp_path):

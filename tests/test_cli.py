@@ -2552,8 +2552,12 @@ rules:
         for env in captured_envs:
             assert env is not None
             roots = env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
-            assert roots[:2] == [str(repo.resolve()), str(repo.resolve().parent)]
+            assert roots[0] == str(repo.resolve())
+            assert str(repo.resolve().parent) in roots
             assert str(stale_repo) in roots
+            assert roots.index(str(stale_repo)) < roots.index(
+                str(repo.resolve().parent)
+            )
 
     def test_executes_companion_tests_from_canonical_alias_checkout(
         self, capsys, monkeypatch, tmp_path
@@ -24672,7 +24676,10 @@ class TestCmdValidateEdgeCases:
         assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us-tn"
         assert call_kwargs["axiom_rules_path"] == tmp_path / "axiom-rules-engine"
 
-    def test_validate_fallback_prefers_workspace_repo_roots(self, tmp_path):
+    def test_validate_fallback_prefers_workspace_repo_roots(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.delenv("AXIOM_RULESPEC_REPO_ROOTS", raising=False)
         rulespec_file = tmp_path / "generated" / "test.yaml"
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text("# test")
@@ -24704,8 +24711,8 @@ class TestCmdValidateEdgeCases:
 
         with (
             patch(
-                "axiom_encode.cli._resolve_repo_checkout",
-                side_effect=lambda name: workspace_root / name,
+                "axiom_encode.cli._resolve_policy_repo_for_prefix",
+                return_value=rules_us_path,
             ),
             patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls,
         ):
