@@ -69,6 +69,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_8013,
     _repair_colorado_snap_policy_composition,
     _repair_colorado_snap_program_tests,
+    _repair_colorado_tax_subsection_2_import,
     _repair_embedded_scalar_literals,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
@@ -10019,6 +10020,31 @@ rules:
         ]
         formula = payload["rules"][0]["versions"][0]["formula"]
         assert formula.startswith("snap_earned_income_deduction_rate * max(0,")
+
+    def test_repair_colorado_tax_subsection_2_import(self, tmp_path):
+        rules_file = tmp_path / "a.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: subject to subsection (2) of this section
+rules:
+- name: individual_estate_trust_income_tax_rate_before_2020
+  kind: parameter
+  dtype: Rate
+  source: C.R.S. 39-22-104(1.7)(a)
+  versions:
+  - effective_from: '2000-01-01'
+    formula: '0.0463'
+"""
+        )
+
+        assert _repair_colorado_tax_subsection_2_import(rules_file) == [rules_file]
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == ["us-co:statutes/39/39-22-104/2"]
+        assert payload["rules"][0]["name"] == (
+            "individual_estate_trust_income_tax_rate_before_2020"
+        )
 
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"

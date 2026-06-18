@@ -1234,6 +1234,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_colorado_tax_validation_parser = subparsers.add_parser(
+        "repair-colorado-tax-validation",
+        help="Apply signed deterministic repairs for Colorado tax validation drift",
+    )
+    repair_colorado_tax_validation_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_colorado_tax_validation_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_imported_test_inputs_parser = subparsers.add_parser(
         "repair-imported-test-inputs",
         help="Apply signed deterministic repairs for missing imported test inputs",
@@ -2128,6 +2147,8 @@ def main():
         cmd_repair_section_911_a_1_exclusion(args)
     elif args.command == "repair-section-63-f-stale-test-inputs":
         cmd_repair_section_63_f_stale_test_inputs(args)
+    elif args.command == "repair-colorado-tax-validation":
+        cmd_repair_colorado_tax_validation(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
     elif args.command == "repair-companion-test-references":
@@ -9866,6 +9887,105 @@ def _write_grouped_deterministic_repair_manifests(
                 )
             )
     return manifest_paths
+
+
+COLORADO_TAX_VALIDATION_REPAIR_MODEL = "colorado-tax-validation-v1"
+COLORADO_TAX_SUBSECTION_2_IMPORT = "us-co:statutes/39/39-22-104/2"
+COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS = (
+    Path("statutes/39/39-22-104/1.7/a.yaml"),
+    Path("statutes/39/39-22-104/1.7/b.yaml"),
+    Path("statutes/39/39-22-104/1.7/c.yaml"),
+)
+
+
+def cmd_repair_colorado_tax_validation(args):
+    """Apply signed deterministic repairs for Colorado tax validation drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-co":
+        print(
+            "repair-colorado-tax-validation must run against rulespec-us-co; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    manifest_groups = [
+        (relative_output, [repo_path / relative_output])
+        for relative_output in COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    touched = [path for _relative_output, files in manifest_groups for path in files]
+    originals = {path: path.read_text() if path.exists() else None for path in touched}
+
+    try:
+        changed: list[Path] = []
+        for rules_file in touched:
+            changed.extend(_repair_colorado_tax_subsection_2_import(rules_file))
+        changed = _unique_paths(changed)
+        if not changed:
+            print("No Colorado tax validation repairs found.")
+            return
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_issues: list[str] = []
+        for rules_file in touched:
+            validation = pipeline.validate(rules_file, skip_reviewers=True)
+            if validation.all_passed:
+                continue
+            validation_issues.extend(
+                result.error for result in validation.results.values() if result.error
+            )
+        if validation_issues:
+            raise RuntimeError("\n".join(validation_issues))
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in changed
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    if not changed_by_command:
+        print("No Colorado tax validation repairs found.")
+        return
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model=COLORADO_TAX_VALIDATION_REPAIR_MODEL,
+        tool="axiom-encode repair-colorado-tax-validation",
+    )
+    print("Applied Colorado tax validation repair")
+    for path in changed_by_command:
+        print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _repair_colorado_tax_subsection_2_import(rules_file: Path) -> list[Path]:
+    content = rules_file.read_text()
+    repaired = _ensure_yaml_import_text(content, COLORADO_TAX_SUBSECTION_2_IMPORT)
+    if repaired == content:
+        return []
+    rules_file.write_text(repaired)
+    return [rules_file]
 
 
 _SECTION_911_A_1_IMPORT = (
