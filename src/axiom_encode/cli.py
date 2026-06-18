@@ -21211,7 +21211,7 @@ def _may_drop_generated_federal_regulation_implements_relation(
     *,
     payload: dict[str, object],
 ) -> bool:
-    """Return true for unsupported CFR-to-statute implementation provenance edges."""
+    """Return true for unsupported broad CFR implementation provenance edges."""
     source_relation = rule.get("source_relation")
     if not isinstance(source_relation, dict):
         return False
@@ -21221,6 +21221,8 @@ def _may_drop_generated_federal_regulation_implements_relation(
     if isinstance(basis, dict) and str(basis.get("delegation") or "").strip():
         return False
     target = str(source_relation.get("target") or "").strip()
+    if _is_broad_federal_regulation_range_ref(target):
+        return True
     if not target.startswith("us:statutes/"):
         return False
     module = payload.get("module")
@@ -21236,6 +21238,18 @@ def _may_drop_generated_federal_regulation_implements_relation(
         return False
     source = str(rule.get("source") or "").strip().lower()
     return bool(re.search(r"\bc\.?\s*f\.?\s*r\.?\b", source, flags=re.IGNORECASE))
+
+
+def _is_broad_federal_regulation_range_ref(target: str) -> bool:
+    normalized = _normalize_source_relation_target_ref(target)
+    if not normalized or "#" in normalized:
+        return False
+    if not normalized.startswith("us:regulations/"):
+        return False
+    parts = [part.strip().lower() for part in normalized.split("/") if part.strip()]
+    if "7-cfr" not in parts:
+        return False
+    return any(re.fullmatch(r"\d+[a-z]?(?:-|–|—)\d+[a-z]?", part) for part in parts)
 
 
 def _source_relation_delegation_basis_for_target(
