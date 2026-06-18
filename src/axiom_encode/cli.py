@@ -17717,6 +17717,34 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_source_relation_types = (
+                    _try_repair_generated_invalid_source_relation_types_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_source_relation_types:
+                    outcome["auto_repaired_source_relation_types"] = (
+                        repaired_source_relation_types
+                    )
+                    print(
+                        "  apply=auto_repaired_source_relation_types:"
+                        + ",".join(repaired_source_relation_types)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_delegated_settings = (
                     _try_repair_generated_delegated_policy_settings_for_apply(
                         result,
@@ -21206,6 +21234,59 @@ def _try_repair_generated_source_relation_delegations_for_apply(
     return repaired
 
 
+def _try_repair_generated_invalid_source_relation_types_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Normalize generated source relation synonyms unsupported by RuleSpec."""
+    if not any(_issue_mentions_unknown_source_relation_type(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        relation_type = str(source_relation.get("type") or "").strip().lower()
+        if relation_type != "incorporates":
+            continue
+        source_relation["type"] = "cites"
+        for unsupported_key in (
+            "edition",
+            "later_amendments_or_editions_incorporated",
+        ):
+            source_relation.pop(unsupported_key, None)
+        repaired.append(str(rule.get("name") or source_relation.get("target") or ""))
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
 def _may_drop_generated_federal_regulation_implements_relation(
     rule: dict[str, object],
     *,
@@ -21406,6 +21487,11 @@ def _issue_mentions_missing_source_relation_delegation(issue: str) -> bool:
         "must declare source_relation.basis.delegation" in unquoted
         and "source relation" in unquoted.lower()
     )
+
+
+def _issue_mentions_unknown_source_relation_type(issue: str) -> bool:
+    normalized = str(issue).lower()
+    return "source_relation.type" in normalized and "unknown variant" in normalized
 
 
 def _issue_mentions_versioned_derived_formula(issue: str) -> bool:
