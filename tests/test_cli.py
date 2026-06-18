@@ -115,6 +115,7 @@ from axiom_encode.cli import (
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
+    _try_repair_generated_negated_comparisons_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
@@ -4798,6 +4799,45 @@ rules:
             ]
             == "holds"
         )
+
+    def test_negated_comparison_repair_inverts_unparenthesized_comparisons(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "change.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: increased_benefit_change_compliant
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      household_reported_change
+      and not reported_change_day_of_month > supplemental_trigger_day
+      and not verification_obtained_for_increase_change
+      and not pending_days <= limit_days
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_negated_comparisons_for_apply(
+            result,
+            output_root=output_root,
+            issues=["formula lower error: `not` in scalar position"],
+        )
+
+        assert repaired == ["increased_benefit_change_compliant"]
+        formula = yaml.safe_load(rules_file.read_text())["rules"][0]["versions"][0][
+            "formula"
+        ]
+        assert "reported_change_day_of_month <= supplemental_trigger_day" in formula
+        assert "pending_days > limit_days" in formula
+        assert "not verification_obtained_for_increase_change" in formula
 
     def test_source_relation_delegation_repair_fills_implementation_basis(
         self, tmp_path
