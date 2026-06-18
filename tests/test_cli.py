@@ -29,6 +29,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_signature_issue,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
+    _changed_manifest_group_files,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -22668,6 +22669,47 @@ rules:
             "statutes/26/3101/b/2.yaml",
             "statutes/26/3101/b/2.test.yaml",
         ]
+
+    def test_changed_manifest_group_files_matches_subrepo_git_paths(self, tmp_path):
+        worktree = tmp_path / "rulespec-us"
+        policy_repo = worktree / "us-co"
+        target = policy_repo / "regulations/10-ccr-2506-1/4.402.2.yaml"
+        test_file = policy_repo / "regulations/10-ccr-2506-1/4.402.2.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text("- name: baseline\n")
+
+        subprocess.run(["git", "init"], cwd=worktree, check=True, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test User",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=worktree,
+            check=True,
+            capture_output=True,
+        )
+
+        test_file.write_text("- name: changed\n")
+
+        changed = _changed_manifest_group_files(
+            policy_repo,
+            [
+                (
+                    Path("regulations/10-ccr-2506-1/4.402.2.yaml"),
+                    [target, test_file],
+                )
+            ],
+        )
+
+        assert changed == [test_file]
 
     def test_repair_missing_source_proofs_keeps_progress_with_pending_issues(
         self, tmp_path
