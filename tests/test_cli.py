@@ -108,6 +108,7 @@ from axiom_encode.cli import (
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -13783,6 +13784,72 @@ rules:
             "auto_output_monthly_reported_tips_below_low_tip_threshold"
         ]
         assert run.outcome["status"] == "apply_applied"
+
+    def test_repairs_conditional_vacuity_test_mismatches(self, tmp_path):
+        output_root = tmp_path / "out"
+        runner = "codex-test-model"
+        output_file = (
+            output_root / runner / "regulations" / "10-ccr-2506-1" / "4.707.3.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: direct_shipment_office_requisition_process_compliant
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          (not issuance_office_receives_ebt_card_shipments_directly_from_usda_fns)
+          or (
+            requisitioning_issuance_office_notified_before_any_requisition_adjustment
+          )
+"""
+        )
+        test_file = output_file.with_name("4.707.3.test.yaml")
+        anchor = "us-co:regulations/10-ccr-2506-1/4.707.3"
+        output_ref = f"{anchor}#direct_shipment_office_requisition_process_compliant"
+        test_file.write_text(
+            f"""- name: missing_security_insurance_or_required_direct_shipment_process_fails
+  input:
+    {anchor}#input.issuance_office_receives_ebt_card_shipments_directly_from_usda_fns: false
+    {anchor}#input.requisitioning_issuance_office_notified_before_any_requisition_adjustment: false
+  output:
+    {output_ref}: not_holds
+- name: direct_shipment_guard_true_not_repaired
+  input:
+    {anchor}#input.issuance_office_receives_ebt_card_shipments_directly_from_usda_fns: true
+    {anchor}#input.requisitioning_issuance_office_notified_before_any_requisition_adjustment: false
+  output:
+    {output_ref}: not_holds
+"""
+        )
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        issues = [
+            "regulations/10-ccr-2506-1/4.707.3.yaml: ci: "
+            "Test case "
+            "`missing_security_insurance_or_required_direct_shipment_process_fails` "
+            f"output `{output_ref}` expected not_holds, got holds.",
+            "regulations/10-ccr-2506-1/4.707.3.yaml: ci: "
+            "Test case `direct_shipment_guard_true_not_repaired` "
+            f"output `{output_ref}` expected not_holds, got holds.",
+        ]
+
+        repaired = _try_repair_generated_conditional_vacuity_tests_for_apply(
+            SimpleNamespace(output_file=str(output_file), runner=runner),
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=issues,
+        )
+
+        assert repaired == [
+            "missing_security_insurance_or_required_direct_shipment_process_fails"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"][output_ref] == "holds"
+        assert test_payload[1]["output"][output_ref] == "not_holds"
 
     def test_encode_apply_removes_local_import_output_input_placeholders(
         self, capsys, tmp_path
