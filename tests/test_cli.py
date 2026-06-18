@@ -6016,6 +6016,61 @@ rules:
             "parent_or_caretaker_relative_medicaid_eligible"
         ]
 
+    def test_source_relation_delegation_repair_drops_broad_federal_regulation_range(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "runner" / "regulations" / "10-ccr-2506-1" / "4.100.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.100
+rules:
+- name: colorado_snap_rules_implement_usda_snap_program_regulations
+  kind: source_relation
+  source: 10 CCR 2506-1 section 4.100
+  source_relation:
+    type: implements
+    target: us:regulations/7-cfr/271-274
+    basis:
+      excerpt: promulgated in accordance with USDA regulations, 7 C.F.R. 271-274
+- name: household_must_meet_snap_eligibility
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: 10 CCR 2506-1 section 4.100
+  versions:
+    - effective_from: '2026-01-01'
+      formula: household_applies_for_snap
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_relation_delegations_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-co",
+            issues=[
+                "RuleSpec source relation "
+                "`colorado_snap_rules_implement_usda_snap_program_regulations` "
+                "with type `implements` must declare "
+                "source_relation.basis.delegation"
+            ],
+        )
+
+        assert repaired == [
+            "colorado_snap_rules_implement_usda_snap_program_regulations"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "household_must_meet_snap_eligibility"
+        ]
+
     def test_source_relation_delegation_repair_keeps_non_cfr_implements_without_basis(
         self, tmp_path
     ):
