@@ -622,7 +622,8 @@ def _program_surface_item_from_payload(
     variable = str(payload["variable"])
     country = str(payload.get("country") or "us")
     mappings = registry.mappings_for_policyengine_variable(variable, country=country)
-    axiom_status = "wired" if mappings else str(payload["axiom_status"])
+    comparable_mapping_count = sum(1 for mapping in mappings if mapping.comparable)
+    axiom_status = "wired" if comparable_mapping_count else str(payload["axiom_status"])
     return PolicyEngineProgramSurfaceItem(
         country=country,
         program_id=str(payload["program_id"]),
@@ -638,7 +639,7 @@ def _program_surface_item_from_payload(
         priority=payload.get("priority"),
         rationale=payload.get("rationale"),
         mapping_count=len(mappings),
-        comparable_mapping_count=sum(1 for mapping in mappings if mapping.comparable),
+        comparable_mapping_count=comparable_mapping_count,
         legal_ids=tuple(mapping.legal_id for mapping in mappings),
     )
 
