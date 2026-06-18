@@ -4023,14 +4023,49 @@ def _changed_manifest_group_files(
             break
         except RuntimeError:
             continue
+    repo_prefix = _git_worktree_prefix(repo_path)
     return _unique_paths(
         [
             path
             for _relative_output, files in manifest_groups
             for path in files
-            if path.relative_to(repo_path).as_posix() in changed
+            if _manifest_group_file_changed(
+                path=path,
+                repo_path=repo_path,
+                repo_prefix=repo_prefix,
+                changed=changed,
+            )
         ]
     )
+
+
+def _git_worktree_prefix(repo_path: Path) -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "--show-prefix"],
+        cwd=repo_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip().strip("/")
+
+
+def _manifest_group_file_changed(
+    *,
+    path: Path,
+    repo_path: Path,
+    repo_prefix: str,
+    changed: set[str],
+) -> bool:
+    relative_path = path.relative_to(repo_path).as_posix()
+    if relative_path in changed:
+        return True
+    if repo_prefix and f"{repo_prefix}/{relative_path}" in changed:
+        return True
+    return False
 
 
 def _write_colorado_snap_repair_manifests(
