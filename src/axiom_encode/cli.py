@@ -7838,6 +7838,10 @@ def cmd_repair_invalid_test_inputs(args):
 
     removed_refs: list[str] = []
     seen_invalid_refs: set[str] = set()
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
     while True:
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,
@@ -7862,17 +7866,23 @@ def cmd_repair_invalid_test_inputs(args):
                 print(f"- {issue}")
             sys.exit(1)
         seen_invalid_refs.update(invalid_refs)
+        repaired_2739_refs = _repair_snap_2739_income_test_inputs(
+            test_file=test_file,
+            target_base=target_base,
+            issues=pending_issues,
+        )
         removed_now = _remove_invalid_test_input_refs(
             test_file=test_file,
             issues=pending_issues,
         )
-        if not removed_now:
+        repaired_now = [*repaired_2739_refs, *removed_now]
+        if not repaired_now:
             test_file.write_text(original_test_content)
             print("Repair failed validation; restored original test file.")
             for issue in pending_issues:
                 print(f"- {issue}")
             sys.exit(1)
-        removed_refs.extend(removed_now)
+        removed_refs.extend(repaired_now)
 
     if not removed_refs:
         print("No invalid test input repairs found.")
@@ -8937,6 +8947,14 @@ def cmd_repair_imported_test_inputs(args):
             relative_output=relative_output,
             issues=issues,
         )
+        repaired_2739_refs = _repair_snap_2739_income_test_inputs(
+            test_file=test_file,
+            target_base=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            issues=issues,
+        )
         removed_invalid_refs = _remove_invalid_test_input_refs(
             test_file=test_file,
             issues=issues,
@@ -8959,6 +8977,7 @@ def cmd_repair_imported_test_inputs(args):
             and not removed_refs
             and not repaired_exclusion_refs
             and not repaired_2014c_refs
+            and not repaired_2739_refs
             and not completed_missing_inputs
             and not repaired_output_cases
         ):
@@ -16152,6 +16171,34 @@ _SNAP_2014C_TEST_CASE_INCOME_INPUTS = {
 }
 
 
+_SNAP_2739_GROSS_MONTHLY_INCOME_REF = (
+    "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"
+)
+_SNAP_2739_NET_INCOME_REF = "us:regulations/7-cfr/273/9#input.snap_net_income"
+_SNAP_2739_BAD_TEST_INPUT_REFS = {
+    _SNAP_2739_GROSS_MONTHLY_INCOME_REF,
+    _SNAP_2739_NET_INCOME_REF,
+}
+_SNAP_27310_HOUSEHOLD_SIZE_REF = (
+    "us:policies/usda/snap/fy-2026-cola/deductions#input.household_size"
+)
+_SNAP_27310_INCOME_INPUT_DEFAULTS = {
+    "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income": 0,
+    "us:regulations/7-cfr/273/10#input.snap_income_exclusions": 0,
+    "us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction": (
+        False
+    ),
+    "us:regulations/7-cfr/273/10#input.snap_total_medical_expenses": 0,
+    "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses": (
+        0
+    ),
+    "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments": (
+        0
+    ),
+    "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction": 0,
+}
+
+
 def _repair_snap_2014c_income_standard_test_inputs(
     *,
     test_file: Path,
@@ -16223,6 +16270,128 @@ def _repair_snap_2014c_income_standard_test_inputs(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repaired_cases
+
+
+def _repair_snap_2739_income_test_inputs(
+    *,
+    test_file: Path,
+    target_base: str | None,
+    issues: list[str],
+) -> list[str]:
+    """Translate invalid generated 7 CFR 273.9 income facts to 273.10 inputs."""
+    if not test_file.exists():
+        return []
+    invalid_refs = _invalid_input_refs_from_issues(issues)
+    if invalid_refs.isdisjoint(_SNAP_2739_BAD_TEST_INPUT_REFS):
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    repaired_cases: list[str] = []
+    for index, test_case in enumerate(test_payload, start=1):
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+
+        gross_key = _matching_mapping_key_by_rulespec_ref(
+            inputs, _SNAP_2739_GROSS_MONTHLY_INCOME_REF
+        )
+        net_key = _matching_mapping_key_by_rulespec_ref(
+            inputs, _SNAP_2739_NET_INCOME_REF
+        )
+        if gross_key is None and net_key is None:
+            continue
+
+        changed = False
+        gross_value = inputs.pop(gross_key) if gross_key is not None else None
+        net_value = inputs.pop(net_key) if net_key is not None else None
+        changed = True
+
+        gross_decimal = _snap_generated_income_decimal(gross_value)
+        net_decimal = _snap_generated_income_decimal(net_value)
+        income_decimal = gross_decimal if gross_decimal is not None else net_decimal
+        total_gross_income = _snap_generated_income_yaml_number(
+            income_decimal, default=0
+        )
+
+        if gross_key is not None and target_base:
+            local_gross_ref = f"{target_base}#input.snap_gross_monthly_income"
+            inputs.setdefault(local_gross_ref, total_gross_income)
+
+        household_size = _snap_generated_household_size_input(inputs)
+        inputs.setdefault(_SNAP_27310_HOUSEHOLD_SIZE_REF, household_size)
+        inputs.setdefault(
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+            total_gross_income,
+        )
+        for input_ref, value in _SNAP_27310_INCOME_INPUT_DEFAULTS.items():
+            inputs.setdefault(input_ref, value)
+        inputs.setdefault(
+            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses",
+            _snap_generated_shelter_expense_input(
+                gross_decimal=gross_decimal,
+                net_decimal=net_decimal,
+            ),
+        )
+
+        if changed:
+            case_name = str(test_case.get("name") or f"case_{index}")
+            repaired_cases.append(f"snap_2739_income:{case_name}")
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
+def _snap_generated_income_decimal(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _snap_generated_income_yaml_number(
+    value: Decimal | None,
+    *,
+    default: int | float,
+) -> int | float:
+    if value is None:
+        return default
+    return _decimal_to_yaml_number(value)
+
+
+def _snap_generated_household_size_input(inputs: dict[object, object]) -> object:
+    for key, value in inputs.items():
+        if str(key).endswith("#input.household_size"):
+            return value
+    return 1
+
+
+def _snap_generated_shelter_expense_input(
+    *,
+    gross_decimal: Decimal | None,
+    net_decimal: Decimal | None,
+) -> int | float:
+    if (
+        gross_decimal is not None
+        and gross_decimal > 0
+        and net_decimal is not None
+        and net_decimal <= 0
+    ):
+        return _decimal_to_yaml_number(gross_decimal * Decimal("2"))
+    return 0
 
 
 def _repair_stale_exclusion_dependency_test_input_refs(
@@ -19265,6 +19434,7 @@ def cmd_encode(args):
                     repaired_refs = _try_repair_generated_invalid_test_inputs_for_apply(
                         result,
                         output_root=args.output,
+                        policy_repo_path=policy_repo_path,
                         issues=apply_issues,
                     )
                     if not repaired_refs:
@@ -19375,6 +19545,7 @@ def cmd_encode(args):
                     repaired_refs = _try_repair_generated_invalid_test_inputs_for_apply(
                         result,
                         output_root=args.output,
+                        policy_repo_path=policy_repo_path,
                         issues=apply_issues,
                     )
                     if not repaired_refs:
@@ -19719,6 +19890,7 @@ def cmd_encode(args):
                                     _try_repair_generated_invalid_test_inputs_for_apply(
                                         result,
                                         output_root=args.output,
+                                        policy_repo_path=policy_repo_path,
                                         issues=apply_issues,
                                     )
                                 )
@@ -27528,6 +27700,7 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
     result,
     *,
     output_root: Path,
+    policy_repo_path: Path,
     issues: list[str],
 ) -> list[str]:
     """Remove generated-test input refs that validator proved are invalid."""
@@ -27535,13 +27708,25 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
         return []
 
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    repaired_2739_refs = _repair_snap_2739_income_test_inputs(
+        test_file=test_file,
+        target_base=target_base,
+        issues=issues,
+    )
+    removed_refs = _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
+    return [*repaired_2739_refs, *removed_refs]
 
 
 def _try_repair_generated_target_prefix_typos_for_apply(
