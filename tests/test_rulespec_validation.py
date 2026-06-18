@@ -14417,6 +14417,41 @@ rules:
     ]
 
 
+def test_source_scope_consistency_accepts_resident_individual_allowed_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: low_income_child_care_expenses_credit_allowed
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: C.R.S. 39-22-119.5(3)(a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: a resident individual is allowed a credit
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: insufficient tax liability to claim any credit under section 39-22-119
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: would be allowed a credit for the expenses under section 21 if sufficient tax liability existed
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          resident_individual
+          and insufficient_tax_liability_for_section_119_credit
+          and expenses_would_be_allowed_under_section_21
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_does_not_treat_taxpayer_alone_as_person_scope():
     content = """format: rulespec/v1
 module:

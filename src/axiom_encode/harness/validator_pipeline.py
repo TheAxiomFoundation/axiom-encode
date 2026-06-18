@@ -7376,10 +7376,12 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
 )
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
     r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"(?:(?:resident|nonresident|qualifying|qualified|eligible)\s+)?"
     r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
-    r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat)",
+    r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat|"
+    r"allowed\s+(?:a\s+)?credit)",
     flags=re.IGNORECASE,
 )
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
