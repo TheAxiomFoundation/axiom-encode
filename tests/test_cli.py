@@ -89,6 +89,7 @@ from axiom_encode.cli import (
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
     _repair_snap_2014c_income_standard_test_inputs,
+    _repair_snap_2739_income_test_inputs,
     _repair_tax_filing_status_branches,
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
@@ -18887,6 +18888,73 @@ rules: []
                 "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"
             ]
             == 1200
+        )
+
+    def test_repair_snap_2739_income_test_inputs(self, tmp_path):
+        test_file = tmp_path / "4.401.test.yaml"
+        test_file.write_text(
+            """- name: bce_household_is_deemed_to_meet_income_limits
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 3
+    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 2500
+    us:regulations/7-cfr/273/9#input.snap_net_income: 0
+  output:
+    us-co:regulations/10-ccr-2506-1/4.401#passes_gross_income_test: holds
+"""
+        )
+
+        repaired = _repair_snap_2739_income_test_inputs(
+            test_file=test_file,
+            target_base="us-co:regulations/10-ccr-2506-1/4.401",
+            issues=[
+                "Test case `bce_household_is_deemed_to_meet_income_limits` "
+                "input invalid: input "
+                "`us:regulations/7-cfr/273/9#input.snap_gross_monthly_income` "
+                "does not resolve to an input slot",
+                "Test case `bce_household_is_deemed_to_meet_income_limits` "
+                "input invalid: input "
+                "`us:regulations/7-cfr/273/9#input.snap_net_income` "
+                "does not resolve to an input slot",
+            ],
+        )
+
+        assert repaired == [
+            "snap_2739_income:bce_household_is_deemed_to_meet_income_limits"
+        ]
+        [test_case] = yaml.safe_load(test_file.read_text())
+        inputs = test_case["input"]
+        assert (
+            "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income" not in inputs
+        )
+        assert "us:regulations/7-cfr/273/9#input.snap_net_income" not in inputs
+        assert (
+            inputs[
+                "us-co:regulations/10-ccr-2506-1/4.401#input.snap_gross_monthly_income"
+            ]
+            == 2500
+        )
+        assert (
+            inputs[
+                "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income"
+            ]
+            == 2500
+        )
+        assert (
+            inputs["us:policies/usda/snap/fy-2026-cola/deductions#input.household_size"]
+            == 3
+        )
+        assert (
+            inputs[
+                "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses"
+            ]
+            == 5000
+        )
+        assert (
+            inputs[
+                "us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction"
+            ]
+            is False
         )
 
     def test_repair_scalar_relation_rows_from_companion_tests(self, tmp_path):
