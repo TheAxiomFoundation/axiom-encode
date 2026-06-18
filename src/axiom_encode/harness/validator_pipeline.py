@@ -17718,10 +17718,35 @@ def _candidate_rulespec_repo_roots(
 def _rulespec_repo_alias_parent(policy_repo_path: Path) -> Path | None:
     """Expose a temp checkout under its canonical `rulespec-*` repo name."""
     canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    if not canonical_name or policy_repo_path.name == canonical_name:
+    return _rulespec_repo_alias_parent_for_root(policy_repo_path, canonical_name)
+
+
+def _monorepo_rulespec_repo_alias(
+    policy_repo_path: Path,
+) -> tuple[Path, str] | None:
+    """Expose a country monorepo root when validating one jurisdiction subdir."""
+    policy_root = Path(policy_repo_path).resolve()
+    monorepo_root = policy_root.parent
+    if not monorepo_root.name.startswith("rulespec-"):
+        return None
+    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
+        return None
+    canonical_name = canonical_rulespec_repo_name(monorepo_root)
+    alias_parent = _rulespec_repo_alias_parent_for_root(monorepo_root, canonical_name)
+    if alias_parent is None or canonical_name is None:
+        return None
+    return alias_parent, canonical_name
+
+
+def _rulespec_repo_alias_parent_for_root(
+    rulespec_root: Path,
+    canonical_name: str | None,
+) -> Path | None:
+    """Expose a checkout root under a canonical `rulespec-*` repo name."""
+    if not canonical_name or Path(rulespec_root).name == canonical_name:
         return None
 
-    resolved_repo = policy_repo_path.resolve()
+    resolved_repo = Path(rulespec_root).resolve()
     digest = hashlib.sha256(str(resolved_repo).encode()).hexdigest()[:16]
     alias_parent = Path(tempfile.gettempdir()) / "axiom-rulespec-repo-aliases" / digest
     alias_parent.mkdir(parents=True, exist_ok=True)
@@ -17743,6 +17768,17 @@ def _canonical_rulespec_compile_path(
     policy_repo_path: Path,
 ) -> Path:
     """Return a compile path under the canonical repo alias when needed."""
+    monorepo_alias = _monorepo_rulespec_repo_alias(policy_repo_path)
+    if monorepo_alias is not None:
+        monorepo_alias_parent, monorepo_canonical_name = monorepo_alias
+        try:
+            relative = rules_file.resolve().relative_to(
+                Path(policy_repo_path).resolve().parent
+            )
+        except ValueError:
+            return rules_file
+        return monorepo_alias_parent / monorepo_canonical_name / relative
+
     alias_parent = _rulespec_repo_alias_parent(policy_repo_path)
     canonical_name = canonical_rulespec_repo_name(policy_repo_path)
     if alias_parent is None or canonical_name is None:
@@ -18529,6 +18565,10 @@ class ValidatorPipeline:
             ]
         else:
             incidental_roots = [self.policy_repo_path.parent]
+        monorepo_alias = _monorepo_rulespec_repo_alias(self.policy_repo_path)
+        if monorepo_alias is not None:
+            monorepo_alias_parent, _monorepo_canonical_name = monorepo_alias
+            roots.append(monorepo_alias_parent)
         alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
         if alias_parent is not None:
             roots.append(alias_parent)
