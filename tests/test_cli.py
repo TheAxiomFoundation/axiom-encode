@@ -112,6 +112,7 @@ from axiom_encode.cli import (
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
+    _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
@@ -4924,6 +4925,50 @@ rules:
 
         assert repaired == []
         assert rules_file.read_text() == original
+
+    def test_invalid_source_relation_type_repair_normalizes_incorporates(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "runner" / "regulations" / "10-ccr-2506-1" / "4.100.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: colorado_snap_rules_incorporate_usda_snap_program_regulations_edition
+  kind: source_relation
+  source: 10 CCR 2506-1 section 4.100
+  source_relation:
+    type: incorporates
+    target: us:regulations/7-cfr/271-274
+    edition: 2021
+    later_amendments_or_editions_incorporated: false
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_invalid_source_relation_types_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "yaml parse error: rules[0].source_relation.type: unknown variant "
+                "`incorporates`, expected one of `defines`, `delegates`, "
+                "`implements`, `sets`, `amends`, `restates`, `cites`"
+            ],
+        )
+
+        assert repaired == [
+            "colorado_snap_rules_incorporate_usda_snap_program_regulations_edition"
+        ]
+        source_relation = yaml.safe_load(rules_file.read_text())["rules"][0][
+            "source_relation"
+        ]
+        assert source_relation == {
+            "type": "cites",
+            "target": "us:regulations/7-cfr/271-274",
+        }
 
     def test_delegated_policy_setting_repair_adds_snap_utility_sets_edges(
         self, tmp_path

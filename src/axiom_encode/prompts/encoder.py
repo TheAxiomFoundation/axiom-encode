@@ -846,6 +846,9 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
   `source_relation.target`, and it must not include executable `versions`.
+- If a source incorporates another authority by reference, encode that
+  provenance edge as `source_relation.type: cites`; never invent an
+  `incorporates` source relation type.
 - Do not put source graph relationships in executable rule metadata. If a
   source `sets`, `amends`, `implements`, or `restates` another source, encode a
   separate `kind: source_relation` record in the same RuleSpec file.
