@@ -17954,6 +17954,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_negated_comparisons = (
+                    _try_repair_generated_negated_comparisons_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_negated_comparisons:
+                    outcome["auto_repaired_negated_comparisons"] = (
+                        repaired_negated_comparisons
+                    )
+                    print(
+                        "  apply=auto_repaired_negated_comparisons:"
+                        + ",".join(repaired_negated_comparisons)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_judgment_conditionals = (
                     _try_repair_generated_judgment_conditionals_for_apply(
                         result,
@@ -19683,6 +19711,26 @@ def _try_repair_generated_boolean_comparison_predicates_for_apply(
     )
 
 
+def _try_repair_generated_negated_comparisons_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite unparenthesized negated numeric comparisons before apply."""
+    if not any(
+        _issue_mentions_negated_comparison_in_scalar_position(issue) for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _rewrite_negated_comparison_formulas(rules_file)
+
+
 def _try_repair_generated_judgment_numeric_comparisons_for_apply(
     result,
     *,
@@ -21321,6 +21369,11 @@ def _issue_mentions_boolean_comparison_in_scalar_position(issue: str) -> bool:
     return "binary op" in text and "in scalar position" in text
 
 
+def _issue_mentions_negated_comparison_in_scalar_position(issue: str) -> bool:
+    text = str(issue)
+    return "`not` in scalar position" in text or "not in scalar position" in text
+
+
 def _issue_mentions_judgment_scalar_request(issue: str) -> bool:
     return "is judgment, but a scalar was requested" in str(issue).lower()
 
@@ -21989,6 +22042,74 @@ def _promote_boolean_comparison_predicates_to_judgment(
     if test_file is not None:
         _rewrite_boolean_test_values_as_judgments(test_file, set(repaired))
     return repaired
+
+
+_NEGATED_COMPARISON_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])not\s+"
+    r"(?P<left>[A-Za-z_][A-Za-z0-9_]*|-?\d+(?:\.\d+)?)"
+    r"\s*(?P<op>>=|<=|==|!=|>|<)\s*"
+    r"(?P<right>[A-Za-z_][A-Za-z0-9_]*|-?\d+(?:\.\d+)?)"
+)
+
+_INVERTED_COMPARISON_OPERATORS = {
+    ">": "<=",
+    ">=": "<",
+    "<": ">=",
+    "<=": ">",
+    "==": "!=",
+    "!=": "==",
+}
+
+
+def _rewrite_negated_comparison_formulas(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            rewritten = _rewrite_negated_comparison_formula(formula)
+            if rewritten != formula:
+                version["formula"] = rewritten
+                rule_changed = True
+        if rule_changed:
+            repaired.append(str(rule.get("name") or "formula_rule"))
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _rewrite_negated_comparison_formula(formula: str) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        left = match.group("left")
+        op = match.group("op")
+        right = match.group("right")
+        return f"{left} {_INVERTED_COMPARISON_OPERATORS[op]} {right}"
+
+    return _NEGATED_COMPARISON_PATTERN.sub(_replace, str(formula))
 
 
 def _rewrite_judgment_numeric_comparisons(
