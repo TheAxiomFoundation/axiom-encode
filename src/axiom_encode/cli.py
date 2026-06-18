@@ -3872,6 +3872,7 @@ COLORADO_SNAP_REPAIR_RELATIVE_OUTPUTS = (
     COLORADO_SNAP_CCR_ROOT / "4.207.3.yaml",
     COLORADO_SNAP_CCR_ROOT / "4.401.yaml",
     COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml",
+    COLORADO_SNAP_CCR_ROOT / "4.801.3.yaml",
 )
 
 CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL = "california-snap-shelter-surface-v1"
@@ -3950,6 +3951,7 @@ def cmd_repair_colorado_snap_federal_refs(args):
         _repair_colorado_snap_2072(repo_path / COLORADO_SNAP_CCR_ROOT / "4.207.2.yaml")
         _repair_colorado_snap_401(repo_path / COLORADO_SNAP_CCR_ROOT / "4.401.yaml")
         _repair_colorado_snap_4073(repo_path / COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml")
+        _repair_colorado_snap_8013(repo_path / COLORADO_SNAP_CCR_ROOT / "4.801.3.yaml")
         _repair_colorado_snap_program_tests(
             _rulespec_test_path(repo_path / COLORADO_SNAP_PROGRAM_RELATIVE)
         )
@@ -5181,6 +5183,24 @@ def _repair_colorado_snap_4073(path: Path) -> None:
             ),
             *_colorado_snap_shelter_bridge_rules(),
         ],
+    )
+    path.write_text(content)
+
+
+def _repair_colorado_snap_8013(path: Path) -> None:
+    content = path.read_text()
+    content = _ensure_yaml_import_text(
+        content,
+        "us:statutes/7/2014/e/2/B",
+    )
+    content, _ = _remove_rulespec_rule_by_name(
+        content,
+        "earned_income_deduction_rate",
+    )
+    content = _replace_formula_identifier(
+        content,
+        old="earned_income_deduction_rate",
+        new="snap_earned_income_deduction_rate",
     )
     path.write_text(content)
 
