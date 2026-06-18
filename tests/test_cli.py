@@ -62,6 +62,7 @@ from axiom_encode.cli import (
     _repair_california_snap_program_tests,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
+    _repair_colorado_snap_2051,
     _repair_colorado_snap_2072,
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_policy_composition,
@@ -9946,6 +9947,34 @@ rules:
         assert rule["versions"][0]["formula"] == "false"
         assert rule["entity"] == "Household"
         assert rule["period"] == "Month"
+
+    def test_repair_colorado_snap_2051_imports_federal_utility_settings(self, tmp_path):
+        rules_file = tmp_path / "4.205.1.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-co:regulations/10-ccr-2506-1/4.406#snap_destitute_income_household
+  - us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+rules:
+  - name: expedited_shelter_cost_threshold
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_standard_utility_allowance
+"""
+        )
+
+        _repair_colorado_snap_2051(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == [
+            "us:regulations/7-cfr/273/9",
+            "us-co:regulations/10-ccr-2506-1/4.406#snap_destitute_income_household",
+            "us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance",
+        ]
 
     def test_repair_colorado_snap_401_uses_household_scope_for_separate_household(
         self, tmp_path
