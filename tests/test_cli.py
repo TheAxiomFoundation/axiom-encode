@@ -66,6 +66,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_2051,
     _repair_colorado_snap_2072,
     _repair_colorado_snap_2072_tests,
+    _repair_colorado_snap_8013,
     _repair_colorado_snap_policy_composition,
     _repair_colorado_snap_program_tests,
     _repair_embedded_scalar_literals,
@@ -9977,6 +9978,47 @@ rules:
             "us-co:regulations/10-ccr-2506-1/4.406#snap_destitute_income_household",
             "us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance",
         ]
+
+    def test_repair_colorado_snap_8013_imports_federal_deduction_rate(self, tmp_path):
+        rules_file = tmp_path / "4.801.3.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Claims
+rules:
+  - name: earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    source: 10 CCR 2506-1 4.801.3(C)(4)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          0.20
+
+  - name: earned_income_deduction_allowed_for_claim_calculation
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 10 CCR 2506-1 4.801.3(C)(4)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          earned_income_deduction_rate * max(0, earned_income_timely_reported_for_claim_calculation)
+"""
+        )
+
+        _repair_colorado_snap_8013(rules_file)
+
+        content = rules_file.read_text()
+        payload = yaml.safe_load(content)
+        assert payload["imports"] == ["us:statutes/7/2014/e/2/B"]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "earned_income_deduction_allowed_for_claim_calculation"
+        ]
+        formula = payload["rules"][0]["versions"][0]["formula"]
+        assert formula.startswith("snap_earned_income_deduction_rate * max(0,")
 
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"
