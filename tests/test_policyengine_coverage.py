@@ -121,6 +121,16 @@ surfaces:
     priority: P1
     rationale: Needs RuleSpec encoding.
   - country: us
+    program_id: payroll_taxes
+    program_name: Payroll taxes
+    category: Taxes
+    policyengine_status: complete
+    coverage: US
+    variable: employee_payroll_tax
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Non-comparable registry mappings should not mark this wired.
+  - country: us
     program_id: fdpir
     program_name: FDPIR
     category: Benefits
@@ -136,17 +146,23 @@ surfaces:
 
     report = build_policyengine_program_surface_report(manifest_path=manifest)
 
-    assert report["total_surfaces"] == 3
+    assert report["total_surfaces"] == 4
     assert report["status_counts"] == {
         "input_only": 1,
-        "pending_rulespec_encoding": 1,
+        "pending_rulespec_encoding": 2,
         "wired": 1,
     }
-    assert report["pending_surfaces"] == 1
+    assert report["pending_surfaces"] == 2
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
     assert items_by_variable["income_tax"]["mapping_count"] >= 1
     assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
+    assert (
+        items_by_variable["employee_payroll_tax"]["axiom_status"]
+        == "pending_rulespec_encoding"
+    )
+    assert items_by_variable["employee_payroll_tax"]["mapping_count"] >= 1
+    assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
 
 
