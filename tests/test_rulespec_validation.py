@@ -203,6 +203,62 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
     assert str(stale_root) in roots
 
 
+def test_rulespec_target_resolution_prefers_configured_roots(monkeypatch, tmp_path):
+    workspace = tmp_path / "worktrees"
+    policy_repo = workspace / "rulespec-us-co"
+    policy_repo.mkdir(parents=True)
+    stale_sibling = workspace / "rulespec-us"
+    stale_file = stale_sibling / "regulations" / "7-cfr" / "273" / "9.yaml"
+    stale_file.parent.mkdir(parents=True)
+    stale_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: stale_snap_income_rule
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '0'
+"""
+    )
+    configured_parent = tmp_path / "configured"
+    configured_file = (
+        configured_parent
+        / "rulespec-us"
+        / "us"
+        / "regulations"
+        / "7-cfr"
+        / "273"
+        / "9.yaml"
+    )
+    configured_file.parent.mkdir(parents=True)
+    configured_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_standard_utility_allowance_state_option
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '0'
+"""
+    )
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
+    target_ref = validator_pipeline._parse_rulespec_target(
+        "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+    )
+
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+        == configured_file
+    )
+
+
 def test_unrelated_same_section_term_import_rejects_other_section_standin(tmp_path):
     repo = tmp_path / "rulespec-us"
     section_root = repo / "statutes/26/3134"
