@@ -15366,6 +15366,23 @@ def _positive_judgment_formula_input_assignments_for_formula(
                     for input_name, value in dependency_assignments.items():
                         assignments.setdefault(input_name, value)
                     protected_positive_inputs.update(dependency_protected_inputs)
+            elif dependency_formula := _first_rule_formula(dependency):
+                (
+                    helper_assignments,
+                    helper_protected_inputs,
+                ) = _positive_count_helper_input_assignments(
+                    helper_name=identifier,
+                    parent_formula=formula,
+                    helper_formula=dependency_formula,
+                    rules_payload=rules_payload,
+                    rules_by_name=rules_by_name,
+                    imported_outputs=imported_outputs,
+                    excluded_true_inputs=negated_identifiers,
+                    protected_positive_inputs=protected_positive_inputs,
+                )
+                for input_name, value in helper_assignments.items():
+                    assignments.setdefault(input_name, value)
+                protected_positive_inputs.update(helper_protected_inputs)
             continue
         if identifier in imported_outputs:
             continue
@@ -15410,6 +15427,97 @@ def _positive_judgment_formula_input_assignments_for_formula(
         )
 
     return assignments, protected_positive_inputs
+
+
+def _positive_count_helper_input_assignments(
+    *,
+    helper_name: str,
+    parent_formula: str,
+    helper_formula: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+    excluded_true_inputs: set[str],
+    protected_positive_inputs: set[str],
+) -> tuple[dict[str, object], set[str]]:
+    required_count = _integer_equality_count_for_helper(
+        formula=parent_formula,
+        helper_name=helper_name,
+    )
+    if required_count is None:
+        return {}, set()
+    helper_inputs = _boolean_sum_count_helper_inputs(
+        formula=helper_formula,
+        rules_payload=rules_payload,
+        rules_by_name=rules_by_name,
+        imported_outputs=imported_outputs,
+    )
+    if not helper_inputs or required_count > len(helper_inputs):
+        return {}, set()
+
+    already_selected = [
+        input_name
+        for input_name in helper_inputs
+        if input_name in protected_positive_inputs
+    ]
+    if len(already_selected) > required_count:
+        return {}, set()
+
+    remaining_needed = required_count - len(already_selected)
+    selectable = [
+        input_name
+        for input_name in helper_inputs
+        if input_name not in protected_positive_inputs
+        and input_name not in excluded_true_inputs
+    ]
+    if remaining_needed > len(selectable):
+        return {}, set()
+
+    selected = set(already_selected)
+    selected.update(selectable[:remaining_needed])
+    assignments: dict[str, object] = {}
+    for input_name in helper_inputs:
+        if input_name in protected_positive_inputs and input_name not in selected:
+            return {}, set()
+        assignments[input_name] = input_name in selected
+    return assignments, selected
+
+
+def _integer_equality_count_for_helper(*, formula: str, helper_name: str) -> int | None:
+    token = re.escape(helper_name)
+    patterns = (
+        re.compile(rf"\b{token}\b\s*==\s*(?P<count>\d+)\b"),
+        re.compile(rf"\b(?P<count>\d+)\b\s*==\s*\b{token}\b"),
+    )
+    for pattern in patterns:
+        match = pattern.search(formula)
+        if match is not None:
+            return int(match["count"])
+    return None
+
+
+def _boolean_sum_count_helper_inputs(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+) -> list[str]:
+    defined_symbols = set(rules_by_name) | imported_outputs
+    inputs: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r"\bif\s+(?P<input>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*1\s+else\s*:\s*0\b"
+    )
+    for match in pattern.finditer(formula):
+        input_name = match["input"]
+        if input_name in seen or input_name in defined_symbols:
+            continue
+        if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+            continue
+        seen.add(input_name)
+        inputs.append(input_name)
+    return inputs
 
 
 def _rule_is_derived_judgment(rule: dict[str, object]) -> bool:

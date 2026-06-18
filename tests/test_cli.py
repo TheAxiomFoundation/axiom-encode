@@ -13449,6 +13449,75 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_synthesizes_count_helper_inputs(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us-co"
+        rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
+        test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.407.31.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_non_heating_cooling_utility_expense_count
+    kind: derived
+    dtype: Integer
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          (if household_pays_electricity_utility_cost: 1 else: 0)
+          + (if household_pays_water_utility_cost: 1 else: 0)
+          + (if household_pays_telephone_service_cost: 1 else: 0)
+  - name: snap_one_utility_allowance_eligible
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_non_heating_cooling_utility_expense_count == 1
+          and not household_pays_telephone_service_cost
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("regulations/10-ccr-2506-1/4.407.31.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us-co:regulations/10-ccr-2506-1/4.407.31#snap_one_utility_allowance_eligible` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_snap_one_utility_allowance_eligible"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[0]
+        assert synthesized["output"] == {
+            "us-co:regulations/10-ccr-2506-1/4.407.31#snap_one_utility_allowance_eligible": "holds"
+        }
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.407.31#input.household_pays_electricity_utility_cost"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.407.31#input.household_pays_water_utility_cost"
+            ]
+            is False
+        )
+        assert (
+            synthesized["input"][
+                "us-co:regulations/10-ccr-2506-1/4.407.31#input.household_pays_telephone_service_cost"
+            ]
+            is False
+        )
+
     def test_judgment_positive_test_repair_synthesizes_local_judgment_dependency_inputs(
         self, tmp_path
     ):
