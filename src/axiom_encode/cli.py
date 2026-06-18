@@ -5376,17 +5376,24 @@ def _ensure_yaml_import_text(
     *,
     before_import: str | None = None,
 ) -> str:
-    import_line = f"  - {import_target}\n"
-    if import_line in content:
+    import_indent = _yaml_sequence_item_indent(content, "imports")
+    import_line = f"{import_indent}- {import_target}\n"
+    if re.search(rf"(?m)^\s*-\s+{re.escape(import_target)}$", content):
         return content
     if before_import is not None:
-        before_line = f"  - {before_import}\n"
-        if before_line in content:
-            return content.replace(before_line, import_line + before_line, 1)
+        before_match = re.search(
+            rf"(?m)^(\s*)-\s+{re.escape(before_import)}$",
+            content,
+        )
+        if before_match is not None:
+            line_start = before_match.start()
+            return f"{content[:line_start]}{import_line}{content[line_start:]}"
     rules_marker = "rules:\n"
     if rules_marker not in content:
         raise RuntimeError("RuleSpec payload missing rules section")
-    return content.replace(rules_marker, import_line + rules_marker, 1)
+    if re.search(r"(?m)^imports:\s*$", content):
+        return content.replace(rules_marker, import_line + rules_marker, 1)
+    return content.replace(rules_marker, f"imports:\n{import_line}{rules_marker}", 1)
 
 
 def _append_rules_text_if_missing(
@@ -5414,13 +5421,18 @@ def _upsert_rule_text(
     before_rule: str | None = None,
 ) -> str:
     name = str(rule.get("name") or "")
-    marker = f"  - name: {name}\n"
+    rule_indent = _yaml_sequence_item_indent(content, "rules")
+    marker = f"{rule_indent}- name: {name}\n"
     start = content.find(marker)
     if start == -1:
         return _insert_rule_text_if_missing(content, rule, before_rule=before_rule)
-    next_start = content.find("\n  - name: ", start + len(marker))
+    next_start = content.find(f"\n{rule_indent}- name: ", start + len(marker))
     end = len(content) if next_start == -1 else next_start + 1
-    return f"{content[:start]}{_render_generated_rule_yaml(rule)}{content[end:]}"
+    return (
+        f"{content[:start]}"
+        f"{_render_generated_rule_yaml(rule, item_indent=rule_indent)}"
+        f"{content[end:]}"
+    )
 
 
 def _insert_rule_text_if_missing(
@@ -5430,24 +5442,48 @@ def _insert_rule_text_if_missing(
     before_rule: str | None = None,
 ) -> str:
     name = str(rule.get("name") or "")
-    if f"\n  - name: {name}\n" in f"\n{content}":
+    rule_indent = _yaml_sequence_item_indent(content, "rules")
+    if re.search(rf"(?m)^\s*-\s+name:\s+{re.escape(name)}$", content):
         return content
-    rendered = _render_generated_rule_yaml(rule)
+    rendered = _render_generated_rule_yaml(rule, item_indent=rule_indent)
     if before_rule is not None:
-        marker = f"\n  - name: {before_rule}\n"
-        if marker in content:
-            return content.replace(marker, f"\n{rendered}{marker}", 1)
+        marker = re.search(
+            rf"(?m)^{re.escape(rule_indent)}-\s+name:\s+{re.escape(before_rule)}$",
+            content,
+        )
+        if marker is not None:
+            return f"{content[: marker.start()]}{rendered}{content[marker.start() :]}"
     if not content.endswith("\n"):
         content += "\n"
     return f"{content}{rendered}"
 
 
-def _render_generated_rule_yaml(rule: dict[str, object]) -> str:
-    lines = [f"  - name: {rule['name']}"]
+def _yaml_sequence_item_indent(content: str, section: str) -> str:
+    match = re.search(
+        rf"(?ms)^{re.escape(section)}:\s*\n(?P<body>.*?)(?=^[A-Za-z_][^:\n]*:\s*$|\Z)",
+        content,
+    )
+    if match is None:
+        return "  "
+    for line in match.group("body").splitlines():
+        item = re.match(r"^(\s*)-\s+", line)
+        if item is not None:
+            return item.group(1)
+    return "  "
+
+
+def _render_generated_rule_yaml(
+    rule: dict[str, object], *, item_indent: str = "  "
+) -> str:
+    body_indent = f"{item_indent}  "
+    nested_sequence_indent = body_indent if item_indent == "" else f"{body_indent}  "
+    nested_mapping_indent = f"{nested_sequence_indent}  "
+    formula_indent = f"{nested_mapping_indent}  "
+    lines = [f"{item_indent}- name: {rule['name']}"]
     for key in ("kind", "entity", "dtype", "period", "unit", "source"):
         value = rule.get(key)
         if value is not None:
-            lines.append(f"    {key}: {value}")
+            lines.append(f"{body_indent}{key}: {value}")
     versions = rule.get("versions")
     if not isinstance(versions, list) or not versions:
         raise RuntimeError("Generated rule missing versions")
@@ -5456,13 +5492,13 @@ def _render_generated_rule_yaml(rule: dict[str, object]) -> str:
         raise RuntimeError("Generated rule missing formula")
     lines.extend(
         [
-            "    versions:",
-            f"      - effective_from: '{version.get('effective_from', '2025-10-01')}'",
-            "        formula: |-",
+            f"{body_indent}versions:",
+            f"{nested_sequence_indent}- effective_from: '{version.get('effective_from', '2025-10-01')}'",
+            f"{nested_mapping_indent}formula: |-",
         ]
     )
     formula_lines = str(version["formula"]).splitlines() or [""]
-    lines.extend(f"          {line}" for line in formula_lines)
+    lines.extend(f"{formula_indent}{line}" for line in formula_lines)
     return "\n".join(lines) + "\n"
 
 
@@ -5595,6 +5631,8 @@ def _split_colorado_snap_program_utility_outputs(content: str) -> str:
             "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
         ),
     )
+    if "&base_snap_case" not in content:
+        content = content.replace("  input:\n", "  input: &base_snap_case\n", 1)
     utility_case = """- name: ongoing_month_derives_standard_utility_allowance
   period: 2026-01
   input:

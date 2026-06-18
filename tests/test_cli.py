@@ -105,6 +105,7 @@ from axiom_encode.cli import (
     _sha256_text,
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
+    _split_colorado_snap_program_utility_outputs,
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
@@ -9976,6 +9977,60 @@ rules:
             "us-co:regulations/10-ccr-2506-1/4.406#snap_destitute_income_household",
             "us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance",
         ]
+
+    def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
+        rules_file = tmp_path / "4.207.2.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+- us:regulations/7-cfr/273/10
+- us:statutes/7/2017/a
+rules:
+- name: state_agency_rounds_thirty_percent_net_income_up
+  kind: parameter
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Colorado SNAP federal surface bridge
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'false'
+"""
+        )
+
+        _repair_colorado_snap_2072(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == [
+            "us:regulations/7-cfr/273/10",
+            "us:statutes/7/2014/e/6/A",
+            "us:statutes/7/2017/a",
+        ]
+        names = [rule["name"] for rule in payload["rules"]]
+        assert names.count("state_agency_rounds_thirty_percent_net_income_up") == 1
+        assert "snap_initial_month_prorated_allotment" in names
+
+    def test_split_colorado_snap_program_utility_outputs_anchors_base_case(self):
+        content = """- name: ongoing_month_derives_income_eligibility_and_colorado_allotment
+  period: 2026-01
+  input:
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
+  output:
+    us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible: holds
+    us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance: 594
+- name: additional_household_member_uses_usda_additional_member_amount
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size: 9
+  output:
+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment: 2190
+"""
+
+        repaired = _split_colorado_snap_program_utility_outputs(content)
+
+        assert "input: &base_snap_case" in repaired
+        assert "<<: *base_snap_case" in repaired
+        yaml.safe_load(repaired)
 
     def test_repair_colorado_snap_401_uses_household_scope_for_separate_household(
         self, tmp_path
