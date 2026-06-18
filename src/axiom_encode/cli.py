@@ -11835,6 +11835,69 @@ def cmd_repair_tax_status_components(args):
     print(f"manifest={manifest_path}")
 
 
+MISSING_SOURCE_PROOF_REPAIR_MODEL = "source-proof-atom-v1"
+MISSING_SOURCE_PROOF_REPAIR_TOOL = "axiom-encode repair-missing-source-proofs"
+
+
+def _missing_source_proof_repair_applied_files(
+    repo_path: Path,
+    relative_output: Path,
+    rules_file: Path,
+) -> list[Path]:
+    applied_files = [rules_file]
+    test_file = _rulespec_test_path(rules_file)
+    if test_file.exists():
+        try:
+            changed_files = _changed_manifest_group_files(
+                repo_path, [(relative_output, [rules_file, test_file])]
+            )
+        except RuntimeError:
+            changed_files = []
+        if any(path.resolve() == test_file.resolve() for path in changed_files):
+            applied_files.append(test_file)
+    return applied_files
+
+
+def _write_missing_source_proof_repair_manifest(
+    *,
+    repo_path: Path,
+    relative_output: Path,
+    content: str,
+    applied_files: list[Path],
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+) -> Path:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model=MISSING_SOURCE_PROOF_REPAIR_MODEL,
+            tool=MISSING_SOURCE_PROOF_REPAIR_TOOL,
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        return _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+
 def cmd_repair_missing_source_proofs(args):
     """Apply signed deterministic repairs for missing source proof atoms."""
     repo_path = Path(args.repo).resolve()
@@ -11855,7 +11918,34 @@ def cmd_repair_missing_source_proofs(args):
     repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
         original_content
     )
+    applied_files = _missing_source_proof_repair_applied_files(
+        repo_path,
+        relative_output,
+        rules_file,
+    )
     if repaired_content == original_content:
+        if len(applied_files) > 1:
+            signing_key = _require_applied_encoding_manifest_signing_key()
+            axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+            if not _applied_manifest_matches_current_deterministic_repair(
+                repo_path=repo_path,
+                relative_output=relative_output,
+                applied_files=applied_files,
+                model=MISSING_SOURCE_PROOF_REPAIR_MODEL,
+                axiom_encode_git=axiom_encode_git,
+                signing_key=signing_key,
+            ):
+                manifest_path = _write_missing_source_proof_repair_manifest(
+                    repo_path=repo_path,
+                    relative_output=relative_output,
+                    content=original_content,
+                    applied_files=applied_files,
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+                print("Refreshed missing source proof repair manifest")
+                print(f"manifest={manifest_path}")
+                return
         print("No missing source proof repairs found.")
         return
 
@@ -11910,35 +12000,14 @@ def cmd_repair_missing_source_proofs(args):
                 print(f"- {issue}")
             sys.exit(1)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_root = Path(tmpdir)
-        generated_output = output_root / "deterministic-repair" / relative_output
-        generated_output.parent.mkdir(parents=True, exist_ok=True)
-        generated_output.write_text(repaired_content)
-        result = argparse.Namespace(
-            output_file=str(generated_output),
-            runner="deterministic-repair",
-            backend="deterministic",
-            model="source-proof-atom-v1",
-            tool="axiom-encode repair-missing-source-proofs",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
-            generation_prompt_sha256=None,
-            trace_file=None,
-            context_manifest_file=None,
-        )
-        manifest_path = _write_applied_encoding_manifest(
-            result,
-            output_root=output_root,
-            policy_repo_path=repo_path,
-            relative_output=relative_output,
-            applied_files=[rules_file],
-            run_id="deterministic-repair",
-            signing_key=signing_key,
-            axiom_encode_git=axiom_encode_git,
-        )
+    manifest_path = _write_missing_source_proof_repair_manifest(
+        repo_path=repo_path,
+        relative_output=relative_output,
+        content=repaired_content,
+        applied_files=applied_files,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+    )
 
     print(
         "Applied missing source proof repair to "

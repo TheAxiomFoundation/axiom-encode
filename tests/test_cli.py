@@ -22483,6 +22483,163 @@ rules:
             "statutes/26/3101/b/2.yaml",
         ]
 
+    def test_repair_missing_source_proofs_signs_changed_companion_test(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/3101/b/2.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+  summary: Medicare tax threshold source text.
+rules:
+  - name: additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3101(b)(2)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: wages * additional_medicare_tax_rate
+"""
+        )
+        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
+        test_file.write_text(
+            """- name: additional_medicare_tax_example
+  period: 2026
+  input:
+    us:statutes/26/3101/b/2#input.wages: 250000
+  output:
+    us:statutes/26/3101/b/2#additional_medicare_tax: 450
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/3101/b/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._changed_manifest_group_files",
+                return_value=[target, test_file],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_missing_source_proofs(args)
+
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
+        payload = json.loads(manifest.read_text())
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/3101/b/2.yaml",
+            "statutes/26/3101/b/2.test.yaml",
+        ]
+
+    def test_repair_missing_source_proofs_refreshes_changed_companion_manifest(
+        self, tmp_path, capsys
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/3101/b/2.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+  summary: Medicare tax threshold source text.
+rules:
+  - name: additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3101(b)(2)
+    metadata:
+      proof:
+        atoms:
+          - kind: formula
+            corpus_citation_path: us/statute/26/3101
+            span: '26 USC 3101(b)(2)'
+    versions:
+      - effective_from: '2013-01-01'
+        formula: wages * additional_medicare_tax_rate
+"""
+        )
+        original_content = target.read_text()
+        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
+        test_file.write_text(
+            """- name: additional_medicare_tax_example
+  period: 2026
+  input:
+    us:statutes/26/3101/b/2#input.wages: 250000
+  output:
+    us:statutes/26/3101/b/2#additional_medicare_tax: 450
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/3101/b/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli.ValidatorPipeline",
+                side_effect=AssertionError("refresh should not validate"),
+            ),
+            patch(
+                "axiom_encode.cli._changed_manifest_group_files",
+                return_value=[test_file],
+            ),
+            patch(
+                "axiom_encode.cli._applied_manifest_matches_current_deterministic_repair",
+                return_value=False,
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_missing_source_proofs(args)
+
+        output = capsys.readouterr().out
+        assert "Refreshed missing source proof repair manifest" in output
+        assert target.read_text() == original_content
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "source-proof-atom-v1"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/3101/b/2.yaml",
+            "statutes/26/3101/b/2.test.yaml",
+        ]
+
     def test_repair_missing_source_proofs_keeps_progress_with_pending_issues(
         self, tmp_path
     ):
