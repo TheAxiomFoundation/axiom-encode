@@ -22809,6 +22809,16 @@ Output ONLY valid JSON:
                 continue
 
             mappability_inputs = policyengine_inputs or inputs
+            if (
+                country == "us"
+                and not policyengine_inputs
+                and isinstance(mappability_inputs, dict)
+            ):
+                mappability_inputs = self._pe_us_projectable_inputs_for_mappability(
+                    mappability_inputs,
+                    pe_var,
+                    mapping=mapping,
+                )
             mappable, reason = self._is_pe_test_mappable(
                 country,
                 raw_test_rule_name,
@@ -24222,6 +24232,54 @@ print("BENCHMARK:" + json.dumps(result))
                 unprojectable.append(key_text)
         return sorted(unprojectable)
 
+    @classmethod
+    def _pe_us_projectable_inputs_for_mappability(
+        cls,
+        inputs: dict,
+        pe_var: str | None,
+        *,
+        mapping: PolicyEngineMapping | None = None,
+    ) -> dict:
+        """Drop unrelated legal-ID inputs before PE mappability checks.
+
+        RuleSpec tests often assert several legal outputs in one case. A PE
+        oracle comparison for one mapped output should not be blocked merely
+        because the same case also contains legal inputs for non-comparable
+        sibling outputs.
+        """
+        projected: dict = {}
+        saw_projectable_legal_input = False
+        saw_unprojectable_legal_input = False
+        for key, value in inputs.items():
+            key_text = str(key)
+            input_alias = cls._rulespec_legal_input_alias(key_text)
+            if input_alias is not None:
+                if cls._is_projectable_pe_us_input_alias(
+                    input_alias,
+                    pe_var,
+                    mapping=mapping,
+                ):
+                    projected[key] = value
+                    saw_projectable_legal_input = True
+                else:
+                    saw_unprojectable_legal_input = True
+                continue
+
+            relation_name = cls._rulespec_legal_relation_name(key_text)
+            if relation_name is not None:
+                if cls._is_projectable_pe_us_relation_input(relation_name, pe_var):
+                    projected[key] = value
+                    saw_projectable_legal_input = True
+                else:
+                    saw_unprojectable_legal_input = True
+                continue
+
+            projected[key] = value
+
+        if saw_projectable_legal_input and saw_unprojectable_legal_input:
+            return projected
+        return inputs
+
     @staticmethod
     def _rulespec_legal_input_alias(key_text: str) -> str | None:
         if ":" not in key_text or "#" not in key_text:
@@ -25141,7 +25199,7 @@ print(f'RESULT:{{float(value)}}')
 
         if adapter is not None:
             for rule_key, pe_attr in adapter.annualized_person_inputs:
-                value = inputs.get(rule_key)
+                value = self._rulespec_test_input_value(inputs, rule_key)
                 if value is None:
                     continue
                 with contextlib.suppress(TypeError, ValueError):
@@ -25153,23 +25211,23 @@ print(f'RESULT:{{float(value)}}')
                     )
                     attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
             for rule_key, pe_attr in adapter.boolean_person_inputs:
-                if rule_key in inputs:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is not None:
                     attrs = (
                         target_person_attrs
                         if target_person_attrs is not None
                         else adult_attrs
                     )
-                    attrs.append(f"'{pe_attr}': {{'{year}': {bool(inputs[rule_key])}}}")
+                    attrs.append(f"'{pe_attr}': {{'{year}': {bool(value)}}}")
             for rule_key, pe_attr in adapter.monthly_boolean_person_inputs:
-                if rule_key in inputs:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is not None:
                     attrs = (
                         target_person_attrs
                         if target_person_attrs is not None
                         else adult_attrs
                     )
-                    attrs.append(
-                        f"'{pe_attr}': {{'{period}': {bool(inputs[rule_key])}}}"
-                    )
+                    attrs.append(f"'{pe_attr}': {{'{period}': {bool(value)}}}")
 
         snap_eligible_member_proxy = None
         if "snap_household_has_eligible_participating_member" in inputs:
@@ -25309,26 +25367,28 @@ print(f'RESULT:{{float(value)}}')
         }
         override_values: dict[str, Any] = {}
         for rule_key, pe_key in snap_overridable.items():
-            if rule_key in inputs:
-                override_values[pe_key] = normalize_pe_override_value(
-                    pe_key, inputs[rule_key]
-                )
+            value = self._rulespec_test_input_value(inputs, rule_key)
+            if value is None:
+                continue
+            override_values[pe_key] = normalize_pe_override_value(pe_key, value)
 
         if adapter is not None:
             for rule_key, pe_key in adapter.direct_spm_overrides:
-                if rule_key in inputs:
-                    override_values[pe_key] = normalize_pe_override_value(
-                        pe_key, inputs[rule_key]
-                    )
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                override_values[pe_key] = normalize_pe_override_value(pe_key, value)
             for target_key, operation, source_keys in adapter.derived_spm_overrides:
                 if target_key in override_values:
                     continue
-                if not all(source_key in inputs for source_key in source_keys):
+                source_values_by_key = [
+                    self._rulespec_test_input_value(inputs, source_key)
+                    for source_key in source_keys
+                ]
+                if not all(value is not None for value in source_values_by_key):
                     continue
                 try:
-                    source_values = [
-                        float(inputs[source_key]) for source_key in source_keys
-                    ]
+                    source_values = [float(value) for value in source_values_by_key]
                 except (TypeError, ValueError):
                     continue
                 derived_value = derive_override_value(operation, source_values)
@@ -25340,10 +25400,13 @@ print(f'RESULT:{{float(value)}}')
         annual_override_values: dict[str, Any] = {}
         if adapter is not None:
             for rule_key, pe_key in adapter.annual_direct_spm_overrides:
-                if rule_key in inputs:
-                    annual_override_values[pe_key] = normalize_pe_override_value(
-                        pe_key, inputs[rule_key]
-                    )
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                annual_override_values[pe_key] = normalize_pe_override_value(
+                    pe_key,
+                    value,
+                )
             for (
                 target_key,
                 operation,
@@ -25355,13 +25418,17 @@ print(f'RESULT:{{float(value)}}')
                     target_key == "snap_assets"
                     and source_keys
                     and source_keys[0] == "snap_total_resources_before_exclusions"
-                    and source_keys[0] in inputs
+                    and self._rulespec_test_input_value(inputs, source_keys[0])
+                    is not None
                 )
                 try:
                     source_values = [
-                        float(inputs[source_key]) if source_key in inputs else 0.0
+                        float(value) if value is not None else 0.0
                         for source_key in source_keys
-                        if source_key in inputs or missing_as_zero
+                        for value in [
+                            self._rulespec_test_input_value(inputs, source_key)
+                        ]
+                        if value is not None or missing_as_zero
                     ]
                 except (TypeError, ValueError):
                     continue
