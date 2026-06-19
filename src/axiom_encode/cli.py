@@ -18968,6 +18968,20 @@ def cmd_encode(args):
                     "  apply=auto_repaired_nested_test_tables:"
                     + ",".join(repaired_nested_test_tables)
                 )
+            repaired_unquoted_source_scalars = (
+                _try_repair_generated_unquoted_source_scalars_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+            )
+            if repaired_unquoted_source_scalars:
+                outcome["auto_repaired_unquoted_source_scalars"] = (
+                    repaired_unquoted_source_scalars
+                )
+                print(
+                    "  apply=auto_repaired_unquoted_source_scalars:"
+                    + ",".join(repaired_unquoted_source_scalars)
+                )
             repaired_deferred_scope = (
                 _try_repair_generated_out_of_scope_deferred_outputs_for_apply(
                     result,
@@ -25544,13 +25558,28 @@ def _try_repair_generated_empty_deferred_source_values_for_apply(
     return _remove_empty_deferred_source_values(rules_file=rules_file)
 
 
+def _try_repair_generated_unquoted_source_scalars_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> list[str]:
+    """Quote generated source: scalars that contain YAML-significant colons."""
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _quote_unquoted_source_scalars(rules_file=rules_file)
+
+
 def _try_repair_generated_invalid_deferred_source_values_for_apply(
     result,
     *,
     output_root: Path,
     issues: list[str],
 ) -> list[str]:
-    """Remove optional invalid source_values from deferred outputs."""
+    """Canonicalize or remove optional invalid source_values from deferred outputs."""
     if not any(
         (
             "module.deferred_outputs[" in str(issue)
@@ -25566,12 +25595,18 @@ def _try_repair_generated_invalid_deferred_source_values_for_apply(
     ):
         return []
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
-    return _remove_invalid_deferred_source_values(rules_file=rules_file)
+    base_anchor = _relative_output_to_anchor(relative_output)
+    return _canonicalize_or_remove_invalid_deferred_source_values(
+        rules_file=rules_file,
+        base_anchor=base_anchor,
+    )
 
 
 def _try_repair_generated_out_of_scope_deferred_outputs_for_apply(
@@ -25632,7 +25667,55 @@ def _remove_empty_deferred_source_values(*, rules_file: Path) -> list[str]:
     return [f"source_values[{index}]" for index in range(removed)]
 
 
-def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
+def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        original = rules_file.read_text()
+    except OSError:
+        return []
+    try:
+        yaml.safe_load(original)
+        return []
+    except (yaml.YAMLError, ValueError):
+        pass
+
+    repaired_lines: list[str] = []
+    repaired: list[str] = []
+    for line_number, raw_line in enumerate(
+        original.splitlines(keepends=True),
+        start=1,
+    ):
+        newline = "\n" if raw_line.endswith("\n") else ""
+        line = raw_line[:-1] if newline else raw_line
+        match = re.match(
+            r"^(\s*source:\s+)([^'\"|>{\[].*:\s+.*?)(\s*)$",
+            line,
+        )
+        if match is None:
+            repaired_lines.append(raw_line)
+            continue
+        prefix, value, trailing = match.groups()
+        quoted = value.replace("'", "''")
+        repaired_lines.append(f"{prefix}'{quoted}'{trailing}{newline}")
+        repaired.append(f"source:{line_number}")
+
+    if not repaired:
+        return []
+    repaired_text = "".join(repaired_lines)
+    try:
+        yaml.safe_load(repaired_text)
+    except (yaml.YAMLError, ValueError):
+        return []
+    rules_file.write_text(repaired_text)
+    return repaired
+
+
+def _canonicalize_or_remove_invalid_deferred_source_values(
+    *,
+    rules_file: Path,
+    base_anchor: str,
+) -> list[str]:
     if not rules_file.exists():
         return []
     try:
@@ -25648,6 +25731,12 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
     if not isinstance(deferred_outputs, list):
         return []
 
+    rule_names = {
+        str(rule.get("name") or "").strip()
+        for rule in payload.get("rules") or []
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
     repaired: list[str] = []
     for index, record in enumerate(deferred_outputs):
         if not isinstance(record, dict):
@@ -25655,17 +25744,32 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
         source_values = record.get("source_values")
         if source_values is None:
             continue
-        invalid_values = (
-            not isinstance(source_values, list)
-            or not source_values
-            or any(
-                not _looks_like_absolute_rulespec_output_target(value)
-                for value in source_values
-            )
-        )
-        if not invalid_values:
+        if not isinstance(source_values, list) or not source_values:
+            record.pop("source_values", None)
+            repaired.append(f"source_values[{index}]")
             continue
-        record.pop("source_values", None)
+
+        canonical_values: list[str] = []
+        changed = False
+        for value in source_values:
+            if _looks_like_absolute_rulespec_output_target(value):
+                canonical_values.append(str(value).strip())
+                continue
+            value_text = str(value or "").strip() if isinstance(value, str) else ""
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value_text) and (
+                value_text in rule_names
+            ):
+                canonical_values.append(f"{base_anchor}#{value_text}")
+                changed = True
+                continue
+            changed = True
+
+        if not changed:
+            continue
+        if canonical_values:
+            record["source_values"] = list(dict.fromkeys(canonical_values))
+        else:
+            record.pop("source_values", None)
         repaired.append(f"source_values[{index}]")
 
     if not repaired:

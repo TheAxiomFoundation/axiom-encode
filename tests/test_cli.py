@@ -4551,6 +4551,83 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_canonicalizes_local_deferred_source_values(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "42" / "426.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/426
+  deferred_outputs:
+    - output: us:statutes/42/426/b#hospital_insurance_entitlement_for_individuals_under_65
+      reason: Requires upstream disability entitlement mechanics.
+      source_values:
+        - disability_hi_waiting_period_months
+rules:
+  - name: disability_hi_waiting_period_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1966-07-01'
+        formula: 24
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/42/426.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/42/426.yaml: ci: "
+                            "module.deferred_outputs[0].source_values entry "
+                            "`disability_hi_waiting_period_months` must be an "
+                            "absolute RuleSpec target with a rule fragment."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_invalid_deferred_source_values:" in output
+        assert (
+            "us:statutes/42/426#disability_hi_waiting_period_months"
+            in output_file.read_text()
+        )
+        assert "source_values:" in output_file.read_text()
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_deferred_source_values"] == [
+            "source_values[0]"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_rulespec_output_target_check_rejects_dict_source_values(self):
         assert _looks_like_absolute_rulespec_output_target(
             "us:statutes/26/3132/c#modified_section_110_b_aggregate_limit_amount"
@@ -15675,6 +15752,58 @@ rules:
             "encode_result",
             "encode_outcome",
         ]
+
+    def test_encode_apply_repairs_unquoted_source_scalar_colons(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = tmp_path / "out" / "codex-test-model" / "statutes/42/426.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/426
+  deferred_outputs:
+    - output: us:statutes/42/426/b#hospital_insurance_entitlement_under_426_b
+      source: 42 USC 426(b): Individuals under 65 years
+      reason: Requires upstream disability entitlement mechanics.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/42/426.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_unquoted_source_scalars:source:7" in output
+        repaired = yaml.safe_load(output_file.read_text())
+        assert (
+            repaired["module"]["deferred_outputs"][0]["source"]
+            == "42 USC 426(b): Individuals under 65 years"
+        )
+        assert mock_overlay.call_count == 1
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_unquoted_source_scalars"] == ["source:7"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
 
     def test_encode_apply_blocks_non_validation_generation_failure(
         self, capsys, tmp_path
