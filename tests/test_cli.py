@@ -102,6 +102,7 @@ from axiom_encode.cli import (
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
+    _rulespec_scalar_matches,
     _scoped_source_text_for_encode_source_id,
     _sha256_file,
     _sha256_text,
@@ -2276,6 +2277,20 @@ rules:
         args.json = json_output
         args.axiom_rules_path = self._require_axiom_rules_path()
         return args
+
+    def test_scalar_match_tolerates_decimal_residue(self):
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": Decimal("19.999999999999999999999999992")},
+            20,
+        )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": Decimal("480.00000000000000000000000001")},
+            480,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "decimal", "value": Decimal("19.99")},
+            20,
+        )
 
     def test_executes_companion_tests_success_json(self, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
