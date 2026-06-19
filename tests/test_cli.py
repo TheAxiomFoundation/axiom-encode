@@ -5532,22 +5532,22 @@ rules:
         rules_file.write_text(
             """format: rulespec/v1
 rules:
-- name: sets_snap_standard_utility_allowance
-  kind: source_relation
-  source_relation:
-    type: sets
-    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-    value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
-    basis:
-      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-- name: snap_standard_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '594'
+  - name: sets_snap_standard_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '594'
 """
         )
         result = SimpleNamespace(output_file=rules_file, runner="runner")
@@ -11486,22 +11486,22 @@ rules:
 module:
   summary: Colorado SNAP household utility allowance standards.
 rules:
-- name: sets_snap_standard_utility_allowance
-  kind: source_relation
-  source_relation:
-    type: sets
-    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-    value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
-    basis:
-      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-- name: snap_standard_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '594'
+  - name: sets_snap_standard_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '594'
 """
         )
         args = SimpleNamespace(
@@ -11583,22 +11583,22 @@ rules:
 module:
   summary: Colorado SNAP household utility allowance standards.
 rules:
-- name: sets_snap_standard_utility_allowance
-  kind: source_relation
-  source_relation:
-    type: sets
-    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-    value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
-    basis:
-      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-- name: snap_standard_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '594'
+  - name: sets_snap_standard_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+  - name: snap_standard_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '594'
 """
         )
         args = SimpleNamespace(
@@ -11635,6 +11635,9 @@ rules:
             "us-co/regulations/10-ccr-2506-1/4.407.31.yaml: "
             "import:us:regulations/7-cfr/273/9"
         ) in output
+        assert "\nrules:\n  - name: sets_snap_standard_utility_allowance" in (
+            rules_file.read_text()
+        )
         payload = yaml.safe_load(rules_file.read_text())
         assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
         assert [rule["name"] for rule in payload["rules"]] == [
@@ -11653,6 +11656,103 @@ rules:
         assert (
             manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
         )
+
+    def test_repair_delegated_policy_settings_requires_signing_key_before_mutating(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        federal_file = repo / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+        federal_file.parent.mkdir(parents=True)
+        federal_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: snap_state_standard_utility_allowance_delegation
+  kind: source_relation
+  source_relation:
+    type: delegates
+    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
+    authority: federal
+- name: snap_standard_utility_allowance_state_option
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '0'
+"""
+        )
+        rules_file = repo / "us-ga" / "policies" / "dfcs" / "snap" / "3617.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Georgia SNAP utility allowances.
+rules:
+- name: sets_snap_standard_utility_allowance
+  kind: source_relation
+  source_relation:
+    type: sets
+    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
+    value: us-ga:policies/dfcs/snap/3617#snap_standard_utility_allowance
+    basis:
+      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+- name: snap_standard_utility_allowance
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '405'
+"""
+        )
+        original = rules_file.read_text()
+        args = SimpleNamespace(
+            repo=repo,
+            file=Path("us-ga/policies/dfcs/snap/3617.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "compile": SimpleNamespace(
+                            error=(
+                                "RuleSpec source relation "
+                                "`sets_snap_standard_utility_allowance` sets target "
+                                "`us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option`, "
+                                "but the target does not resolve to an executable "
+                                "parameter or derived rule in the merged program"
+                            )
+                        )
+                    },
+                )
+
+        provenance = MagicMock()
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                provenance,
+            ),
+            patch.dict(os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: ""}),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            cmd_repair_delegated_policy_settings(args)
+
+        provenance.assert_not_called()
+        assert rules_file.read_text() == original
+        assert not (
+            repo / ".axiom/encoding-manifests/us-ga/policies/dfcs/snap/3617.json"
+        ).exists()
 
     def test_repair_bare_snapunit_entities_uses_module_summary_context(
         self, capsys, tmp_path
