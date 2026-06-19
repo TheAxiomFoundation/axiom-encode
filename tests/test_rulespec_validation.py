@@ -2378,6 +2378,27 @@ def test_policyengine_registry_is_legal_id_keyed():
         section_2014c_net_failure_mapping.policyengine_variable
         == "meets_snap_net_income_test"
     )
+    residential_clean_energy_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25D#residential_clean_energy_credit",
+        country="us",
+    )
+    assert residential_clean_energy_mapping.mapping_type == "not_comparable"
+    assert (
+        residential_clean_energy_mapping.policyengine_variable
+        == "residential_clean_energy_credit"
+    )
+    assert "PolicyEngine/policyengine-us#8694" in (
+        residential_clean_energy_mapping.rationale or ""
+    )
+    residential_clean_energy_percentage_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage",
+        country="us",
+    )
+    assert residential_clean_energy_percentage_mapping.mapping_type == "not_comparable"
+    assert (
+        residential_clean_energy_percentage_mapping.policyengine_parameter
+        == "gov.irs.credits.residential_clean_energy.applicable_percentage"
+    )
     section_2014c_gross_failure_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2014/c#household_fails_gross_income_standard",
         country="us",

@@ -15114,6 +15114,74 @@ mappings:
     mapping_type: not_comparable
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
+  - legal_id: us:statutes/26/25D#fuel_cell_credit_per_half_kilowatt_cap_amount
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.residential_clean_energy.fuel_cell_cap_per_kw
+    rationale: Section 25D(b)(1) states the fuel-cell cap per half kilowatt, while PolicyEngine stores the related amount per kilowatt; compare this after adding transformed parameter comparisons for this surface.
+
+  - legal_id: us:statutes/26/25D#fuel_cell_joint_occupancy_max_expenditures_per_half_kilowatt
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25D(e) joint-occupancy fuel-cell expenditure limit as a separate parameter or variable.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage_property_placed_after_2016_and_before_2020
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
+    rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage_property_placed_after_2019_and_before_2022
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
+    rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage_property_placed_after_2021
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
+    rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule that is stale after Pub. L. 119-21; see PolicyEngine/policyengine-us#8694.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
+    rationale: PolicyEngine's applicable percentage schedule still includes the pre-Pub. L. 119-21 2033/2034 phase-down and has not yet been updated for the current-law post-2025 termination; see PolicyEngine/policyengine-us#8694.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_potential
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_variable: residential_clean_energy_credit_potential
+    rationale: PolicyEngine exposes the potential credit, but its applicable percentage schedule is stale after Pub. L. 119-21 and differs for post-2025 positive-expenditure cases; see PolicyEngine/policyengine-us#8694.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_current_year_limit_under_section_25D_c
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_variable: residential_clean_energy_credit_credit_limit
+    rationale: Same broad section 25D(c) current-year limitation concept, but RuleSpec exposes the section 26(a) limit and other-credit subtraction as legal boundary inputs while PolicyEngine computes them from its full tax stack.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    policyengine_variable: residential_clean_energy_credit
+    rationale: Same final residential clean energy credit surface, but PolicyEngine is stale after Pub. L. 119-21 and still allows post-2025 credits; see PolicyEngine/policyengine-us#8694.
+
+  - legal_id: us:statutes/26/25D#residential_clean_energy_credit_carryforward_to_succeeding_taxable_year
+    country: us
+    program: residential_clean_energy_credit
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25D(c) carryforward amount as a separate variable.
+
 prefixes:
   - legal_id_prefix: us:statutes/5/5566#
     country: us
