@@ -29452,7 +29452,7 @@ def _repair_auto_output_test_mismatches(
         if parsed is None:
             continue
         case_name, output_ref, actual_value = parsed
-        if not case_name.startswith("auto_output_"):
+        if not case_name.startswith(("auto_output_", "auto_zero_")):
             continue
         if not _rulespec_ref_matches_base(output_ref, anchor):
             continue
