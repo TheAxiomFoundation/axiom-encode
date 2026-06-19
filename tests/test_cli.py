@@ -114,6 +114,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
@@ -19836,6 +19837,115 @@ rules:
                 "us:statutes/26/36B/b#input.premium_assistance_amount_determined_for_coverage_month": 0
             },
         ]
+
+    def test_repair_aca_36b_b_premium_assistance_compat(self, tmp_path):
+        output_root = tmp_path / "out"
+        runner = "codex-test-model"
+        rules_file = output_root / runner / "statutes" / "26" / "36B" / "b.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/36B/b/3/A#applicable_percentage
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/36B
+rules:
+  - name: required_contribution_monthly_fraction
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 36B(b)(2)(B)(ii)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          1 / 12
+  - name: required_monthly_contribution_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/36B/b/3/A#applicable_percentage
+              output: applicable_percentage
+              hash: sha256:abc
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/36B/b#required_contribution_monthly_fraction
+              output: required_contribution_monthly_fraction
+              hash: sha256:local
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          applicable_percentage * household_income_for_taxable_year * required_contribution_monthly_fraction
+  - name: premium_assistance_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          adjusted_monthly_premium_for_applicable_second_lowest_cost_silver_plan - required_monthly_contribution_amount
+  - name: premium_assistance_credit_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 36B(b)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          sum(coverage_months.premium_assistance_amount_determined_for_coverage_month)
+"""
+        )
+
+        result = SimpleNamespace(runner=runner, output_file=str(rules_file))
+        repaired = _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply(
+            result, output_root=output_root
+        )
+
+        assert repaired == [
+            "remove_applicable_percentage_import",
+            "monthly_divisor_formula",
+            "required_monthly_contribution_formula",
+            "remove_applicable_percentage_proof_import",
+            "annual_credit_source",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert "imports" not in payload
+        rules = {rule["name"]: rule for rule in payload["rules"]}
+        assert "required_contribution_monthly_fraction" not in rules
+        divisor = rules["required_contribution_annual_to_monthly_divisor"]
+        assert divisor["versions"][0]["formula"] == "12"
+        required = rules["required_monthly_contribution"]
+        assert (
+            required["versions"][0]["formula"]
+            == "(household_income_for_taxable_year / required_contribution_annual_to_monthly_divisor) * applicable_percentage_for_taxable_year"
+        )
+        atoms = required["metadata"]["proof"]["atoms"]
+        assert all(
+            atom.get("import", {}).get("target")
+            != "us:statutes/26/36B/b/3/A#applicable_percentage"
+            for atom in atoms
+            if isinstance(atom, dict)
+        )
+        assert (
+            atoms[0]["import"]["target"]
+            == "us:statutes/26/36B/b#required_contribution_annual_to_monthly_divisor"
+        )
+        assert (
+            rules["premium_assistance_amount"]["versions"][0]["formula"]
+            == "adjusted_monthly_premium_for_applicable_second_lowest_cost_silver_plan - required_monthly_contribution"
+        )
+        assert rules["premium_assistance_credit_amount"]["source"] == "paragraph (1)"
 
     def test_repair_scalar_relation_rows_from_generated_count_where_formula(
         self, tmp_path
