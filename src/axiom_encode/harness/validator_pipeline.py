@@ -568,7 +568,8 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
 )
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
-    r"(?:^|(?<=[\s$£€(\[,+\-−*/]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
+    r"(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
 SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
     r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"

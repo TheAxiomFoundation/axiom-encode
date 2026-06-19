@@ -5732,6 +5732,31 @@ rules:
     assert 450 in source_values
 
 
+def test_rulespec_grounding_accepts_quoted_statutory_substitution_numbers():
+    content = """format: rulespec/v1
+rules:
+  - name: disability_trial_work_termination_months_substituted_for_36
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '15'
+"""
+
+    source_text = (
+        "the term “36 months” in section 421(m)(1)(A) shall be applied "
+        "as though it read “15 months”."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 36 in source_values
+    assert 15 in source_values
+    source_occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 36 in source_occurrences
+    assert 15 in source_occurrences
+
+
 def test_numeric_occurrence_extraction_treats_escaped_newline_as_line_break():
     actual = "Table 1\n1 | 100\n2 | 200"
     escaped = r"Table 1\n1 | 100\n2 | 200"
