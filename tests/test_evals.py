@@ -9021,6 +9021,48 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_country_monorepo_child_context(self, tmp_path):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_root = policy_repo_root / "us" / "statutes" / "26" / "36B" / "b" / "3"
+        child_root.mkdir(parents=True)
+        child_file = child_root / "A.yaml"
+        child_file.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: applicable_percentage_income_tier\n"
+            "    kind: derived\n"
+            "    entity: TaxUnit\n"
+            "    dtype: Integer\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2024-01-01'\n"
+            "        formula: 0\n"
+        )
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="26 USC 36B",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="Section 36B defines the premium assistance credit amount.",
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(child_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(child_file)]["workspace_path"]
+            == "context/statutes/26/36B/b/3/A.yaml"
+        )
+        assert (
+            copied_sources[str(child_file)]["import_path"] == "us:statutes/26/36B/b/3/A"
+        )
+
     def test_prepare_eval_workspace_adds_plural_same_section_subsection_context(
         self, tmp_path
     ):
