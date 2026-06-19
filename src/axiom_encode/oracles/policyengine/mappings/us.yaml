@@ -3137,6 +3137,56 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the raw Georgia CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective pregnant-person Medicaid income limit including that disregard.
 
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_0_to_1_effective_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.infant.income_limit
+    parameter_key: GA
+    period: year
+    comparison: rate
+    rationale: Same effective Georgia infant Medicaid income limit, computed from the CMS raw table value plus the MAGI 5% FPL disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_1_to_5_effective_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.young_child.income_limit
+    parameter_key: GA
+    period: year
+    comparison: rate
+    rationale: Same effective Georgia young-child Medicaid income limit, computed from the CMS raw table value plus the MAGI 5% FPL disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_6_to_18_effective_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.older_child.income_limit
+    parameter_key: GA
+    period: year
+    comparison: rate
+    rationale: Same effective Georgia older-child Medicaid income limit, computed from the CMS raw table value plus the MAGI 5% FPL disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_separate_chip_effective_fpl_limit
+    country: us
+    program: chip
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.chip.child.income_limit
+    parameter_key: GA
+    period: year
+    comparison: rate
+    rationale: Same effective Georgia child CHIP income limit, computed from the CMS raw table value plus the MAGI 5% FPL disregard.
+
+  - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_pregnant_women_medicaid_effective_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.pregnant.income_limit
+    parameter_key: GA
+    period: year
+    comparison: rate
+    rationale: Same effective Georgia pregnant-person Medicaid income limit, computed from the CMS raw table value plus the MAGI 5% FPL disregard.
+
   - legal_id: us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit
     country: us
     program: medicaid

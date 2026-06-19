@@ -910,6 +910,31 @@ rules:
     versions:
       - effective_from: '2025-01-01'
         formula: 2.20
+  - name: georgia_children_medicaid_ages_0_to_1_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: georgia_children_medicaid_ages_0_to_1_fpl_limit + magi_fpl_disregard_rate
+  - name: georgia_children_medicaid_ages_1_to_5_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: georgia_children_medicaid_ages_1_to_5_fpl_limit + magi_fpl_disregard_rate
+  - name: georgia_children_medicaid_ages_6_to_18_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: georgia_children_medicaid_ages_6_to_18_fpl_limit + magi_fpl_disregard_rate
+  - name: georgia_children_separate_chip_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: georgia_children_separate_chip_fpl_limit + magi_fpl_disregard_rate
+  - name: georgia_pregnant_women_medicaid_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: georgia_pregnant_women_medicaid_fpl_limit + magi_fpl_disregard_rate
   - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
     kind: parameter
     versions:
@@ -933,6 +958,19 @@ rules:
 """,
     )
     _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ga"
+        / "policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
+        """- name: georgia_effective_magi_limits
+  output:
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_0_to_1_effective_fpl_limit: 2.10
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_1_to_5_effective_fpl_limit: 1.54
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_6_to_18_effective_fpl_limit: 1.38
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_separate_chip_effective_fpl_limit: 2.52
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_pregnant_women_medicaid_effective_fpl_limit: 2.25
+""",
+    )
+    _write_rulespec_file(
         tmp_path / "rulespec-us-ga" / "policies/dfcs/snap/3210/block-2.yaml",
         """format: rulespec/v1
 rules:
@@ -951,16 +989,18 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path)
 
-    assert report["total_outputs"] == 12
-    assert report["status_counts"] == {"known_not_comparable": 12}
+    assert report["total_outputs"] == 17
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 12,
+    }
     assert report["untested_comparable"] == 0
     assert report["program_counts"] == {
-        "chip": 2,
+        "chip": 3,
         "health": 1,
-        "medicaid": 7,
+        "medicaid": 11,
         "snap": 2,
     }
-    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
 
     items_by_name = {item["rule_name"]: item for item in report["items"]}
     assert (
@@ -975,9 +1015,28 @@ rules:
         ]
         == "gov.hhs.chip.child.income_limit"
     )
+    effective_infant = items_by_name[
+        "georgia_children_medicaid_ages_0_to_1_effective_fpl_limit"
+    ]
+    assert effective_infant["status"] == "comparable"
+    assert effective_infant["mapping_type"] == "parameter_value"
+    assert effective_infant["policyengine_parameter"] == (
+        "gov.hhs.medicaid.eligibility.categories.infant.income_limit"
+    )
+    assert effective_infant["tested"] is True
+    assert (
+        items_by_name["georgia_pregnant_women_medicaid_effective_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.medicaid.eligibility.categories.pregnant.income_limit"
+    )
     assert (
         items_by_name["georgia_pregnant_women_chip_available"]["policyengine_parameter"]
         == "gov.hhs.chip.pregnant.income_limit"
+    )
+    assert (
+        items_by_name["georgia_pregnant_women_chip_available"]["status"]
+        == "known_not_comparable"
     )
     assert items_by_name["categorically_eligible_for_snap"]["program"] == "snap"
     assert (
