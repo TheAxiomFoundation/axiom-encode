@@ -3252,9 +3252,7 @@ def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
         and isinstance(expected, (int, float))
         and not isinstance(expected, bool)
     ):
-        from decimal import Decimal
-
-        return Decimal(str(value)) == Decimal(str(expected))
+        return abs(Decimal(str(value)) - Decimal(str(expected))) <= Decimal("1e-18")
     if kind == "date" and isinstance(expected, date):
         return value == expected.isoformat()
     if isinstance(expected, date):
