@@ -2830,6 +2830,99 @@ mappings:
     comparison: money
     rationale: Same statutory other-case additional Medicare wage threshold, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/36B#applicable_taxpayer_minimum_household_income_poverty_line_ratio
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: PolicyEngine stores ACA PTC income eligibility as a thresholded boolean parameter used inside final person-level eligibility. This RuleSpec output is the standalone statutory lower household-income-to-poverty-line ratio.
+
+  - legal_id: us:statutes/26/36B#applicable_taxpayer_maximum_household_income_poverty_line_ratio
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: PolicyEngine stores ACA PTC income eligibility as a time-varying thresholded boolean parameter, including the 2021-2025 upper-limit disregard. This RuleSpec output is the standalone statutory general upper household-income-to-poverty-line ratio.
+
+  - legal_id: us:statutes/26/36B#applicable_taxpayer_income_percentage_test_met
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: PolicyEngine applies the ACA PTC income range through gov.aca.ptc_income_eligibility inside is_aca_ptc_eligible, which also includes filing status, immigration, coverage, and premium-payment conditions. This RuleSpec output is only the section 36B(c)(1) income-percentage predicate.
+
+  - legal_id: us:statutes/26/36B#employer_sponsored_coverage_affordability_ratio
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: offered_aca_disqualifying_esi
+    candidate_priority: P4
+    rationale: PolicyEngine exposes employer-sponsored coverage disqualification as an input boolean rather than the statutory 9.5 percent affordability ratio as a separate parameter.
+
+  - legal_id: us:statutes/26/36B#employer_sponsored_plan_minimum_value_share
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: offered_aca_disqualifying_esi
+    candidate_priority: P4
+    rationale: PolicyEngine exposes employer-sponsored coverage disqualification as an input boolean rather than the section 36B minimum-value percentage as a separate parameter.
+
+  - legal_id: us:statutes/26/36B#qualified_small_employer_hra_affordability_ratio
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not expose qualified small employer HRA affordability mechanics for ACA PTC as separate variables or parameters.
+
+  - legal_id: us:statutes/26/36B#qualified_small_employer_hra_permitted_benefit_month_count
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not expose the qualified small employer HRA monthly permitted-benefit divisor as a separate ACA PTC parameter.
+
+  - legal_id: us:statutes/26/36B#qualified_small_employer_hra_monthly_permitted_benefit_fraction
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not expose the qualified small employer HRA monthly permitted-benefit fraction as a separate ACA PTC variable or parameter.
+
+  - legal_id: us:statutes/26/36B/b#required_contribution_annual_to_monthly_divisor
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: aca_ptc
+    candidate_priority: P4
+    rationale: PolicyEngine computes the ACA PTC with annual MAGI and annual contribution percentage, while this RuleSpec output is the explicit section 36B(b)(2)(B)(ii) 1/12 divisor used in the statutory monthly formula.
+
+  - legal_id: us:statutes/26/36B/b#required_monthly_contribution
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: aca_ptc
+    candidate_priority: P4
+    rationale: PolicyEngine's ACA PTC formula subtracts the annual required contribution inside aca_ptc and does not expose the section 36B(b)(2)(B)(ii) required monthly contribution as a separate oracle target.
+
+  - legal_id: us:statutes/26/36B/b#premium_assistance_amount
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: premium_tax_credit
+    candidate_priority: P4
+    rationale: PolicyEngine exposes premium_tax_credit and aca_ptc as ACA credit outputs, but not the section 36B(b)(2) coverage-month amount with the statutory actual-premium cap and adjusted benchmark-premium excess as a standalone monthly output.
+
+  - legal_id: us:statutes/26/36B/b#premium_assistance_credit_amount
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: aca_ptc
+    candidate_priority: P4
+    rationale: PolicyEngine's aca_ptc is the annual ACA premium tax credit after eligibility and take-up gates and does not expose the section 36B(b)(1) sum of subsection (b)(2) premium assistance amounts as a one-to-one output.
+
   - legal_id: us:statutes/26/36B/b/3/A#applicable_percentage_income_tier
     country: us
     program: aca_ptc

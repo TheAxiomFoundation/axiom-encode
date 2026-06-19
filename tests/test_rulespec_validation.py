@@ -2652,6 +2652,63 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employer_medicare_tax"
     )
+    aca_36b_mappings = {
+        "us:statutes/26/36B#applicable_taxpayer_minimum_household_income_poverty_line_ratio": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
+        "us:statutes/26/36B#applicable_taxpayer_maximum_household_income_poverty_line_ratio": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
+        "us:statutes/26/36B#applicable_taxpayer_income_percentage_test_met": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
+        "us:statutes/26/36B#employer_sponsored_coverage_affordability_ratio": (
+            "policyengine_variable",
+            "offered_aca_disqualifying_esi",
+        ),
+        "us:statutes/26/36B#employer_sponsored_plan_minimum_value_share": (
+            "policyengine_variable",
+            "offered_aca_disqualifying_esi",
+        ),
+        "us:statutes/26/36B#qualified_small_employer_hra_affordability_ratio": (
+            None,
+            None,
+        ),
+        "us:statutes/26/36B#qualified_small_employer_hra_permitted_benefit_month_count": (
+            None,
+            None,
+        ),
+        "us:statutes/26/36B#qualified_small_employer_hra_monthly_permitted_benefit_fraction": (
+            None,
+            None,
+        ),
+        "us:statutes/26/36B/b#required_contribution_annual_to_monthly_divisor": (
+            "policyengine_variable",
+            "aca_ptc",
+        ),
+        "us:statutes/26/36B/b#required_monthly_contribution": (
+            "policyengine_variable",
+            "aca_ptc",
+        ),
+        "us:statutes/26/36B/b#premium_assistance_amount": (
+            "policyengine_variable",
+            "premium_tax_credit",
+        ),
+        "us:statutes/26/36B/b#premium_assistance_credit_amount": (
+            "policyengine_variable",
+            "aca_ptc",
+        ),
+    }
+    for legal_id, (target_attr, target_value) in aca_36b_mappings.items():
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.program == "aca_ptc"
+        assert mapping.candidate_priority == "P4"
+        if target_attr is not None:
+            assert getattr(mapping, target_attr) == target_value
     qualified_veteran_credit_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3111/e#veteran_employment_credit_against_subsection_a_tax",
         country="us",
