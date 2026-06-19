@@ -19502,9 +19502,9 @@ class ValidatorPipeline:
         expected_kind = expected.get("kind")
         numeric = {"integer", "decimal"}
         if actual_kind in numeric and expected_kind in numeric:
-            return self._rulespec_decimal(
-                actual.get("value")
-            ) == self._rulespec_decimal(expected.get("value"))
+            actual_decimal = self._rulespec_decimal(actual.get("value"))
+            expected_decimal = self._rulespec_decimal(expected.get("value"))
+            return abs(actual_decimal - expected_decimal) <= Decimal("1e-18")
         if actual_kind == "bool" and expected_kind == "bool":
             return bool(actual.get("value")) == bool(expected.get("value"))
         if actual_kind != expected_kind:

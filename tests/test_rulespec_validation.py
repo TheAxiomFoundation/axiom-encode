@@ -3,6 +3,7 @@ import json
 import math
 import os
 import subprocess
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,23 @@ from axiom_encode.oracles.policyengine.registry import (
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
 AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
+
+
+def test_rulespec_numeric_output_comparison_tolerates_decimal_residue(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._rulespec_scalar_values_equal(
+        {"kind": "decimal", "value": Decimal("19.999999999999999999999999992")},
+        {"kind": "integer", "value": 20},
+    )
+    assert not pipeline._rulespec_scalar_values_equal(
+        {"kind": "decimal", "value": Decimal("19.99")},
+        {"kind": "integer", "value": 20},
+    )
 
 
 def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
