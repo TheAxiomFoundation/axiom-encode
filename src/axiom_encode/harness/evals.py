@@ -79,6 +79,7 @@ from .validator_pipeline import (
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
     repair_copied_cross_reference_summary,
+    repair_formula_let_bindings,
     repair_source_table_band_scalar_parameters,
     repair_source_table_interval_row_alignment,
     repair_source_table_interval_tests,
@@ -8407,6 +8408,7 @@ def _normalize_main_eval_content(
     """Normalize generated main artifacts according to their format."""
     if target_path.suffix not in {".yaml", ".yml"}:
         raise ValueError("RuleSpec artifacts must use .yaml or .yml paths")
+    content = _clean_generated_file_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
         normalized,
@@ -8424,6 +8426,7 @@ def _normalize_main_eval_content(
         normalized,
         rules_file=target_path,
     )
+    normalized, _let_binding_repairs = repair_formula_let_bindings(normalized)
     normalized, _conditional_repairs = repair_unsupported_chained_conditionals(
         normalized
     )
@@ -8567,7 +8570,10 @@ def _clean_generated_file_content(content: str) -> str:
 
 def _normalize_semicolon_separated_yaml_excerpts(content: str) -> str:
     """Repair excerpt lines emitted as multiple adjacent quoted scalars."""
-    if "excerpt:" not in content or not re.search(r"['\"]\s*;\s*['\"]", content):
+    if "excerpt:" not in content or not re.search(
+        r"['\"]\s*(?:;|\b(?:and|or)\b)\s*['\"]",
+        content,
+    ):
         return content
 
     repaired_lines: list[str] = []
@@ -8583,15 +8589,21 @@ def _normalize_semicolon_separated_yaml_excerpt_line(line: str) -> str:
     if not match:
         return line
     parsed = _parse_semicolon_separated_quoted_scalars(match.group("rest").strip())
-    if parsed is None or len(parsed) < 2:
+    if parsed is None or len(parsed[0]) < 2:
         return line
-    joined = "; ".join(parsed)
+    values, separators = parsed
+    joined = values[0] + "".join(
+        separator + value for separator, value in zip(separators, values[1:])
+    )
     escaped = joined.replace("\\", "\\\\").replace('"', '\\"')
     return f'{match.group("prefix")}"{escaped}"{newline}'
 
 
-def _parse_semicolon_separated_quoted_scalars(text: str) -> list[str] | None:
+def _parse_semicolon_separated_quoted_scalars(
+    text: str,
+) -> tuple[list[str], list[str]] | None:
     values: list[str] = []
+    separators: list[str] = []
     index = 0
     while index < len(text):
         while index < len(text) and text[index].isspace():
@@ -8623,11 +8635,17 @@ def _parse_semicolon_separated_quoted_scalars(text: str) -> list[str] | None:
         while index < len(text) and text[index].isspace():
             index += 1
         if index == len(text):
-            return values
-        if text[index] != ";":
+            return values, separators
+        if text[index] == ";":
+            separators.append("; ")
+            index += 1
+            continue
+        separator_match = re.match(r"(and|or)\b", text[index:], flags=re.IGNORECASE)
+        if separator_match is None:
             return None
-        index += 1
-    return values
+        separators.append(f" {separator_match.group(1).lower()} ")
+        index += len(separator_match.group(1))
+    return values, separators
 
 
 def _normalize_backslash_escaped_yaml_apostrophes(content: str) -> str:

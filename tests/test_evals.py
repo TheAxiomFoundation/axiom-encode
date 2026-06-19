@@ -5213,6 +5213,35 @@ class TestGeneratedBundleCleaning:
             "The first two thousand dollars ($2,000) of each payment is excluded"
         )
 
+    def test_clean_generated_file_content_repairs_conjoined_quoted_excerpts(self):
+        content = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Fuel cell cap.\n"
+            "rules:\n"
+            "  - name: residential_clean_energy_fuel_cell_credit_component\n"
+            "    kind: derived\n"
+            "    metadata:\n"
+            "      proof:\n"
+            "        atoms:\n"
+            "          - source:\n"
+            '              excerpt: "applicable percentages of qualified fuel cell property expenditures" and "shall not exceed $500 with respect to each half kilowatt of capacity"\n'
+            "    versions:\n"
+            "      - effective_from: '2006-01-01'\n"
+            "        formula: 500\n"
+        )
+
+        cleaned = _clean_generated_file_content(content)
+        payload = yaml.safe_load(cleaned)
+
+        excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert excerpt == (
+            "applicable percentages of qualified fuel cell property expenditures "
+            "and shall not exceed $500 with respect to each half kilowatt of capacity"
+        )
+
     def test_materialize_eval_artifact_rejects_non_rulespec_bundle(self, tmp_path):
         output_file = tmp_path / "source" / "example.yaml"
         response = (
@@ -5223,6 +5252,54 @@ class TestGeneratedBundleCleaning:
 
         assert wrote is False
         assert not output_file.exists()
+
+    def test_materialize_eval_artifact_repairs_single_file_conjoined_excerpts(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "source" / "section-25d.yaml"
+        response = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Fuel cell cap.\n"
+            "rules:\n"
+            "  - name: residential_clean_energy_fuel_cell_credit_component\n"
+            "    kind: derived\n"
+            "    metadata:\n"
+            "      proof:\n"
+            "        atoms:\n"
+            "          - source:\n"
+            '              excerpt: "applicable percentages of qualified fuel cell property expenditures" and "shall not exceed $500 with respect to each half kilowatt of capacity"\n'
+            "    versions:\n"
+            "      - effective_from: '2006-01-01'\n"
+            "        formula: |-\n"
+            "          if expenditures_after_termination_date:\n"
+            "              0\n"
+            "          else:\n"
+            "              base_expenditures =\n"
+            "                  max(0, qualified_solar_electric_property_expenditures)\n"
+            "                  + max(0, qualified_battery_storage_technology_expenditures)\n"
+            "              credit = residential_clean_energy_applicable_percentage * base_expenditures\n"
+            "              max(0, credit + residential_clean_energy_fuel_cell_credit_component)\n"
+        )
+
+        wrote = _materialize_eval_artifact(response, output_file)
+
+        assert wrote is True
+        payload = yaml.safe_load(output_file.read_text())
+        excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert excerpt == (
+            "applicable percentages of qualified fuel cell property expenditures "
+            "and shall not exceed $500 with respect to each half kilowatt of capacity"
+        )
+        formula = payload["rules"][0]["versions"][0]["formula"]
+        assert "base_expenditures =" not in formula
+        assert "credit =" not in formula
+        assert (
+            "residential_clean_energy_applicable_percentage * "
+            "(max(0, qualified_solar_electric_property_expenditures)"
+        ) in formula
 
     def test_materialize_eval_artifact_cleans_bundled_rulespec_fences(self, tmp_path):
         output_file = tmp_path / "source" / "uksi-2006-965-regulation-2.yaml"
