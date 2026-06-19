@@ -12781,6 +12781,13 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
             source_text=scoped_source_text,
         ):
             continue
+        if _formula_aggregates_limited_local_amount(
+            formula,
+            formula_by_name=formula_by_name,
+            current_name=name,
+            source_text=scoped_source_text,
+        ):
+            continue
         issues.append(
             "Source limitation not applied: "
             f"`{name}` is a final amount-style output, but the same source text "
@@ -13960,6 +13967,35 @@ def _formula_is_referenced_by_limited_downstream_formula(
             downstream_formula,
             formula_by_name=formula_by_name,
             current_name=downstream_name,
+            source_text=source_text,
+        ):
+            return True
+    return False
+
+
+def _formula_aggregates_limited_local_amount(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    current_name: str,
+    source_text: str,
+) -> bool:
+    """Return true when an aggregate sums local amounts that apply a limit."""
+    if not re.search(r"\bsum(?:_where)?\s*\(", formula):
+        return False
+    normalized_formula = f"_{_normalize_identifier(formula)}_"
+    for helper_name, helper_formula in formula_by_name.items():
+        if helper_name == current_name:
+            continue
+        normalized_helper = _normalize_identifier(helper_name)
+        if not normalized_helper:
+            continue
+        if f"_{normalized_helper}_" not in normalized_formula:
+            continue
+        if _formula_or_referenced_helpers_implement_limitation(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            current_name=helper_name,
             source_text=source_text,
         ):
             return True
