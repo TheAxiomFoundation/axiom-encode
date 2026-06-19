@@ -24365,7 +24365,9 @@ def _try_repair_generated_child_numeric_reencoding_for_apply(
     if not parsed_issues:
         return []
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
@@ -24373,6 +24375,7 @@ def _try_repair_generated_child_numeric_reencoding_for_apply(
     return _repair_child_numeric_reencoding_parent_aliases(
         rules_file=rules_file,
         policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
         parsed_issues=parsed_issues,
     )
 
@@ -24396,6 +24399,7 @@ def _repair_child_numeric_reencoding_parent_aliases(
     *,
     rules_file: Path,
     policy_repo_path: Path,
+    relative_output: Path | None = None,
     parsed_issues: list[tuple[tuple[str, ...], str]],
 ) -> list[str]:
     """Remove parent helpers that re-derive child-owned numeric concepts.
@@ -24454,6 +24458,7 @@ def _repair_child_numeric_reencoding_parent_aliases(
     local_ref_prefix = _rulespec_local_ref_prefix_for_generated_file(
         rules_file,
         policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
     )
     child_ref_by_name = {
         child_name: child_ref
@@ -24524,11 +24529,15 @@ def _rulespec_local_ref_prefix_for_generated_file(
     rules_file: Path,
     *,
     policy_repo_path: Path,
+    relative_output: Path | None = None,
 ) -> str:
-    try:
-        relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
-    except ValueError:
-        relative = rules_file
+    if relative_output is not None:
+        relative = relative_output
+    else:
+        try:
+            relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
+        except ValueError:
+            relative = rules_file
     return f"{_repo_jurisdiction_prefix(policy_repo_path)}:{relative.with_suffix('').as_posix()}#"
 
 
