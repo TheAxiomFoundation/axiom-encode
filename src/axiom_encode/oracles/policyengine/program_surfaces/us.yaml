@@ -949,10 +949,12 @@ surfaces:
   variable: co_ccap_subsidy
   source_type: state_implementation
   state: CO
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Colorado CCAP low-income eligibility, SMI, FPG, and asset-limit legal slices,
+    with comparable mapping for the SMI helper. PolicyEngine's co_ccap_subsidy is a final modeled subsidy equal to childcare
+    expenses minus a parent fee and is defined for PE's composed eligibility predicate, so it is not a direct one-to-one legal
+    output until Axiom has an equivalent final subsidy composition or PE exposes compatible legal helper boundaries.
 - country: us
   program_id: ccdf
   program_name: Care 4 Kids
