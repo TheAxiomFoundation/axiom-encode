@@ -155,6 +155,7 @@ from axiom_encode.cli import (
     cmd_repair_current_year_final_amounts,
     cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
+    cmd_repair_georgia_cms_medicaid_availability,
     cmd_repair_imported_test_inputs,
     cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
@@ -20238,6 +20239,191 @@ rules:
         assert payload["axiom_encode_version"] == AXIOM_ENCODE_TEST_VERSION
         assert payload["axiom_encode_git"] == current_git
         assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
+
+    def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+  summary: |-
+    Georgia row: Pregnant Women CHIP N/A; Adults (Medicaid) Parent/Caretaker 28%($); Adults (Medicaid) Expansion to Adults No.
+rules:
+  - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: table_cell
+            source:
+              corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+              table:
+                header: State Medicaid, CHIP and BHP Income Eligibility Standards
+                row: Georgia
+                column: Adults (Medicaid) Parent/Caretaker
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          0.28
+"""
+        )
+        test_file = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        test_file.write_text(
+            """- name: georgia_magi_eligibility_level_parameters_as_of_december_2023
+  period:
+    period_kind: custom
+    name: day
+    start: '2023-12-01'
+    end: '2023-12-01'
+  input: {}
+  output:
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit: 0.28
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_georgia_cms_medicaid_availability(args)
+
+        rules_payload = yaml.safe_load(target.read_text())
+        rule_names = [rule["name"] for rule in rules_payload["rules"]]
+        assert "georgia_parent_caretaker_standard_uses_dollar_amounts" in rule_names
+        assert "georgia_pregnant_women_chip_available" in rule_names
+        assert "georgia_adult_medicaid_expansion_available" in rule_names
+        content = target.read_text()
+        assert 'excerpt: "28%($)"' in content
+        assert 'excerpt: "N/A"' in content
+        assert 'excerpt: "No"' in content
+        test_content = test_file.read_text()
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_parent_caretaker_standard_uses_dollar_amounts: true"
+        ) in test_content
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_pregnant_women_chip_available: false"
+        ) in test_content
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_adult_medicaid_expansion_available: false"
+        ) in test_content
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
+            "georgia-medicaid-chip-bhp-eligibility-levels.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "georgia-cms-medicaid-availability-v1"
+        assert (
+            payload["tool"] == "axiom-encode repair-georgia-cms-medicaid-availability"
+        )
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
+            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
+        ]
+
+    def test_repair_georgia_cms_medicaid_availability_does_not_mutate_without_signing_key(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        original_rules = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+rules:
+  - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          0.28
+"""
+        target.write_text(original_rules)
+        test_file = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        original_tests = """- name: existing
+  output:
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit: 0.28
+"""
+        test_file.write_text(original_tests)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        provenance = MagicMock()
+
+        with (
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                provenance,
+            ),
+            patch.dict(os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: ""}),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            cmd_repair_georgia_cms_medicaid_availability(args)
+
+        provenance.assert_not_called()
+        assert target.read_text() == original_rules
+        assert test_file.read_text() == original_tests
+        assert not (
+            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
+            "georgia-medicaid-chip-bhp-eligibility-levels.json"
+        ).exists()
 
     def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
         self, tmp_path
