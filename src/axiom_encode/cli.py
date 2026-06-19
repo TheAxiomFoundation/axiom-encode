@@ -18876,6 +18876,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_child_numeric_reencoding = (
+                    _try_repair_generated_child_numeric_reencoding_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_child_numeric_reencoding:
+                    outcome["auto_repaired_child_numeric_reencoding"] = (
+                        repaired_child_numeric_reencoding
+                    )
+                    print(
+                        "  apply=auto_repaired_child_numeric_reencoding:"
+                        + ",".join(repaired_child_numeric_reencoding)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_table_relation_tests = (
                     _try_repair_generated_table_relation_tests_for_apply(
                         result,
@@ -19746,6 +19775,41 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_missing_same_section_imports:"
                         + ",".join(repaired_same_section_imports)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_child_numeric_reencoding = (
+                    _try_repair_generated_child_numeric_reencoding_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_child_numeric_reencoding:
+                    prior_repairs = outcome.get(
+                        "auto_repaired_child_numeric_reencoding"
+                    )
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_child_numeric_reencoding"] = [
+                        *prior_repairs,
+                        *repaired_child_numeric_reencoding,
+                    ]
+                    print(
+                        "  apply=auto_repaired_child_numeric_reencoding:"
+                        + ",".join(repaired_child_numeric_reencoding)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -24277,6 +24341,232 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
     )
+
+
+_CHILD_NUMERIC_REENCODING_ISSUE_PATTERN = re.compile(
+    r"Child fragment numeric output re-encoded: .*? in rule\(s\) "
+    r"(?P<parents>.+?)\. Import and reference the child "
+    r"(?P<child_hint>.+?) instead of copying the child value"
+)
+
+
+def _try_repair_generated_child_numeric_reencoding_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    parsed_issues = [
+        parsed
+        for issue in issues
+        if (parsed := _parse_child_numeric_reencoding_issue(str(issue))) is not None
+    ]
+    if not parsed_issues:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_child_numeric_reencoding_parent_aliases(
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+        parsed_issues=parsed_issues,
+    )
+
+
+def _parse_child_numeric_reencoding_issue(
+    issue: str,
+) -> tuple[tuple[str, ...], str] | None:
+    match = _CHILD_NUMERIC_REENCODING_ISSUE_PATTERN.search(issue)
+    if match is None:
+        return None
+    parent_names = tuple(re.findall(r"`([^`]+)`", match.group("parents")))
+    child_refs = tuple(
+        ref for ref in re.findall(r"`([^`]+)`", match.group("child_hint")) if "#" in ref
+    )
+    if not parent_names or len(child_refs) != 1:
+        return None
+    return parent_names, child_refs[0]
+
+
+def _repair_child_numeric_reencoding_parent_aliases(
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    parsed_issues: list[tuple[tuple[str, ...], str]],
+) -> list[str]:
+    """Remove parent helpers that re-derive child-owned numeric concepts.
+
+    This intentionally handles only a narrow generated pattern:
+    a parent-local helper that copied a numeric child literal, plus optional
+    `1 / helper` wrappers. Broader rewrites should stay as validation failures
+    and be re-encoded.
+    """
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    replacements: dict[str, str] = {}
+    remove_names: set[str] = set()
+    for parent_names, child_ref in parsed_issues:
+        if "#" not in child_ref:
+            continue
+        child_name = child_ref.rsplit("#", 1)[1].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", child_name):
+            continue
+        for parent_name in parent_names:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parent_name):
+                continue
+            remove_names.add(parent_name)
+        replacements.update(
+            _child_numeric_reencoding_wrapper_replacements(
+                rules,
+                parent_names=set(parent_names),
+                child_name=child_name,
+            )
+        )
+
+    if not remove_names and not replacements:
+        return []
+    remove_names.update(replacements)
+    removed_rules: list[str] = []
+    remaining_rules: list[object] = []
+    for rule in rules:
+        if isinstance(rule, dict) and str(rule.get("name") or "") in remove_names:
+            removed_rules.append(str(rule.get("name") or ""))
+            continue
+        remaining_rules.append(rule)
+    if not removed_rules:
+        return []
+    payload["rules"] = remaining_rules
+
+    local_ref_prefix = _rulespec_local_ref_prefix_for_generated_file(
+        rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    child_ref_by_name = {
+        child_name: child_ref
+        for _parent_names, child_ref in parsed_issues
+        for child_name in [child_ref.rsplit("#", 1)[1].strip()]
+    }
+    full_ref_replacements = {
+        f"{local_ref_prefix}{local_name}": child_ref_by_name[child_name]
+        for local_name, child_name in replacements.items()
+        if child_name in child_ref_by_name
+    }
+    payload = _rewrite_child_numeric_reencoding_references(
+        payload,
+        name_replacements=replacements,
+        full_ref_replacements=full_ref_replacements,
+    )
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return removed_rules
+
+
+def _child_numeric_reencoding_wrapper_replacements(
+    rules: list[object],
+    *,
+    parent_names: set[str],
+    child_name: str,
+) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    if len(parent_names) != 1:
+        return replacements
+    parent_name = next(iter(parent_names))
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "")
+        if not name or name == parent_name:
+            continue
+        formulas = _rulespec_rule_formula_strings(rule)
+        if not formulas:
+            continue
+        if all(
+            _formula_is_one_over_identifier(formula, parent_name)
+            for formula in formulas
+        ):
+            replacements[name] = child_name
+    return replacements
+
+
+def _rulespec_rule_formula_strings(rule: dict[str, object]) -> list[str]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    formulas: list[str] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            formulas.append(formula)
+    return formulas
+
+
+def _formula_is_one_over_identifier(formula: str, identifier: str) -> bool:
+    compact = re.sub(r"\s+", "", formula.strip())
+    return compact == f"1/{identifier}"
+
+
+def _rulespec_local_ref_prefix_for_generated_file(
+    rules_file: Path,
+    *,
+    policy_repo_path: Path,
+) -> str:
+    try:
+        relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
+    except ValueError:
+        relative = rules_file
+    return f"{_repo_jurisdiction_prefix(policy_repo_path)}:{relative.with_suffix('').as_posix()}#"
+
+
+def _rewrite_child_numeric_reencoding_references(
+    value: object,
+    *,
+    name_replacements: dict[str, str],
+    full_ref_replacements: dict[str, str],
+) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _rewrite_child_numeric_reencoding_references(
+                item,
+                name_replacements=name_replacements,
+                full_ref_replacements=full_ref_replacements,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _rewrite_child_numeric_reencoding_references(
+                item,
+                name_replacements=name_replacements,
+                full_ref_replacements=full_ref_replacements,
+            )
+            for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    if value in full_ref_replacements:
+        return full_ref_replacements[value]
+    for old_name, new_name in name_replacements.items():
+        value = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(old_name)}(?![A-Za-z0-9_])",
+            new_name,
+            value,
+        )
+    return value
 
 
 def _parse_scalar_relation_row_issue(
@@ -30389,7 +30679,7 @@ def _validate_generated_encoding_in_policy_overlay(
             supplemental_files[relative_output] = overlay_target.read_text()
 
         pipeline = ValidatorPipeline(
-            policy_repo_path=overlay_repo,
+            policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
             enable_oracles=False,
             require_policy_proofs=True,
@@ -30401,7 +30691,7 @@ def _validate_generated_encoding_in_policy_overlay(
         )
         dependent_pipeline = (
             ValidatorPipeline(
-                policy_repo_path=overlay_repo,
+                policy_repo_path=overlay_content_root,
                 axiom_rules_path=axiom_rules_path,
                 enable_oracles=False,
                 enforce_repository_layout=False,

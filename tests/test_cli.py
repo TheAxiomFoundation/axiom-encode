@@ -50,6 +50,7 @@ from axiom_encode.cli import (
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
     _medicaid_magi_income_helper_issue_names,
+    _parse_child_numeric_reencoding_issue,
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
@@ -61,6 +62,7 @@ from axiom_encode.cli import (
     _repair_bare_indexed_parameter_references,
     _repair_california_snap_policy_composition,
     _repair_california_snap_program_tests,
+    _repair_child_numeric_reencoding_parent_aliases,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
     _repair_colorado_snap_2051,
@@ -2291,6 +2293,91 @@ rules:
             {"kind": "decimal", "value": Decimal("19.99")},
             20,
         )
+
+    def test_repairs_child_numeric_reencoding_parent_aliases(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes/26/36B.yaml"
+        child_file = repo / "statutes/26/36B/b.yaml"
+        child_file.parent.mkdir(parents=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: required_contribution_monthly_fraction
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          1 / 12
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/26/36B/b#premium_assistance_credit_amount
+      source_values:
+        - us:statutes/26/36B#premium_assistance_monthly_income_fraction
+rules:
+  - name: premium_assistance_annual_income_month_count
+    kind: parameter
+    dtype: Count
+    source: 26 USC 36B(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          12
+
+  - name: premium_assistance_monthly_income_fraction
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 36B(b)(2)(B)(ii)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          1 / premium_assistance_annual_income_month_count
+
+  - name: applicable_taxpayer_minimum_household_income_poverty_line_ratio
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 36B(c)(1)(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        )
+        issue = (
+            "Child fragment numeric output re-encoded: `36B.yaml` copies "
+            "numeric literal(s) `12` from child `statutes/26/36B/b.yaml` "
+            "in rule(s) `premium_assistance_annual_income_month_count`. "
+            "Import and reference the child output "
+            "`us:statutes/26/36B/b#required_contribution_monthly_fraction` "
+            "instead of copying the child value into the parent formula."
+        )
+        parsed_issue = _parse_child_numeric_reencoding_issue(issue)
+
+        assert parsed_issue == (
+            ("premium_assistance_annual_income_month_count",),
+            "us:statutes/26/36B/b#required_contribution_monthly_fraction",
+        )
+
+        repaired = _repair_child_numeric_reencoding_parent_aliases(
+            rules_file=rules_file,
+            policy_repo_path=repo,
+            parsed_issues=[parsed_issue],
+        )
+
+        assert repaired == [
+            "premium_assistance_annual_income_month_count",
+            "premium_assistance_monthly_income_fraction",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "applicable_taxpayer_minimum_household_income_poverty_line_ratio"
+        ]
+        assert payload["module"]["deferred_outputs"][0]["source_values"] == [
+            "us:statutes/26/36B/b#required_contribution_monthly_fraction"
+        ]
 
     def test_executes_companion_tests_success_json(self, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
@@ -19986,11 +20073,12 @@ rules: []
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
         result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        pipeline_roots: list[Path] = []
         validated_paths: list[Path] = []
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                pipeline_roots.append(Path(kwargs["policy_repo_path"]))
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
@@ -20008,6 +20096,8 @@ rules: []
         assert ok is True
         assert issues == []
         assert supplemental == {}
+        assert len(pipeline_roots) == 1
+        assert pipeline_roots[0].parts[-2:] == ("rulespec-us", "us")
         assert len(validated_paths) == 1
         validated_target = validated_paths[0]
         assert validated_target.parts[-4:] == (
