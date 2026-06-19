@@ -29,6 +29,7 @@ PROGRAM_SURFACE_STATUSES = {
     "pe_in_progress",
     "pending_oracle_mapping",
     "pending_rulespec_encoding",
+    "pending_source_ingestion",
     "wired",
 }
 _PROGRAM_TOKEN_RE = {
@@ -241,6 +242,7 @@ def build_policyengine_program_surface_report(
         "deferred_jurisdiction",
         "pending_oracle_mapping",
         "pending_rulespec_encoding",
+        "pending_source_ingestion",
     }
     pending_surfaces = [
         surface for surface in surfaces if surface.axiom_status in unwired_statuses

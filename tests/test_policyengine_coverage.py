@@ -249,6 +249,19 @@ def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_no
     assert "final modeled subsidy" in colorado_ccap["rationale"]
 
 
+def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestion():
+    report = build_policyengine_program_surface_report(program="ccap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    arizona_ccap = items_by_variable["az_ccap"]
+
+    assert arizona_ccap["program_id"] == "ccdf"
+    assert arizona_ccap["state"] == "AZ"
+    assert arizona_ccap["axiom_status"] == "pending_source_ingestion"
+    assert arizona_ccap["mapping_count"] == 0
+    assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
+
+
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path
