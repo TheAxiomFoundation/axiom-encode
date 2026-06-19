@@ -2296,9 +2296,10 @@ rules:
 
     def test_repairs_child_numeric_reencoding_parent_aliases(self, tmp_path):
         repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes/26/36B.yaml"
+        rules_file = tmp_path / "out" / "codex-test-model" / "statutes/26/36B.yaml"
         child_file = repo / "statutes/26/36B/b.yaml"
         child_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
         child_file.write_text(
             """format: rulespec/v1
 rules:
@@ -2364,6 +2365,7 @@ rules:
         repaired = _repair_child_numeric_reencoding_parent_aliases(
             rules_file=rules_file,
             policy_repo_path=repo,
+            relative_output=Path("statutes/26/36B.yaml"),
             parsed_issues=[parsed_issue],
         )
 
