@@ -4390,6 +4390,108 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
     return repaired_content, sorted(changed_rules)
 
 
+def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
+    """Inline simple generated formula-local assignments."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    changed_rules: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            repaired = _repair_formula_let_binding_text(formula)
+            if repaired == formula:
+                continue
+            version["formula"] = repaired
+            changed_rules.add(rule_name)
+
+    if not changed_rules:
+        return content, []
+
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, sorted(changed_rules)
+
+
+_FORMULA_LET_BINDING_PATTERN = re.compile(
+    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!=)(?P<expr>.*)$"
+)
+
+
+def _repair_formula_let_binding_text(formula: str) -> str:
+    lines = formula.splitlines()
+    if not any(_FORMULA_LET_BINDING_PATTERN.match(line) for line in lines):
+        return formula
+
+    replacements: dict[str, str] = {}
+    repaired_lines: list[str] = []
+    changed = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = _FORMULA_LET_BINDING_PATTERN.match(line)
+        if match is None:
+            repaired_lines.append(
+                _replace_formula_let_binding_names(line, replacements)
+            )
+            index += 1
+            continue
+
+        name = match.group("name")
+        indent = len(match.group("indent"))
+        expr_parts: list[str] = []
+        inline_expr = match.group("expr").strip()
+        if inline_expr:
+            expr_parts.append(inline_expr)
+            index += 1
+        else:
+            index += 1
+            while index < len(lines):
+                continuation = lines[index]
+                if continuation.strip() == "":
+                    index += 1
+                    continue
+                continuation_indent = len(continuation) - len(continuation.lstrip(" "))
+                if continuation_indent <= indent:
+                    break
+                expr_parts.append(continuation.strip())
+                index += 1
+
+        if not expr_parts:
+            repaired_lines.append(line)
+            continue
+
+        expression = " ".join(expr_parts)
+        expression = _replace_formula_let_binding_names(expression, replacements)
+        replacements[name] = f"({expression})"
+        changed = True
+
+    if not changed:
+        return formula
+    return "\n".join(repaired_lines)
+
+
+def _replace_formula_let_binding_names(line: str, replacements: dict[str, str]) -> str:
+    repaired = line
+    for name, expression in replacements.items():
+        repaired = re.sub(rf"\b{re.escape(name)}\b", expression, repaired)
+    return repaired
+
+
 def repair_source_table_open_ended_bound_sentinels(
     content: str,
     *,
