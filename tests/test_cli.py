@@ -160,6 +160,7 @@ from axiom_encode.cli import (
     cmd_repair_current_year_final_amounts,
     cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
+    cmd_repair_georgia_cms_effective_magi_limits,
     cmd_repair_georgia_cms_medicaid_availability,
     cmd_repair_imported_test_inputs,
     cmd_repair_invalid_test_inputs,
@@ -20913,6 +20914,159 @@ rules:
             policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
             "georgia-medicaid-chip-bhp-eligibility-levels.json"
         ).exists()
+
+    def test_repair_georgia_cms_effective_magi_limits_writes_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+  summary: |-
+    Georgia row: Children Medicaid Ages 0-1 205%; Ages 1-5 149%; Ages 6-18 133%; Children Separate CHIP 247%; Pregnant Women Medicaid 220%. The MAGI-based rules generally include a 5% FPL disregard.
+rules:
+  - name: magi_fpl_disregard_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          0.05
+  - name: georgia_children_medicaid_ages_0_to_1_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.05
+  - name: georgia_children_medicaid_ages_1_to_5_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.49
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.33
+  - name: georgia_children_separate_chip_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.47
+  - name: georgia_pregnant_women_medicaid_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.20
+"""
+        )
+        test_file = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        test_file.write_text(
+            """- name: georgia_magi_eligibility_level_parameters_as_of_december_2023
+  period:
+    period_kind: custom
+    name: day
+    start: '2023-12-01'
+    end: '2023-12-01'
+  input: {}
+  output:
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate: 0.05
+    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_0_to_1_fpl_limit: 2.05
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_georgia_cms_effective_magi_limits(args)
+
+        rules_payload = yaml.safe_load(target.read_text())
+        rules_by_name = {rule["name"]: rule for rule in rules_payload["rules"]}
+        infant_rule = rules_by_name[
+            "georgia_children_medicaid_ages_0_to_1_effective_fpl_limit"
+        ]
+        assert infant_rule["kind"] == "derived"
+        assert (
+            infant_rule["versions"][0]["formula"]
+            == "georgia_children_medicaid_ages_0_to_1_fpl_limit + magi_fpl_disregard_rate"
+        )
+        assert (
+            "georgia_children_medicaid_ages_1_to_5_effective_fpl_limit" in rules_by_name
+        )
+        assert (
+            "georgia_children_medicaid_ages_6_to_18_effective_fpl_limit"
+            in rules_by_name
+        )
+        assert "georgia_children_separate_chip_effective_fpl_limit" in rules_by_name
+        assert "georgia_pregnant_women_medicaid_effective_fpl_limit" in rules_by_name
+        test_content = test_file.read_text()
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_children_medicaid_ages_0_to_1_effective_fpl_limit: 2.10"
+        ) in test_content
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_pregnant_women_medicaid_effective_fpl_limit: 2.25"
+        ) in test_content
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
+            "georgia-medicaid-chip-bhp-eligibility-levels.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "georgia-cms-effective-magi-limits-v1"
+        assert (
+            payload["tool"] == "axiom-encode repair-georgia-cms-effective-magi-limits"
+        )
 
     def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
         self, tmp_path
