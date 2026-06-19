@@ -175,10 +175,11 @@ surfaces:
   variable: co_tanf
   source_type: state_implementation
   state: CO
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_oracle_mapping
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Colorado Works basic-cash-assistance, earned-income-disregard, grant-standard,
+    and time-limit legal slices. Remaining parity work is an oracle adapter or PE surface alignment for the same monthly legal
+    boundaries, not initial RuleSpec encoding.
 - country: us
   program_id: tanf
   program_name: DC TANF
@@ -315,10 +316,11 @@ surfaces:
   variable: az_tanf
   source_type: state_implementation
   state: AZ
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_oracle_mapping
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Arizona Cash Assistance payment-standard, needy-family, benefit-determination,
+    earned-income-deduction, and resource/income legal slices. Remaining parity work is a direct oracle adapter for PE's Arizona
+    TANF surface and helper boundaries, not initial RuleSpec encoding.
 - country: us
   program_id: tanf
   program_name: Oklahoma TANF
