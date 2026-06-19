@@ -24306,6 +24306,10 @@ _SCALAR_RELATION_ROW_ISSUE_PATTERN = re.compile(
     r"`(?P<relation>[^`]+)` item #(?P<index>\d+) must be a mapping"
 )
 
+_TEST_INPUT_ASSIGNMENT_MISSING_CASE_PATTERN = re.compile(
+    r"Test input assignment missing:\s*`(?P<case>[^`]+)`"
+)
+
 
 def _try_repair_generated_scalar_relation_rows_for_apply(
     result,
@@ -24316,18 +24320,16 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
 ) -> list[str]:
     """Replace scalar relation rows with companion-test row mappings.
 
-    Generated tests occasionally write relation inputs as `- true`. The engine
-    needs each relation row to be a mapping of child facts. This repair is only
-    applied when validation has identified the exact bad row, and it derives the
-    replacement row from an existing companion test for the same relation target.
+    Generated tests occasionally write relation inputs as `- true` or `- 300`.
+    The engine needs each relation row to be a mapping of child facts. Prefer
+    exact row-shape validator issues, and fall back to missing-input-assignment
+    issues only when the named generated test case still contains scalar rows.
     """
     parsed_issues = [
         parsed
         for issue in issues
         if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
     ]
-    if not parsed_issues:
-        return []
     try:
         _relative_generated_output_path(result, output_root=output_root)
     except RuntimeError:
@@ -24335,6 +24337,13 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
+    if not parsed_issues:
+        parsed_issues = _scalar_relation_row_issues_from_missing_input_assignment(
+            test_file,
+            issues=issues,
+        )
+    if not parsed_issues:
+        return []
     return _repair_scalar_relation_rows(
         rules_file=rules_file,
         test_file=test_file,
@@ -24589,6 +24598,49 @@ def _parse_scalar_relation_row_issue(
         match.group("relation"),
         int(match.group("index")),
     )
+
+
+def _scalar_relation_row_issues_from_missing_input_assignment(
+    test_file: Path,
+    *,
+    issues: list[str],
+) -> list[tuple[str, str, int]]:
+    case_names = {
+        match.group("case").strip()
+        for issue in issues
+        if (match := _TEST_INPUT_ASSIGNMENT_MISSING_CASE_PATTERN.search(str(issue)))
+    }
+    if not case_names or not test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+        cases = payload["cases"]
+    elif isinstance(payload, list):
+        cases = payload
+    else:
+        return []
+
+    parsed_issues: list[tuple[str, str, int]] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "").strip()
+        if case_name not in case_names:
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for relation_ref, rows in inputs.items():
+            relation_key = str(relation_ref)
+            if "#relation." not in relation_key or not isinstance(rows, list):
+                continue
+            for index, row in enumerate(rows, start=1):
+                if not isinstance(row, dict):
+                    parsed_issues.append((case_name, relation_key, index))
+    return parsed_issues
 
 
 def _repair_scalar_relation_rows(
