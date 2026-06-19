@@ -19980,6 +19980,37 @@ rules:
     assert find_source_limitation_application_issues(content) == []
 
 
+def test_source_limitation_application_accepts_component_used_by_limited_output():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The monthly premium assistance amount is the lesser of qualified health
+    plan monthly premiums or the excess of adjusted monthly premium over 1/12
+    of the applicable percentage times household income.
+rules:
+  - name: monthly_household_income_contribution_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: monthly_fraction * applicable_percentage * household_income
+  - name: premium_assistance_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(qualified_health_plan_monthly_premiums, max(0, adjusted_monthly_premium - monthly_household_income_contribution_amount))
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
 def test_source_limitation_application_scopes_subsection_special_rule():
     content = """format: rulespec/v1
 module:

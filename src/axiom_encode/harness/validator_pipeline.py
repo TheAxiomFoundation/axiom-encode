@@ -12775,6 +12775,12 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
             source_text=scoped_source_text,
         ):
             continue
+        if _formula_is_referenced_by_limited_downstream_formula(
+            name,
+            formula_by_name=formula_by_name,
+            source_text=scoped_source_text,
+        ):
+            continue
         issues.append(
             "Source limitation not applied: "
             f"`{name}` is a final amount-style output, but the same source text "
@@ -13933,6 +13939,28 @@ def _formula_or_referenced_helpers_implement_limitation(
             current_name=identifier,
             source_text=source_text,
             seen=visited,
+        ):
+            return True
+    return False
+
+
+def _formula_is_referenced_by_limited_downstream_formula(
+    name: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_text: str,
+) -> bool:
+    """Return true when `name` is an intermediate used by a limited output."""
+    for downstream_name, downstream_formula in formula_by_name.items():
+        if downstream_name == name:
+            continue
+        if name not in _formula_local_identifiers(downstream_formula):
+            continue
+        if _formula_or_referenced_helpers_implement_limitation(
+            downstream_formula,
+            formula_by_name=formula_by_name,
+            current_name=downstream_name,
+            source_text=source_text,
         ):
             return True
     return False
