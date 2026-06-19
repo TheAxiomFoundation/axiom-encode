@@ -146,6 +146,16 @@ surfaces:
     priority: P1
     rationale: Encoded but not comparable to PE's aggregate legal boundary.
   - country: us
+    program_id: tanf
+    program_name: Colorado TANF
+    category: Benefits
+    policyengine_status: complete
+    coverage: CO
+    variable: co_tanf
+    axiom_status: known_not_comparable
+    priority: P1
+    rationale: Encoded legal slices are not the same boundary as PE's final program variable.
+  - country: us
     program_id: payroll_taxes
     program_name: Payroll taxes
     category: Taxes
@@ -202,10 +212,10 @@ surfaces:
         registry=registry,
     )
 
-    assert report["total_surfaces"] == 5
+    assert report["total_surfaces"] == 6
     assert report["status_counts"] == {
         "input_only": 1,
-        "known_not_comparable": 1,
+        "known_not_comparable": 2,
         "out_of_scope": 1,
         "pending_rulespec_encoding": 1,
         "wired": 1,
@@ -218,6 +228,8 @@ surfaces:
     assert items_by_variable["aca_ptc"]["axiom_status"] == "known_not_comparable"
     assert items_by_variable["aca_ptc"]["mapping_count"] == 1
     assert items_by_variable["aca_ptc"]["comparable_mapping_count"] == 0
+    assert items_by_variable["co_tanf"]["axiom_status"] == "known_not_comparable"
+    assert items_by_variable["co_tanf"]["mapping_count"] == 0
     assert items_by_variable["employee_payroll_tax"]["axiom_status"] == "out_of_scope"
     assert items_by_variable["employee_payroll_tax"]["mapping_count"] == 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
