@@ -14377,6 +14377,97 @@ rules:
         ]
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_auto_zero_output_test_mismatches(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 36B", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "36B.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: temporary_applicable_percentage_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if not taxable_year_is_in_temporary_effective_window: -1 else: 0
+"""
+        )
+        test_file = output_file.with_name("36B.test.yaml")
+        test_file.write_text(
+            """- name: auto_zero_temporary_applicable_percentage_band
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/36B#input.taxable_year_is_in_temporary_effective_window: false
+  output:
+    us:statutes/26/36B#temporary_applicable_percentage_band: 0
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/36B.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/36B.yaml: ci: "
+                            "Test case `auto_zero_temporary_applicable_percentage_band` "
+                            "output `us:statutes/26/36B#temporary_applicable_percentage_band` "
+                            "expected integer 0, got decimal -1."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_auto_output_tests:"
+            "auto_zero_temporary_applicable_percentage_band"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"] == {
+            "us:statutes/26/36B#temporary_applicable_percentage_band": -1
+        }
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_auto_output_tests"] == [
+            "auto_zero_temporary_applicable_percentage_band"
+        ]
+        assert run.outcome["status"] == "apply_applied"
+
     def test_repairs_conditional_vacuity_test_mismatches(self, tmp_path):
         output_root = tmp_path / "out"
         runner = "codex-test-model"
