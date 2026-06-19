@@ -24524,6 +24524,7 @@ print("BENCHMARK:" + json.dumps(result))
                 *adapter.annual_derived_spm_overrides,
             ):
                 aliases.update(source_keys)
+            aliases.update(adapter.unsupported_truthy_input_keys)
             if adapter.state_code_from_boolean_input is not None:
                 aliases.add(adapter.state_code_from_boolean_input[0])
         return {alias.lower() for alias in aliases if alias}
@@ -24697,6 +24698,23 @@ print("BENCHMARK:" + json.dumps(result))
                         "RuleSpec test supplies unsupported PolicyEngine US scenario inputs"
                     )
                     return False, f"{reason}: {', '.join(sorted(unsupported_keys))}"
+            if adapter is not None and adapter.unsupported_truthy_input_keys:
+                unsupported_truthy_keys = []
+                for key in adapter.unsupported_truthy_input_keys:
+                    value = self._rulespec_test_input_value(inputs, key)
+                    if value is None:
+                        continue
+                    if bool(value):
+                        unsupported_truthy_keys.append(key)
+                if unsupported_truthy_keys:
+                    reason = adapter.unsupported_input_reason or (
+                        "RuleSpec test supplies active facts that PolicyEngine US "
+                        "does not model"
+                    )
+                    return (
+                        False,
+                        f"{reason}: {', '.join(sorted(unsupported_truthy_keys))}",
+                    )
         if country == "uk" and isinstance(expected, dict):
             return (
                 False,

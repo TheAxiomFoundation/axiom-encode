@@ -63,6 +63,7 @@ from .harness.evals import (
     _canonical_target_ref_prefix,
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
+    _looks_like_corpus_citation_path,
     _source_identifier_to_relative_rulespec_path,
     _target_source_scope_for_heuristics,
     evaluate_artifact,
@@ -218,9 +219,9 @@ def _resolve_policy_repo_for_corpus_source(
     corpus_citation_path: str,
     override: Path | None = None,
 ) -> Path:
-    if override is not None:
-        return override
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
+    if override is not None:
+        return jurisdiction_content_dir(override, jurisdiction).resolve()
     return _resolve_policy_repo_for_prefix(jurisdiction)
 
 
@@ -18771,7 +18772,15 @@ def cmd_encode(args):
     axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
         "axiom-rules-engine"
     )
-    policy_repo_path = args.policy_repo_path or _resolve_policy_repo_for_prefix("us")
+    if _looks_like_corpus_citation_path(args.citation):
+        policy_repo_path = _resolve_policy_repo_for_corpus_source(
+            args.citation,
+            args.policy_repo_path,
+        )
+    else:
+        policy_repo_path = args.policy_repo_path or _resolve_policy_repo_for_prefix(
+            "us"
+        )
 
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")
