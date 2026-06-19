@@ -127,9 +127,9 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: employee_payroll_tax
-    axiom_status: pending_rulespec_encoding
+    axiom_status: out_of_scope
     priority: P1
-    rationale: Non-comparable registry mappings should not mark this wired.
+    rationale: Aggregate surface should not be treated as direct RuleSpec work.
   - country: us
     program_id: fdpir
     program_name: FDPIR
@@ -149,18 +149,16 @@ surfaces:
     assert report["total_surfaces"] == 4
     assert report["status_counts"] == {
         "input_only": 1,
-        "pending_rulespec_encoding": 2,
+        "out_of_scope": 1,
+        "pending_rulespec_encoding": 1,
         "wired": 1,
     }
-    assert report["pending_surfaces"] == 2
+    assert report["pending_surfaces"] == 1
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
     assert items_by_variable["income_tax"]["mapping_count"] >= 1
     assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
-    assert (
-        items_by_variable["employee_payroll_tax"]["axiom_status"]
-        == "pending_rulespec_encoding"
-    )
+    assert items_by_variable["employee_payroll_tax"]["axiom_status"] == "out_of_scope"
     assert items_by_variable["employee_payroll_tax"]["mapping_count"] >= 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
