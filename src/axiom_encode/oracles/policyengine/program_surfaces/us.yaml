@@ -27,10 +27,11 @@ surfaces:
   coverage: US
   variable: state_income_tax
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's state_income_tax is a cross-jurisdiction aggregation over state-specific income tax laws, refundable credits,
+    and reported-state-tax simulation fallback. It is not itself a single legal provision for RuleSpec legal-ID wiring; compare Axiom
+    against individually encoded state tax variables and component legal outputs instead.
 - country: us
   program_id: payroll_taxes
   program_name: Payroll taxes
@@ -40,10 +41,11 @@ surfaces:
   coverage: US
   variable: employee_payroll_tax
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's employee_payroll_tax aggregates federal employee Social Security, Medicare, additional Medicare, and state
+    employee payroll tax components. Axiom should compare the encoded federal and state components separately rather than claiming a
+    one-to-one RuleSpec legal ID for this aggregate.
 - country: us
   program_id: snap
   program_name: SNAP
@@ -53,10 +55,11 @@ surfaces:
   coverage: US
   variable: snap
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's snap variable is a final simulation benefit surface that can apply reported SNAP, take-up, emergency
+    allotments, and local add-ons. RuleSpec should wire exact SNAP legal outputs such as eligibility, normal allotment, deductions,
+    and state-set parameters instead of this simulation aggregate.
 - country: us
   program_id: wic
   program_name: WIC
@@ -66,10 +69,10 @@ surfaces:
   coverage: US
   variable: wic
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's wic variable combines eligibility, take-up, and modeled package values. RuleSpec should encode and compare
+    the governing WIC eligibility and benefit-value parameters separately when those sources are ingested.
 - country: us
   program_id: school_meals
   program_name: Free and reduced school meals
@@ -79,10 +82,10 @@ surfaces:
   coverage: US
   variable: free_school_meals
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's free_school_meals variable is a modeled annual value from school meal tier and net subsidy assumptions,
+    not a single legal provision. RuleSpec should compare eligibility tiers and subsidy parameters separately.
 - country: us
   program_id: csfp
   program_name: Commodity Supplemental Food Program
@@ -92,10 +95,10 @@ surfaces:
   coverage: US
   variable: csfp
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's CSFP program variable combines eligibility with a modeled annual food-package value parameter. RuleSpec
+    should encode and compare CSFP eligibility and amount parameters separately when source text is available.
 - country: us
   program_id: fdpir
   program_name: FDPIR
@@ -117,10 +120,11 @@ surfaces:
   coverage: US
   variable: medicaid
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's medicaid variable reports modeled coverage value through medicaid_cost, not a direct statutory cash
+    benefit or eligibility output. RuleSpec should compare Medicaid eligibility categories, income limits, and state-set parameters
+    separately.
 - country: us
   program_id: chip
   program_name: CHIP
@@ -130,10 +134,10 @@ surfaces:
   coverage: US
   variable: chip
   source_type: program
-  axiom_status: pending_rulespec_encoding
-  priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  axiom_status: out_of_scope
+  priority: P2
+  rationale: PolicyEngine's chip variable reports modeled per-capita CHIP value for eligible people, not a one-to-one legal provision.
+    RuleSpec should compare CHIP eligibility categories, income limits, and state-set parameters separately.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
