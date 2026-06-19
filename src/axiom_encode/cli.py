@@ -18750,6 +18750,20 @@ def cmd_encode(args):
                     "  apply=auto_repaired_parameter_only_companion_tests:"
                     + ",".join(repaired_parameter_only_tests)
                 )
+            repaired_aca_36b_b_premium_assistance_compat = (
+                _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+            )
+            if repaired_aca_36b_b_premium_assistance_compat:
+                outcome["auto_repaired_aca_36b_b_premium_assistance_compat"] = (
+                    repaired_aca_36b_b_premium_assistance_compat
+                )
+                print(
+                    "  apply=auto_repaired_aca_36b_b_premium_assistance_compat:"
+                    + ",".join(repaired_aca_36b_b_premium_assistance_compat)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -24703,6 +24717,170 @@ def _repair_scalar_relation_rows(
         return []
     test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _repair_aca_36b_b_premium_assistance_compat(rules_file: Path) -> list[str]:
+    """Normalize generated ACA 36B(b) premium-assistance shape.
+
+    This is intentionally scoped to the 26 USC 36B(b) generated parent. It keeps
+    the legal monthly cap in `premium_assistance_amount`, scopes the annual sum
+    to paragraph (1), and avoids decimal noise from a literal `1 / 12` factor.
+    """
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    source_verification = module.get("source_verification")
+    if not isinstance(source_verification, dict):
+        return []
+    if source_verification.get("corpus_citation_path") != "us/statute/26/36B":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    rule_names = {
+        str(rule.get("name") or "")
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("name")
+    }
+    if "premium_assistance_credit_amount" not in rule_names:
+        return []
+    if "premium_assistance_amount" not in rule_names:
+        return []
+
+    repairs: list[str] = []
+    imports = payload.get("imports")
+    if isinstance(imports, list):
+        filtered_imports = [
+            item
+            for item in imports
+            if str(item).strip() != "us:statutes/26/36B/b/3/A#applicable_percentage"
+        ]
+        if len(filtered_imports) != len(imports):
+            repairs.append("remove_applicable_percentage_import")
+            if filtered_imports:
+                payload["imports"] = filtered_imports
+            else:
+                payload.pop("imports", None)
+
+    payload = _rewrite_aca_36b_b_compat_references(payload)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return repairs
+
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "")
+        if name == "required_contribution_annual_to_monthly_divisor":
+            if _set_first_formula(rule, "12"):
+                repairs.append("monthly_divisor_formula")
+        elif name == "required_monthly_contribution":
+            if _set_first_formula(
+                rule,
+                "(household_income_for_taxable_year / required_contribution_annual_to_monthly_divisor) * applicable_percentage_for_taxable_year",
+            ):
+                repairs.append("required_monthly_contribution_formula")
+            removed = _remove_rule_proof_import(
+                rule, "us:statutes/26/36B/b/3/A#applicable_percentage"
+            )
+            if removed:
+                repairs.append("remove_applicable_percentage_proof_import")
+        elif name == "premium_assistance_credit_amount":
+            if rule.get("source") != "paragraph (1)":
+                rule["source"] = "paragraph (1)"
+                repairs.append("annual_credit_source")
+
+    if not repairs:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repairs
+
+
+def _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> list[str]:
+    """Apply the 26 USC 36B(b) compatibility repair to generated apply output."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+    if relative_output != Path("statutes/26/36B/b.yaml"):
+        return []
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_aca_36b_b_premium_assistance_compat(rules_file)
+
+
+def _rewrite_aca_36b_b_compat_references(value: object) -> object:
+    replacements = {
+        "required_contribution_monthly_fraction": (
+            "required_contribution_annual_to_monthly_divisor"
+        ),
+        "required_monthly_contribution_amount": "required_monthly_contribution",
+        "applicable_percentage *": "applicable_percentage_for_taxable_year *",
+    }
+    if isinstance(value, dict):
+        return {
+            key: _rewrite_aca_36b_b_compat_references(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_rewrite_aca_36b_b_compat_references(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    return value
+
+
+def _set_first_formula(rule: dict[str, object], formula: str) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        if version.get("formula") == formula:
+            return False
+        version["formula"] = formula
+        return True
+    return False
+
+
+def _remove_rule_proof_import(rule: dict[str, object], target: str) -> bool:
+    metadata = rule.get("metadata")
+    proof = (
+        metadata.get("proof")
+        if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict)
+        else rule.get("proof")
+    )
+    if not isinstance(proof, dict):
+        return False
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return False
+    filtered_atoms = []
+    removed = False
+    for atom in atoms:
+        if isinstance(atom, dict) and isinstance(atom.get("import"), dict):
+            if str(atom["import"].get("target") or "").strip() == target:
+                removed = True
+                continue
+        filtered_atoms.append(atom)
+    if removed:
+        proof["atoms"] = filtered_atoms
+    return removed
 
 
 def _relation_row_replacement_from_companion_tests(
