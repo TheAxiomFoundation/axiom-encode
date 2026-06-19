@@ -671,6 +671,95 @@ mappings:
     candidate_priority: P2
     rationale: PolicyEngine's Colorado CCAP entry income predicate does not include the 3.111(H)(4)(c) one-million-dollar asset cap and uses PE's separate FPG entry-rate predicate.
 
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.530#oap_total_monthly_grant_standard
+    country: us
+    program: co_oap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.ssa.oap.grant_standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado OAP monthly grant standard parameter.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.532#oap_authorized_grant_payment_for_month
+    country: us
+    program: co_oap
+    mapping_type: direct_variable
+    policyengine_variable: co_oap
+    result_multiplier: 0.08333333333333333
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado OAP grant amount before the OAP payment-floor supplement and first-month proration; PolicyEngine exposes the annual amount, so the oracle scales it to the monthly RuleSpec output.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.532#oap_state_supplementary_payment_for_month
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This is the OAP payment-floor supplement under 9 CCR 2503-5 3.532(B); PolicyEngine's Colorado state-supplement variable models AND-CS, not this OAP floor top-up.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.532#oap_total_grant_payment_including_state_supplement_for_month
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    policyengine_variable: co_oap
+    candidate_priority: P4
+    rationale: PolicyEngine's Colorado OAP variable is the grant-standard-minus-income amount before the OAP payment-floor supplement; this RuleSpec output includes the separate 3.532(B) state supplementary payment.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.532#oap_first_month_grant_payment_with_proration
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    policyengine_variable: co_oap
+    candidate_priority: P4
+    rationale: PolicyEngine's Colorado OAP variable does not expose the 3.532(B)(1)-(2) first-month proration rule as a one-to-one output.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.520.72#resource_limit_amount_for_unmarried_person_under_3_520_72
+    country: us
+    program: co_oap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.ssa.oap.resources.single
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado OAP unmarried-person resource limit.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.520.72#resource_limit_amount_for_married_person_under_3_520_72
+    country: us
+    program: co_oap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.ssa.oap.resources.couple
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado OAP married-person resource limit.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.520.72#person_resource_limit_under_3_520_72
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    policyengine_variable: co_oap_eligible
+    candidate_priority: P4
+    rationale: This RuleSpec helper selects between the unmarried and married resource limits with the sponsor/co-sponsor exception in 3.520.72; PolicyEngine exposes the final OAP eligibility predicate rather than this legal resource-limit selector.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.520.72#client_countable_resources_including_deemed_from_sponsors_under_3_520_72
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_resources
+    candidate_priority: P4
+    rationale: RuleSpec explicitly adds deemed sponsor resources under 3.520.72; PolicyEngine's SSI countable resources is a broader annual resource abstraction.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.520.72#client_resources_within_limit_under_3_520_72
+    country: us
+    program: co_oap
+    mapping_type: not_comparable
+    policyengine_variable: co_oap_eligible
+    candidate_priority: P4
+    rationale: This is only the 3.520.72 resource-limit predicate; PolicyEngine's Colorado OAP eligibility also includes age, state, and other eligibility conditions.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
     country: us
     program: snap

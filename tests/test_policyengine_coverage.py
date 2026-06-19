@@ -262,6 +262,21 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestio
     assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
 
 
+def test_policyengine_program_surface_marks_colorado_oap_wired():
+    report = build_policyengine_program_surface_report(program="co_oap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    colorado_oap = items_by_variable["co_oap"]
+
+    assert colorado_oap["axiom_status"] == "wired"
+    assert colorado_oap["mapping_count"] >= 1
+    assert colorado_oap["comparable_mapping_count"] >= 1
+    assert (
+        "us-co:regulations/9-ccr-2503-5/3.532#oap_authorized_grant_payment_for_month"
+        in colorado_oap["legal_ids"]
+    )
+
+
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path

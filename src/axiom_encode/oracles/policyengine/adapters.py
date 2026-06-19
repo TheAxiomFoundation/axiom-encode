@@ -25,6 +25,7 @@ class PolicyEngineUSVarAdapter:
     annual_derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     unsupported_input_keys: tuple[str, ...] = ()
     unsupported_input_patterns: tuple[str, ...] = ()
+    unsupported_truthy_input_keys: tuple[str, ...] = ()
     unsupported_input_reason: str | None = None
     default_state_code: str | None = None
     state_code_from_boolean_input: tuple[str, str, str] | None = None
@@ -390,6 +391,28 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
         annual_direct_spm_overrides=(("family_size", "spm_unit_size"),),
         default_state_code="CO",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("oap_authorized_grant_payment_for_month",),
+        pe_var="co_oap",
+        default_state_code="CO",
+        annualized_person_inputs=(
+            ("client_total_countable_income_for_oap", "ssi_countable_income"),
+        ),
+        boolean_person_inputs=(
+            (
+                "client_is_oap_eligible_under_sections_3_520_6_and_3_520_7",
+                "co_oap_eligible",
+            ),
+        ),
+        unsupported_truthy_input_keys=(
+            "client_is_inmate_in_penal_institution",
+            "client_is_resident_in_unlicensed_or_uncertified_facility",
+        ),
+        unsupported_input_reason=(
+            "PolicyEngine Colorado OAP does not model these 3.532 grant-payment "
+            "exclusion facts"
+        ),
     ),
     PolicyEngineUSVarAdapter(
         rule_names=("snap_excess_shelter_deduction",),

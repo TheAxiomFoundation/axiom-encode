@@ -3700,6 +3700,23 @@ class TestCmdEncode:
             == args.axiom_rules_path
         )
 
+    def test_encode_routes_state_corpus_citation_to_monorepo_jurisdiction_dir(
+        self, capsys, tmp_path
+    ):
+        policy_repo_path = tmp_path / "rulespec-us"
+        (policy_repo_path / "us").mkdir(parents=True)
+        (policy_repo_path / "us-co").mkdir()
+        args = self._make_args(
+            tmp_path,
+            citation="us-co/regulation/9-ccr-2503-5/3.530",
+            policy_repo_path=policy_repo_path,
+        )
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-co"
+
     def test_encode_passes_skip_reviewers_to_model_eval(self, capsys, tmp_path):
         args = self._make_args(tmp_path, skip_reviewers=True)
         mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
