@@ -921,10 +921,12 @@ surfaces:
   variable: az_ccap
   source_type: state_implementation
   state: AZ
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine models Arizona CCAP from Arizona Administrative Code Title 6, Chapter 5 plus DES income-fee
+    and reimbursement schedules. Those official DES/AZSOS sources are not yet in the Axiom corpus, and live unattended
+    fetches currently return Cloudflare challenge pages. Track the source-ingestion blocker in TheAxiomFoundation/axiom-corpus#110;
+    ingestion must land before RuleSpec encoding/oracle wiring can claim parity.
 - country: us
   program_id: ccdf
   program_name: CalWORKs childcare

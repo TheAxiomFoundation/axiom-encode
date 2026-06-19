@@ -3661,6 +3661,7 @@ def cmd_oracle_coverage(args):
             "deferred_jurisdiction",
             "pending_oracle_mapping",
             "pending_rulespec_encoding",
+            "pending_source_ingestion",
         }
     ]
     if pending_surface_items:
