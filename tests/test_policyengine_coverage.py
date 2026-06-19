@@ -236,6 +236,19 @@ surfaces:
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
 
 
+def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ccap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    colorado_ccap = items_by_variable["co_ccap_subsidy"]
+
+    assert colorado_ccap["program_id"] == "ccdf"
+    assert colorado_ccap["state"] == "CO"
+    assert colorado_ccap["axiom_status"] == "known_not_comparable"
+    assert colorado_ccap["mapping_count"] == 0
+    assert "final modeled subsidy" in colorado_ccap["rationale"]
+
+
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path
