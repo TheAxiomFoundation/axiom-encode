@@ -130,6 +130,7 @@ from axiom_encode.cli import (
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
+    _try_repair_generated_scalar_relation_rows_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
@@ -19752,6 +19753,87 @@ rules:
             },
             {
                 "uk:statutes/ukpga/2007/3/23#input.amount_charged_to_income_tax_for_tax_year": 5000
+            },
+        ]
+
+    def test_try_repair_scalar_relation_rows_from_missing_input_assignment(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-test-model" / "statutes" / "26" / "36B" / "b.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Section 36B(b) computes premium assistance amounts.
+rules:
+  - name: coverage_months
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: premium_assistance_credit_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(coverage_months.premium_assistance_amount_determined_for_coverage_month)
+"""
+        )
+        test_file = rules_file.with_name("b.test.yaml")
+        test_file.write_text(
+            """- name: annual_credit_sums_coverage_month_amounts
+  period: 2026
+  input:
+    us:statutes/26/36B/b#relation.coverage_months:
+      - 300
+      - 480
+      - 0
+  output:
+    us:statutes/26/36B/b#premium_assistance_credit_amount: 780
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-test-model",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_scalar_relation_rows_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/36B/b.yaml: ci: Test input assignment missing: "
+                "`annual_credit_sums_coverage_month_amounts` must provide "
+                "`input` facts or `tables` rows assigning every local factual "
+                "`#input.premium_assistance_amount_determined_for_coverage_month` "
+                "referenced by this module's formulas."
+            ],
+        )
+
+        assert repaired == [
+            "annual_credit_sums_coverage_month_amounts:"
+            "us:statutes/26/36B/b#relation.coverage_months[1]",
+            "annual_credit_sums_coverage_month_amounts:"
+            "us:statutes/26/36B/b#relation.coverage_months[2]",
+            "annual_credit_sums_coverage_month_amounts:"
+            "us:statutes/26/36B/b#relation.coverage_months[3]",
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/26/36B/b#relation.coverage_months"] == [
+            {
+                "us:statutes/26/36B/b#input.premium_assistance_amount_determined_for_coverage_month": 300
+            },
+            {
+                "us:statutes/26/36B/b#input.premium_assistance_amount_determined_for_coverage_month": 480
+            },
+            {
+                "us:statutes/26/36B/b#input.premium_assistance_amount_determined_for_coverage_month": 0
             },
         ]
 
