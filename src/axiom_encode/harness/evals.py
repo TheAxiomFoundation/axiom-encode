@@ -33,6 +33,8 @@ from axiom_encode.constants import DEFAULT_OPENAI_MODEL
 from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
+    find_policy_repo_root,
+    jurisdiction_content_dir,
     monorepo_alternative_path,
 )
 from axiom_encode.statute import (
@@ -2937,14 +2939,18 @@ def _repo_augmented_context_root(policy_path: Path) -> Path:
     if resolved.name == "axiom-rules-engine":
         fallback = resolved.parent / "rulespec-us"
         if fallback.exists():
-            return fallback
-    return resolved
+            return jurisdiction_content_dir(fallback, jurisdiction_prefix(fallback))
+    return jurisdiction_content_dir(resolved, jurisdiction_prefix(resolved))
 
 
 def _context_import_relative_target(source_path: Path, policy_path: Path) -> Path:
     """Prefer canonical repo-relative import targets for copied precedent files."""
     repo_parent = policy_path.parent.resolve()
     resolved_source = source_path.resolve()
+    source_policy_root = find_policy_repo_root(resolved_source)
+    if source_policy_root is not None:
+        with contextlib.suppress(ValueError):
+            return resolved_source.relative_to(source_policy_root.resolve())
 
     for candidate in sorted(repo_parent.glob("rulespec-*")):
         if not candidate.is_dir():
