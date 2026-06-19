@@ -8420,6 +8420,9 @@ def cmd_repair_delegated_policy_settings(args):
         print("No delegated policy setting repairs found.")
         return
 
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
     generated_result = argparse.Namespace(
         output_file=str(rules_file),
         runner=repo_path.name,
@@ -8474,9 +8477,6 @@ def cmd_repair_delegated_policy_settings(args):
         for issue in after_issues:
             print(f"- {issue}")
         sys.exit(1)
-
-    signing_key = _require_applied_encoding_manifest_signing_key()
-    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
@@ -20642,8 +20642,9 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     if not rules_file.exists():
         return []
+    original_content = rules_file.read_text()
     try:
-        payload = yaml.safe_load(rules_file.read_text()) or {}
+        payload = yaml.safe_load(original_content) or {}
     except (OSError, yaml.YAMLError):
         return []
     if not isinstance(payload, dict):
@@ -21156,8 +21157,9 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     if not rules_file.exists():
         return []
+    original_content = rules_file.read_text()
     try:
-        payload = yaml.safe_load(rules_file.read_text()) or {}
+        payload = yaml.safe_load(original_content) or {}
     except (OSError, yaml.YAMLError):
         return []
     if not isinstance(payload, dict):
@@ -21305,6 +21307,24 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
 
     if not source_relation_additions and not wrapper_additions and not repaired:
         return []
+    import_only_repair = (
+        not source_relation_additions
+        and not wrapper_additions
+        and all(item.startswith("import:") for item in repaired)
+    )
+    if import_only_repair:
+        import_targets = [
+            item.removeprefix("import:")
+            for item in repaired
+            if item.removeprefix("import:").strip()
+        ]
+        preserved_content = _add_rulespec_imports_preserving_content(
+            original_content,
+            import_targets,
+        )
+        if preserved_content is not None:
+            rules_file.write_text(preserved_content)
+            return repaired
 
     insert_at = 0
     while insert_at < len(rules):
@@ -21481,6 +21501,60 @@ def _ensure_rulespec_payload_import(payload: dict[str, Any], target: str) -> boo
         return False
     imports.append(import_target)
     return True
+
+
+def _add_rulespec_imports_preserving_content(
+    content: str,
+    import_targets: list[str],
+) -> str | None:
+    unique_targets = _ordered_unique_strings(
+        [target.strip() for target in import_targets if target.strip()]
+    )
+    if not unique_targets:
+        return content
+    try:
+        payload = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    imports = payload.get("imports")
+    existing_imports = (
+        {
+            str(item).split("#", 1)[0].strip()
+            for item in imports
+            if isinstance(item, str)
+        }
+        if isinstance(imports, list)
+        else set()
+    )
+    missing = [target for target in unique_targets if target not in existing_imports]
+    if not missing:
+        return content
+
+    lines = content.splitlines()
+    import_line = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == "imports:" and not line.startswith((" ", "\t"))
+        ),
+        None,
+    )
+    rendered = [f"  - {target}" for target in missing]
+    if import_line is None:
+        suffix = "\n" if content.endswith("\n") else "\n"
+        return f"{content}{suffix}imports:\n" + "\n".join(rendered) + "\n"
+
+    insert_at = import_line + 1
+    while insert_at < len(lines):
+        line = lines[insert_at]
+        if line.startswith((" ", "\t")) or not line.strip():
+            insert_at += 1
+            continue
+        break
+    next_lines = [*lines[:insert_at], *rendered, *lines[insert_at:]]
+    return "\n".join(next_lines) + ("\n" if content.endswith("\n") else "")
 
 
 def _rulespec_rule_kind(rule: dict[str, Any] | None) -> str:
