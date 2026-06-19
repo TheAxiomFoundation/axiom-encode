@@ -76,6 +76,10 @@ FICA_PRE_TAX_CONTRIBUTION_COLUMNS = (
 )
 CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
+LONG_TERM_CAPITAL_GAINS_COLUMNS = (
+    "long_term_capital_gains_before_response",
+    "long_term_capital_gains",
+)
 TAX_BEFORE_CREDITS_PROGRAM_PATH = Path("statutes/26/1/j.yaml")
 TAX_BEFORE_CREDITS_BASE = "us:statutes/26/1/j"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
@@ -1849,7 +1853,7 @@ def project_capital_gain_definition_inputs(
 ) -> dict[str, Any]:
     long_term_capital_gains = person_money_sum(
         persons,
-        "long_term_capital_gains_before_response",
+        LONG_TERM_CAPITAL_GAINS_COLUMNS,
     )
     short_term_capital_gains = person_money_sum(persons, "short_term_capital_gains")
     qualified_dividend_income = person_money_sum(
@@ -2189,7 +2193,7 @@ def project_section_1401_tax_unit_inputs(
 def project_eitc_relevant_investment_income(row: Any, persons: list[Any]) -> float:
     net_capital_gains = person_money_sum(
         persons,
-        "long_term_capital_gains_before_response",
+        LONG_TERM_CAPITAL_GAINS_COLUMNS,
     ) + person_money_sum(persons, "short_term_capital_gains")
     return (
         person_money_sum(persons, "taxable_interest_income")
@@ -2766,12 +2770,14 @@ def print_report(
 def group_person_rows_by_tax_unit(persons: Any) -> dict[int, list[Any]]:
     grouped: dict[int, list[Any]] = {}
     for _idx, person in persons.iterrows():
-        grouped.setdefault(int(person["person_tax_unit_id"]), []).append(person)
+        tax_unit_id = person.get("person_tax_unit_id", person.get("tax_unit_id"))
+        grouped.setdefault(int(tax_unit_id), []).append(person)
     return grouped
 
 
-def person_money_sum(persons: list[Any], column: str) -> float:
-    return sum(money(person.get(column, 0)) for person in persons)
+def person_money_sum(persons: list[Any], column: str | tuple[str, ...]) -> float:
+    columns = (column,) if isinstance(column, str) else column
+    return sum(first_available_money(person, columns) for person in persons)
 
 
 def input_record(

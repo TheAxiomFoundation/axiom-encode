@@ -7,6 +7,21 @@ from axiom_encode.oracles.policyengine.coverage import (
     build_policyengine_coverage_report,
     build_policyengine_program_surface_report,
 )
+from axiom_encode.oracles.policyengine.registry import PolicyEngineMapping
+
+
+class _ProgramSurfaceRegistry:
+    def __init__(self, mappings_by_variable):
+        self.mappings_by_variable = mappings_by_variable
+
+    def mappings_for_policyengine_variable(
+        self, policyengine_variable, *, country=None
+    ):
+        return [
+            mapping
+            for mapping in self.mappings_by_variable.get(policyengine_variable, [])
+            if country is None or mapping.country == country
+        ]
 
 
 def _write_rulespec_file(path: Path, content: str) -> Path:
@@ -121,6 +136,16 @@ surfaces:
     priority: P1
     rationale: Needs RuleSpec encoding.
   - country: us
+    program_id: aca_subsidies
+    program_name: ACA subsidies
+    category: Healthcare
+    policyengine_status: complete
+    coverage: US
+    variable: aca_ptc
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Encoded but not comparable to PE's aggregate legal boundary.
+  - country: us
     program_id: payroll_taxes
     program_name: Payroll taxes
     category: Taxes
@@ -143,12 +168,44 @@ surfaces:
 """,
         encoding="utf-8",
     )
+    registry = _ProgramSurfaceRegistry(
+        {
+            "income_tax": [
+                PolicyEngineMapping(
+                    legal_id="us:statutes/26/6401#income_tax",
+                    country="us",
+                    mapping_type="direct_variable",
+                    policyengine_variable="income_tax",
+                )
+            ],
+            "aca_ptc": [
+                PolicyEngineMapping(
+                    legal_id="us:statutes/26/36B/b#premium_assistance_credit_amount",
+                    country="us",
+                    mapping_type="not_comparable",
+                    policyengine_variable="aca_ptc",
+                )
+            ],
+            "employee_payroll_tax": [
+                PolicyEngineMapping(
+                    legal_id="us:statutes/26/3102/a#employee_payroll_tax",
+                    country="us",
+                    mapping_type="not_comparable",
+                    policyengine_variable="employee_payroll_tax",
+                )
+            ],
+        }
+    )
 
-    report = build_policyengine_program_surface_report(manifest_path=manifest)
+    report = build_policyengine_program_surface_report(
+        manifest_path=manifest,
+        registry=registry,
+    )
 
-    assert report["total_surfaces"] == 4
+    assert report["total_surfaces"] == 5
     assert report["status_counts"] == {
         "input_only": 1,
+        "known_not_comparable": 1,
         "out_of_scope": 1,
         "pending_rulespec_encoding": 1,
         "wired": 1,
@@ -156,10 +213,13 @@ surfaces:
     assert report["pending_surfaces"] == 1
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
-    assert items_by_variable["income_tax"]["mapping_count"] >= 1
+    assert items_by_variable["income_tax"]["mapping_count"] == 1
     assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
+    assert items_by_variable["aca_ptc"]["axiom_status"] == "known_not_comparable"
+    assert items_by_variable["aca_ptc"]["mapping_count"] == 1
+    assert items_by_variable["aca_ptc"]["comparable_mapping_count"] == 0
     assert items_by_variable["employee_payroll_tax"]["axiom_status"] == "out_of_scope"
-    assert items_by_variable["employee_payroll_tax"]["mapping_count"] >= 1
+    assert items_by_variable["employee_payroll_tax"]["mapping_count"] == 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
 

@@ -24,6 +24,7 @@ ORACLE_COVERAGE_STATUSES = {"comparable", "known_not_comparable", "unmapped"}
 PROGRAM_SURFACE_STATUSES = {
     "deferred_jurisdiction",
     "input_only",
+    "known_not_comparable",
     "out_of_scope",
     "pe_in_progress",
     "pending_oracle_mapping",
@@ -623,7 +624,16 @@ def _program_surface_item_from_payload(
     country = str(payload.get("country") or "us")
     mappings = registry.mappings_for_policyengine_variable(variable, country=country)
     comparable_mapping_count = sum(1 for mapping in mappings if mapping.comparable)
-    axiom_status = "wired" if comparable_mapping_count else str(payload["axiom_status"])
+    manifest_status = str(payload["axiom_status"])
+    if comparable_mapping_count:
+        axiom_status = "wired"
+    elif mappings and manifest_status in {
+        "pending_oracle_mapping",
+        "pending_rulespec_encoding",
+    }:
+        axiom_status = "known_not_comparable"
+    else:
+        axiom_status = manifest_status
     return PolicyEngineProgramSurfaceItem(
         country=country,
         program_id=str(payload["program_id"]),
