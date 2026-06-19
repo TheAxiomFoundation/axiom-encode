@@ -3860,6 +3860,66 @@ class TestCmdEncode:
             },
         ]
 
+    def test_apply_generated_encoding_routes_country_monorepo_root(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "36B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("36B.test.yaml").write_text("[]\n")
+        (policy_repo / "us").mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        target = policy_repo / "us/statutes/26/36B.yaml"
+        target_test = policy_repo / "us/statutes/26/36B.test.yaml"
+        manifest = policy_repo / "us/.axiom/encoding-manifests/statutes/26/36B.json"
+        assert applied == [target, target_test, manifest]
+        assert target.exists()
+        assert target_test.exists()
+        assert not (policy_repo / "statutes/26/36B.yaml").exists()
+        assert not (
+            policy_repo / ".axiom/encoding-manifests/statutes/26/36B.json"
+        ).exists()
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/36B.yaml",
+            "statutes/26/36B.test.yaml",
+        ]
+
     def test_write_applied_manifest_deduplicates_applied_files(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
@@ -19902,6 +19962,45 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert len(staged_federal_files) == 1
+
+    def test_apply_overlay_validation_routes_country_monorepo_root(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        (policy_repo / "us").mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        validated_paths: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                validated_paths.append(Path(path))
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert len(validated_paths) == 1
+        validated_target = validated_paths[0]
+        assert validated_target.parts[-4:] == (
+            "us",
+            "statutes",
+            "26",
+            "36B.yaml",
+        )
 
     def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
         self, tmp_path
