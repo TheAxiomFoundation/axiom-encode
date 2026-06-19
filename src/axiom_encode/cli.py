@@ -150,6 +150,7 @@ from .repo_routing import (
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     find_policy_repo_root,
+    jurisdiction_content_dir,
     monorepo_checkout_name,
     resolve_jurisdiction_content_dir,
 )
@@ -29908,6 +29909,40 @@ def _relative_output_to_anchor(
     return f"{jurisdiction}:{rel.as_posix()}"
 
 
+def _rulespec_apply_content_root(
+    policy_repo_path: Path,
+    relative_output: Path | None = None,
+) -> Path:
+    """Return the jurisdiction content root for live generated writes."""
+    repo_path = Path(policy_repo_path)
+    if relative_output is not None:
+        parts = Path(relative_output).parts
+        jurisdiction = _repo_jurisdiction_prefix(repo_path)
+        if (
+            parts
+            and (parts[0] == jurisdiction or parts[0].startswith(f"{jurisdiction}-"))
+            and (repo_path / parts[0]).is_dir()
+        ):
+            return repo_path
+    return jurisdiction_content_dir(
+        repo_path,
+        _repo_jurisdiction_prefix(repo_path),
+    )
+
+
+def _relative_to_rulespec_apply_content_root(
+    path: Path,
+    repo_path: Path,
+    relative_output: Path | None = None,
+) -> Path:
+    """Return ``path`` relative to the jurisdiction content root when possible."""
+    content_root = _rulespec_apply_content_root(repo_path, relative_output)
+    try:
+        return Path(path).relative_to(content_root)
+    except ValueError:
+        return Path(path).relative_to(repo_path)
+
+
 def _enforce_canonical_concept_registry(
     *,
     candidate_files: list[Path],
@@ -30064,6 +30099,7 @@ def _apply_generated_encoding_result(
         policy_repo_path=policy_repo_path,
     )
 
+    content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     applied: list[Path] = []
     for source in (output_file, _rulespec_test_path(output_file)):
         if not source.exists():
@@ -30073,14 +30109,14 @@ def _apply_generated_encoding_result(
             if source == output_file
             else _rulespec_test_path(relative_output)
         )
-        target = policy_repo_path / relative_source
+        target = content_root / relative_source
         if source == output_file:
             _enforce_no_apply_collision(source_file=source, target_file=target)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         applied.append(target)
     for relative_path, content in (supplemental_files or {}).items():
-        target = policy_repo_path / relative_path
+        target = content_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         applied.append(target)
@@ -30111,7 +30147,8 @@ def _write_applied_encoding_manifest(
     run_id: str | None = None,
 ) -> Path:
     """Record that live RuleSpec files were installed by the encoder."""
-    manifest_path = policy_repo_path / _applied_encoding_manifest_path(relative_output)
+    content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
+    manifest_path = content_root / _applied_encoding_manifest_path(relative_output)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     context_manifest_raw = str(getattr(result, "context_manifest_file", "") or "")
     trace_file_raw = str(getattr(result, "trace_file", "") or "")
@@ -30125,7 +30162,7 @@ def _write_applied_encoding_manifest(
     unique_applied_files: list[Path] = []
     seen_applied_paths: set[str] = set()
     for path in applied_files:
-        relative_path = path.relative_to(policy_repo_path).as_posix()
+        relative_path = path.relative_to(content_root).as_posix()
         if relative_path in seen_applied_paths:
             continue
         seen_applied_paths.add(relative_path)
@@ -30159,7 +30196,7 @@ def _write_applied_encoding_manifest(
         else None,
         "applied_files": [
             {
-                "path": path.relative_to(policy_repo_path).as_posix(),
+                "path": path.relative_to(content_root).as_posix(),
                 "sha256": _sha256_file(path),
             }
             for path in unique_applied_files
@@ -30295,7 +30332,10 @@ def _validate_generated_encoding_in_policy_overlay(
             {},
         )
 
-    existing_output = policy_repo_path / relative_output
+    existing_output = (
+        _rulespec_apply_content_root(policy_repo_path, relative_output)
+        / relative_output
+    )
     if existing_output.exists():
         existing_content = existing_output.read_text()
         preservation_issues = _source_relation_preservation_issues(
@@ -30327,7 +30367,11 @@ def _validate_generated_encoding_in_policy_overlay(
 
         overlay_repo = overlay_parent / overlay_repo_name
         shutil.copytree(policy_repo_path, overlay_repo)
-        overlay_target = overlay_repo / relative_output
+        overlay_content_root = _rulespec_apply_content_root(
+            overlay_repo,
+            relative_output,
+        )
+        overlay_target = overlay_content_root / relative_output
         overlay_target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(output_file, overlay_target)
         if output_test.exists():
@@ -30372,7 +30416,9 @@ def _validate_generated_encoding_in_policy_overlay(
             dependents=dependents,
         )
         for path in changed_proof_hash_files:
-            supplemental_files[path.relative_to(overlay_repo)] = path.read_text()
+            supplemental_files[
+                _relative_to_rulespec_apply_content_root(path, overlay_repo)
+            ] = path.read_text()
         validations = _validate_overlay_files(
             pipeline,
             dependent_pipeline=dependent_pipeline,
@@ -30396,9 +30442,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if changed_proof_hash_files:
                 for path in changed_proof_hash_files:
-                    supplemental_files[path.relative_to(overlay_repo)] = (
-                        path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(path, overlay_repo)
+                    ] = path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30419,9 +30465,11 @@ def _validate_generated_encoding_in_policy_overlay(
                 supplemental_files[relative_output] = overlay_target.read_text()
                 test_path = _rulespec_test_path(overlay_target)
                 if test_path.exists():
-                    supplemental_files[test_path.relative_to(overlay_repo)] = (
-                        test_path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(
+                            test_path, overlay_repo
+                        )
+                    ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30439,9 +30487,11 @@ def _validate_generated_encoding_in_policy_overlay(
                 supplemental_files[relative_output] = overlay_target.read_text()
                 test_path = _rulespec_test_path(overlay_target)
                 if test_path.exists():
-                    supplemental_files[test_path.relative_to(overlay_repo)] = (
-                        test_path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(
+                            test_path, overlay_repo
+                        )
+                    ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30459,9 +30509,11 @@ def _validate_generated_encoding_in_policy_overlay(
                 supplemental_files[relative_output] = overlay_target.read_text()
                 test_path = _rulespec_test_path(overlay_target)
                 if test_path.exists():
-                    supplemental_files[test_path.relative_to(overlay_repo)] = (
-                        test_path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(
+                            test_path, overlay_repo
+                        )
+                    ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30477,9 +30529,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if mixed_scalar_repairs:
                 test_path = _rulespec_test_path(overlay_target)
-                supplemental_files[test_path.relative_to(overlay_repo)] = (
-                    test_path.read_text()
-                )
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(test_path, overlay_repo)
+                ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30495,9 +30547,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if future_effective_repairs:
                 test_path = _rulespec_test_path(overlay_target)
-                supplemental_files[test_path.relative_to(overlay_repo)] = (
-                    test_path.read_text()
-                )
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(test_path, overlay_repo)
+                ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30513,9 +30565,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if mixed_derived_entity_repairs:
                 test_path = _rulespec_test_path(overlay_target)
-                supplemental_files[test_path.relative_to(overlay_repo)] = (
-                    test_path.read_text()
-                )
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(test_path, overlay_repo)
+                ] = test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30554,9 +30606,11 @@ def _validate_generated_encoding_in_policy_overlay(
                     validation=target_validation,
                 )
             ):
-                supplemental_files[target_test_path.relative_to(overlay_repo)] = (
-                    target_test_path.read_text()
-                )
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(
+                        target_test_path, overlay_repo
+                    )
+                ] = target_test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30570,9 +30624,11 @@ def _validate_generated_encoding_in_policy_overlay(
                 repo_path=overlay_repo,
                 validation=target_validation,
             ):
-                supplemental_files[target_test_path.relative_to(overlay_repo)] = (
-                    target_test_path.read_text()
-                )
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(
+                        target_test_path, overlay_repo
+                    )
+                ] = target_test_path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30587,9 +30643,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if removed_invalid_inputs:
                 for path in removed_invalid_inputs:
-                    supplemental_files[path.relative_to(overlay_repo)] = (
-                        path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(path, overlay_repo)
+                    ] = path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30604,9 +30660,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if removed_unknown_outputs:
                 for path in removed_unknown_outputs:
-                    supplemental_files[path.relative_to(overlay_repo)] = (
-                        path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(path, overlay_repo)
+                    ] = path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30621,9 +30677,9 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if removed_cross_module_outputs:
                 for path in removed_cross_module_outputs:
-                    supplemental_files[path.relative_to(overlay_repo)] = (
-                        path.read_text()
-                    )
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(path, overlay_repo)
+                    ] = path.read_text()
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -30639,7 +30695,9 @@ def _validate_generated_encoding_in_policy_overlay(
             if not changed_tests:
                 break
             for path in changed_tests:
-                supplemental_files[path.relative_to(overlay_repo)] = path.read_text()
+                supplemental_files[
+                    _relative_to_rulespec_apply_content_root(path, overlay_repo)
+                ] = path.read_text()
             validations = _validate_overlay_files(
                 pipeline,
                 dependent_pipeline=dependent_pipeline,
@@ -30650,7 +30708,10 @@ def _validate_generated_encoding_in_policy_overlay(
         for validated_file, validation in validations:
             for validator_result in validation.results.values():
                 if validator_result.error:
-                    relative_file = validated_file.relative_to(overlay_repo)
+                    relative_file = _relative_to_rulespec_apply_content_root(
+                        validated_file,
+                        overlay_repo,
+                    )
                     validator_name = getattr(validator_result, "validator_name", "ci")
                     issues.append(
                         f"{relative_file}: {validator_name}: {validator_result.error}"
@@ -30752,21 +30813,22 @@ def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
 ) -> list[Path]:
     """Remove ancestor RuleSpec files from a temporary subsection overlay."""
     suppressed: list[Path] = []
+    content_root = _rulespec_apply_content_root(overlay_repo, relative_output)
     preserved_imports = _same_repo_imported_rulespec_paths(
-        overlay_repo / relative_output,
+        content_root / relative_output,
         policy_repo_path=overlay_repo,
     )
     for relative_path in _rulespec_ancestor_target_paths(relative_output):
         if relative_path in preserved_imports:
             continue
         for candidate in (
-            overlay_repo / relative_path,
-            _rulespec_test_path(overlay_repo / relative_path),
+            content_root / relative_path,
+            _rulespec_test_path(content_root / relative_path),
         ):
             if not candidate.exists() or not candidate.is_file():
                 continue
             candidate.unlink()
-            suppressed.append(candidate.relative_to(overlay_repo))
+            suppressed.append(candidate.relative_to(content_root))
     return suppressed
 
 
@@ -32372,7 +32434,10 @@ def _repair_dependent_proof_import_hashes(
     jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
     for dependent in dependents:
         try:
-            relative_dependent = dependent.relative_to(overlay_repo)
+            relative_dependent = _relative_to_rulespec_apply_content_root(
+                dependent,
+                overlay_repo,
+            )
             content = dependent.read_text()
         except (OSError, ValueError):
             continue
@@ -32425,7 +32490,9 @@ def _remove_invalid_dependent_test_inputs(
     )
     target_input_names: set[str] = set()
     target_output_names: set[str] = set()
-    target_file = overlay_repo / relative_output
+    target_file = (
+        _rulespec_apply_content_root(overlay_repo, relative_output) / relative_output
+    )
     if target_file.exists():
         with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
             target_content = target_file.read_text()
@@ -32436,13 +32503,16 @@ def _remove_invalid_dependent_test_inputs(
             target_output_names = set(_rules_by_name_from_payload(target_payload))
     changed: list[Path] = []
     for validated_file, validation in validations:
-        if validated_file == overlay_repo / relative_output:
+        if validated_file == target_file:
             continue
         test_path = _rulespec_test_path(validated_file)
         if not test_path.exists():
             continue
         try:
-            relative_validated = validated_file.relative_to(overlay_repo)
+            relative_validated = _relative_to_rulespec_apply_content_root(
+                validated_file,
+                overlay_repo,
+            )
         except ValueError:
             continue
         dependent_ref = (
@@ -32612,7 +32682,9 @@ def _remove_unknown_dependent_test_outputs(
 ) -> list[Path]:
     """Remove obsolete output assertions from dependent tests."""
     changed: list[Path] = []
-    target_path = overlay_repo / relative_output
+    target_path = (
+        _rulespec_apply_content_root(overlay_repo, relative_output) / relative_output
+    )
     jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
     for validated_file, validation in validations:
         if validated_file == target_path:
@@ -32629,7 +32701,10 @@ def _remove_unknown_dependent_test_outputs(
         if not unknown_refs:
             continue
         try:
-            relative_validated = validated_file.relative_to(overlay_repo)
+            relative_validated = _relative_to_rulespec_apply_content_root(
+                validated_file,
+                overlay_repo,
+            )
             test_cases = yaml.safe_load(test_path.read_text()) or []
         except (OSError, ValueError, yaml.YAMLError):
             continue
@@ -32707,7 +32782,9 @@ def _remove_cross_module_dependent_test_outputs(
     """Remove imported output assertions that make dependent tests entity-mixed."""
     changed: list[Path] = []
     jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
-    target_path = overlay_repo / relative_output
+    target_path = (
+        _rulespec_apply_content_root(overlay_repo, relative_output) / relative_output
+    )
     for validated_file, validation in validations:
         if validated_file == target_path:
             continue
@@ -32726,7 +32803,10 @@ def _remove_cross_module_dependent_test_outputs(
 
         try:
             test_cases = yaml.safe_load(test_path.read_text()) or []
-            relative_validated = validated_file.relative_to(overlay_repo)
+            relative_validated = _relative_to_rulespec_apply_content_root(
+                validated_file,
+                overlay_repo,
+            )
         except (OSError, ValueError, yaml.YAMLError):
             continue
         if not isinstance(test_cases, list):
@@ -32801,7 +32881,9 @@ def _complete_missing_dependent_test_inputs(
         f"{_repo_jurisdiction_prefix(overlay_repo)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    target_file = overlay_repo / relative_output
+    target_file = (
+        _rulespec_apply_content_root(overlay_repo, relative_output) / relative_output
+    )
     target_baseline_inputs = _load_test_input_baseline(_rulespec_test_path(target_file))
     target_imported_inputs = _imported_input_refs_by_name(
         target_file,
@@ -32814,13 +32896,16 @@ def _complete_missing_dependent_test_inputs(
         )
     changed: list[Path] = []
     for validated_file, validation in validations:
-        if validated_file == overlay_repo / relative_output:
+        if validated_file == target_file:
             continue
         test_path = _rulespec_test_path(validated_file)
         if not test_path.exists():
             continue
         try:
-            relative_validated = validated_file.relative_to(overlay_repo)
+            relative_validated = _relative_to_rulespec_apply_content_root(
+                validated_file,
+                overlay_repo,
+            )
         except ValueError:
             continue
         dependent_ref = (
@@ -33523,16 +33608,17 @@ def _find_rulespec_dependents(
     """Find RuleSpec files that directly import the generated output."""
     target = _relative_rulespec_import_target(relative_output)
     jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
+    content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependents: list[Path] = []
     for root in sorted(RULESPEC_SOURCE_ROOTS):
-        root_path = policy_repo_path / root
+        root_path = content_root / root
         if not root_path.exists():
             continue
         for candidate in sorted(root_path.rglob("*.yaml")):
             if candidate.name.endswith(".test.yaml"):
                 continue
             try:
-                relative_candidate = candidate.relative_to(policy_repo_path)
+                relative_candidate = candidate.relative_to(content_root)
             except ValueError:
                 continue
             if relative_candidate == relative_output:
