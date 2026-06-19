@@ -20011,6 +20011,38 @@ rules:
     assert find_source_limitation_application_issues(content) == []
 
 
+def test_source_limitation_application_accepts_annual_sum_of_limited_monthly_amounts():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The premium assistance credit amount means the sum of premium assistance
+    amounts determined for all coverage months. The premium assistance amount
+    for a coverage month is the lesser of monthly premiums or the excess of the
+    adjusted monthly premium over the required monthly contribution.
+rules:
+  - name: premium_assistance_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(monthly_premiums, max(0, adjusted_monthly_premium - required_monthly_contribution_amount))
+  - name: premium_assistance_credit_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(coverage_months.premium_assistance_amount_determined_for_coverage_month)
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
 def test_source_limitation_application_scopes_subsection_special_rule():
     content = """format: rulespec/v1
 module:
