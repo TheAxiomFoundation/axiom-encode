@@ -1,7 +1,7 @@
 source:
   repository: PolicyEngine/policyengine-us
   ref: upstream/main
-  commit: 9656d3d9f99f07b259559496edb35c204a7abe3a
+  commit: 392a91f0019131497418872dc95de4da9aa3fe9b
   path: policyengine_us/programs.yaml
   generated_by: axiom-encode policyengine program surface wiring
 surfaces:
@@ -1151,6 +1151,20 @@ surfaces:
     and Georgia law before other jurisdictions.
 - country: us
   program_id: ccdf
+  program_name: Minnesota CCAP
+  category: Benefits
+  agency: HHS
+  policyengine_status: complete
+  coverage: MN
+  variable: mn_ccap
+  source_type: state_implementation
+  state: MN
+  axiom_status: deferred_jurisdiction
+  priority: P2
+  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
+    and Georgia law before other jurisdictions.
+- country: us
+  program_id: ccdf
   program_name: New Hampshire CCAP
   category: Benefits
   agency: HHS
@@ -1772,10 +1786,11 @@ surfaces:
   coverage: US
   variable: social_security
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: input_only
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine's social_security program variable aggregates Social Security dependents, disability, retirement, and
+    survivors benefit amounts that are uprated input variables rather than computed benefit-law outputs. RuleSpec should encode and
+    compare source-backed SSA benefit formulas and parameters separately when PE exposes a comparable computed surface.
 - country: us
   program_id: medicare
   program_name: Medicare
