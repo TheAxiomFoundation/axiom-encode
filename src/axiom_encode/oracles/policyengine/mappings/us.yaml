@@ -770,6 +770,16 @@ mappings:
     comparison: money
     rationale: Same Colorado AND-CS monthly grant standard parameter for the state-administered SSI supplement.
 
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_grant_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.ssa.state_supplement.grant_standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado AND-CS monthly grant standard parameter for the state-administered SSI supplement.
+
   - legal_id: us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month
     country: us
     program: ssi_state_supplement
