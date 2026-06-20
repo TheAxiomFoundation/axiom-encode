@@ -2386,12 +2386,21 @@ def test_policyengine_registry_is_legal_id_keyed():
         == "gov.states.co.ssa.oap.grant_standard"
     )
     colorado_ssp_mapping = registry.mapping_for_legal_id(
-        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month",
+        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment",
         country="us",
     )
     assert colorado_ssp_mapping.mapping_type == "direct_variable"
     assert colorado_ssp_mapping.policyengine_variable == "co_state_supplement"
-    assert colorado_ssp_mapping.result_multiplier == pytest.approx(1 / 12)
+    assert colorado_ssp_mapping.result_multiplier is None
+    colorado_ssp_legacy_name_mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month",
+        country="us",
+    )
+    assert colorado_ssp_legacy_name_mapping.mapping_type == "direct_variable"
+    assert (
+        colorado_ssp_legacy_name_mapping.policyengine_variable == "co_state_supplement"
+    )
+    assert colorado_ssp_legacy_name_mapping.result_multiplier is None
     colorado_ssp_grant_standard_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_grant_standard",
         country="us",
@@ -4245,14 +4254,18 @@ def test_policyengine_and_cs_adapter_annualizes_income_and_sets_eligibility(
         "co_state_supplement",
         {
             "period": "2026-01",
-            "us-co:regulations/9-ccr-2503-5/3.548#input.client_total_countable_income_for_and_cs": 32,
-            "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_and_cs_eligible_under_sections_3_546_and_3_547": True,
+            "us-co:regulations/9-ccr-2503-5/3.548#input.client_countable_income_other_than_ssi_for_and_cs": 32,
+            "us-co:regulations/9-ccr-2503-5/3.548#input.gross_ssi_payment_amount": 40,
+            "us-co:regulations/9-ccr-2503-5/3.548#input.client_has_been_found_eligible_for_and_cs": True,
         },
         "2026",
     )
 
     assert "'state_code_str': {'2026': 'CO'}" in script
     assert "'ssi_countable_income': {'2026': 384.0}" in script
+    assert "'ssi': {'2026-01': 40.0}" in script
+    assert "'is_ssi_eligible_individual': {'2026': True}" in script
+    assert "'is_ssi_disabled': {'2026': True}" in script
     assert "'co_state_supplement_eligible': {'2026': True}" in script
 
 
@@ -4265,15 +4278,16 @@ def test_policyengine_and_cs_mappability_blocks_active_unmodeled_exclusions(
         enable_oracles=False,
     )
     inputs = {
-        "us-co:regulations/9-ccr-2503-5/3.548#input.client_total_countable_income_for_and_cs": 32,
-        "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_and_cs_eligible_under_sections_3_546_and_3_547": True,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_countable_income_other_than_ssi_for_and_cs": 32,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.gross_ssi_payment_amount": 40,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_has_been_found_eligible_for_and_cs": True,
         "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_inmate_in_penal_institution": False,
         "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_resident_in_unlicensed_or_uncertified_facility": False,
     }
 
     mappable, reason = pipeline._is_pe_test_mappable(
         "us",
-        "and_cs_authorized_grant_payment_for_month",
+        "and_cs_authorized_grant_payment",
         inputs,
         pe_var="co_state_supplement",
     )
@@ -4286,7 +4300,7 @@ def test_policyengine_and_cs_mappability_blocks_active_unmodeled_exclusions(
     ] = True
     mappable, reason = pipeline._is_pe_test_mappable(
         "us",
-        "and_cs_authorized_grant_payment_for_month",
+        "and_cs_authorized_grant_payment",
         inputs,
         pe_var="co_state_supplement",
     )
