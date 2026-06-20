@@ -132,22 +132,18 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   Add an aggregate rule only when the same source defines how those person
   amounts roll up to a tax unit, household, family, or other unit. Do not let
   the word "taxpayer" erase a source-stated individual/person subject.
-- For 26 USC 1402(a)(12), the phrase "the taxpayer's net earnings from
-  self-employment ... determined without regard to this paragraph" is still the
-  1402(a) net-earnings term, whose parent definition is gross income "derived
-  by an individual" from a trade or business. Encode the paragraph (12)
-  deduction and its net-earnings base on `Person`, not `TaxUnit`, unless the
-  requested source separately states a filing-unit roll-up. If an existing
-  `us:statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment` import is
-  unit-scoped, treat it as stale context; do not import it into a new
-  `TaxUnit` deduction. Use a lower-entity import when available, or expose a
-  person-level boundary input such as
-  `net_earnings_from_self_employment_determined_without_regard_to_paragraph_12`.
-  Import the section 1401(a) and section 1401(b)(1) rates when those rate files
-  are in context. Do not assert raw `parameter` outputs such as a one-half
-  fraction in companion tests. For paragraph (12), assert derived `Person`
-  outputs only, such as the derived deduction rate and derived deduction amount;
-  split tests by entity if any non-`Person` output remains.
+- When a self-employment, wage, net-earnings, compensation, remuneration, or
+  similar base definition says the amount is derived by, paid to, imposed on, or
+  computed for an individual, person, employee, member, claimant, child,
+  dependent, or spouse, encode downstream deductions, adjustments, taxes,
+  contributions, and rate-applied results on that lower entity unless the
+  requested source separately states a unit-level roll-up. Use a lower-entity
+  import when available, or expose a lower-entity boundary input named for the
+  source-stated legal base. Treat stale unit-scoped imports for that base as
+  context to repair, not as authority to create a new unit-scoped formula.
+  Companion tests should assert derived outputs that consume helper parameters;
+  do not assert raw helper `parameter` outputs as the only evidence that an
+  executable amount was encoded.
 - When a tax definition says "earned income of an individual shall be
   computed" with exclusions for that individual's income, services, payments,
   status, or self-employment amounts, keep those earned-income components on
@@ -1052,10 +1048,10 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   costs` require a positive fact for that cost/service. For example, a telephone
   allowance must depend on a fact for the household having or incurring the
   basic telephone-service cost before applying exclusions for other allowances.
-- In a jurisdiction-specific repo, phrases like `residing in New York State`
-  usually describe the document's scope, not a new input variable. Do not add a
-  state-residency input unless the provision itself is encoding a residency
-  eligibility test.
+- In a jurisdiction-specific repo, phrases that merely identify the target
+  jurisdiction usually describe the document's scope, not a new input variable.
+  Do not add a state-residency input unless the provision itself is encoding a
+  residency eligibility test.
 """
 
 _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.

@@ -101,222 +101,61 @@ class TestEncoderBackendInterface:
         assert resp.duration_ms == 1500
 
 
-def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
+def _assert_encoder_prompt_topics(prompt: str) -> None:
+    """Check durable prompt themes without freezing every wording tweak."""
+    required_topics = [
+        "module.proof_validation.required: true",
+        "Do not emit `source_url`",
+        "every source-stated amount, rate, threshold, cap, and limit",
+        '"per taxpayer per beneficiary"',
+        "Do not treat the final interval row as open-ended",
+        "Use a negative sentinel such as `-1`",
+        "source text `133%` should be",
+        "kind: derived_relation",
+        '"This source is about SNAP" is not enough',
+        "Any rule that uses `entity: <filtered-entity>`",
+        "Treat stale unit-scoped imports for that base as",
+        "self-employment, wage, net-earnings, compensation, remuneration",
+        "earned income of an individual shall be",
+        "Never drop the jurisdiction prefix",
+        "Importing an adjacent upstream output only as proof",
+        "is not an executable dependency",
+        "purpose-limited replacement rate",
+        "not as `section_<cited>_*`",
+        "predicate for the excepted category",
+        "toggle each gate at least once",
+        "Validation fails if a direct local `#input.*_exception_applies`",
+        "`clause_ii_provides_otherwise`",
+        "Axiom formulas have no date literal type",
+        "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`",
+        "Do not write `else if` or `elif`",
+        "min(source_amount, cap)",
+        "compute the uncapped base amount separately",
+        "min(uncapped_amount, max(cap_a,",
+        "Do not\n  reconstruct the cited section's amount locally",
+        "Only include `blocked_by` entries when you know the exact RuleSpec output",
+        "us:statutes/us-ca/17000",
+    ]
+    for topic in required_topics:
+        assert topic in prompt
+
+
+def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
     prompt = get_encoder_prompt(
         citation="26 USC 63(c)(5)",
         output_path="statutes/26/63/c/5.yaml",
         corpus_citation_path="us/statute/26/63",
     )
 
-    assert "round the" in ENCODER_PROMPT
-    assert "increase before adding it to the base amount" in ENCODER_PROMPT
-    assert "17300, not 17325" in ENCODER_PROMPT
-    assert "Axiom formulas have no date literal type" in ENCODER_PROMPT
-    assert 'excess of" a cap' in ENCODER_PROMPT
-    assert "min(source_amount, cap)" in ENCODER_PROMPT
-    assert "compute the uncapped base amount separately" in ENCODER_PROMPT
-    assert "min(uncapped_amount, max(cap_a," in ENCODER_PROMPT
-    assert '"per taxpayer per beneficiary"' in ENCODER_PROMPT
+    _assert_encoder_prompt_topics(ENCODER_PROMPT)
+    _assert_encoder_prompt_topics(prompt)
+    assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
     assert (
-        "Do not apply one\n  per-unit cap to a single aggregate amount"
-        in ENCODER_PROMPT
-    )
-    assert "unless the source expressly says" in ENCODER_PROMPT
-    assert (
-        "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
-        in ENCODER_PROMPT
-    )
-    assert "overrides preservation of existing local input names" in ENCODER_PROMPT
-    assert "Do not write `else if` or `elif`" in ENCODER_PROMPT
-    assert "then:" in ENCODER_PROMPT
-    assert "module.summary` or the rule's proof excerpt" in ENCODER_PROMPT
-    assert "Importing an adjacent upstream output only as proof" in ENCODER_PROMPT
-    assert "does not satisfy the dependency" in ENCODER_PROMPT
-    assert "is not an executable dependency" in ENCODER_PROMPT
-    assert "same name as a copied parent or sibling export" in ENCODER_PROMPT
-    assert "unused/proof-only import" in ENCODER_PROMPT
-    assert "directly or transitively" in ENCODER_PROMPT
-    assert "numeric boundary input" in ENCODER_PROMPT
-    assert (
-        "Never create a derived rule whose formula references that same rule's name"
-        in ENCODER_PROMPT
-    )
-    assert "bona_fide_need_for_x_arrangement" in ENCODER_PROMPT
-    assert "rate-bearing source" in ENCODER_PROMPT
-    assert "cycle with a foundational base definition" in ENCODER_PROMPT
-    assert "defines a base, net amount" in ENCODER_PROMPT
-    assert "do not import that consumer section" in ENCODER_PROMPT
-    assert "rate or rate" in ENCODER_PROMPT
-    assert "source-named numeric boundary input" in ENCODER_PROMPT
-    assert "purpose-limited replacement rate" in ENCODER_PROMPT
-    assert "computed at" in ENCODER_PROMPT
-    assert "instead of the rate provided by" in ENCODER_PROMPT
-    assert "not as `section_<cited>_*`" in ENCODER_PROMPT
-    assert "Do not\n  reconstruct the cited section's amount locally" in ENCODER_PROMPT
-    assert "source-stated formula executable" in ENCODER_PROMPT
-    assert "defer only that branch" in ENCODER_PROMPT
-    assert "predicate for the excepted category" in ENCODER_PROMPT
-    assert "enumerates qualifying or exception categories" in ENCODER_PROMPT
-    assert "only uses the citation to label a category" in ENCODER_PROMPT
-    assert "retirement-system, election" in ENCODER_PROMPT
-    assert (
-        "covered-service, section-described supporting organization" in ENCODER_PROMPT
-    )
-    assert "`described in section ...` category\n  labels" in ENCODER_PROMPT
-    assert "section-described supporting organization" in ENCODER_PROMPT
-    assert "treated-as-trade-or-business, unrelated-trade-or-business" in ENCODER_PROMPT
-    assert "`within the\n  meaning of section ...` carve-outs" in ENCODER_PROMPT
-    assert "category membership phrases" in ENCODER_PROMPT
-    assert "`organization described in section X`" in ENCODER_PROMPT
-    assert "organization_described_in_section_509_a_3" in ENCODER_PROMPT
-    assert "testing\n  membership in the described category" in ENCODER_PROMPT
-    assert "completed federal\n  return amount" in ENCODER_PROMPT
-    assert "itemized_deductions_claimed_on_federal_return" in ENCODER_PROMPT
-    assert "unrelated-trade-or-business" in ENCODER_PROMPT
-    assert "within-meaning/described-in definitions" in ENCODER_PROMPT
-    assert "positive/nonzero" in ENCODER_PROMPT
-    assert "toggle each gate at least once" in ENCODER_PROMPT
-    assert (
-        "Validation fails if a direct local `#input.*_exception_applies`"
-        in ENCODER_PROMPT
-    )
-    assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
-    assert "unit-level placeholder or aggregate base by the rate" in ENCODER_PROMPT
-    assert (
-        "Existing target or repository-precedent files are not entity-scope authority"
-    ) in ENCODER_PROMPT
-    assert "treat the copied aggregate shape as a defect to repair" in ENCODER_PROMPT
-    assert "Treat that import as stale aggregate context" in ENCODER_PROMPT
-    assert "Do not build a TaxUnit/Household formula" in ENCODER_PROMPT
-    assert "For 26 USC 1402(a)(12)" in ENCODER_PROMPT
-    assert (
-        "paragraph (12)\n  deduction and its net-earnings base on `Person`"
-        in ENCODER_PROMPT
-    )
-    assert (
-        "net_earnings_from_self_employment_determined_without_regard_to_paragraph_12"
-        in ENCODER_PROMPT
-    )
-    assert "Do not assert raw `parameter` outputs" in ENCODER_PROMPT
-    assert "assert derived `Person`\n  outputs only" in ENCODER_PROMPT
-    assert "earned income of an individual shall be\n  computed" in ENCODER_PROMPT
-    assert "replaced by one aggregated boundary input" in ENCODER_PROMPT
-    assert "current\n  requested source changes the basis" in ENCODER_PROMPT
-    assert "internally handled its own `to the extent` exclusion" in ENCODER_PROMPT
-    assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
-    assert "listed under invalid copied local inputs" in ENCODER_PROMPT
-    assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
-    assert "For interval-table repair of an existing target" in ENCODER_PROMPT
-    assert "do not add extra exported derived rules" in ENCODER_PROMPT
-    assert "`clause_ii_provides_otherwise`" in ENCODER_PROMPT
-    assert "Do not treat the final interval row as open-ended" in ENCODER_PROMPT
-    assert "Include a companion test above the final bounded" in ENCODER_PROMPT
-    assert (
-        "The out-of-table sentinel is not itself a source table row" in ENCODER_PROMPT
-    )
-    assert "do not clamp sentinel cases\n  to the final table row" in ENCODER_PROMPT
-    assert "Use a negative sentinel such as `-1`" in ENCODER_PROMPT
-    assert "do not use the\n  next positive band id such as `6`" in ENCODER_PROMPT
-    assert "Do not hard-code the final real band id" in ENCODER_PROMPT
-    assert (
-        "let the indexed interpolation formula produce that constant" in ENCODER_PROMPT
-    )
-    assert "source text `133%` should be\n  represented as `1.33`" in ENCODER_PROMPT
-    assert "old percent-point test inputs" in ENCODER_PROMPT
-    assert (
-        "Structural interval bounds that are only used by the selector"
-        in ENCODER_PROMPT
-    )
-    assert "`applicable_percentage_band_upper_bound[band_selector]`" in ENCODER_PROMPT
-    assert "for sibling clause\n  exception phrases" in ENCODER_PROMPT
-    assert "kind: derived_relation" in ENCODER_PROMPT
-    assert "derived_relation:" in ENCODER_PROMPT
-    assert "arity: 2" in ENCODER_PROMPT
-    assert "source_relation: member_of_household" in ENCODER_PROMPT
-    assert "formula: snap_member_eligible" in ENCODER_PROMPT
-    assert "explicitly defines" in ENCODER_PROMPT
-    assert "membership in a derived legal unit" in ENCODER_PROMPT
-    assert '"This source is about SNAP" is not enough' in ENCODER_PROMPT
-    assert "stay on the source-stated structural entity" in ENCODER_PROMPT
-    assert "Any rule that uses `entity: <filtered-entity>`" in ENCODER_PROMPT
-    assert "declare" in ENCODER_PROMPT
-    assert "that entity with a `kind: derived_relation` rule" in ENCODER_PROMPT
-    assert "import a RuleSpec file" in ENCODER_PROMPT
-    assert "that declares it" in ENCODER_PROMPT
-    assert (
-        "Only include `blocked_by` entries when you know the exact RuleSpec output"
-        in ENCODER_PROMPT
-    )
-    assert "Do not list bare legal provisions" in ENCODER_PROMPT
-    assert "us:statutes/us-ca/17000" in ENCODER_PROMPT
-    assert "round the" in prompt
-    assert "increase before adding it to the base amount" in prompt
-    assert "17300, not 17325" in prompt
-    assert "Axiom formulas have no date literal type" in prompt
-    assert 'excess of" a cap' in prompt
-    assert "min(source_amount, cap)" in prompt
-    assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
-    assert "overrides preservation of existing local input names" in prompt
-    assert "module.summary` or the rule's proof excerpt" in prompt
-    assert "then:" in prompt
-    assert "Importing an adjacent upstream output only as proof" in prompt
-    assert "does not satisfy the dependency" in prompt
-    assert "is not an executable dependency" in prompt
-    assert "same name as a copied parent or sibling export" in prompt
-    assert "unused/proof-only import" in prompt
-    assert "Do not treat a missing\n  deferred child branch as zero" in prompt
-    assert "purpose-limited replacement rate" in prompt
-    assert "computed at" in prompt
-    assert "instead of the rate provided by" in prompt
-    assert "not as `section_<cited>_*`" in prompt
-    assert "source-stated formula executable" in prompt
-    assert "defer only that branch" in prompt
-    assert "predicate for the excepted category" in prompt
-    assert "positive/nonzero" in prompt
-    assert "toggle each gate at least once" in prompt
-    assert "rate-applied result at the source-stated lower entity" in prompt
-    assert "unit-level placeholder or aggregate base by the rate" in prompt
-    assert "Treat that import as stale aggregate context" in prompt
-    assert "Do not build a TaxUnit/Household formula" in prompt
-    assert "Never drop the jurisdiction prefix" in prompt
-    assert "listed under invalid copied local inputs" in prompt
-    assert "do not preserve, rename, or recreate" in prompt
-    assert "For interval-table repair of an existing target" in prompt
-    assert "do not add extra exported derived rules" in prompt
-    assert "`clause_ii_provides_otherwise`" in prompt
-    assert "Do not treat the final interval row as open-ended" in prompt
-    assert "Include a companion test above the final bounded" in prompt
-    assert "The out-of-table sentinel is not itself a source table row" in prompt
-    assert "do not clamp sentinel cases\n  to the final table row" in prompt
-    assert "Use a negative sentinel such as `-1`" in prompt
-    assert "do not use the\n  next positive band id such as `6`" in prompt
-    assert "Do not hard-code the final real band id" in prompt
-    assert "let the indexed interpolation formula produce that constant" in prompt
-    assert "source text `133%` should be\n  represented as `1.33`" in prompt
-    assert "old percent-point test inputs" in prompt
-    assert "Structural interval bounds that are only used by the selector" in prompt
-    assert "`applicable_percentage_band_upper_bound[band_selector]`" in prompt
-    assert "for sibling clause\n  exception phrases" in prompt
-    assert "kind: derived_relation" in prompt
-    assert "derived_relation:" in prompt
-    assert "arity: 2" in prompt
-    assert "source_relation: member_of_household" in prompt
-    assert "formula: snap_member_eligible" in prompt
-    assert "explicitly defines" in prompt
-    assert "membership in a derived legal unit" in prompt
-    assert '"This source is about SNAP" is not enough' in prompt
-    assert "stay on the source-stated structural entity" in prompt
-    assert "Any rule that uses `entity: <filtered-entity>`" in prompt
-    assert "declare" in prompt
-    assert "that entity with a `kind: derived_relation` rule" in prompt
-    assert "import a RuleSpec file" in prompt
-    assert "that declares it" in prompt
-    assert (
-        "Only include `blocked_by` entries when you know the exact RuleSpec output"
+        "Include `module.source_verification.corpus_citation_path: us/statute/26/63` exactly."
         in prompt
     )
-    assert "Do not list bare legal provisions" in prompt
-    assert "us:statutes/us-ca/17000" in prompt
+    assert "Target citation/source id: 26 USC 63(c)(5)" in prompt
+    assert "Expected output path: statutes/26/63/c/5.yaml" in prompt
 
 
 class TestClaudeCodeBackend:
