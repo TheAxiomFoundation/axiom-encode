@@ -25064,6 +25064,12 @@ rules:
     versions:
       - effective_from: '2019-01-01'
         formula: '4500'
+  - name: earned_income_remainder_exclusion_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1974-01-01'
+        formula: '1 / 2'
 """
         )
         test_file.write_text(
@@ -25084,6 +25090,8 @@ rules:
                 if (
                     legal_id
                     == "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase"
+                    or legal_id
+                    == "us-co:statutes/39/39-22-104/4/y#earned_income_remainder_exclusion_rate"
                 ):
                     return SimpleNamespace(mapping_type="parameter_value")
                 return None
@@ -25118,7 +25126,7 @@ rules:
             cmd_repair_oracle_parameter_tests(args)
 
         payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
+        added = payload[-2]
         assert (
             added["name"]
             == "oracle_parameter_military_retirement_benefits_cap_initial_phase"
@@ -25126,6 +25134,15 @@ rules:
         assert added["input"] == {}
         assert added["output"] == {
             "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase": 4500
+        }
+        fraction_added = payload[-1]
+        assert (
+            fraction_added["name"]
+            == "oracle_parameter_earned_income_remainder_exclusion_rate"
+        )
+        assert fraction_added["input"] == {}
+        assert fraction_added["output"] == {
+            "us-co:statutes/39/39-22-104/4/y#earned_income_remainder_exclusion_rate": 0.5
         }
 
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(

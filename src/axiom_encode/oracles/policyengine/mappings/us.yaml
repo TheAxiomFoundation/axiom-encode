@@ -102,6 +102,114 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the original 1974 statutory annual SSI couple base rate in 42 USC 1382(b); PolicyEngine stores final monthly federal benefit-rate parameters after later statutory increases and COLA uprating, not this base amount as a comparable parameter cell.
 
+  - legal_id: us:statutes/42/1382a/b/2#annual_general_income_exclusion_limit
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.income.exclusions.general
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 12
+    rationale: Same federal SSI general income exclusion amount, with PolicyEngine storing the monthly parameter and RuleSpec encoding the annual statutory limit.
+
+  - legal_id: us:statutes/42/1382a/b/2#annual_general_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the section 1382a(b)(2) annual general income exclusion as a source-level helper before later earned-income and deeming mechanics. PolicyEngine applies the monthly general exclusion inside the broader ssi_countable_income calculation and does not expose this helper one-to-one.
+
+  - legal_id: us:statutes/42/1382a/b/2#default_state_age_payment_age
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the source-level age threshold for the special pre-1973 state age-and-residency payment exclusion. PolicyEngine-US does not expose this transitional state-payment threshold as a one-to-one SSI parameter.
+
+  - legal_id: us:statutes/42/1382a/b/2#state_age_payment_residency_year_requirement
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the source-level residency duration threshold for the special pre-1973 state age-and-residency payment exclusion. PolicyEngine-US does not expose this transitional state-payment threshold as a one-to-one SSI parameter.
+
+  - legal_id: us:statutes/42/1382a/b/2#state_age_residency_payment_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the special section 1382a(b)(2)(B) exclusion for qualifying state age-and-residency payments under programs established before July 1, 1973. PolicyEngine-US does not model this transitional state-payment exclusion as a one-to-one SSI variable.
+
+  - legal_id: us:statutes/42/1382a/b/4#annual_earned_income_initial_exclusion_limit
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.income.exclusions.earned
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 12
+    rationale: Same federal SSI earned income flat exclusion amount, with PolicyEngine storing the monthly parameter and RuleSpec encoding the annual statutory limit.
+
+  - legal_id: us:statutes/42/1382a/b/4#earned_income_remainder_exclusion_rate
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.income.exclusions.earned_share
+    period: month
+    comparison: rate
+    rationale: Same federal SSI share of earned income excluded after the flat earned-income exclusion.
+
+  - legal_id: us:statutes/42/1382a/b/4#blind_branch_earned_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the blind-recipient branch of section 1382a(b)(4), including source-specific ordering against expenses and self-support-plan exclusions. PolicyEngine applies standard SSI income exclusions inside ssi_countable_income and does not expose this branch helper one-to-one.
+
+  - legal_id: us:statutes/42/1382a/b/4#blind_branch_earning_expenses_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the blind-recipient earning-expense exclusion in section 1382a(b)(4)(A)(ii). PolicyEngine-US does not expose this blind-work-expense helper as a one-to-one SSI variable.
+
+  - legal_id: us:statutes/42/1382a/b/4#blind_branch_self_support_plan_other_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the blind-recipient plan-to-achieve-self-support income exclusion in section 1382a(b)(4)(A)(iii). PolicyEngine-US does not expose this PASS helper as a one-to-one SSI variable.
+
+  - legal_id: us:statutes/42/1382a/b/4#disabled_branch_earned_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the disabled-not-blind branch of section 1382a(b)(4), including source-specific ordering for impairment-related work expenses and the earned-income remainder exclusion. PolicyEngine applies standard SSI income exclusions inside ssi_countable_income and does not expose this branch helper one-to-one.
+
+  - legal_id: us:statutes/42/1382a/b/4#disabled_branch_self_support_plan_other_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the disabled-recipient plan-to-achieve-self-support income exclusion in section 1382a(b)(4)(B)(iv). PolicyEngine-US does not expose this PASS helper as a one-to-one SSI variable.
+
+  - legal_id: us:statutes/42/1382a/b/4#age_sixty_five_branch_earned_income_excluded
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec exposes the age-65 branch of section 1382a(b)(4)(C) for individuals not covered by the blind or disabled branches. PolicyEngine applies standard SSI income exclusions inside ssi_countable_income and does not expose this branch helper one-to-one.
+
   - legal_id: us:statutes/42/1382f/a#annual_rounding_multiple
     country: us
     program: ssi
