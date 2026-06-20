@@ -86,6 +86,86 @@ mappings:
     comparison: rate
     rationale: Same federal SNAP earned-income deduction rate.
 
+  - legal_id: us:statutes/42/1382/b#statutory_base_annual_rate_without_eligible_spouse
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec encodes the original 1974 statutory annual SSI base rate in 42 USC 1382(b); PolicyEngine stores final monthly federal benefit-rate parameters after later statutory increases and COLA uprating, not this base amount as a comparable parameter cell.
+
+  - legal_id: us:statutes/42/1382/b#statutory_base_annual_rate_with_eligible_spouse
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    candidate_priority: P4
+    rationale: RuleSpec encodes the original 1974 statutory annual SSI couple base rate in 42 USC 1382(b); PolicyEngine stores final monthly federal benefit-rate parameters after later statutory increases and COLA uprating, not this base amount as a comparable parameter cell.
+
+  - legal_id: us:statutes/42/1382f/a#annual_rounding_multiple
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory annual rounding multiple used by 42 USC 1382f(a); PolicyEngine materializes final monthly SSI federal benefit-rate parameters and does not expose the intermediate annual rounding rule as a comparable target.
+
+  - legal_id: us:statutes/42/1382f/a#prior_rounding_carryover_increase
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 1382f(a) carryover amount from prior annual rounding; PolicyEngine materializes final monthly SSI federal benefit-rate parameters and does not expose this intermediate COLA calculation step.
+
+  - legal_id: us:statutes/42/1382f/a#amount_after_paragraph_1_increase
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 1382f(a)(1) intermediate amount before annual rounding; PolicyEngine materializes final monthly SSI federal benefit-rate parameters and does not expose this intermediate COLA calculation step.
+
+  - legal_id: us:statutes/42/1382f/a#subsection_a_applicable_increase_percentage
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory COLA percentage selected by 42 USC 1382f(a); PolicyEngine stores already-uprated monthly SSI federal benefit-rate parameters and does not expose the percentage selection as a comparable output.
+
+  - legal_id: us:statutes/42/1382f/a#amount_after_subsection_a_increase
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 1382f(a) post-COLA amount before it is folded into final monthly SSI benefit-rate parameters; PolicyEngine does not expose this statutory intermediate as a comparable target.
+
+  - legal_id: us:statutes/42/1382f/c#dollar_amount_increase_for_section_1382_a_1_a_and_b_1
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for individual SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
+
+  - legal_id: us:statutes/42/1382f/c#dollar_amount_increase_for_public_law_93_66_section_211_a_1_a
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec encodes the one-time 1983 statutory increase to the Public Law 93-66 amount; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
+
+  - legal_id: us:statutes/42/1382f/c#dollar_amount_increase_for_section_1382_a_2_a_and_b_2
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    candidate_priority: P4
+    rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for couple SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
+
   - legal_id: us:statutes/7/2014/e/6/A#snap_net_income_pre_shelter
     country: us
     program: snap

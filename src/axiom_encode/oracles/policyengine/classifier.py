@@ -236,6 +236,8 @@ def _infer_program_from_legal_id(legal_id: str, *, rule_name: str = "") -> str:
         return "health"
     if "snap" in lowered:
         return "snap"
+    if lowered.startswith(("us:statutes/42/1382", "us:statutes/42/1382f")):
+        return "ssi"
     if lowered.startswith("us:statutes/26/") or lowered.startswith(
         "us-co:statutes/39/"
     ):

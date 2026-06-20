@@ -298,6 +298,140 @@ def test_policyengine_program_surface_marks_colorado_ssp_wired():
     )
 
 
+def test_policyengine_coverage_classifies_federal_ssi_benefit_rate_intermediates(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: statutory_base_annual_rate_without_eligible_spouse
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1752
+  - name: statutory_base_annual_rate_with_eligible_spouse
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 2628
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382f/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: annual_rounding_multiple
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 12
+  - name: prior_rounding_carryover_increase
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 0
+  - name: amount_after_paragraph_1_increase
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 1
+  - name: subsection_a_applicable_increase_percentage
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 0
+  - name: amount_after_subsection_a_increase
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382f/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dollar_amount_increase_for_section_1382_a_1_a_and_b_1
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1983-07-01'
+        formula: 240
+  - name: dollar_amount_increase_for_public_law_93_66_section_211_a_1_a
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1983-07-01'
+        formula: 120
+  - name: dollar_amount_increase_for_section_1382_a_2_a_and_b_2
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1983-07-01'
+        formula: 360
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382a/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: future_unmapped_ssi_income_exclusion
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 240
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ssi")
+
+    assert report["total_outputs"] == 11
+    assert report["status_counts"] == {
+        "known_not_comparable": 10,
+        "unmapped": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id["us:statutes/42/1382a/b#future_unmapped_ssi_income_exclusion"][
+            "program"
+        ]
+        == "ssi"
+    )
+    assert (
+        items_by_id["us:statutes/42/1382a/b#future_unmapped_ssi_income_exclusion"][
+            "status"
+        ]
+        == "unmapped"
+    )
+    classified_items = [
+        item for item in report["items"] if item["status"] == "known_not_comparable"
+    ]
+    assert {item["program"] for item in classified_items} == {"ssi"}
+    assert {item["mapping_type"] for item in classified_items} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in classified_items} == {"P4"}
+    assert (
+        items_by_id[
+            "us:statutes/42/1382/b#statutory_base_annual_rate_without_eligible_spouse"
+        ]["policyengine_parameter"]
+        == "gov.ssa.ssi.amount.individual"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/42/1382/b#statutory_base_annual_rate_with_eligible_spouse"
+        ]["policyengine_parameter"]
+        == "gov.ssa.ssi.amount.couple"
+    )
+
+
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path
