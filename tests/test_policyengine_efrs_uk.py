@@ -4555,22 +4555,20 @@ class hbai_household_net_income(Variable):
 def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
     def fake_version(package):
         versions = {
-            "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
-            "policyengine-uk": "2.88.41",
+            "policyengine-uk": "2.87.99",
         }
         return versions[package]
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-uk==2.88.56 required"):
+    with pytest.raises(SystemExit, match="policyengine-uk>=2.88 required"):
         require_policyengine_uk_versions()
 
 
 def test_policyengine_uk_version_guard_allows_pinned_versions(monkeypatch):
     def fake_version(package):
         versions = {
-            "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
-            "policyengine-uk": efrs_uk.POLICYENGINE_UK_VERSION,
+            "policyengine-uk": "2.89.2",
         }
         return versions[package]
 
@@ -4585,8 +4583,8 @@ def test_policyengine_uk_version_guard_names_coverage_command(monkeypatch):
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="axiom-encode uk-efrs-coverage"):
-        require_policyengine_uk_versions(command="uk-efrs-coverage")
+    with pytest.raises(SystemExit, match="axiom-encode uk-populace-coverage"):
+        require_policyengine_uk_versions(command="uk-populace-coverage")
 
 
 def test_compare_outputs_reports_personal_allowance_mismatch():
@@ -6596,8 +6594,9 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
         year=2026,
         sample_size=100,
         surface="personal-allowance",
-        dataset="enhanced_frs_2023_24",
+        dataset="",
         data_folder=Path(".axiom/policyengine-data"),
+        populace_year=2023,
         tolerance=0.01,
         relative_tolerance=2e-7,
     )
@@ -6645,8 +6644,9 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
                 year=2026,
                 sample_size=100,
                 surface="all",
-                dataset="enhanced_frs_2023_24",
+                dataset="",
                 data_folder=Path(".axiom/policyengine-data"),
+                populace_year=2023,
                 tolerance=0.01,
                 relative_tolerance=2e-7,
                 person_ids=None,

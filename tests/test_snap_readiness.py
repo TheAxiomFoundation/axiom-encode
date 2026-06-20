@@ -101,7 +101,7 @@ def test_snap_readiness_reports_ready_to_encode_when_corpus_exists_without_rules
     assert by_jurisdiction["us-tn"]["rulespec_files"] == 0
 
 
-def test_snap_readiness_reports_ecps_ready_for_configured_program_module(tmp_path):
+def test_snap_readiness_reports_populace_ready_for_configured_program_module(tmp_path):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"
     repo = root / "rulespec-us-co"
@@ -112,8 +112,8 @@ def test_snap_readiness_reports_ecps_ready_for_configured_program_module(tmp_pat
 
     by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
     colorado = by_jurisdiction["us-co"]
-    assert colorado["status"] == "ecps_ready"
-    assert colorado["policyengine_ecps_configured"] is True
+    assert colorado["status"] == "populace_ready"
+    assert colorado["policyengine_populace_configured"] is True
     assert colorado["program_module_exists"] is True
     assert colorado["executable_outputs"] == 1
 
@@ -146,9 +146,9 @@ def test_snap_readiness_flags_rules_without_policyengine_config(tmp_path):
     report = build_snap_readiness_report(root, corpus_root=corpus_root)
 
     by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
-    assert by_jurisdiction["us-tn"]["status"] == "needs_ecps_config"
+    assert by_jurisdiction["us-tn"]["status"] == "needs_populace_config"
     assert (
-        "missing PolicyEngine ECPS jurisdiction config"
+        "missing PolicyEngine Populace jurisdiction config"
         in by_jurisdiction["us-tn"]["blockers"]
     )
 

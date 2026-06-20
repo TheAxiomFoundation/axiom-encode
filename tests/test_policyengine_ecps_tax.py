@@ -21,9 +21,6 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
-    POLICYENGINE_CORE_VERSION,
-    POLICYENGINE_US_VERSION,
-    POLICYENGINE_VERSION,
     SECTION_32_C_2_BASE,
     SECTION_112_BASE,
     SECTION_152_C_BASE,
@@ -2376,6 +2373,7 @@ def test_compare_oasdi_stage_runs_encoded_ssa_base_before_3121(
         positive_ctc_only=False,
         surface="employee-oasdi",
         data_folder=tmp_path,
+        populace_year=2024,
         tolerance=0.01,
         relative_tolerance=2e-7,
     )
@@ -2388,46 +2386,33 @@ def test_compare_oasdi_stage_runs_encoded_ssa_base_before_3121(
     ]
 
 
-def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
+def test_policyengine_version_guard_rejects_old_us_version(monkeypatch):
     def fake_version(package):
-        if package == "policyengine":
-            return POLICYENGINE_VERSION
-        if package == "policyengine-core":
-            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
-            return "999.0.0"
+            return "1.722.99"
         raise AssertionError(package)
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-us=="):
+    with pytest.raises(SystemExit, match="policyengine-us>="):
         require_policyengine_versions()
 
 
-def test_policyengine_version_guard_rejects_unpinned_core_version(monkeypatch):
+def test_policyengine_version_guard_allows_newer_us_version(monkeypatch):
     def fake_version(package):
-        if package == "policyengine":
-            return POLICYENGINE_VERSION
-        if package == "policyengine-core":
-            return "999.0.0"
         if package == "policyengine-us":
-            return POLICYENGINE_US_VERSION
+            return "1.739.2"
         raise AssertionError(package)
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-core=="):
-        require_policyengine_versions()
+    require_policyengine_versions()
 
 
 def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     def fake_version(package):
-        if package == "policyengine":
-            return POLICYENGINE_VERSION
-        if package == "policyengine-core":
-            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
-            return "999.0.0"
+            return "1.722.99"
         raise AssertionError(package)
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
@@ -2435,58 +2420,13 @@ def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     require_policyengine_versions(allow_policyengine_us_version=True)
 
 
-def test_policyengine_data_certification_override_is_required_for_pinned_us_bump():
-    assert policyengine_data_certification_override_required() is True
+def test_policyengine_data_certification_override_not_required_for_populace():
+    assert policyengine_data_certification_override_required() is False
 
 
-def test_policyengine_data_certification_override_runs_on_default_pinned_bump(
-    monkeypatch, tmp_path
-):
-    def fake_install_override():
-        raise RuntimeError("certification override installed")
-
-    monkeypatch.setattr(
-        ecps_tax,
-        "policyengine_data_certification_override_required",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        ecps_tax,
-        "_install_policyengine_data_certification_override",
-        fake_install_override,
-    )
-
-    with pytest.raises(RuntimeError, match="certification override installed"):
-        ecps_tax.load_policyengine_tax_data(
-            year=2026,
-            sample_size=1,
-            positive_ctc_only=False,
-            data_folder=tmp_path,
-            tax_unit_variables=(),
-            person_variables=(),
-        )
-
-
-def test_uncertified_policyengine_data_requires_local_us_override(tmp_path):
-    with pytest.raises(SystemExit, match="requires --allow-policyengine-us-version"):
-        compare_tax_ecps(
-            workspace_root=tmp_path,
-            rulespec_root=tmp_path / "rulespec-us",
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-            year=2026,
-            sample_size=1,
-            positive_ctc_only=False,
-            surface="all",
-            data_folder=tmp_path,
-            tolerance=0.01,
-            relative_tolerance=2e-7,
-            allow_uncertified_policyengine_data=True,
-        )
-
-
-def test_policyengine_data_certification_override_sets_skip_imports(monkeypatch):
+def test_policyengine_data_certification_override_noop_for_populace(monkeypatch):
     monkeypatch.delenv("POLICYENGINE_SKIP_COUNTRY_IMPORTS", raising=False)
 
     ecps_tax._install_policyengine_data_certification_override()
 
-    assert ecps_tax.os.environ["POLICYENGINE_SKIP_COUNTRY_IMPORTS"] == "1"
+    assert "POLICYENGINE_SKIP_COUNTRY_IMPORTS" not in ecps_tax.os.environ

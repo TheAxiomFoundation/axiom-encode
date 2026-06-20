@@ -1,7 +1,7 @@
-"""Compare federal tax RuleSpec output against PolicyEngine ECPS.
+"""Compare federal tax RuleSpec output against PolicyEngine over Populace.
 
-This is the federal-tax counterpart to ``snap-ecps-compare``. Each comparison
-surface has an explicit projection from ECPS fields into Axiom inputs. The
+This is the federal-tax counterpart to ``snap-populace-compare``. Each comparison
+surface has an explicit projection from Populace fields into Axiom inputs. The
 projection is intentionally conservative: it does not use PE outputs for the
 surface under test as Axiom inputs.
 """
@@ -30,6 +30,12 @@ from axiom_encode.harness.validator_pipeline import (
     _rulespec_public_item_keys,
     _rulespec_repo_alias_parent,
 )
+from axiom_encode.oracles.policyengine.population import (
+    DEFAULT_US_POPULACE_YEAR,
+    load_populace_dataset,
+    populace_data_requirement,
+    population_table,
+)
 
 try:
     import numpy as np
@@ -37,11 +43,7 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
     np = None
 
 
-POLICYENGINE_VERSION = "4.11.0"
-POLICYENGINE_CORE_VERSION = "3.26.11"
-POLICYENGINE_DATA_MANIFEST_US_VERSION = "1.700.0"
-POLICYENGINE_US_VERSION = "1.705.16"
-DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
+MIN_POLICYENGINE_US_VERSION = "1.723"
 
 CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
 CTC_TEST_PATH = Path("statutes/26/24.test.yaml")
@@ -537,7 +539,7 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=100,
         help=(
-            "Number of positive-weight ECPS tax units to compare; "
+            "Number of positive-weight Populace tax units to compare; "
             "0 compares all eligible tax units"
         ),
     )
@@ -548,14 +550,14 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         default=None,
         dest="tax_unit_ids",
         help=(
-            "Compare a specific ECPS tax_unit_id. Repeat to compare multiple "
+            "Compare a specific Populace tax_unit_id. Repeat to compare multiple "
             "known residual cases; when provided this bypasses --sample-size."
         ),
     )
     parser.add_argument(
         "--positive-ctc-only",
         action="store_true",
-        help="Restrict to ECPS tax units with positive PolicyEngine CTC",
+        help="Restrict to Populace tax units with positive PolicyEngine CTC",
     )
     parser.add_argument(
         "--surface",
@@ -567,7 +569,13 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
-        help="PolicyEngine dataset cache folder",
+        help="Deprecated; Populace uses the Hugging Face cache.",
+    )
+    parser.add_argument(
+        "--populace-year",
+        type=int,
+        default=DEFAULT_US_POPULACE_YEAR,
+        help="Published US Populace dataset year to load.",
     )
     parser.add_argument(
         "--tolerance",
@@ -598,9 +606,7 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         "--allow-uncertified-policyengine-data",
         action="store_true",
         help=(
-            "Allow policyengine.py ECPS data to load against an overridden "
-            "local policyengine-us version. Intended only with "
-            "--allow-policyengine-us-version for validating local oracle fixes."
+            "Deprecated; Populace validation no longer loads policyengine.py microdata."
         ),
     )
     parser.add_argument(
@@ -620,6 +626,7 @@ def main(args: argparse.Namespace) -> int:
         positive_ctc_only=args.positive_ctc_only,
         surface=args.surface,
         data_folder=args.data_folder,
+        populace_year=args.populace_year,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
         tax_unit_ids=tuple(args.tax_unit_ids or ()),
@@ -649,17 +656,13 @@ def compare_tax_ecps(
     positive_ctc_only: bool,
     surface: str,
     data_folder: Path,
+    populace_year: int,
     tolerance: float,
     relative_tolerance: float,
     tax_unit_ids: tuple[int, ...] = (),
     allow_policyengine_us_version: bool = False,
     allow_uncertified_policyengine_data: bool = False,
 ) -> TaxComparisonReport:
-    if allow_uncertified_policyengine_data and not allow_policyengine_us_version:
-        raise SystemExit(
-            "--allow-uncertified-policyengine-data requires "
-            "--allow-policyengine-us-version"
-        )
     require_numpy()
     require_policyengine_versions(
         allow_policyengine_us_version=allow_policyengine_us_version,
@@ -679,6 +682,7 @@ def compare_tax_ecps(
         positive_ctc_only=positive_ctc_only,
         tax_unit_ids=tax_unit_ids,
         data_folder=data_folder,
+        populace_year=populace_year,
         allow_uncertified_policyengine_data=allow_uncertified_policyengine_data,
         tax_unit_variables=tax_unit_variables,
         person_variables=person_variables,
@@ -767,56 +771,58 @@ def compare_tax_ecps(
     )
 
 
+def array(values: Any) -> np.ndarray:
+    require_numpy()
+    if hasattr(values, "to_numpy"):
+        return values.to_numpy()
+    if hasattr(values, "values"):
+        return np.asarray(values.values)
+    return np.asarray(values)
+
+
+def calculate(sim: Any, name: str, period: str | int) -> np.ndarray:
+    return array(sim.calculate(name, period=period))
+
+
 def load_policyengine_tax_data(
     *,
     year: int,
     sample_size: int,
     positive_ctc_only: bool,
     data_folder: Path,
+    populace_year: int,
     tax_unit_ids: tuple[int, ...] = (),
     allow_uncertified_policyengine_data: bool = False,
     tax_unit_variables: tuple[str, ...] = PE_TAX_UNIT_VARIABLES,
     person_variables: tuple[str, ...] = PE_PERSON_VARIABLES,
 ) -> dict[str, Any]:
-    if (
-        allow_uncertified_policyengine_data
-        or policyengine_data_certification_override_required()
-    ):
-        _install_policyengine_data_certification_override()
     try:
-        from policyengine.core import Simulation
-        from policyengine.tax_benefit_models.us import ensure_datasets, us_latest
+        from policyengine_us import Microsimulation
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_install_message()) from exc
 
-    log("Loading PolicyEngine ECPS...")
-    datasets = ensure_datasets(
-        datasets=[DATASET],
-        years=[year],
-        data_folder=str(data_folder),
+    _ = data_folder
+    _ = allow_uncertified_policyengine_data
+    log(f"Loading PolicyEngine Populace US {populace_year} dataset...")
+    dataset = load_populace_dataset(
+        "us",
+        year=populace_year,
+        command="tax-populace-compare",
     )
-    dataset = datasets[f"enhanced_cps_2024_{year}"]
-    sim = Simulation(
-        dataset=dataset,
-        tax_benefit_model_version=us_latest,
-        extra_variables={
-            "person": list(person_variables),
-            "tax_unit": list(tax_unit_variables),
-        },
-    )
+    sim = Microsimulation(dataset=dataset)
     log("Running PolicyEngine tax outputs...")
-    sim.run()
 
-    tax_units = sim.output_dataset.data.tax_unit
-    raw_tax_units = dataset.data.tax_unit
-    tax_unit_outputs = tax_units[["tax_unit_id", *tax_unit_variables]].copy()
-    raw_persons = dataset.data.person
-    person_outputs = sim.output_dataset.data.person[
-        ["person_id", *person_variables]
-    ].copy()
+    raw_tax_units = population_table(dataset, "tax_unit")
+    raw_persons = population_table(dataset, "person")
+    tax_unit_outputs = raw_tax_units[["tax_unit_id"]].copy()
+    for variable in tax_unit_variables:
+        tax_unit_outputs[variable] = calculate(sim, variable, year)
+    person_outputs = raw_persons[["person_id"]].copy()
+    for variable in person_variables:
+        person_outputs[variable] = calculate(sim, variable, year)
     indices = select_tax_unit_indices(
         raw_tax_units=raw_tax_units,
-        tax_units=tax_units,
+        tax_units=tax_unit_outputs,
         sample_size=sample_size,
         positive_ctc_only=positive_ctc_only,
         tax_unit_ids=tax_unit_ids,
@@ -859,8 +865,8 @@ def load_policyengine_tax_data(
 def remove_output_columns_already_in_raw(*, raw: Any, outputs: Any, key: str) -> Any:
     """Avoid pandas suffixing when dataset inputs already contain a PE variable.
 
-    Newer ECPS data releases can store source variables that the harness also
-    requests through `extra_variables`. Those columns are already present in the
+    Newer Populace data releases can store source variables that the harness
+    also requests from PolicyEngine. Those columns are already present in the
     raw table, so keep the raw copy and merge only genuinely new outputs.
     """
 
@@ -903,7 +909,7 @@ def select_tax_unit_indices(
     positive_ctc_only: bool,
     tax_unit_ids: tuple[int, ...] = (),
 ) -> Any:
-    """Select ECPS tax-unit row indices for oracle comparison."""
+    """Select Populace tax-unit row indices for oracle comparison."""
     mask = np.asarray(raw_tax_units["tax_unit_weight"]) > 0
     if positive_ctc_only:
         mask &= np.asarray(tax_units["ctc"]) > 0
@@ -929,56 +935,25 @@ def select_tax_unit_indices(
             selected.append(index)
     if missing:
         raise SystemExit(
-            "Requested ECPS tax_unit_id not found: "
+            "Requested Populace tax_unit_id not found: "
             + ", ".join(str(value) for value in missing)
         )
     if filtered:
         raise SystemExit(
-            "Requested ECPS tax_unit_id is not eligible for this comparison: "
+            "Requested Populace tax_unit_id is not eligible for this comparison: "
             + ", ".join(str(value) for value in filtered)
         )
     return np.asarray(selected, dtype=int)
 
 
 def _install_policyengine_data_certification_override() -> None:
-    """Allow ECPS oracle runs against a local policyengine-us fix branch.
-
-    policyengine.py 4.11.0 currently certifies the bundled ECPS data against
-    its manifest-pinned policyengine-us release. When validating a local
-    policyengine-us PR, the installed model version can intentionally differ
-    while the ECPS data is still the desired oracle input. This override is
-    also used when Axiom deliberately pins the oracle to a newer policyengine-us
-    release than policyengine.py's bundled manifest.
-    """
-    os.environ.setdefault("POLICYENGINE_SKIP_COUNTRY_IMPORTS", "1")
-    try:
-        import policyengine.provenance.manifest as manifest
-    except ImportError:  # pragma: no cover - optional runtime dependency
-        return
-
-    def _allow_local_oracle_data(
-        country_id: str,
-        runtime_model_version: str,
-        runtime_data_build_fingerprint: str | None = None,
-    ):
-        return manifest.DataCertification(
-            compatibility_basis="axiom_oracle_local_policyengine_us_override",
-            certified_for_model_version=runtime_model_version,
-            data_build_fingerprint=runtime_data_build_fingerprint,
-            certified_by="axiom-encode tax-ecps-compare",
-        )
-
-    manifest.certify_data_release_compatibility = _allow_local_oracle_data
-    try:
-        import policyengine.tax_benefit_models.common.model_version as model_version
-    except ImportError:  # pragma: no cover - optional runtime dependency
-        return
-    model_version.certify_data_release_compatibility = _allow_local_oracle_data
+    """Deprecated no-op kept for old tests/imports."""
+    return None
 
 
 def policyengine_data_certification_override_required() -> bool:
-    """Return whether the pinned PE-US oracle intentionally exceeds the manifest."""
-    return POLICYENGINE_US_VERSION != POLICYENGINE_DATA_MANIFEST_US_VERSION
+    """Return whether Populace validation needs a PE.py data override."""
+    return False
 
 
 def build_axiom_request(
@@ -1783,11 +1758,12 @@ def taxable_oasdi_wages_by_person_id(
 
 
 def project_fica_wages(person: Any) -> float:
-    """Project IRC 3121(a) FICA wages from ECPS leaf inputs.
+    """Project IRC 3121(a) FICA wages from Populace leaf inputs.
 
     PolicyEngine's payroll tax gross wages are the output being tested here, so
-    use them only as a compatibility fallback for hand-built unit fixtures. ECPS
-    rows should supply gross employment income plus Section 125 deduction leaves.
+    use them only as a compatibility fallback for hand-built unit fixtures.
+    Populace rows should supply gross employment income plus Section 125
+    deduction leaves.
     Traditional 401(k) and 403(b) deferrals reduce income-tax wages, but not
     FICA wages.
     """
@@ -2455,7 +2431,7 @@ def run_axiom_program(
             deduped_roots.append(raw)
     env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
     compile_program = _canonical_rulespec_compile_path(program, rulespec_root)
-    with tempfile.TemporaryDirectory(prefix="axiom-tax-ecps-") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="axiom-tax-populace-") as tmpdir:
         artifact = Path(tmpdir) / f"{program.stem}.json"
         compile_result = subprocess.run(
             [
@@ -2677,10 +2653,10 @@ def compare_outputs(
         mismatches=mismatches,
         output_summary=list(summary.values()),
         projection_notes=[
-            "Current CTC projection uses ECPS raw tax-unit membership, age, "
+            "Current CTC projection uses Populace raw tax-unit membership, age, "
             "student status, separation status, and SSN-card type to reconstruct "
             "the structural Section 152 facts needed by 26 USC 24.",
-            "Standard deduction projection uses ECPS raw ages, blindness, and "
+            "Standard deduction projection uses Populace raw ages, blindness, and "
             "tax-unit membership to reconstruct aged-or-blind counts under "
             "26 USC 63(f).",
             "AGI remains a boundary input until upstream AGI rules are encoded "
@@ -2689,24 +2665,24 @@ def compare_outputs(
             "filing-status rule.",
             "The standard deduction comparison currently treats dependency by "
             "another taxpayer and earned income as boundary-false/zero because "
-            "those upstream facts are not yet encoded from ECPS leaf inputs.",
+            "those upstream facts are not yet encoded from Populace leaf inputs.",
             "OASDI payroll projections run Axiom 3121(a)(1) before sections "
             "3101(a) and 3111(a), so taxable OASDI wages are no longer taken "
             "from PolicyEngine. The section 230 contribution-and-benefit base "
             "is resolved by running the encoded SSA automatic-determination "
             "RuleSpec before section 3121(a)(1).",
-            "Payroll projections derive FICA wages from ECPS employment-income "
+            "Payroll projections derive FICA wages from Populace employment-income "
             "and Section 125 health/HSA payroll-deduction leaves instead of "
             "feeding Axiom from PolicyEngine payroll_tax_gross_wages. "
             "Traditional 401(k) and 403(b) elective deferrals are deliberately "
             "not subtracted from the FICA wage base.",
             "Capital-gain-definition projections compare Section 1(h) net and "
-            "adjusted net capital gain from ECPS raw capital-gain, dividend, "
+            "adjusted net capital gain from Populace raw capital-gain, dividend, "
             "investment-income-election, and unrecaptured-section-1250 fields. "
             "The full capital-gains-tax surface waits on encoded upstream "
             "taxable income rather than using PolicyEngine taxable income as "
             "an Axiom input.",
-            "EITC projections supply ECPS wage and self-employment leaf facts "
+            "EITC projections supply Populace wage and self-employment leaf facts "
             "including farm operations and partnership self-employment income "
             "to Sections 32(c)(2) and 1402(a); Section 32 earned income is "
             "computed by Axiom and compared as an output rather than passed in "
@@ -2717,7 +2693,7 @@ def compare_outputs(
             "the available nonrefundable-credit limit remain explicit upstream "
             "boundary inputs until those federal tax chains are encoded "
             "end-to-end.",
-            "AOTC projections run encoded 26 USC 25A math from ECPS tuition, "
+            "AOTC projections run encoded 26 USC 25A math from Populace tuition, "
             "educational-assistance, enrollment, credential, institution, "
             "prior-claim, and SSN-card facts. Income tax before credits, CDCC, "
             "and foreign tax credit remain explicit upstream boundary inputs "
@@ -2735,7 +2711,7 @@ def compare_outputs(
 def print_report(
     report: TaxComparisonReport, *, tolerance: float, relative_tolerance: float
 ) -> None:
-    print("PolicyEngine tax ECPS comparison")
+    print("PolicyEngine tax Populace comparison")
     print(f"Compared tax units: {report.compared_tax_units:,}")
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared values: {report.compared_values:,}")
@@ -2963,38 +2939,38 @@ def require_policyengine_versions(
     *, allow_policyengine_us_version: bool = False
 ) -> None:
     try:
-        policyengine_version = version("policyengine")
-        policyengine_core_version = version("policyengine-core")
         policyengine_us_version = version("policyengine-us")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_install_message()) from exc
-    if policyengine_version != POLICYENGINE_VERSION:
+    if not allow_policyengine_us_version and _version_tuple(
+        policyengine_us_version
+    ) < _version_tuple(MIN_POLICYENGINE_US_VERSION):
         raise SystemExit(
-            f"policyengine=={POLICYENGINE_VERSION} required; found "
-            f"{policyengine_version}. {policyengine_install_message()}"
-        )
-    if policyengine_core_version != POLICYENGINE_CORE_VERSION:
-        raise SystemExit(
-            f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
-            f"{policyengine_core_version}. {policyengine_install_message()}"
-        )
-    if (
-        policyengine_us_version != POLICYENGINE_US_VERSION
-        and not allow_policyengine_us_version
-    ):
-        raise SystemExit(
-            f"policyengine-us=={POLICYENGINE_US_VERSION} required; found "
+            f"policyengine-us>={MIN_POLICYENGINE_US_VERSION} required; found "
             f"{policyengine_us_version}. {policyengine_install_message()}"
         )
 
 
 def policyengine_install_message() -> str:
     return (
-        f"Run with: uv run --with policyengine=={POLICYENGINE_VERSION} "
-        f"--with policyengine-core=={POLICYENGINE_CORE_VERSION} "
-        f"--with policyengine-us=={POLICYENGINE_US_VERSION} "
-        "axiom-encode tax-ecps-compare"
+        "Run with: uv run --with numpy "
+        f"--with {populace_data_requirement('us')} "
+        "axiom-encode tax-populace-compare"
     )
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for raw_part in value.split("."):
+        digits = ""
+        for char in raw_part:
+            if not char.isdigit():
+                break
+            digits += char
+        if digits == "":
+            break
+        parts.append(int(digits))
+    return tuple(parts)
 
 
 def log(message: str) -> None:
