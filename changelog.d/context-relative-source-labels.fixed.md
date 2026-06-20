@@ -1,0 +1,1 @@
+Allow out-of-scope source validation to resolve compact sibling labels like `(B)(i)` and `(C)` relative to a requested source subtree such as `42 USC 1382a(b)(4)`, while still rejecting true sibling multicites outside the requested subtree.
