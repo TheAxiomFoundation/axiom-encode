@@ -2393,7 +2393,7 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert colorado_ssp_mapping.policyengine_variable == "co_state_supplement"
     assert colorado_ssp_mapping.result_multiplier == pytest.approx(1 / 12)
     colorado_ssp_grant_standard_mapping = registry.mapping_for_legal_id(
-        "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_monthly_grant_standard",
+        "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_grant_standard",
         country="us",
     )
     assert colorado_ssp_grant_standard_mapping.mapping_type == "parameter_value"
