@@ -116,34 +116,34 @@ from .oracles.policyengine.coverage import (
     build_policyengine_coverage_report,
 )
 from .oracles.policyengine.ecps_snap import (
-    configure_parser as configure_snap_ecps_compare_parser,
+    configure_parser as configure_snap_populace_compare_parser,
 )
 from .oracles.policyengine.ecps_snap import (
-    main as run_snap_ecps_compare,
+    main as run_snap_populace_compare,
 )
 from .oracles.policyengine.ecps_tax import (
-    configure_parser as configure_tax_ecps_compare_parser,
+    configure_parser as configure_tax_populace_compare_parser,
 )
 from .oracles.policyengine.ecps_tax import (
-    main as run_tax_ecps_compare,
+    main as run_tax_populace_compare,
 )
 from .oracles.policyengine.efrs_uk import (
-    configure_coverage_parser as configure_uk_efrs_coverage_parser,
+    configure_coverage_parser as configure_uk_populace_coverage_parser,
 )
 from .oracles.policyengine.efrs_uk import (
-    configure_hbai_coverage_parser as configure_uk_efrs_hbai_coverage_parser,
+    configure_hbai_coverage_parser as configure_uk_populace_hbai_coverage_parser,
 )
 from .oracles.policyengine.efrs_uk import (
-    configure_parser as configure_uk_efrs_compare_parser,
+    configure_parser as configure_uk_populace_compare_parser,
 )
 from .oracles.policyengine.efrs_uk import (
-    main as run_uk_efrs_compare,
+    main as run_uk_populace_compare,
 )
 from .oracles.policyengine.efrs_uk import (
-    main_coverage as run_uk_efrs_coverage,
+    main_coverage as run_uk_populace_coverage,
 )
 from .oracles.policyengine.efrs_uk import (
-    main_hbai_coverage as run_uk_efrs_hbai_coverage,
+    main_hbai_coverage as run_uk_populace_hbai_coverage,
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
@@ -779,39 +779,69 @@ def main():
         "--json", action="store_true", help="Output as JSON"
     )
 
+    snap_populace_compare_parser = subparsers.add_parser(
+        "snap-populace-compare",
+        help="Compare SNAP RuleSpec output against PolicyEngine over Populace",
+    )
+    configure_snap_populace_compare_parser(snap_populace_compare_parser)
+
+    tax_populace_compare_parser = subparsers.add_parser(
+        "tax-populace-compare",
+        help="Compare federal tax RuleSpec output against PolicyEngine over Populace",
+    )
+    configure_tax_populace_compare_parser(tax_populace_compare_parser)
+
+    uk_populace_compare_parser = subparsers.add_parser(
+        "uk-populace-compare",
+        help="Compare UK RuleSpec output against PolicyEngine over Populace",
+    )
+    configure_uk_populace_compare_parser(uk_populace_compare_parser)
+
+    uk_populace_coverage_parser = subparsers.add_parser(
+        "uk-populace-coverage",
+        help="Report PE-UK Populace computed-variable coverage and backlog",
+    )
+    configure_uk_populace_coverage_parser(uk_populace_coverage_parser)
+
+    uk_populace_hbai_coverage_parser = subparsers.add_parser(
+        "uk-populace-hbai-coverage",
+        help="Report HBAI net-income policy-component coverage",
+    )
+    configure_uk_populace_hbai_coverage_parser(uk_populace_hbai_coverage_parser)
+
     snap_ecps_compare_parser = subparsers.add_parser(
         "snap-ecps-compare",
-        help="Compare SNAP RuleSpec output against PolicyEngine ECPS",
+        help=argparse.SUPPRESS,
     )
-    configure_snap_ecps_compare_parser(snap_ecps_compare_parser)
+    configure_snap_populace_compare_parser(snap_ecps_compare_parser)
 
     tax_ecps_compare_parser = subparsers.add_parser(
         "tax-ecps-compare",
-        help="Compare federal tax RuleSpec output against PolicyEngine ECPS",
+        help=argparse.SUPPRESS,
     )
-    configure_tax_ecps_compare_parser(tax_ecps_compare_parser)
+    configure_tax_populace_compare_parser(tax_ecps_compare_parser)
 
     uk_efrs_compare_parser = subparsers.add_parser(
         "uk-efrs-compare",
-        help="Compare UK RuleSpec output against PolicyEngine Enhanced FRS",
+        help=argparse.SUPPRESS,
     )
-    configure_uk_efrs_compare_parser(uk_efrs_compare_parser)
+    configure_uk_populace_compare_parser(uk_efrs_compare_parser)
 
     uk_efrs_coverage_parser = subparsers.add_parser(
         "uk-efrs-coverage",
-        help="Report PE-UK EFRS computed-variable coverage and backlog",
+        help=argparse.SUPPRESS,
     )
-    configure_uk_efrs_coverage_parser(uk_efrs_coverage_parser)
+    configure_uk_populace_coverage_parser(uk_efrs_coverage_parser)
 
     uk_efrs_hbai_coverage_parser = subparsers.add_parser(
         "uk-efrs-hbai-coverage",
-        help="Report HBAI net-income policy-component coverage",
+        help=argparse.SUPPRESS,
     )
-    configure_uk_efrs_hbai_coverage_parser(uk_efrs_hbai_coverage_parser)
+    configure_uk_populace_hbai_coverage_parser(uk_efrs_hbai_coverage_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
-        help="Report SNAP corpus, RuleSpec, and ECPS oracle readiness by state repo",
+        help="Report SNAP corpus, RuleSpec, and Populace oracle readiness by state repo",
     )
     snap_readiness_parser.add_argument(
         "--root",
@@ -2148,16 +2178,19 @@ def main():
         cmd_oracle_candidates(args)
     elif args.command == "classify":
         cmd_classify(args)
-    elif args.command == "snap-ecps-compare":
-        sys.exit(run_snap_ecps_compare(args))
-    elif args.command == "tax-ecps-compare":
-        sys.exit(run_tax_ecps_compare(args))
-    elif args.command == "uk-efrs-compare":
-        sys.exit(run_uk_efrs_compare(args))
-    elif args.command == "uk-efrs-coverage":
-        sys.exit(run_uk_efrs_coverage(args))
-    elif args.command == "uk-efrs-hbai-coverage":
-        sys.exit(run_uk_efrs_hbai_coverage(args))
+    elif args.command in {"snap-populace-compare", "snap-ecps-compare"}:
+        sys.exit(run_snap_populace_compare(args))
+    elif args.command in {"tax-populace-compare", "tax-ecps-compare"}:
+        sys.exit(run_tax_populace_compare(args))
+    elif args.command in {"uk-populace-compare", "uk-efrs-compare"}:
+        sys.exit(run_uk_populace_compare(args))
+    elif args.command in {"uk-populace-coverage", "uk-efrs-coverage"}:
+        sys.exit(run_uk_populace_coverage(args))
+    elif args.command in {
+        "uk-populace-hbai-coverage",
+        "uk-efrs-hbai-coverage",
+    }:
+        sys.exit(run_uk_populace_hbai_coverage(args))
     elif args.command == "snap-readiness":
         cmd_snap_readiness(args)
     elif args.command == "calibration":
@@ -3787,7 +3820,7 @@ def cmd_classify(args):
 
 
 def cmd_snap_readiness(args):
-    """Report SNAP corpus, RuleSpec, and ECPS oracle readiness."""
+    """Report SNAP corpus, RuleSpec, and Populace oracle readiness."""
     root = (args.root or _default_rulespec_inventory_root()).resolve()
     corpus_root = (
         args.corpus_root.resolve() if args.corpus_root else root / "axiom-corpus"
@@ -3815,7 +3848,7 @@ def cmd_snap_readiness(args):
             f"files={item['rulespec_files']} "
             f"outputs={item['executable_outputs']} "
             f"tests={item['companion_test_files']} "
-            f"ecps_config={str(item['policyengine_ecps_configured']).lower()} "
+            f"populace_config={str(item['policyengine_populace_configured']).lower()} "
             f"program_module={str(item['program_module_exists']).lower()}"
             f"{blocker_suffix}"
         )

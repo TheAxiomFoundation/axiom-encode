@@ -23363,9 +23363,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using CPS microdata.
+        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
 
-        Runs PE Microsimulation on ECPS, extracts the target
+        Runs PE Microsimulation on Populace, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 

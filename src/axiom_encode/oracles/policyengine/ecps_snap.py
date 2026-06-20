@@ -1,10 +1,10 @@
-"""Compare SNAP RuleSpec output against PolicyEngine ECPS.
+"""Compare SNAP RuleSpec output against PolicyEngine over Populace.
 
-The comparator projects PolicyEngine ECPS (enhanced CPS) SPM-unit records into a
+The comparator projects PolicyEngine Populace SPM-unit records into a
 jurisdiction's SNAP composition input surface, including related member facts,
 runs the Axiom rules engine over the projected records, and compares regular monthly SNAP
 allotments against PolicyEngine's normal allotment. It uses these targets
-because ECPS records do not include application dates for initial-month
+because population records do not include application dates for initial-month
 proration, and PolicyEngine's top-level ``snap`` microsimulation value includes
 take-up adjustments.
 
@@ -32,6 +32,11 @@ from typing import Any
 import yaml
 
 from axiom_encode.oracles import snapscreener
+from axiom_encode.oracles.policyengine.population import (
+    DEFAULT_US_POPULACE_YEAR,
+    load_populace_dataset,
+    populace_data_requirement,
+)
 
 try:
     import numpy as np
@@ -112,7 +117,7 @@ JURISDICTION_CONFIGS = {
         ),
         relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
         member_entity_type="Person",
-        temp_prefix="co-snap-pe-ecps-",
+        temp_prefix="co-snap-pe-populace-",
         display_name="Colorado SNAP",
     ),
     "us-ca": JurisdictionConfig(
@@ -161,7 +166,7 @@ JURISDICTION_CONFIGS = {
             "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household"
         ),
         member_entity_type="Person",
-        temp_prefix="ca-snap-pe-ecps-",
+        temp_prefix="ca-snap-pe-populace-",
         display_name="California SNAP",
         additional_relation_ids=(AXIOM_RELATION_ID_BY_LABEL["member_of_household"],),
     ),
@@ -202,7 +207,7 @@ JURISDICTION_CONFIGS = {
         utility_allowance_labels=(),
         relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
         member_entity_type="Person",
-        temp_prefix="az-snap-pe-ecps-",
+        temp_prefix="az-snap-pe-populace-",
         display_name="Arizona SNAP",
     ),
     "us-ny": JurisdictionConfig(
@@ -279,7 +284,7 @@ JURISDICTION_CONFIGS = {
             "#relation.member_of_household"
         ),
         member_entity_type="Person",
-        temp_prefix="ny-snap-pe-ecps-",
+        temp_prefix="ny-snap-pe-populace-",
         display_name="New York SNAP",
         additional_relation_ids=(
             AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
@@ -579,13 +584,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         "--sample-size",
         type=int,
         default=None,
-        help="Limit after state filtering. Omit to run all matching ECPS SPM units.",
+        help=(
+            "Limit after state filtering. Omit to run all matching Populace SPM units."
+        ),
     )
     parser.add_argument(
         "--positive-snap-only",
         action="store_true",
         help=(
-            "Only compare ECPS SPM units where PolicyEngine normal allotment "
+            "Only compare Populace SPM units where PolicyEngine normal allotment "
             "is positive."
         ),
     )
@@ -594,11 +601,17 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         choices=("raw-expenses", "policyengine-type"),
         default="raw-expenses",
         help=(
-            "How to project ECPS utility facts. raw-expenses uses itemized "
-            "utility expenses from ECPS. policyengine-type maps "
+            "How to project Populace utility facts. raw-expenses uses itemized "
+            "utility expenses from Populace. policyengine-type maps "
             "PolicyEngine's utility-allowance type into jurisdiction utility "
             "facts for oracle parity."
         ),
+    )
+    parser.add_argument(
+        "--populace-year",
+        type=int,
+        default=DEFAULT_US_POPULACE_YEAR,
+        help="Published US Populace dataset year to load.",
     )
     parser.add_argument(
         "--tolerance",
@@ -998,13 +1011,14 @@ def require_numpy() -> None:
     if np is None:
         raise SystemExit(
             "numpy is required. Run with: "
-            "uv run --with numpy --with policyengine-us axiom-encode "
-            "snap-ecps-compare"
+            "uv run --with numpy --with "
+            f"{populace_data_requirement('us')} axiom-encode "
+            "snap-populace-compare"
         )
 
 
 def calculate(sim: Any, name: str, period: str | int) -> np.ndarray:
-    return array(sim.calculate(name, period))
+    return array(sim.calculate(name, period=period))
 
 
 def calculate_or_default(
@@ -1090,18 +1104,24 @@ def load_policyengine_cases(
     sample_size: int | None,
     positive_snap_only: bool,
     utility_projection: str,
+    populace_year: int,
 ) -> list[ProjectedCase]:
     try:
         from policyengine_us import Microsimulation
     except ImportError as exc:
         raise SystemExit(
             "policyengine-us is required. Run with: "
-            "uv run --with policyengine-us --with numpy axiom-encode "
-            "snap-ecps-compare"
+            f"uv run --with {populace_data_requirement('us')} --with numpy axiom-encode "
+            "snap-populace-compare"
         ) from exc
 
-    print("Loading PolicyEngine ECPS...")
-    sim = Microsimulation()
+    print(f"Loading PolicyEngine Populace US {populace_year} dataset...")
+    dataset = load_populace_dataset(
+        "us",
+        year=populace_year,
+        command="snap-populace-compare",
+    )
+    sim = Microsimulation(dataset=dataset)
 
     period_label = period.label
     year = period.year
@@ -1129,10 +1149,10 @@ def load_policyengine_cases(
     if sample_size is not None:
         indices = indices[:sample_size]
 
-    print(f"Projecting {len(indices):,} {state} ECPS SPM units...")
+    print(f"Projecting {len(indices):,} {state} Populace SPM units...")
     if skipped_empty_units:
         print(
-            f"Skipped {skipped_empty_units:,} {state} ECPS SPM units "
+            f"Skipped {skipped_empty_units:,} {state} Populace SPM units "
             "with SNAP unit size < 1."
         )
 
@@ -1799,7 +1819,7 @@ def print_summary(
     diffs = sorted(rows, key=lambda row: row["absolute_difference"], reverse=True)
     mean_abs = sum(row["absolute_difference"] for row in rows) / total if total else 0.0
     print()
-    print(f"Compared {total:,} PolicyEngine ECPS SPM units")
+    print(f"Compared {total:,} PolicyEngine Populace SPM units")
     print(f"Tolerance: ${tolerance:,.2f}")
     print(
         f"Matches: {matches:,}/{total:,} ({matches / total:.1%})"
@@ -1929,16 +1949,17 @@ def main(args: argparse.Namespace | None = None) -> int:
         sample_size=args.sample_size,
         positive_snap_only=args.positive_snap_only,
         utility_projection=args.utility_projection,
+        populace_year=args.populace_year,
     )
     if not cases:
-        print("No matching ECPS SPM units.")
+        print("No matching Populace SPM units.")
         return 1
 
     with tempfile.TemporaryDirectory(prefix=config.temp_prefix) as temp_dir:
         artifact = Path(temp_dir) / "program.compiled.json"
         print(f"Compiling {config.display_name} RuleSpec composition...")
         compile_program(axiom_binary, program, artifact, env=env)
-        print("Running the Axiom rules engine over projected ECPS records...")
+        print("Running the Axiom rules engine over projected Populace records...")
         results = run_axiom_cases(
             binary=axiom_binary,
             artifact=artifact,

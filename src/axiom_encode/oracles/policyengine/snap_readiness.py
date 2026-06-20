@@ -30,7 +30,7 @@ class SnapReadinessItem:
     companion_test_files: int
     executable_outputs: int
     corpus_snap_provisions: int
-    policyengine_ecps_configured: bool
+    policyengine_populace_configured: bool
     program_module: str | None
     program_module_exists: bool
     status: str
@@ -45,7 +45,7 @@ class SnapReadinessItem:
             "companion_test_files": self.companion_test_files,
             "executable_outputs": self.executable_outputs,
             "corpus_snap_provisions": self.corpus_snap_provisions,
-            "policyengine_ecps_configured": self.policyengine_ecps_configured,
+            "policyengine_populace_configured": self.policyengine_populace_configured,
             "program_module": self.program_module,
             "program_module_exists": self.program_module_exists,
             "status": self.status,
@@ -106,17 +106,18 @@ def build_snap_readiness_item(
         corpus_root,
         jurisdiction=jurisdiction,
     )
-    ecps_config = JURISDICTION_CONFIGS.get(jurisdiction)
+    populace_config = JURISDICTION_CONFIGS.get(jurisdiction)
     program_module = (
-        ecps_config.program_relative_path.as_posix() if ecps_config else None
+        populace_config.program_relative_path.as_posix() if populace_config else None
     )
     program_module_exists = (
-        bool(ecps_config) and (repo / ecps_config.program_relative_path).exists()
+        bool(populace_config)
+        and (repo / populace_config.program_relative_path).exists()
     )
     status, blockers = _classify_status(
         rulespec_files=rulespec_files,
         corpus_snap_provisions=corpus_snap_provisions,
-        ecps_configured=ecps_config is not None,
+        populace_configured=populace_config is not None,
         program_module_exists=program_module_exists,
     )
     return SnapReadinessItem(
@@ -127,7 +128,7 @@ def build_snap_readiness_item(
         companion_test_files=companion_test_files,
         executable_outputs=executable_outputs,
         corpus_snap_provisions=corpus_snap_provisions,
-        policyengine_ecps_configured=ecps_config is not None,
+        policyengine_populace_configured=populace_config is not None,
         program_module=program_module,
         program_module_exists=program_module_exists,
         status=status,
@@ -271,7 +272,7 @@ def _classify_status(
     *,
     rulespec_files: int,
     corpus_snap_provisions: int,
-    ecps_configured: bool,
+    populace_configured: bool,
     program_module_exists: bool,
 ) -> tuple[str, list[str]]:
     blockers: list[str] = []
@@ -283,10 +284,10 @@ def _classify_status(
         return "needs_corpus", blockers
     if corpus_snap_provisions == 0:
         return "rules_without_corpus", blockers
-    if not ecps_configured:
-        blockers.append("missing PolicyEngine ECPS jurisdiction config")
-        return "needs_ecps_config", blockers
+    if not populace_configured:
+        blockers.append("missing PolicyEngine Populace jurisdiction config")
+        return "needs_populace_config", blockers
     if not program_module_exists:
         blockers.append("missing configured SNAP program module")
         return "missing_program_module", blockers
-    return "ecps_ready", blockers
+    return "populace_ready", blockers

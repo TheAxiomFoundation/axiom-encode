@@ -160,18 +160,19 @@ appends a record to `artifacts/eval-suites/index.jsonl`.
 
 ## PolicyEngine population oracles
 
-Use `snap-ecps-compare` to compare a SNAP composition module against
-PolicyEngine ECPS (enhanced CPS) records:
+Use `snap-populace-compare` to compare a SNAP composition module against
+PolicyEngine over Populace records:
 
 ```bash
-uv run --with policyengine-us --with numpy \
-  axiom-encode snap-ecps-compare \
+uv run --with "$HOME/PolicyEngine/populace/packages/populace-data[us]" \
+  --with numpy \
+  axiom-encode snap-populace-compare \
   --jurisdiction us-ny \
   --utility-projection policyengine-type \
   --positive-snap-only
 ```
 
-The command runs `axiom-rules-engine` once over projected ECPS records and
+The command runs `axiom-rules-engine` once over projected Populace records and
 compares `us:statutes/7/2017/a#snap_regular_month_allotment` to PolicyEngine
 `snap_normal_allotment`. Use `--jurisdiction us-co` or `--jurisdiction us-ny`;
 add `--fail-on-mismatch` in CI when exact parity is expected, or

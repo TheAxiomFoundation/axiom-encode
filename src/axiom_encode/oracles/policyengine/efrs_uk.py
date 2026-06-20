@@ -1,7 +1,7 @@
-"""Compare UK RuleSpec output against PolicyEngine Enhanced FRS.
+"""Compare UK RuleSpec output against PolicyEngine over Populace.
 
-The UK counterpart to the ECPS tax comparators covers mapped surfaces whose
-RuleSpec inputs can be projected from PolicyEngine's Enhanced FRS, plus scalar
+The UK counterpart to the US Populace comparators covers mapped surfaces whose
+RuleSpec inputs can be projected from PolicyEngine over Populace, plus scalar
 parameter surfaces whose generated RuleSpec values can be compared against
 PolicyEngine component outputs.
 """
@@ -22,7 +22,7 @@ from typing import Any, Callable
 import yaml
 
 from .ecps_tax import (
-    POLICYENGINE_CORE_VERSION,
+    _version_tuple,
     input_record,
     money,
     output_number,
@@ -30,11 +30,18 @@ from .ecps_tax import (
     run_axiom_program,
     within_tolerance,
 )
+from .population import (
+    DEFAULT_UK_POPULACE_YEAR,
+    load_populace_dataset,
+    local_dataset_path,
+    populace_data_requirement,
+    population_table,
+)
 
-DEFAULT_DATASET = "enhanced_frs_2023_24"
+DEFAULT_DATASET = ""
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.56"
+MIN_POLICYENGINE_UK_VERSION = "2.88"
 CATEGORY_THRESHOLD_WEEKLY_TOLERANCE = 1.0
 
 NATIONAL_INSURANCE_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/1992/4/1.yaml")
@@ -1495,7 +1502,7 @@ HBAI_COMPONENT_COVERAGE = {
         "status": "partial",
         "surfaces": ("student-loan-repayment",),
         "covered_outputs": ("student_loan_repayment",),
-        "rationale": "Axiom covers PolicyEngine UK's modelled student_loan_repayment formula by plan-specific threshold and repayment rate. The HBAI student_loan_repayments component remains partial because local EFRS supplies it as reported input data even when student_loan_plan is NONE, overriding PolicyEngine UK's wrapper formula.",
+        "rationale": "Axiom covers PolicyEngine UK's modelled student_loan_repayment formula by plan-specific threshold and repayment rate. The HBAI student_loan_repayments component remains partial because the validation population can supply it as reported input data even when student_loan_plan is NONE, overriding PolicyEngine UK's wrapper formula.",
     },
     "working_tax_credit": {
         "status": "partial",
@@ -1954,7 +1961,7 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=100,
         help=(
-            "Number of positive-weight EFRS people to compare; "
+            "Number of positive-weight Populace people to compare; "
             "0 compares all eligible people"
         ),
     )
@@ -1965,7 +1972,7 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         default=None,
         dest="person_ids",
         help=(
-            "Compare a specific EFRS person_id. Repeat to compare multiple "
+            "Compare a specific Populace person_id. Repeat to compare multiple "
             "known residual cases; when provided this bypasses --sample-size."
         ),
     )
@@ -1973,22 +1980,27 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         "--surface",
         choices=["all", *SURFACE_SPECS],
         default="all",
-        help="UK EFRS surface to compare; defaults to all implemented surfaces",
+        help="UK Populace surface to compare; defaults to all implemented surfaces",
     )
     parser.add_argument(
         "--dataset",
         default=DEFAULT_DATASET,
         help=(
-            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
-            "path. Defaults to enhanced_frs_2023_24 and prefers local managed "
-            "mirrors when available."
+            "Deprecated local .h5 override for debugging. Omit to load the "
+            "published Populace UK dataset."
         ),
     )
     parser.add_argument(
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
-        help="PolicyEngine dataset cache folder",
+        help="Deprecated; Populace uses the Hugging Face cache.",
+    )
+    parser.add_argument(
+        "--populace-year",
+        type=int,
+        default=DEFAULT_UK_POPULACE_YEAR,
+        help="Published UK Populace dataset year to load.",
     )
     parser.add_argument(
         "--universal-credit-program",
@@ -2033,6 +2045,7 @@ def main(args: argparse.Namespace) -> int:
         surface=args.surface,
         dataset=args.dataset,
         data_folder=args.data_folder,
+        populace_year=args.populace_year,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
         universal_credit_program=getattr(args, "universal_credit_program", None),
@@ -2071,15 +2084,21 @@ def configure_coverage_parser(parser: argparse.ArgumentParser) -> None:
         "--dataset",
         default=DEFAULT_DATASET,
         help=(
-            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
-            "path for --with-efrs-activity"
+            "Deprecated local .h5 override for --with-populace-activity. "
+            "Omit to load the published Populace UK dataset."
         ),
     )
     parser.add_argument(
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
-        help="PolicyEngine dataset cache folder",
+        help="Deprecated; Populace uses the Hugging Face cache.",
+    )
+    parser.add_argument(
+        "--populace-year",
+        type=int,
+        default=DEFAULT_UK_POPULACE_YEAR,
+        help="Published UK Populace dataset year to load.",
     )
     parser.add_argument(
         "--top",
@@ -2088,10 +2107,12 @@ def configure_coverage_parser(parser: argparse.ArgumentParser) -> None:
         help="Maximum missing variables to print in text mode",
     )
     parser.add_argument(
+        "--with-populace-activity",
         "--with-efrs-activity",
         action="store_true",
+        dest="with_populace_activity",
         help=(
-            "Run PolicyEngine over EFRS for missing variables and rank by "
+            "Run PolicyEngine over Populace for missing variables and rank by "
             "observed activity"
         ),
     )
@@ -2104,15 +2125,21 @@ def configure_hbai_coverage_parser(parser: argparse.ArgumentParser) -> None:
         "--dataset",
         default=DEFAULT_DATASET,
         help=(
-            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
-            "path for --with-efrs-activity"
+            "Deprecated local .h5 override for --with-populace-activity. "
+            "Omit to load the published Populace UK dataset."
         ),
     )
     parser.add_argument(
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
-        help="PolicyEngine dataset cache folder",
+        help="Deprecated; Populace uses the Hugging Face cache.",
+    )
+    parser.add_argument(
+        "--populace-year",
+        type=int,
+        default=DEFAULT_UK_POPULACE_YEAR,
+        help="Published UK Populace dataset year to load.",
     )
     parser.add_argument(
         "--source-root",
@@ -2130,10 +2157,12 @@ def configure_hbai_coverage_parser(parser: argparse.ArgumentParser) -> None:
         help="Maximum components to print in text mode",
     )
     parser.add_argument(
+        "--with-populace-activity",
         "--with-efrs-activity",
         action="store_true",
+        dest="with_populace_activity",
         help=(
-            "Run PolicyEngine over EFRS and add weighted household-level "
+            "Run PolicyEngine over Populace and add weighted household-level "
             "activity for each HBAI component"
         ),
     )
@@ -2147,7 +2176,8 @@ def main_coverage(args: argparse.Namespace) -> int:
         data_folder=args.data_folder,
         domain_filter=args.domain,
         entity_filter=args.entity,
-        include_efrs_activity=args.with_efrs_activity,
+        populace_year=args.populace_year,
+        include_efrs_activity=args.with_populace_activity,
     )
     if args.json:
         print(json.dumps(report.to_json(), indent=2, sort_keys=True))
@@ -2161,7 +2191,8 @@ def main_hbai_coverage(args: argparse.Namespace) -> int:
         year=args.year,
         dataset=args.dataset,
         data_folder=args.data_folder,
-        include_efrs_activity=args.with_efrs_activity,
+        populace_year=args.populace_year,
+        include_efrs_activity=args.with_populace_activity,
         source_root=args.source_root,
     )
     if args.json:
@@ -2181,6 +2212,7 @@ def compare_uk_efrs(
     surface: str,
     dataset: str,
     data_folder: Path,
+    populace_year: int,
     tolerance: float,
     relative_tolerance: float,
     universal_credit_program: Path | None = None,
@@ -2196,6 +2228,7 @@ def compare_uk_efrs(
         sample_size=sample_size,
         dataset=dataset,
         data_folder=data_folder,
+        populace_year=populace_year,
         person_ids=person_ids,
         person_variables=policyengine_person_variables_for_surfaces(surfaces),
         benunit_variables=policyengine_benunit_variables_for_surfaces(surfaces),
@@ -2353,13 +2386,15 @@ def load_policyengine_uk_data(
     sample_size: int,
     dataset: str,
     data_folder: Path,
+    populace_year: int,
     person_ids: tuple[int, ...] = (),
     person_variables: tuple[str, ...] = SURFACE_SPECS[
         "personal-allowance"
     ].pe_variables,
     benunit_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    _ = data_folder
+    local_dataset = local_dataset_path(dataset)
     if local_dataset is not None:
         return load_local_policyengine_uk_data(
             local_path=local_dataset,
@@ -2370,9 +2405,20 @@ def load_policyengine_uk_data(
             benunit_variables=benunit_variables,
         )
 
-    raise SystemExit(
-        "uk-efrs-compare with current PolicyEngine UK requires a local .h5 "
-        f"--dataset path. {policyengine_uk_install_message()}"
+    require_policyengine_uk_versions(command="uk-populace-compare")
+    pe_dataset = load_populace_dataset(
+        "uk",
+        year=populace_year,
+        command="uk-populace-compare",
+    )
+    log(f"Loading PolicyEngine Populace UK {populace_year} dataset...")
+    return load_policyengine_uk_dataset(
+        pe_dataset=pe_dataset,
+        year=year,
+        sample_size=sample_size,
+        person_ids=person_ids,
+        person_variables=person_variables,
+        benunit_variables=benunit_variables,
     )
 
 
@@ -2387,14 +2433,36 @@ def load_local_policyengine_uk_data(
 ) -> dict[str, Any]:
     require_policyengine_uk_versions()
     try:
-        import pandas as pd
-        from policyengine_uk import Microsimulation
         from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message()) from exc
 
-    log("Loading local PolicyEngine UK EFRS...")
+    log("Loading local PolicyEngine UK dataset...")
     pe_dataset = UKSingleYearDataset(file_path=str(local_path))
+    return load_policyengine_uk_dataset(
+        pe_dataset=pe_dataset,
+        year=year,
+        sample_size=sample_size,
+        person_ids=person_ids,
+        person_variables=person_variables,
+        benunit_variables=benunit_variables,
+    )
+
+
+def load_policyengine_uk_dataset(
+    *,
+    pe_dataset: Any,
+    year: int,
+    sample_size: int,
+    person_ids: tuple[int, ...],
+    person_variables: tuple[str, ...],
+    benunit_variables: tuple[str, ...],
+) -> dict[str, Any]:
+    try:
+        from policyengine_uk import Microsimulation
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
     added_disability_categories = (
         add_policyengine_uk_disability_categories_from_reported_amounts(
             pe_dataset,
@@ -2403,16 +2471,15 @@ def load_local_policyengine_uk_data(
     )
     if added_disability_categories:
         log(
-            "Derived local EFRS disability category inputs from reported amounts: "
+            "Derived UK disability category inputs from reported amounts: "
             + ", ".join(added_disability_categories)
         )
     sim = Microsimulation(dataset=pe_dataset)
     data_year = min(sim.dataset.years)
 
-    with pd.HDFStore(local_path, mode="r") as store:
-        raw_person = store["person"].copy()
-        raw_benunit = store["benunit"].copy()
-        household = store["household"].copy()
+    raw_person = population_table(pe_dataset, "person")
+    raw_benunit = population_table(pe_dataset, "benunit")
+    household = population_table(pe_dataset, "household")
 
     person = add_policyengine_uk_person_weights(raw_person, household)
     person_columns = ["person_id", "person_weight"]
@@ -2842,6 +2909,7 @@ def build_uk_efrs_coverage_report(
     year: int = 2026,
     dataset: str = DEFAULT_DATASET,
     data_folder: Path = Path(".axiom") / "policyengine-data",
+    populace_year: int = DEFAULT_UK_POPULACE_YEAR,
     domain_filter: str | None = None,
     entity_filter: str | None = None,
     include_efrs_activity: bool = False,
@@ -2882,6 +2950,7 @@ def build_uk_efrs_coverage_report(
             year=year,
             dataset=dataset,
             data_folder=data_folder,
+            populace_year=populace_year,
         )
 
     source_root_label = None
@@ -2936,6 +3005,7 @@ def build_uk_hbai_policy_coverage_report(
     year: int = 2026,
     dataset: str = DEFAULT_DATASET,
     data_folder: Path = Path(".axiom") / "policyengine-data",
+    populace_year: int = DEFAULT_UK_POPULACE_YEAR,
     include_efrs_activity: bool = False,
     source_root: Path | None = None,
 ) -> UKEFRSHBAICoverageReport:
@@ -2966,6 +3036,7 @@ def build_uk_hbai_policy_coverage_report(
                 year=year,
                 dataset=dataset,
                 data_folder=data_folder,
+                populace_year=populace_year,
             )
         )
 
@@ -3057,30 +3128,34 @@ def policyengine_uk_hbai_activity(
     year: int,
     dataset: str,
     data_folder: Path,
+    populace_year: int,
 ) -> tuple[
     dict[str, UKEFRSHBAIComponentActivity],
     UKEFRSHBAIComponentActivity | None,
     list[dict[str, str]],
 ]:
-    require_policyengine_uk_versions(command="uk-efrs-hbai-coverage")
+    _ = data_folder
+    require_policyengine_uk_versions(command="uk-populace-hbai-coverage")
     try:
         from policyengine_uk import Microsimulation
-        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(
-            policyengine_uk_install_message("uk-efrs-hbai-coverage")
+            policyengine_uk_install_message("uk-populace-hbai-coverage")
         ) from exc
 
-    local_dataset = local_policyengine_uk_dataset_path(dataset)
-    if local_dataset is None:
-        raise SystemExit(
-            "uk-efrs-hbai-coverage --with-efrs-activity with current "
-            "PolicyEngine UK requires a local .h5 --dataset path. "
-            f"{policyengine_uk_install_message('uk-efrs-hbai-coverage')}"
-        )
+    local_dataset = local_dataset_path(dataset)
+    if local_dataset is not None:
+        from policyengine_uk.data import UKSingleYearDataset
 
-    log("Loading local PolicyEngine UK EFRS for HBAI activity...")
-    pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+        log("Loading local PolicyEngine UK dataset for HBAI activity...")
+        pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    else:
+        log("Loading PolicyEngine UK Populace for HBAI activity...")
+        pe_dataset = load_populace_dataset(
+            "uk",
+            year=populace_year,
+            command="uk-populace-hbai-coverage",
+        )
     added_disability_categories = (
         add_policyengine_uk_disability_categories_from_reported_amounts(
             pe_dataset,
@@ -3089,7 +3164,7 @@ def policyengine_uk_hbai_activity(
     )
     if added_disability_categories:
         log(
-            "Derived local EFRS disability category inputs from reported amounts: "
+            "Derived UK disability category inputs from reported amounts: "
             + ", ".join(added_disability_categories)
         )
     sim = Microsimulation(dataset=pe_dataset)
@@ -3179,11 +3254,13 @@ def discover_policyengine_uk_variables(
 
 
 def load_policyengine_uk_variables() -> list[Any]:
-    require_policyengine_uk_versions(command="uk-efrs-coverage")
+    require_policyengine_uk_versions(command="uk-populace-coverage")
     try:
         from policyengine_uk import CountryTaxBenefitSystem
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
-        raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
+        raise SystemExit(
+            policyengine_uk_install_message("uk-populace-coverage")
+        ) from exc
     return list(CountryTaxBenefitSystem().variables.values())
 
 
@@ -3394,7 +3471,7 @@ def policyengine_uk_variables_source_root(*, required: bool = True) -> Path | No
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         if required:
             raise SystemExit(
-                policyengine_uk_install_message("uk-efrs-coverage")
+                policyengine_uk_install_message("uk-populace-coverage")
             ) from exc
         return None
     source_root = Path(policyengine_uk.__file__).resolve().parent / "variables"
@@ -3424,26 +3501,32 @@ def policyengine_uk_efrs_activity(
     year: int,
     dataset: str,
     data_folder: Path,
+    populace_year: int,
 ) -> tuple[list[UKEFRSVariableActivity], list[dict[str, str]]]:
-    require_policyengine_uk_versions(command="uk-efrs-coverage")
+    _ = data_folder
+    require_policyengine_uk_versions(command="uk-populace-coverage")
     try:
         import numpy as np
         import pandas as pd
         from policyengine_uk import Microsimulation
-        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
-        raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
-
-    local_dataset = local_policyengine_uk_dataset_path(dataset)
-    if local_dataset is None:
         raise SystemExit(
-            "uk-efrs-coverage --with-efrs-activity with current PolicyEngine UK "
-            f"requires a local .h5 --dataset path. "
-            f"{policyengine_uk_install_message('uk-efrs-coverage')}"
-        )
+            policyengine_uk_install_message("uk-populace-coverage")
+        ) from exc
 
-    log("Loading local PolicyEngine UK EFRS for coverage activity...")
-    pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    local_dataset = local_dataset_path(dataset)
+    if local_dataset is not None:
+        from policyengine_uk.data import UKSingleYearDataset
+
+        log("Loading local PolicyEngine UK dataset for coverage activity...")
+        pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    else:
+        log("Loading PolicyEngine UK Populace for coverage activity...")
+        pe_dataset = load_populace_dataset(
+            "uk",
+            year=populace_year,
+            command="uk-populace-coverage",
+        )
     added_disability_categories = (
         add_policyengine_uk_disability_categories_from_reported_amounts(
             pe_dataset,
@@ -3452,14 +3535,13 @@ def policyengine_uk_efrs_activity(
     )
     if added_disability_categories:
         log(
-            "Derived local EFRS disability category inputs from reported amounts: "
+            "Derived UK disability category inputs from reported amounts: "
             + ", ".join(added_disability_categories)
         )
     sim = Microsimulation(dataset=pe_dataset)
-    with pd.HDFStore(local_dataset, mode="r") as store:
-        raw_person = store["person"].copy()
-        raw_benunit = store["benunit"].copy()
-        household = store["household"].copy()
+    raw_person = population_table(pe_dataset, "person")
+    raw_benunit = population_table(pe_dataset, "benunit")
+    household = population_table(pe_dataset, "household")
     raw_tables = {
         "person": add_policyengine_uk_person_weights(raw_person, household),
         "benunit": add_policyengine_uk_benunit_weights(
@@ -3569,7 +3651,7 @@ def print_uk_efrs_coverage_report(
     *,
     top: int,
 ) -> None:
-    print("PolicyEngine UK EFRS coverage")
+    print("PolicyEngine UK Populace coverage")
     print(
         "PolicyEngine versions: "
         + ", ".join(
@@ -3611,7 +3693,7 @@ def print_uk_efrs_coverage_report(
             print(f"  - {name}")
     if report.activity:
         print()
-        print(f"Top missing EFRS-active PE variables (first {top:,}):")
+        print(f"Top missing Populace-active PE variables (first {top:,}):")
         activity_by_name = {item.name: item for item in report.activity}
         missing_by_name = {item.name: item for item in report.missing_variables}
         for activity in report.activity[:top]:
@@ -3625,7 +3707,7 @@ def print_uk_efrs_coverage_report(
                 f"nonfinite={activity.nonfinite_count:,}"
             )
         inactive_count = sum(1 for item in report.activity if item.nonzero_count == 0)
-        print(f"Missing variables with zero nonzero EFRS rows: {inactive_count:,}")
+        print(f"Missing variables with zero nonzero Populace rows: {inactive_count:,}")
         if activity_by_name:
             print()
     print(f"Missing computed PE variables (first {top:,}):")
@@ -3730,7 +3812,7 @@ def select_person_indices(
         requested_ids=person_ids,
         id_column="person_id",
         weight_column="person_weight",
-        entity_label="EFRS person_id",
+        entity_label="Populace person_id",
     )
 
 
@@ -3746,7 +3828,7 @@ def select_benunit_indices(
         requested_ids=benunit_ids,
         id_column="benunit_id",
         weight_column="benunit_weight",
-        entity_label="EFRS benunit_id",
+        entity_label="Populace benunit_id",
     )
 
 
@@ -4094,7 +4176,7 @@ def build_axiom_request(
             year=year,
             surface=surface,
         )
-    raise ValueError(f"unsupported UK EFRS surface: {surface}")
+    raise ValueError(f"unsupported UK Populace surface: {surface}")
 
 
 def build_national_insurance_class_1_request(
@@ -6643,13 +6725,13 @@ def compare_outputs(
         output_summary=list(summary.values()),
         skipped_surfaces=SKIPPED_SURFACES,
         projection_notes=[
-            "Personal allowance projection supplies EFRS adjusted net income "
+            "Personal allowance projection supplies validation-population adjusted net income "
             "net of PolicyEngine's gift_aid_grossed_up taper adjustment, because "
             "PolicyEngine UK applies that subtraction inside its personal "
             "allowance formula.",
-            "The current projection treats EFRS people as making a claim and "
+            "The current projection treats validation-population people as making a claim and "
             "meeting the Section 56 residence/citizenship-condition boundary "
-            "facts, matching the usual PolicyEngine UK EFRS personal allowance "
+            "facts, matching the usual PolicyEngine UK personal allowance "
             "surface until those upstream legal predicates are encoded.",
             "National Insurance Class 1 comparison projects annual PolicyEngine "
             "NI Class 1 income into a representative tax week, supplies the "
@@ -6687,10 +6769,10 @@ def compare_outputs(
             "and projects claimant_has_partner from PolicyEngine's relation_type "
             "or is_couple. Prisoner and fully-maintained religious-order branches "
             "are projected false because those legal predicates are not exposed "
-            "in the EFRS oracle data.",
+            "in the validation population.",
             "Pension Credit carer additions compare RuleSpec's per-partner "
             "amount against PolicyEngine's annual aggregate carer addition "
-            "divided by num_carers and 52. The EFRS oracle has no positive "
+            "divided by num_carers and 52. The validation population has no positive "
             "severe-disability addition rows, so that branch is currently a "
             "zero-row guard rather than a positive-eligibility validation.",
             "Pension Credit Schedule IIA child-addition comparison projects "
@@ -6704,7 +6786,7 @@ def compare_outputs(
             "day and supplies PolicyEngine's annual state_pension_age for both "
             "the pensionable-age leaf and the woman-born-same-day leaf. The "
             "same projection compares the attained-age judgment against "
-            "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK EFRS "
+            "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK "
             "data exposes the modern equalized-age surface rather than "
             "historical sex-specific age transitions.",
             "State Pension Credit Act section 2 guarantee-credit comparison "
@@ -6720,7 +6802,7 @@ def compare_outputs(
             "minimum_guarantee for the amount B reduction.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
-            "EFRS component outputs are divided by 12, and EFRS category "
+            "Populace component outputs are divided by 12, and Populace category "
             "variables select the matching standard-allowance, child-element, "
             "carer, LCWRA, and childcare-cap rows.",
             "Welfare Reform Act 2012 section 8 Universal Credit award "
@@ -6741,7 +6823,7 @@ def compare_outputs(
             "PolicyEngine-aligned Carer's Allowance final comparison projects "
             "PolicyEngine UK's country and reported Carer's Allowance receipt "
             "into a final annual wrapper that uses the RuleSpec weekly rate, "
-            "age gate, and 35-hour care threshold. Current EFRS care_hours "
+            "age gate, and 35-hour care threshold. Current Populace care_hours "
             "is zero on reported-receipt rows, so positive PolicyEngine or "
             "reported receipt is projected to the statutory minimum care "
             "hours and qualifying-disability-benefit fact; source age "
@@ -6750,7 +6832,7 @@ def compare_outputs(
             "Payment final comparisons project PolicyEngine final-award or "
             "reported-receipt gates into source-shaped runtime facts because "
             "PolicyEngine does not expose every underlying eligibility and "
-            "take-up predicate separately in the EFRS oracle data.",
+            "take-up predicate separately in the Populace oracle data.",
             "PolicyEngine-aligned Disability Living Allowance final comparison "
             "projects PolicyEngine UK's DLA self-care and mobility category "
             "enums into boolean category leaves for under-16 rows, then "
@@ -6758,7 +6840,7 @@ def compare_outputs(
             "aggregate. Adult legacy DLA rows are outside this GOV.UK child "
             "DLA wrapper and are treated as missing coverage rather than "
             "included in the final comparison.",
-            "When a local EFRS .h5 predates the PolicyEngine UK disability "
+            "When a local UK .h5 predates the PolicyEngine UK disability "
             "category-input migration, the oracle derives PIP, DLA, and "
             "Attendance Allowance category inputs in memory from reported "
             "amount columns using the policyengine-uk-data category threshold "
@@ -6837,7 +6919,7 @@ def compare_outputs(
             "PolicyEngine's uc_childcare_work_condition.",
             "The protected LCWRA Regulation 36 table amount is compared only "
             "when PolicyEngine exposes the raw protected amount. Current "
-            "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
+            "PolicyEngine UK Populace outputs apply the July 2025 UC rebalancing "
             "scenario for existing claimants, so those rebalanced health-element "
             "values are not treated as the same surface.",
             "Income Tax Act 2007 section 23 net-income comparison projects "
@@ -6860,7 +6942,7 @@ def compare_outputs(
             "It uses UK income-tax thresholds and savings rates from "
             "PolicyEngine parameters to compare the section 11D band amounts "
             "and aggregate savings income tax, with a 25p output tolerance for "
-            "EFRS float precision in PolicyEngine's savings-income arrays.",
+            "Populace float precision in PolicyEngine's savings-income arrays.",
             "Income Tax Act 2007 section 13 dividend-income comparison projects "
             "PolicyEngine's dividend tax formula directly: savings after income "
             "allowances occupies rate-band capacity before dividends, the used "
@@ -7114,7 +7196,7 @@ def print_report(
     tolerance: float,
     relative_tolerance: float,
 ) -> None:
-    print("PolicyEngine UK EFRS comparison")
+    print("PolicyEngine UK Populace comparison")
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared benefit units: {report.compared_benunits:,}")
     print(f"Compared values: {report.compared_values:,}")
@@ -7283,20 +7365,16 @@ def resolve_workspace_root(root: Path | None) -> Path:
     return cwd
 
 
-def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
+def require_policyengine_uk_versions(command: str = "uk-populace-compare") -> None:
     try:
-        policyengine_core_version = version("policyengine-core")
         policyengine_uk_version = version("policyengine-uk")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_uk_install_message(command)) from exc
-    if policyengine_core_version != POLICYENGINE_CORE_VERSION:
+    if _version_tuple(policyengine_uk_version) < _version_tuple(
+        MIN_POLICYENGINE_UK_VERSION
+    ):
         raise SystemExit(
-            f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
-            f"{policyengine_core_version}. {policyengine_uk_install_message(command)}"
-        )
-    if policyengine_uk_version != POLICYENGINE_UK_VERSION:
-        raise SystemExit(
-            f"policyengine-uk=={POLICYENGINE_UK_VERSION} required; found "
+            f"policyengine-uk>={MIN_POLICYENGINE_UK_VERSION} required; found "
             f"{policyengine_uk_version}. {policyengine_uk_install_message(command)}"
         )
 
@@ -7445,11 +7523,10 @@ def policyengine_uk_savings_credit_parameters(year: int) -> dict[str, float]:
     }
 
 
-def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:
+def policyengine_uk_install_message(command: str = "uk-populace-compare") -> str:
     return (
-        "Run with: uv run "
-        f"--with policyengine-core=={POLICYENGINE_CORE_VERSION} "
-        f"--with policyengine-uk=={POLICYENGINE_UK_VERSION} "
+        "Run with: "
+        f"uv run --with {populace_data_requirement('uk')} "
         f"axiom-encode {command}"
     )
 

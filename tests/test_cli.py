@@ -470,10 +470,10 @@ class TestMain:
                 main()
                 mock_cmd.assert_called_once()
 
-    def test_uk_efrs_coverage_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "uk-efrs-coverage"]):
+    def test_uk_populace_coverage_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "uk-populace-coverage"]):
             with patch(
-                "axiom_encode.cli.run_uk_efrs_coverage", return_value=0
+                "axiom_encode.cli.run_uk_populace_coverage", return_value=0
             ) as mock_cmd:
                 with pytest.raises(SystemExit) as exc_info:
                     main()
