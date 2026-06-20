@@ -24515,6 +24515,7 @@ print("BENCHMARK:" + json.dumps(result))
                 *adapter.direct_spm_overrides,
                 *adapter.annual_direct_spm_overrides,
                 *adapter.annualized_person_inputs,
+                *adapter.monthly_person_inputs,
                 *adapter.boolean_person_inputs,
                 *adapter.monthly_boolean_person_inputs,
             ):
@@ -25395,6 +25396,18 @@ print(f'RESULT:{{float(value)}}')
                         else adult_attrs
                     )
                     attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
+            for rule_key, pe_attr in adapter.monthly_person_inputs:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                with contextlib.suppress(TypeError, ValueError):
+                    month_value = float(value)
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    attrs.append(f"'{pe_attr}': {{'{period}': {month_value}}}")
             for rule_key, pe_attr in adapter.boolean_person_inputs:
                 value = self._rulespec_test_input_value(inputs, rule_key)
                 if value is not None:

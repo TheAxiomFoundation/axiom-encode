@@ -289,6 +289,10 @@ def test_policyengine_program_surface_marks_colorado_ssp_wired():
     assert colorado_ssp["mapping_count"] >= 1
     assert colorado_ssp["comparable_mapping_count"] >= 1
     assert (
+        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment"
+        in colorado_ssp["legal_ids"]
+    )
+    assert (
         "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month"
         in colorado_ssp["legal_ids"]
     )

@@ -17,6 +17,7 @@ class PolicyEngineUSVarAdapter:
     monthly: bool = False
     spm: bool = False
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
+    monthly_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     monthly_boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     direct_spm_overrides: tuple[tuple[str, str], ...] = ()
@@ -416,29 +417,75 @@ PE_US_VAR_ADAPTERS = (
     ),
     PolicyEngineUSVarAdapter(
         rule_names=(
+            "and_cs_authorized_grant_payment",
             "and_cs_authorized_grant_payment_for_month",
             "and_cs_grant_payment_for_month",
             "and_cs_monthly_grant_payment",
         ),
         pe_var="co_state_supplement",
+        monthly=True,
         default_state_code="CO",
         annualized_person_inputs=(
+            (
+                "client_countable_income_other_than_ssi_for_and_cs",
+                "ssi_countable_income",
+            ),
             ("client_total_countable_income_for_and_cs", "ssi_countable_income"),
             ("and_cs_total_countable_income", "ssi_countable_income"),
             ("client_countable_income_for_and_cs", "ssi_countable_income"),
+        ),
+        monthly_person_inputs=(
+            ("ssi_payment_received_amount", "ssi"),
+            ("gross_ssi_payment_amount", "ssi"),
             ("client_ssi_payment_amount_for_and_cs", "ssi"),
             ("and_cs_ssi_payment_amount", "ssi"),
         ),
         boolean_person_inputs=(
             (
+                "client_has_been_found_eligible_for_and_cs",
+                "is_ssi_eligible_individual",
+            ),
+            ("client_has_been_found_eligible_for_and_cs", "is_ssi_disabled"),
+            (
+                "and_cs_client_eligible_for_grant_payment",
+                "is_ssi_eligible_individual",
+            ),
+            ("and_cs_client_eligible_for_grant_payment", "is_ssi_disabled"),
+            (
+                "client_has_been_found_eligible_for_and_cs",
+                "co_state_supplement_eligible",
+            ),
+            (
+                "and_cs_client_eligible_for_grant_payment",
+                "co_state_supplement_eligible",
+            ),
+            (
                 "client_is_and_cs_eligible_under_sections_3_546_and_3_547",
                 "co_state_supplement_eligible",
+            ),
+            (
+                "client_is_and_cs_eligible_under_sections_3_546_and_3_547",
+                "is_ssi_eligible_individual",
+            ),
+            (
+                "client_is_and_cs_eligible_under_sections_3_546_and_3_547",
+                "is_ssi_disabled",
             ),
             (
                 "and_cs_client_eligible_for_grant_payments_under_3_548",
                 "co_state_supplement_eligible",
             ),
+            (
+                "and_cs_client_eligible_for_grant_payments_under_3_548",
+                "is_ssi_eligible_individual",
+            ),
+            (
+                "and_cs_client_eligible_for_grant_payments_under_3_548",
+                "is_ssi_disabled",
+            ),
             ("and_cs_client_eligible", "co_state_supplement_eligible"),
+            ("and_cs_client_eligible", "is_ssi_eligible_individual"),
+            ("and_cs_client_eligible", "is_ssi_disabled"),
         ),
         unsupported_truthy_input_keys=(
             "client_is_inmate_in_penal_institution",
