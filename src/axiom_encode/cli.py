@@ -15411,7 +15411,14 @@ def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
         return None
     stripped = formula.strip()
     if not re.fullmatch(r"-?\d+(?:\.\d+)?", stripped):
-        return None
+        fraction_match = re.fullmatch(r"\(?\s*(-?\d+)\s*/\s*(-?\d+)\s*\)?", stripped)
+        if not fraction_match:
+            return None
+        numerator = int(fraction_match.group(1))
+        denominator = int(fraction_match.group(2))
+        if denominator == 0:
+            return None
+        return numerator / denominator
     parsed = yaml.safe_load(stripped)
     return parsed if isinstance(parsed, (int, float)) else None
 

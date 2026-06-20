@@ -1,0 +1,1 @@
+Classify federal SSI income-exclusion RuleSpec outputs against PolicyEngine oracle coverage, including exact mappings for the general and earned-income exclusion parameters, and repair oracle parameter tests for simple source-backed fraction formulas.

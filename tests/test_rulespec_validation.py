@@ -2346,6 +2346,41 @@ def test_policyengine_registry_is_legal_id_keyed():
         earned_income_rate_mapping.policyengine_parameter
         == "gov.usda.snap.income.deductions.earned_income"
     )
+    ssi_general_exclusion_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382a/b/2#annual_general_income_exclusion_limit",
+        country="us",
+    )
+    assert ssi_general_exclusion_mapping.mapping_type == "parameter_value"
+    assert (
+        ssi_general_exclusion_mapping.policyengine_parameter
+        == "gov.ssa.ssi.income.exclusions.general"
+    )
+    assert ssi_general_exclusion_mapping.result_multiplier == 12
+    ssi_earned_exclusion_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382a/b/4#annual_earned_income_initial_exclusion_limit",
+        country="us",
+    )
+    assert ssi_earned_exclusion_mapping.mapping_type == "parameter_value"
+    assert (
+        ssi_earned_exclusion_mapping.policyengine_parameter
+        == "gov.ssa.ssi.income.exclusions.earned"
+    )
+    assert ssi_earned_exclusion_mapping.result_multiplier == 12
+    ssi_earned_share_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382a/b/4#earned_income_remainder_exclusion_rate",
+        country="us",
+    )
+    assert ssi_earned_share_mapping.mapping_type == "parameter_value"
+    assert (
+        ssi_earned_share_mapping.policyengine_parameter
+        == "gov.ssa.ssi.income.exclusions.earned_share"
+    )
+    ssi_blind_expense_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382a/b/4#blind_branch_earning_expenses_excluded",
+        country="us",
+    )
+    assert ssi_blind_expense_mapping.mapping_type == "not_comparable"
+    assert ssi_blind_expense_mapping.policyengine_variable == "ssi_countable_income"
     maximum_allotment_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table",
         country="us",
