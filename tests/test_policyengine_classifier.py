@@ -372,6 +372,63 @@ def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
     }
 
 
+def test_classify_rulespec_repo_filters_federal_ssi_sources(tmp_path: Path) -> None:
+    repo = tmp_path / "rulespec-us"
+    ssi_dir = repo / "statutes" / "42" / "1382a" / "b"
+    ssi_dir.mkdir(parents=True)
+    (ssi_dir / "2.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "ssi_general_income_exclusion_annual_amount",
+                        "kind": "parameter",
+                        "dtype": "Money",
+                        "source": "The first $240 per year is excluded.",
+                        "versions": [
+                            {"effective_from": "1974-01-01", "formula": "240"}
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    snap_dir = repo / "statutes" / "7" / "2014" / "e"
+    snap_dir.mkdir(parents=True)
+    (snap_dir / "2.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "snap_earned_income_deduction_rate",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "SNAP earned income deduction.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "0.2"}
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    classifications = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us",
+        program="ssi",
+    )
+
+    assert [c.legal_id.split("#")[1] for c in classifications] == [
+        "ssi_general_income_exclusion_annual_amount"
+    ]
+    assert classifications[0].mapping_type == "not_comparable"
+
+
 def test_iter_rules_skips_non_executable_kinds(tmp_path: Path) -> None:
     """`source_relation` and missing-kind rules are not executable outputs."""
     path = tmp_path / "block-1.yaml"

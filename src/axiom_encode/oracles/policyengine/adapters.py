@@ -723,17 +723,54 @@ PE_US_HEALTH_VAR_ADAPTERS = (
     *PE_US_ACA_PTC_VAR_ADAPTERS,
 )
 
+PE_US_SSI_VAR_ADAPTERS = (
+    PolicyEngineUSVarAdapter(
+        rule_names=("ssi", "ssi_payment", "ssi_payment_amount"),
+        pe_var="ssi",
+        entity="person",
+        period="month",
+        unit="USD",
+        comparison="money",
+        monthly=True,
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("ssi_countable_income",),
+        pe_var="ssi_countable_income",
+        entity="person",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("ssi_countable_resources",),
+        pe_var="ssi_countable_resources",
+        entity="person",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_ssi_eligible_individual",),
+        pe_var="is_ssi_eligible_individual",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+)
+
 PE_US_PROGRAM_VAR_ADAPTERS = {
     "snap": PE_US_VAR_ADAPTERS,
     "medicaid": PE_US_MEDICAID_VAR_ADAPTERS,
     "chip": PE_US_CHIP_VAR_ADAPTERS,
     "aca_ptc": PE_US_ACA_PTC_VAR_ADAPTERS,
     "health": PE_US_HEALTH_VAR_ADAPTERS,
+    "ssi": PE_US_SSI_VAR_ADAPTERS,
 }
 
 PE_US_ALL_VAR_ADAPTERS = (
     *PE_US_VAR_ADAPTERS,
     *PE_US_HEALTH_VAR_ADAPTERS,
+    *PE_US_SSI_VAR_ADAPTERS,
 )
 
 PE_US_VAR_ADAPTERS_BY_NAME = {
