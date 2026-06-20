@@ -1417,12 +1417,20 @@ def _source_citation_to_normalized_targets(
     seen: set[tuple[str, ...]] = set()
     previous_fragment_had_target = False
     previous_raw_fragment: str | None = None
+    previous_target: tuple[str, ...] | None = None
     for raw_fragment in _SOURCE_CITATION_SEPARATOR_RE.split(source):
         fragment_targets = _source_citation_fragment_to_normalized_targets(
             raw_fragment,
             default_title=current_title,
             default_section=current_section,
         )
+        context_relative_target = _source_citation_fragment_to_context_relative_target(
+            raw_fragment,
+            context_target=context_target,
+            previous_target=previous_target,
+        )
+        if context_relative_target is not None:
+            fragment_targets = (context_relative_target,)
         if (
             fragment_targets
             and not previous_fragment_had_target
@@ -1441,6 +1449,7 @@ def _source_citation_to_normalized_targets(
             if len(target) >= 3:
                 current_title = target[1]
                 current_section = target[2]
+            previous_target = target
             if target in seen:
                 continue
             seen.add(target)
@@ -1472,6 +1481,49 @@ def _source_citation_fragment_is_bare_relative_table_label_tail(
             flags=re.IGNORECASE,
         )
     )
+
+
+def _source_citation_fragment_to_context_relative_target(
+    fragment: str,
+    *,
+    context_target: tuple[str, ...] | None,
+    previous_target: tuple[str, ...] | None,
+) -> tuple[str, ...] | None:
+    if context_target is None or previous_target is None or len(context_target) <= 3:
+        return None
+    if not _normalized_target_within(previous_target, context_target):
+        return None
+    previous_tail_length = len(previous_target) - len(context_target)
+    if previous_tail_length <= 0:
+        return None
+    cleaned = _clean_source_citation_fragment(fragment)
+    match = re.fullmatch(r"(?:\([A-Za-z0-9]+\))+", cleaned)
+    if match is None:
+        return None
+    tail = tuple(part.lower() for part in re.findall(r"\(([^)]+)\)", cleaned))
+    if not tail or len(tail) > previous_tail_length:
+        return None
+    previous_relative_tail = previous_target[len(context_target) :]
+    if not _same_citation_label_class(tail[0], previous_relative_tail[0]):
+        return None
+    return context_target + tail
+
+
+def _same_citation_label_class(left: str, right: str) -> bool:
+    return _citation_label_class(left) == _citation_label_class(right)
+
+
+def _citation_label_class(label: str) -> str:
+    cleaned = label.strip().lower()
+    if cleaned.isdigit():
+        return "numeric"
+    if re.fullmatch(r"[ivxlcdm]+", cleaned) and (
+        len(cleaned) > 1 or cleaned in {"i", "v", "x"}
+    ):
+        return "roman"
+    if cleaned.isalpha():
+        return "alpha"
+    return "other"
 
 
 def _source_citation_fragment_to_normalized_targets(

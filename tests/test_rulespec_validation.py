@@ -16240,6 +16240,73 @@ rules:
     assert "`ctc_threshold` source `26 USC 24(b)(2), 24(h)(3)`" in issues[0]
 
 
+def test_out_of_scope_rule_source_allows_context_relative_sibling_labels():
+    content = """format: rulespec/v1
+rules:
+  - name: annual_earned_income_exclusion_limit
+    kind: parameter
+    dtype: Money
+    source: 42 USC 1382a(b)(4)(A)(i), (B)(i), (C)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 780
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="42 USC 1382a(b)(4)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_context_relative_and_joined_label():
+    content = """format: rulespec/v1
+rules:
+  - name: earned_income_remainder_exclusion_rate
+    kind: parameter
+    dtype: Rate
+    source: 42 USC 1382a(b)(4)(A)(i), (B)(iii), and (C)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1 / 2
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="us/statute/42/1382a/b/4",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_still_rejects_bare_sibling_label():
+    content = """format: rulespec/v1
+rules:
+  - name: mixed_agricultural_and_vessel_rule
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(k), (m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service or vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert len(issues) == 1
+    assert (
+        "`mixed_agricultural_and_vessel_rule` source `26 USC 3306(k), (m)`" in issues[0]
+    )
+
+
 def test_out_of_scope_rule_source_rejects_bare_sibling_after_non_table_label():
     content = """format: rulespec/v1
 rules:
