@@ -760,6 +760,52 @@ mappings:
     candidate_priority: P4
     rationale: This is only the 3.520.72 resource-limit predicate; PolicyEngine's Colorado OAP eligibility also includes age, state, and other eligibility conditions.
 
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_monthly_grant_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.ssa.state_supplement.grant_standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado AND-CS monthly grant standard parameter for the state-administered SSI supplement.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: co_state_supplement
+    result_multiplier: 0.08333333333333333
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado AND-CS grant-standard-minus-countable-income amount; PolicyEngine exposes the annual amount, so the oracle scales it to the monthly RuleSpec output.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.548#and_cs_grant_payment_for_month
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: co_state_supplement
+    result_multiplier: 0.08333333333333333
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado AND-CS grant-standard-minus-countable-income amount; PolicyEngine exposes the annual amount, so the oracle scales it to the monthly RuleSpec output.
+
+  - legal_id: us-co:regulations/9-ccr-2503-5/3.548#and_cs_monthly_grant_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: co_state_supplement
+    result_multiplier: 0.08333333333333333
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Colorado AND-CS grant-standard-minus-countable-income amount; PolicyEngine exposes the annual amount, so the oracle scales it to the monthly RuleSpec output.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
     country: us
     program: snap

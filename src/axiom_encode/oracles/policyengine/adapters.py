@@ -415,6 +415,41 @@ PE_US_VAR_ADAPTERS = (
         ),
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=(
+            "and_cs_authorized_grant_payment_for_month",
+            "and_cs_grant_payment_for_month",
+            "and_cs_monthly_grant_payment",
+        ),
+        pe_var="co_state_supplement",
+        default_state_code="CO",
+        annualized_person_inputs=(
+            ("client_total_countable_income_for_and_cs", "ssi_countable_income"),
+            ("and_cs_total_countable_income", "ssi_countable_income"),
+            ("client_countable_income_for_and_cs", "ssi_countable_income"),
+            ("client_ssi_payment_amount_for_and_cs", "ssi"),
+            ("and_cs_ssi_payment_amount", "ssi"),
+        ),
+        boolean_person_inputs=(
+            (
+                "client_is_and_cs_eligible_under_sections_3_546_and_3_547",
+                "co_state_supplement_eligible",
+            ),
+            (
+                "and_cs_client_eligible_for_grant_payments_under_3_548",
+                "co_state_supplement_eligible",
+            ),
+            ("and_cs_client_eligible", "co_state_supplement_eligible"),
+        ),
+        unsupported_truthy_input_keys=(
+            "client_is_inmate_in_penal_institution",
+            "client_is_resident_in_unlicensed_or_uncertified_facility",
+        ),
+        unsupported_input_reason=(
+            "PolicyEngine Colorado SSP does not model these 3.548 grant-payment "
+            "exclusion facts"
+        ),
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("snap_excess_shelter_deduction",),
         pe_var="snap_excess_shelter_expense_deduction",
         monthly=True,
