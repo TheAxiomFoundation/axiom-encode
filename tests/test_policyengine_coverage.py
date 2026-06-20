@@ -277,6 +277,23 @@ def test_policyengine_program_surface_marks_colorado_oap_wired():
     )
 
 
+def test_policyengine_program_surface_marks_colorado_ssp_wired():
+    report = build_policyengine_program_surface_report(program="co_state_supplement")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    colorado_ssp = items_by_variable["co_state_supplement"]
+
+    assert colorado_ssp["program_id"] == "ssi_state_supplement"
+    assert colorado_ssp["state"] == "CO"
+    assert colorado_ssp["axiom_status"] == "wired"
+    assert colorado_ssp["mapping_count"] >= 1
+    assert colorado_ssp["comparable_mapping_count"] >= 1
+    assert (
+        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month"
+        in colorado_ssp["legal_ids"]
+    )
+
+
 def test_policyengine_coverage_classifies_nz_outputs_outside_policyengine(tmp_path):
     _write_rulespec_file(
         tmp_path

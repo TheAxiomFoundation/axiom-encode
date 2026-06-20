@@ -2385,6 +2385,22 @@ def test_policyengine_registry_is_legal_id_keyed():
         colorado_oap_grant_standard_mapping.policyengine_parameter
         == "gov.states.co.ssa.oap.grant_standard"
     )
+    colorado_ssp_mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment_for_month",
+        country="us",
+    )
+    assert colorado_ssp_mapping.mapping_type == "direct_variable"
+    assert colorado_ssp_mapping.policyengine_variable == "co_state_supplement"
+    assert colorado_ssp_mapping.result_multiplier == pytest.approx(1 / 12)
+    colorado_ssp_grant_standard_mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_monthly_grant_standard",
+        country="us",
+    )
+    assert colorado_ssp_grant_standard_mapping.mapping_type == "parameter_value"
+    assert (
+        colorado_ssp_grant_standard_mapping.policyengine_parameter
+        == "gov.states.co.ssa.state_supplement.grant_standard"
+    )
     section_2014c_net_failure_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line",
         country="us",
@@ -4215,6 +4231,69 @@ def test_policyengine_oap_mappability_blocks_active_unmodeled_exclusions(
     assert mappable is False
     assert "does not model these 3.532 grant-payment exclusion facts" in (reason or "")
     assert "client_is_inmate_in_penal_institution" in (reason or "")
+
+
+def test_policyengine_and_cs_adapter_annualizes_income_and_sets_eligibility(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    script = pipeline._build_pe_us_scenario_script(
+        "co_state_supplement",
+        {
+            "period": "2026-01",
+            "us-co:regulations/9-ccr-2503-5/3.548#input.client_total_countable_income_for_and_cs": 32,
+            "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_and_cs_eligible_under_sections_3_546_and_3_547": True,
+        },
+        "2026",
+    )
+
+    assert "'state_code_str': {'2026': 'CO'}" in script
+    assert "'ssi_countable_income': {'2026': 384.0}" in script
+    assert "'co_state_supplement_eligible': {'2026': True}" in script
+
+
+def test_policyengine_and_cs_mappability_blocks_active_unmodeled_exclusions(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_total_countable_income_for_and_cs": 32,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_and_cs_eligible_under_sections_3_546_and_3_547": True,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_inmate_in_penal_institution": False,
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_resident_in_unlicensed_or_uncertified_facility": False,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "and_cs_authorized_grant_payment_for_month",
+        inputs,
+        pe_var="co_state_supplement",
+    )
+
+    assert mappable is True
+    assert reason is None
+
+    inputs[
+        "us-co:regulations/9-ccr-2503-5/3.548#input.client_is_resident_in_unlicensed_or_uncertified_facility"
+    ] = True
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "and_cs_authorized_grant_payment_for_month",
+        inputs,
+        pe_var="co_state_supplement",
+    )
+
+    assert mappable is False
+    assert "does not model these 3.548 grant-payment exclusion facts" in (reason or "")
+    assert "client_is_resident_in_unlicensed_or_uncertified_facility" in (reason or "")
 
 
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
