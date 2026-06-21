@@ -190,3 +190,47 @@ The command prioritizes untested comparable mappings, unmapped outputs that look
 like exact PolicyEngine variables, and known adjacent targets that may deserve a
 small adapter. `candidate_priority` can lower already-reviewed non-comparables
 without hiding them from the report.
+
+## Cloud Queue Export
+
+Use the cloud queue command to export deterministic work items before assigning
+parallel encoding work:
+
+```bash
+axiom-encode cloud-queue --root /path/to/workspace --json
+```
+
+The queue is model-free orchestration input. It converts PolicyEngine program
+surfaces into explicit work items without running encoders, opening branches, or
+claiming that any surface is legally comparable. The current schema is:
+
+```text
+axiom-encode/policyengine-cloud-queue/v1
+```
+
+Each item includes:
+
+- `action`: one of `ingest_source`, `encode_rulespec`, `wire_oracle_mapping`, or
+  `bootstrap_jurisdiction`
+- `priority`: the program-surface priority such as `P1` or `P2`
+- `target_repo` and `target_prefix`: where generated RuleSpec or source work
+  should eventually land
+- `policyengine_variable`: the oracle surface that motivated the item
+- `lock_scopes`: deterministic repo, prefix, legal-ID, and source locks for
+  future cloud workers
+- `oracle_expectation`: what a successful worker should prove or classify
+
+By default the queue includes `pending_source_ingestion`,
+`pending_rulespec_encoding`, and `pending_oracle_mapping` surfaces. Add
+`--include-deferred-jurisdictions` when planning repo/bootstrap work for
+jurisdictions that do not have a ready RuleSpec target yet.
+
+Cloud workers should emit artifacts using the companion run-artifact schema:
+
+```text
+axiom-encode/policyengine-cloud-run-artifact/v1
+```
+
+At minimum, run artifacts should preserve the work item ID, encoder version and
+git SHA, corpus reference, RuleSpec base SHA, model and prompt hash, generated
+diff, validation logs, oracle results, retry history, and final classification.

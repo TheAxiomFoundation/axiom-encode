@@ -36,6 +36,21 @@ PROGRAM_SURFACE_STATUSES = {
     "wired",
 }
 PROGRAM_SURFACE_LIFECYCLES = {"active", "inactive", "sunset", "historical"}
+POLICYENGINE_CLOUD_QUEUE_SCHEMA = "axiom-encode/policyengine-cloud-queue/v1"
+POLICYENGINE_CLOUD_RUN_ARTIFACT_SCHEMA = (
+    "axiom-encode/policyengine-cloud-run-artifact/v1"
+)
+CLOUD_QUEUE_STATUSES = {
+    "pending_oracle_mapping",
+    "pending_rulespec_encoding",
+    "pending_source_ingestion",
+}
+CLOUD_QUEUE_STATUS_ACTIONS = {
+    "pending_oracle_mapping": "wire_oracle_mapping",
+    "pending_rulespec_encoding": "encode_rulespec",
+    "pending_source_ingestion": "ingest_source",
+    "deferred_jurisdiction": "bootstrap_jurisdiction",
+}
 _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
     for token in ("medicaid", "chip", "aca")
@@ -289,6 +304,56 @@ class PolicyEngineProgramSurfaceItem:
         }
 
 
+@dataclass(frozen=True)
+class PolicyEngineCloudQueueItem:
+    """One deterministic work item for future cloud-parallel encoding."""
+
+    id: str
+    action: str
+    priority: str | None
+    axiom_status: str
+    country: str
+    target_repo: str
+    target_prefix: str
+    program_id: str
+    program_name: str
+    category: str
+    policyengine_variable: str
+    policyengine_status: str
+    coverage: str
+    source_type: str
+    agency: str | None = None
+    state: str | None = None
+    oracle_expectation: str | None = None
+    lock_scopes: tuple[str, ...] = ()
+    legal_ids: tuple[str, ...] = ()
+    rationale: str | None = None
+
+    def as_dict(self) -> dict[str, str | list[str] | None]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "priority": self.priority,
+            "axiom_status": self.axiom_status,
+            "country": self.country,
+            "target_repo": self.target_repo,
+            "target_prefix": self.target_prefix,
+            "program_id": self.program_id,
+            "program_name": self.program_name,
+            "category": self.category,
+            "agency": self.agency,
+            "state": self.state,
+            "policyengine_variable": self.policyengine_variable,
+            "policyengine_status": self.policyengine_status,
+            "coverage": self.coverage,
+            "source_type": self.source_type,
+            "oracle_expectation": self.oracle_expectation,
+            "lock_scopes": list(self.lock_scopes),
+            "legal_ids": list(self.legal_ids),
+            "rationale": self.rationale,
+        }
+
+
 def build_policyengine_coverage_report(
     root: Path,
     *,
@@ -372,6 +437,90 @@ def _coverage_item_preference_key(item: PolicyEngineCoverageItem) -> tuple:
     )
 
 
+def build_policyengine_cloud_queue_report(
+    root: Path,
+    *,
+    country: str = "us",
+    program: str | None = None,
+    manifest_path: Path | None = None,
+    include_deferred_jurisdictions: bool = False,
+) -> dict[str, Any]:
+    """Export a deterministic work queue from PolicyEngine program surfaces.
+
+    The queue is intentionally model-free: it does not assign agents or create
+    branches. It gives cloud workers a stable work-item contract while the
+    orchestration layer is still being designed.
+    """
+    root = root.resolve()
+    surface_report = build_policyengine_program_surface_report(
+        country=country,
+        program=program,
+        manifest_path=manifest_path,
+    )
+    statuses = set(CLOUD_QUEUE_STATUSES)
+    if include_deferred_jurisdictions:
+        statuses.add("deferred_jurisdiction")
+    raw_items = [
+        _cloud_queue_item_from_program_surface(item)
+        for item in surface_report["items"]
+        if item.get("axiom_status") in statuses
+    ]
+    items = sorted(
+        raw_items,
+        key=lambda item: (
+            _candidate_priority_rank(item.priority or ""),
+            _cloud_queue_action_rank(item.action),
+            item.target_repo,
+            item.program_id,
+            item.policyengine_variable,
+        ),
+    )
+    action_counts = Counter(item.action for item in items)
+    priority_counts = Counter(item.priority for item in items if item.priority)
+    repo_counts: dict[str, Counter[str]] = {}
+    for item in items:
+        repo_counts.setdefault(item.target_repo, Counter())[item.action] += 1
+    return {
+        "schema": POLICYENGINE_CLOUD_QUEUE_SCHEMA,
+        "run_artifact_schema": POLICYENGINE_CLOUD_RUN_ARTIFACT_SCHEMA,
+        "oracle": "policyengine",
+        "root": str(root),
+        "country": country,
+        "program": program,
+        "source": surface_report.get("source", {}),
+        "total_items": len(items),
+        "action_counts": dict(sorted(action_counts.items())),
+        "priority_counts": dict(sorted(priority_counts.items())),
+        "repos": [
+            {
+                "repo": repo,
+                "total_items": sum(counter.values()),
+                "action_counts": dict(sorted(counter.items())),
+            }
+            for repo, counter in sorted(repo_counts.items())
+        ],
+        "artifact_contract": {
+            "required_fields": [
+                "schema",
+                "work_item_id",
+                "status",
+                "encoder_version",
+                "encoder_git_sha",
+                "corpus_ref",
+                "rulespec_base_sha",
+                "model",
+                "prompt_hash",
+                "generated_diff",
+                "validation_logs",
+                "oracle_results",
+                "retry_history",
+                "final_classification",
+            ],
+        },
+        "items": [item.as_dict() for item in items],
+    }
+
+
 def build_policyengine_program_surface_report(
     *,
     country: str = "us",
@@ -449,6 +598,98 @@ def build_policyengine_program_surface_report(
         "actionable_surfaces": [surface.as_dict() for surface in actionable_surfaces],
         "items": [surface.as_dict() for surface in surfaces],
     }
+
+
+def _cloud_queue_item_from_program_surface(
+    item: dict[str, Any],
+) -> PolicyEngineCloudQueueItem:
+    status = str(item.get("axiom_status") or "")
+    action = CLOUD_QUEUE_STATUS_ACTIONS[status]
+    country = str(item.get("country") or "us").lower()
+    state = item.get("state")
+    state_text = str(state).lower() if state else None
+    target_prefix = f"{country}-{state_text}" if state_text else country
+    target_repo = (
+        "axiom-corpus"
+        if action == "ingest_source"
+        else canonical_rulespec_repo_name_from_prefix(target_prefix)
+    )
+    variable = str(item.get("variable") or "")
+    queue_id = ":".join(
+        [
+            "policyengine-surface",
+            country,
+            str(item.get("coverage") or "").lower(),
+            _queue_slug(variable),
+        ]
+    )
+    lock_scopes = [
+        f"policyengine-surface:{country}:{variable}",
+        f"target-prefix:{target_prefix}",
+    ]
+    if target_repo:
+        lock_scopes.append(f"repo:{target_repo}")
+    legal_ids = tuple(str(legal_id) for legal_id in item.get("legal_ids", []) or ())
+    lock_scopes.extend(f"legal-id:{legal_id}" for legal_id in legal_ids)
+    if action == "ingest_source":
+        lock_scopes.append(
+            "corpus-source:"
+            f"{country}:{str(item.get('program_id') or '').lower()}:{variable}"
+        )
+
+    return PolicyEngineCloudQueueItem(
+        id=queue_id,
+        action=action,
+        priority=item.get("priority"),
+        axiom_status=status,
+        country=country,
+        target_repo=target_repo,
+        target_prefix=target_prefix,
+        program_id=str(item.get("program_id") or ""),
+        program_name=str(item.get("program_name") or ""),
+        category=str(item.get("category") or ""),
+        agency=item.get("agency"),
+        state=str(state) if state else None,
+        policyengine_variable=variable,
+        policyengine_status=str(item.get("policyengine_status") or ""),
+        coverage=str(item.get("coverage") or ""),
+        source_type=str(item.get("source_type") or "program"),
+        oracle_expectation=_cloud_queue_oracle_expectation(action),
+        lock_scopes=tuple(dict.fromkeys(lock_scopes)),
+        legal_ids=legal_ids,
+        rationale=item.get("rationale"),
+    )
+
+
+def canonical_rulespec_repo_name_from_prefix(prefix: str) -> str:
+    """Return the legacy per-jurisdiction RuleSpec repo name for a prefix."""
+    return f"rulespec-{prefix}"
+
+
+def _cloud_queue_oracle_expectation(action: str) -> str:
+    if action == "encode_rulespec":
+        return "encode source-law output and add exact oracle mapping when comparable"
+    if action == "ingest_source":
+        return "ingest source before scheduling RuleSpec encoding"
+    if action == "wire_oracle_mapping":
+        return "classify existing legal outputs in the oracle registry"
+    if action == "bootstrap_jurisdiction":
+        return "prepare jurisdiction repo/source routing before encoding"
+    return "classify outcome before merge"
+
+
+def _cloud_queue_action_rank(action: str) -> int:
+    return {
+        "ingest_source": 0,
+        "bootstrap_jurisdiction": 1,
+        "encode_rulespec": 2,
+        "wire_oracle_mapping": 3,
+    }.get(action, 99)
+
+
+def _queue_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "unknown"
 
 
 def build_policyengine_candidate_report(

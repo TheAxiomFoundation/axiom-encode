@@ -1879,10 +1879,8 @@ class TestCmdValidate:
                 ],
             },
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_oracle_candidates(args)
+            cmd_oracle_candidates(args)
 
-        assert exc_info.value.code == 0
         output = capsys.readouterr().out
         assert "PolicyEngine oracle candidates" in output
         assert "[P1] exact_variable_unmapped" in output
