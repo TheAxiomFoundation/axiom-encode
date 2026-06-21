@@ -262,6 +262,43 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestio
     assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
 
 
+def test_policyengine_program_surface_marks_colorado_health_value_surfaces_out_of_scope():
+    report = build_policyengine_program_surface_report()
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    colorado_chp = items_by_variable["co_chp"]
+    colorado_omnisalud = items_by_variable["co_omnisalud"]
+
+    assert colorado_chp["program_id"] == "co_chp"
+    assert colorado_chp["coverage"] == "CO"
+    assert colorado_chp["axiom_status"] == "out_of_scope"
+    assert "modeled annual expense savings" in colorado_chp["rationale"]
+    assert "eligibility, income-limit, copay" in colorado_chp["rationale"]
+
+    assert colorado_omnisalud["program_id"] == "co_omnisalud"
+    assert colorado_omnisalud["coverage"] == "CO"
+    assert colorado_omnisalud["axiom_status"] == "out_of_scope"
+    assert "modeled annual premium-subsidy value" in colorado_omnisalud["rationale"]
+    assert "eligibility, immigration-status" in colorado_omnisalud["rationale"]
+
+
+def test_policyengine_program_surface_marks_section_25c_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ira_tax_credits")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    section_25c = items_by_variable["energy_efficient_home_improvement_credit"]
+
+    assert section_25c["axiom_status"] == "known_not_comparable"
+    assert section_25c["mapping_count"] >= 1
+    assert section_25c["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/26/25C#energy_efficient_home_improvement_credit"
+        in section_25c["legal_ids"]
+    )
+    assert "2033 in-effect schedule" in section_25c["rationale"]
+    assert "product-identification-number gate" in section_25c["rationale"]
+
+
 def test_policyengine_program_surface_marks_colorado_oap_wired():
     report = build_policyengine_program_surface_report(program="co_oap")
 
@@ -494,6 +531,75 @@ rules:
     tax_report = build_policyengine_coverage_report(tmp_path, program="tax")
     assert tax_report["total_outputs"] == 3
     assert tax_report["status_counts"] == {"known_not_comparable": 3}
+
+
+def test_policyengine_coverage_classifies_section_25c_outputs_not_comparable(
+    tmp_path,
+):
+    output_names = (
+        "energy_efficient_home_improvement_credit_rate",
+        "general_annual_credit_limit",
+        "qualified_energy_property_item_credit_limit",
+        "windows_and_skylights_aggregate_credit_limit",
+        "exterior_door_per_door_credit_limit",
+        "exterior_doors_aggregate_credit_limit",
+        "heat_pump_biomass_aggregate_credit_limit",
+        "home_energy_audit_credit_limit",
+        "qualified_energy_efficiency_improvement_minimum_expected_use_years",
+        "biomass_stove_or_boiler_minimum_thermal_efficiency_rate",
+        "panelboard_minimum_load_capacity_amps",
+        "eligible_fuel_blend_minimum_volume_rate",
+        "home_energy_auditor_guidance_deadline_days_after_enactment",
+        "windows_and_skylights_credit",
+        "exterior_doors_credit",
+        "other_envelope_improvements_credit",
+        "non_heat_pump_residential_energy_property_credit",
+        "heat_pump_biomass_credit",
+        "home_energy_audit_credit",
+        "general_limited_credit_before_heat_pump_biomass",
+        "energy_efficient_home_improvement_credit_before_termination_and_pin_gate",
+        "energy_efficient_home_improvement_credit",
+        "basis_increase_reduction_for_credited_property_expenditure",
+    )
+    rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2023-01-01'
+        formula: '1'"""
+        for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/25C.yaml",
+        f"""format: rulespec/v1
+rules:
+{rules}
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="ira_tax_credits",
+    )
+
+    assert report["total_outputs"] == len(output_names)
+    assert report["status_counts"] == {"known_not_comparable": len(output_names)}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_credit = items_by_id[
+        "us:statutes/26/25C#energy_efficient_home_improvement_credit"
+    ]
+    audit_credit = items_by_id["us:statutes/26/25C#home_energy_audit_credit"]
+    door_limit = items_by_id["us:statutes/26/25C#exterior_door_per_door_credit_limit"]
+
+    assert final_credit["policyengine_variable"] == (
+        "energy_efficient_home_improvement_credit"
+    )
+    assert "pre-current-law 2033 in-effect schedule" in final_credit["rationale"]
+    assert "product-identification-number gate" in final_credit["rationale"]
+    assert audit_credit["policyengine_variable"] == "capped_home_energy_audit_credit"
+    assert "return-documentation condition" in audit_credit["rationale"]
+    assert door_limit["policyengine_variable"] is None
 
 
 def test_policyengine_coverage_classifies_7_cfr_275_admin_prefix(tmp_path):

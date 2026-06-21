@@ -1907,10 +1907,13 @@ surfaces:
   coverage: US
   variable: energy_efficient_home_improvement_credit
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    RuleSpec PR 428 encodes current-law section 25C, but PolicyEngine's energy_efficient_home_improvement_credit
+    still uses the pre-current-law 2033 in-effect schedule, lacks the section 25C(h) product-identification-number gate,
+    and computes tax-liability limiting through PE's full tax stack rather than the legal boundary inputs exposed in RuleSpec;
+    see PolicyEngine/policyengine-us#8703.
 - country: us
   program_id: doe_high_efficiency_rebate
   program_name: DOE high efficiency rebate
@@ -1959,10 +1962,11 @@ surfaces:
   coverage: CO
   variable: co_chp
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: out_of_scope
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine's co_chp variable reports modeled annual expense savings after applying CHP+ eligibility, copay,
+    and medical-expense assumptions. It is not a direct statutory cash benefit or eligibility output. RuleSpec should compare
+    Colorado CHP+ eligibility, income-limit, copay, out-of-pocket, and state-set parameter rules separately.
 - country: us
   program_id: co_omnisalud
   program_name: Colorado OmniSalud
@@ -1972,10 +1976,11 @@ surfaces:
   coverage: CO
   variable: co_omnisalud
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: out_of_scope
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine's co_omnisalud variable reports a modeled annual premium-subsidy value equal to the household's
+    SLCSP premium when eligibility holds. It is not a direct statutory amount. RuleSpec should compare Colorado OmniSalud
+    eligibility, immigration-status, income-limit, program-effect, and premium-assistance component rules separately.
 - country: us
   program_id: dc_power
   program_name: DC Power
