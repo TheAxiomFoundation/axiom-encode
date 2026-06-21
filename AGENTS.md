@@ -1,5 +1,11 @@
 # Axiom Encode Agent Instructions
 
+## Workflow Scope
+
+- Use this repository's docs, CLI commands, RuleSpec specs, oracle registry, eval suites, and validation pipeline as the operating procedure for Axiom work.
+- Do not use PolicyEngine workflow skills or PolicyEngine implementation skills for Axiom encoding, RuleSpec, corpus, or oracle-parity tasks. PolicyEngine is an oracle/comparison dependency here, not the workflow owner.
+- If a reusable workflow is missing, add or propose an Axiom-specific Codex skill or project instruction instead of borrowing a PolicyEngine skill.
+
 ## PR Discipline
 
 - Every PR to `TheAxiomFoundation/axiom-encode` must go through `/cycle` or an equivalent review-fix loop before it is marked ready for review, and again before merge if substantive changes were made after review. Draft PRs may be opened before the cycle when needed to get CI or review context.
