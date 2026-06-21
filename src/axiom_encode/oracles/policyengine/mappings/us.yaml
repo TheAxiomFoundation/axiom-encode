@@ -138,6 +138,22 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the original 1974 statutory annual SSI couple base rate in 42 USC 1382(b); PolicyEngine stores final monthly federal benefit-rate parameters after later statutory increases and COLA uprating, not this base amount as a comparable parameter cell.
 
+  - legal_id: us:statutes/42/1382/b#annual_benefit_without_eligible_spouse
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: ssi
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 1382(b)(1) source-level annual benefit formula for an eligible individual without an eligible spouse before broader eligibility, resource, take-up, and modeled administrative assumptions. PolicyEngine's closest exposed surface is final person-level SSI, which includes those additional gates and therefore is not a one-to-one oracle for this branch output.
+
+  - legal_id: us:statutes/42/1382/b#annual_benefit_with_eligible_spouse
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: tax_unit_ssi
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 1382(b)(2) source-level annual benefit formula using the eligible-spouse/couple rate and combined non-excluded income. PolicyEngine's closest exposed aggregate is tax-unit SSI, but it sums person-level final SSI after eligibility, take-up, and model-specific couple allocation, so it is not a one-to-one oracle for this statutory branch output.
+
   - legal_id: us:statutes/42/1382a/b/2#annual_general_income_exclusion_limit
     country: us
     program: ssi
