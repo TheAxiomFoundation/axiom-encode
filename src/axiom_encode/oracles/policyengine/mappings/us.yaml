@@ -15523,6 +15523,156 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 25D(c) carryforward amount as a separate variable.
 
+  - legal_id: us:statutes/26/25C#energy_efficient_home_improvement_credit_rate
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: RuleSpec exposes the unified section 25C(a) post-2022 rate across improvements, property, and audits, while PolicyEngine stores separate rate parameters with different historical structure.
+
+  - legal_id: us:statutes/26/25C#general_annual_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.total
+    rationale: Same broad $1,200 annual cap amount, but PolicyEngine applies it inside a stale lifetime/in-effect graph; promote to parameter comparison only with a dedicated 25C parameter test surface.
+
+  - legal_id: us:statutes/26/25C#qualified_energy_property_item_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.energy_efficient_building_property
+    rationale: Same broad $600 qualified-energy-property cap amount, but PolicyEngine applies it through property-specific helpers and a stale in-effect graph rather than this statutory item-cap output.
+
+  - legal_id: us:statutes/26/25C#windows_and_skylights_aggregate_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.window
+    rationale: Same broad $600 windows-and-skylights amount, but PolicyEngine combines it with a pre-current-law lifetime window cap surface, so it is not an exact oracle target for current section 25C.
+
+  - legal_id: us:statutes/26/25C#exterior_door_per_door_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the aggregate exterior-door cap but does not expose the section 25C(b)(4)(A) $250 per-door cap as a separate parameter or output.
+
+  - legal_id: us:statutes/26/25C#exterior_doors_aggregate_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.door
+    rationale: Same broad $500 aggregate exterior-door amount, but PolicyEngine omits the per-door cap and therefore is not an exact oracle target for the statutory door-limit pair.
+
+  - legal_id: us:statutes/26/25C#heat_pump_biomass_aggregate_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.heat_pump_heat_pump_water_heater_biomass_stove_boiler
+    rationale: Same broad $2,000 cap amount, but PolicyEngine applies it through rebate-adjusted helper variables and a stale in-effect graph, not as this current-law statutory cap output.
+
+  - legal_id: us:statutes/26/25C#home_energy_audit_credit_limit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.home_energy_audit
+    rationale: Same broad $150 cap amount, but PolicyEngine's audit helper lacks the section 25C(e)(2) substantiation gate encoded by RuleSpec.
+
+  - legal_id: us:statutes/26/25C#qualified_energy_efficiency_improvement_minimum_expected_use_years
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(c)(1)(B) five-year expected-use property-classification threshold as a parameter or output.
+
+  - legal_id: us:statutes/26/25C#biomass_stove_or_boiler_minimum_thermal_efficiency_rate
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(d)(2)(B) biomass thermal-efficiency threshold as a parameter or output.
+
+  - legal_id: us:statutes/26/25C#panelboard_minimum_load_capacity_amps
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(d)(2)(D)(ii) panelboard load-capacity threshold as a parameter or output.
+
+  - legal_id: us:statutes/26/25C#eligible_fuel_blend_minimum_volume_rate
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(d)(3)(B) eligible-fuel blend threshold as a parameter or output.
+
+  - legal_id: us:statutes/26/25C#home_energy_auditor_guidance_deadline_days_after_enactment
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(e)(4) Secretary guidance deadline as a parameter or output.
+
+  - legal_id: us:statutes/26/25C#windows_and_skylights_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: capped_energy_efficient_window_credit
+    rationale: PolicyEngine's window helper applies a stale lifetime window cap and prior-credit subtraction, while RuleSpec encodes the current-law annual windows-and-skylights component.
+
+  - legal_id: us:statutes/26/25C#exterior_doors_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: capped_energy_efficient_door_credit
+    rationale: PolicyEngine's exterior-door helper omits the $250 per-door cap, so it is not an exact oracle target for RuleSpec's section 25C(b)(4) door component.
+
+  - legal_id: us:statutes/26/25C#other_envelope_improvements_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine splits non-window, non-door envelope improvements into separate insulation and roof helpers and does not expose this combined statutory component.
+
+  - legal_id: us:statutes/26/25C#non_heat_pump_residential_energy_property_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine splits non-heat-pump residential energy property into several rebate-adjusted helpers and does not expose this combined section 25C(a)(2)/(b)(2) component.
+
+  - legal_id: us:statutes/26/25C#heat_pump_biomass_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: capped_heat_pump_heat_pump_water_heater_biomass_stove_boiler_credit
+    rationale: PolicyEngine's heat-pump/biomass helper subtracts rebate variables and lives in a stale in-effect graph, while RuleSpec exposes the statutory current-law component before the final PIN and termination gates.
+
+  - legal_id: us:statutes/26/25C#home_energy_audit_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: capped_home_energy_audit_credit
+    rationale: PolicyEngine caps audit expenditures but does not encode the section 25C(e)(2) return-documentation condition that can zero the audit component.
+
+  - legal_id: us:statutes/26/25C#general_limited_credit_before_heat_pump_biomass
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes a broader potential credit using its own qualified-expenditure helper list, lifetime cap, and stale in-effect parameter rather than this pre-heat-pump current-law annual cap subtotal.
+
+  - legal_id: us:statutes/26/25C#energy_efficient_home_improvement_credit_before_termination_and_pin_gate
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: energy_efficient_home_improvement_credit_potential
+    rationale: PolicyEngine's potential credit includes stale lifetime/in-effect handling and no product-identification-number gate; it is not this current-law pre-termination/PIN subtotal.
+
+  - legal_id: us:statutes/26/25C#energy_efficient_home_improvement_credit
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    policyengine_variable: energy_efficient_home_improvement_credit
+    rationale: Same final section 25C credit surface, but PolicyEngine still uses the pre-current-law 2033 in-effect schedule, does not include the section 25C(h) product-identification-number gate, and computes the tax-liability limit through its full tax stack; see PolicyEngine/policyengine-us#8703.
+
+  - legal_id: us:statutes/26/25C#basis_increase_reduction_for_credited_property_expenditure
+    country: us
+    program: ira_tax_credits
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 25C(g) basis-reduction amount as a separate variable.
+
 prefixes:
   - legal_id_prefix: us:statutes/5/5566#
     country: us
