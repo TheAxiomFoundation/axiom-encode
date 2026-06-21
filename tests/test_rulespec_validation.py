@@ -2398,6 +2398,18 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert ssi_couple_fbr_mapping.mapping_type == "parameter_value"
     assert ssi_couple_fbr_mapping.policyengine_parameter == "gov.ssa.ssi.amount.couple"
     assert ssi_couple_fbr_mapping.result_multiplier == 12
+    ssi_individual_benefit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382/b#annual_benefit_without_eligible_spouse",
+        country="us",
+    )
+    assert ssi_individual_benefit_mapping.mapping_type == "not_comparable"
+    assert ssi_individual_benefit_mapping.policyengine_variable == "ssi"
+    ssi_couple_benefit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382/b#annual_benefit_with_eligible_spouse",
+        country="us",
+    )
+    assert ssi_couple_benefit_mapping.mapping_type == "not_comparable"
+    assert ssi_couple_benefit_mapping.policyengine_variable == "tax_unit_ssi"
     maximum_allotment_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table",
         country="us",

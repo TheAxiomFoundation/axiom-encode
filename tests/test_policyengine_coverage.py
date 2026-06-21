@@ -398,6 +398,18 @@ rules:
     versions:
       - effective_from: '1974-01-01'
         formula: 2628
+  - name: annual_benefit_without_eligible_spouse
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1200
+  - name: annual_benefit_with_eligible_spouse
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1800
 """,
     )
     _write_rulespec_file(
@@ -499,10 +511,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="ssi")
 
-    assert report["total_outputs"] == 19
+    assert report["total_outputs"] == 21
     assert report["status_counts"] == {
         "comparable": 4,
-        "known_not_comparable": 14,
+        "known_not_comparable": 16,
         "unmapped": 1,
     }
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -535,6 +547,18 @@ rules:
             "us:statutes/42/1382/b#statutory_base_annual_rate_with_eligible_spouse"
         ]["policyengine_parameter"]
         == "gov.ssa.ssi.amount.couple"
+    )
+    assert (
+        items_by_id["us:statutes/42/1382/b#annual_benefit_without_eligible_spouse"][
+            "policyengine_variable"
+        ]
+        == "ssi"
+    )
+    assert (
+        items_by_id["us:statutes/42/1382/b#annual_benefit_with_eligible_spouse"][
+            "policyengine_variable"
+        ]
+        == "tax_unit_ssi"
     )
     assert (
         items_by_id[
