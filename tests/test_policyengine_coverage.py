@@ -434,6 +434,30 @@ rules:
     versions:
       - effective_from: '1975-01-01'
         formula: 1
+  - name: prior_rounding_carryover_increase_for_section_1382_b_1_amount
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 0
+  - name: amount_determined_under_section_1382f_for_section_1382_b_1
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 1200
+  - name: prior_rounding_carryover_increase_for_section_1382_b_2_amount
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 0
+  - name: amount_determined_under_section_1382f_for_section_1382_b_2
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1975-01-01'
+        formula: 1800
 """,
     )
     _write_rulespec_file(
@@ -475,10 +499,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="ssi")
 
-    assert report["total_outputs"] == 15
+    assert report["total_outputs"] == 19
     assert report["status_counts"] == {
-        "comparable": 2,
-        "known_not_comparable": 12,
+        "comparable": 4,
+        "known_not_comparable": 14,
         "unmapped": 1,
     }
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -523,6 +547,18 @@ rules:
             "policyengine_parameter"
         ]
         == "gov.ssa.ssi.eligibility.resources.limit.individual"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_1"
+        ]["policyengine_parameter"]
+        == "gov.ssa.ssi.amount.individual"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_2"
+        ]["policyengine_parameter"]
+        == "gov.ssa.ssi.amount.couple"
     )
     assert (
         items_by_id[

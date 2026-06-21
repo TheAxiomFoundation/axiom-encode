@@ -2381,6 +2381,23 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert ssi_blind_expense_mapping.mapping_type == "not_comparable"
     assert ssi_blind_expense_mapping.policyengine_variable == "ssi_countable_income"
+    ssi_individual_fbr_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_1",
+        country="us",
+    )
+    assert ssi_individual_fbr_mapping.mapping_type == "parameter_value"
+    assert (
+        ssi_individual_fbr_mapping.policyengine_parameter
+        == "gov.ssa.ssi.amount.individual"
+    )
+    assert ssi_individual_fbr_mapping.result_multiplier == 12
+    ssi_couple_fbr_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_2",
+        country="us",
+    )
+    assert ssi_couple_fbr_mapping.mapping_type == "parameter_value"
+    assert ssi_couple_fbr_mapping.policyengine_parameter == "gov.ssa.ssi.amount.couple"
+    assert ssi_couple_fbr_mapping.result_multiplier == 12
     maximum_allotment_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table",
         country="us",

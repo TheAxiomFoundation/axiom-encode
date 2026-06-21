@@ -286,6 +286,44 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the 42 USC 1382f(a) post-COLA amount before it is folded into final monthly SSI benefit-rate parameters; PolicyEngine does not expose this statutory intermediate as a comparable target.
 
+  - legal_id: us:statutes/42/1382f/a#prior_rounding_carryover_increase_for_section_1382_b_1_amount
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the branch-specific annual rounding carryover used to determine the individual SSI federal benefit rate under 42 USC 1382f(a); PolicyEngine materializes the final monthly amount and does not expose this carryover intermediate.
+
+  - legal_id: us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_1
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 12
+    rationale: Same federal SSI individual benefit-rate amount, with PolicyEngine storing the monthly parameter and RuleSpec encoding the annual amount determined under 42 USC 1382f(a) for section 1382(b)(1).
+
+  - legal_id: us:statutes/42/1382f/a#prior_rounding_carryover_increase_for_section_1382_b_2_amount
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    candidate_priority: P4
+    rationale: RuleSpec exposes the branch-specific annual rounding carryover used to determine the couple SSI federal benefit rate under 42 USC 1382f(a); PolicyEngine materializes the final monthly amount and does not expose this carryover intermediate.
+
+  - legal_id: us:statutes/42/1382f/a#amount_determined_under_section_1382f_for_section_1382_b_2
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 12
+    rationale: Same federal SSI couple benefit-rate amount, with PolicyEngine storing the monthly parameter and RuleSpec encoding the annual amount determined under 42 USC 1382f(a) for section 1382(b)(2).
+
   - legal_id: us:statutes/42/1382f/c#dollar_amount_increase_for_section_1382_a_1_a_and_b_1
     country: us
     program: ssi
