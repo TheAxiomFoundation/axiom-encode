@@ -86,6 +86,42 @@ mappings:
     comparison: rate
     rationale: Same federal SNAP earned-income deduction rate.
 
+  - legal_id: us:statutes/42/1382/a/3#resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.eligibility.resources.limit.couple
+    candidate_priority: P4
+    rationale: RuleSpec exposes the raw 42 USC 1382(a)(3)(A) schedule for the amount referred to by paragraph (1)(B)(i) and paragraph (2)(B). Compare the applied `couple_or_living_with_spouse_resource_limit` output to PolicyEngine's SSI couple resource-limit parameter instead.
+
+  - legal_id: us:statutes/42/1382/a/3#resource_limit_amount_for_paragraph_1_B_ii
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.eligibility.resources.limit.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the raw 42 USC 1382(a)(3)(B) schedule for the amount referred to by paragraph (1)(B)(ii). Compare the applied `individual_no_spouse_resource_limit` output to PolicyEngine's SSI individual resource-limit parameter instead.
+
+  - legal_id: us:statutes/42/1382/a/3#couple_or_living_with_spouse_resource_limit
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.eligibility.resources.limit.couple
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal SSI resource limit for an eligible couple, and for an individual living with a spouse under 42 USC 1382(a)(1)(B)(i).
+
+  - legal_id: us:statutes/42/1382/a/3#individual_no_spouse_resource_limit
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.eligibility.resources.limit.individual
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal SSI resource limit for an individual with no spouse living with the individual under 42 USC 1382(a)(1)(B)(ii).
+
   - legal_id: us:statutes/42/1382/b#statutory_base_annual_rate_without_eligible_spouse
     country: us
     program: ssi

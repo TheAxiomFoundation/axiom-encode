@@ -339,6 +339,50 @@ def test_policyengine_coverage_classifies_federal_ssi_benefit_rate_intermediates
     tmp_path,
 ):
     _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382/a/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 2250
+      - effective_from: '1989-01-01'
+        formula: 3000
+  - name: resource_limit_amount_for_paragraph_1_B_ii
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1500
+      - effective_from: '1989-01-01'
+        formula: 2000
+  - name: couple_or_living_with_spouse_resource_limit
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
+  - name: individual_no_spouse_resource_limit
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1974-01-01'
+        formula: resource_limit_amount_for_paragraph_1_B_ii
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382/a/3.test.yaml",
+        """- name: resource_limits_on_january_1989
+  period: 1989-01
+  input: {}
+  output:
+    us:statutes/42/1382/a/3#couple_or_living_with_spouse_resource_limit: 3000
+    us:statutes/42/1382/a/3#individual_no_spouse_resource_limit: 2000
+""",
+    )
+    _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/42/1382/b.yaml",
         """format: rulespec/v1
 rules:
@@ -431,9 +475,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="ssi")
 
-    assert report["total_outputs"] == 11
+    assert report["total_outputs"] == 15
     assert report["status_counts"] == {
-        "known_not_comparable": 10,
+        "comparable": 2,
+        "known_not_comparable": 12,
         "unmapped": 1,
     }
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -466,6 +511,24 @@ rules:
             "us:statutes/42/1382/b#statutory_base_annual_rate_with_eligible_spouse"
         ]["policyengine_parameter"]
         == "gov.ssa.ssi.amount.couple"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/42/1382/a/3#couple_or_living_with_spouse_resource_limit"
+        ]["policyengine_parameter"]
+        == "gov.ssa.ssi.eligibility.resources.limit.couple"
+    )
+    assert (
+        items_by_id["us:statutes/42/1382/a/3#individual_no_spouse_resource_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.ssa.ssi.eligibility.resources.limit.individual"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/42/1382/a/3#couple_or_living_with_spouse_resource_limit"
+        ]["test_output_count"]
+        == 1
     )
 
 
