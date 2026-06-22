@@ -20278,6 +20278,36 @@ def cmd_encode(args):
             if not can_apply:
                 repaired_bare_snapunit_entities: list[str] = []
                 while not can_apply:
+                    repaired_predecessor_scalar_limits = (
+                        _try_repair_generated_predecessor_scalar_limits_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if repaired_predecessor_scalar_limits:
+                        outcome["auto_repaired_predecessor_scalar_limits"] = (
+                            repaired_predecessor_scalar_limits
+                        )
+                        print(
+                            "  apply=auto_repaired_predecessor_scalar_limits:"
+                            + ",".join(repaired_predecessor_scalar_limits)
+                        )
+                        can_apply, apply_issues, supplemental_files = (
+                            _validate_generated_encoding_in_policy_overlay(
+                                result,
+                                output_root=args.output,
+                                policy_repo_path=policy_repo_path,
+                                axiom_rules_path=axiom_rules_path,
+                                validate_dependents=not bool(
+                                    getattr(args, "apply_target_only", False)
+                                ),
+                            )
+                        )
+                        outcome["overlay_validation_success"] = bool(can_apply)
+                        if can_apply:
+                            break
                     repaired_snapunit_pass = (
                         _try_repair_generated_bare_snapunit_entity_for_apply(
                             result,
@@ -20445,6 +20475,34 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_unreferenced_percent_label_parameters:"
                         + ",".join(repaired_percent_label_parameters)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_half_unit_add_person_formulas = (
+                    _try_repair_generated_half_unit_add_person_formulas_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_half_unit_add_person_formulas:
+                    outcome["auto_repaired_half_unit_add_person_formulas"] = (
+                        repaired_half_unit_add_person_formulas
+                    )
+                    print(
+                        "  apply=auto_repaired_half_unit_add_person_formulas:"
+                        + ",".join(repaired_half_unit_add_person_formulas)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -22394,6 +22452,189 @@ def _is_unsupported_entity_helper_rule(
         str(rule.get("source") or ""),
     )
     return bool(source_suffix and source_suffix in affected_suffixes)
+
+
+def _try_repair_generated_predecessor_scalar_limits_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite generated scalar limits that are one below an existing maximum."""
+    literals = _ungrounded_numeric_literal_issue_values(issues)
+    if not literals:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    return _repair_predecessor_scalar_limits(
+        rules_file,
+        ungrounded_literals=literals,
+        target_anchor=target_anchor,
+    )
+
+
+def _ungrounded_numeric_literal_issue_values(issues: list[str]) -> set[int]:
+    values: set[int] = set()
+    pattern = re.compile(r"Ungrounded generated numeric literal:\s+(-?\d+)(?:\D|$)")
+    for issue in issues:
+        match = pattern.search(str(issue))
+        if match is None:
+            continue
+        try:
+            values.add(int(match.group(1)))
+        except ValueError:
+            continue
+    return values
+
+
+def _repair_predecessor_scalar_limits(
+    rules_file: Path,
+    *,
+    ungrounded_literals: set[int],
+    target_anchor: str | None = None,
+) -> list[str]:
+    if not rules_file.exists() or not ungrounded_literals:
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    numeric_parameter_formulas: dict[int, list[str]] = {}
+    referenced_names = _formula_referenced_names(rules)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        value = _single_integer_formula(rule)
+        if not name or value is None:
+            continue
+        numeric_parameter_formulas.setdefault(value, []).append(name)
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name.endswith("_scalar_limit"):
+            continue
+        if name not in referenced_names:
+            continue
+        literal = _single_integer_formula(rule)
+        if literal is None or literal not in ungrounded_literals:
+            continue
+        predecessor_of = _single_predecessor_maximum_parameter(
+            numeric_parameter_formulas.get(literal + 1, [])
+        )
+        if predecessor_of is None:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            if str(version.get("formula") or "").strip() == str(literal):
+                version["formula"] = f"{predecessor_of} - 1"
+                changed = True
+        if not changed:
+            continue
+        if target_anchor:
+            _add_formula_proof_import(
+                rule,
+                target=f"{target_anchor}#{predecessor_of}",
+                output=predecessor_of,
+            )
+        repaired.append(name)
+
+    repaired = list(dict.fromkeys(repaired))
+    if repaired:
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+    return repaired
+
+
+def _formula_referenced_names(rules: list[Any]) -> set[str]:
+    rule_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    referenced: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        own_name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", formula):
+                if token != own_name and token in rule_names:
+                    referenced.add(token)
+    return referenced
+
+
+def _single_integer_formula(rule: dict[str, Any]) -> int | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return None
+    values: set[int] = set()
+    for version in versions:
+        if not isinstance(version, dict):
+            return None
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            return None
+        text = formula.strip()
+        if not re.fullmatch(r"-?\d+", text):
+            return None
+        try:
+            values.add(int(text))
+        except ValueError:
+            return None
+    if len(values) != 1:
+        return None
+    return next(iter(values))
+
+
+def _single_predecessor_maximum_parameter(candidates: list[str]) -> str | None:
+    maximum_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.startswith("maximum_") or candidate.startswith("max_")
+    ]
+    if len(maximum_candidates) != 1:
+        return None
+    return maximum_candidates[0]
 
 
 def _bare_snapunit_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:
@@ -29402,6 +29643,87 @@ def _test_output_targets_removed_rule(
     return key_text in removed_names
 
 
+def _try_repair_generated_half_unit_add_person_formulas_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Repair generated formulas that apply per-person add-ons per half unit."""
+    if not any(
+        "expected integer" in str(issue) and "got decimal" in str(issue)
+        for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_half_unit_add_person_formulas(rules_file)
+
+
+def _repair_half_unit_add_person_formulas(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_repaired = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            updated = _repair_half_unit_add_person_formula_text(formula)
+            if updated != formula:
+                version["formula"] = updated
+                rule_repaired = True
+        if rule_repaired:
+            repaired.append(str(rule.get("name") or ""))
+
+    repaired = list(dict.fromkeys(name for name in repaired if name))
+    if repaired:
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+    return repaired
+
+
+def _repair_half_unit_add_person_formula_text(formula: str) -> str:
+    half_unit_delta = (
+        r"filing_unit_size_half_units\s*-\s*"
+        r"\(\s*maximum_listed_filing_unit_half_units\s*-\s*1\s*\)"
+    )
+    pattern = re.compile(
+        rf"\(\(\s*(?P<delta>{half_unit_delta})\s*\)\s*\*\s*"
+        rf"(?P<amount>[A-Za-z_][A-Za-z0-9_]*)\s*\)"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        delta = re.sub(r"\s+", " ", match.group("delta")).strip()
+        amount = match.group("amount")
+        return f"((({delta}) / 2) * {amount})"
+
+    return pattern.sub(replace, formula)
+
+
 def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
     if not rules_file.exists():
         return []
@@ -29719,21 +30041,56 @@ def _repair_float_keyed_indexed_parameter_values(
         if not key_map:
             continue
         index_rule = rule_by_name.get(indexed_by)
+        table_names = [
+            str(rule.get("name") or "").strip()
+            for rule in parameter_rules
+            if str(rule.get("name") or "").strip()
+        ]
+        created_selector = False
         if not isinstance(index_rule, dict):
-            continue
+            selector_name = _missing_float_key_selector_name(indexed_by, rule_by_name)
+            index_rule = _build_float_key_selector_rule(
+                selector_name=selector_name,
+                source_index_name=indexed_by,
+                key_map=key_map,
+                parameter_rules=parameter_rules,
+                rules=rules,
+            )
+            if index_rule is None:
+                continue
+            first_index = min(rules.index(rule) for rule in parameter_rules)
+            rules.insert(first_index, index_rule)
+            rule_by_name[selector_name] = index_rule
+            target_indexed_by = selector_name
+            created_selector = True
+        else:
+            target_indexed_by = indexed_by
         changed = False
         if index_rule.get("dtype") != "Integer":
             index_rule["dtype"] = "Integer"
             changed = True
-        if _rewrite_selector_rule_float_returns(index_rule, key_map):
+        if not created_selector and _rewrite_selector_rule_float_returns(
+            index_rule, key_map
+        ):
             changed = True
         for parameter_rule in parameter_rules:
+            if parameter_rule.get("indexed_by") != target_indexed_by:
+                parameter_rule["indexed_by"] = target_indexed_by
+                changed = True
             if _remap_versioned_values_to_integer_keys(parameter_rule, key_map):
                 changed = True
                 repaired.append(str(parameter_rule.get("name") or ""))
+        if _rewrite_indexed_parameter_lookup_keys(
+            rules,
+            table_names=table_names,
+            old_indexed_by=indexed_by,
+            new_indexed_by=target_indexed_by,
+            key_map=key_map,
+        ):
+            changed = True
         if changed:
-            repaired.append(indexed_by)
-            selector_key_maps[indexed_by] = key_map
+            repaired.append(target_indexed_by)
+            selector_key_maps[target_indexed_by] = key_map
 
     repaired = list(dict.fromkeys(name for name in repaired if name))
     if not repaired:
@@ -29742,6 +30099,321 @@ def _repair_float_keyed_indexed_parameter_values(
     if test_file is not None and selector_key_maps:
         _repair_float_keyed_indexed_parameter_test_outputs(test_file, selector_key_maps)
     return repaired
+
+
+def _missing_float_key_selector_name(
+    indexed_by: str,
+    rule_by_name: dict[str, dict[str, object]],
+) -> str:
+    base = f"{indexed_by}_band"
+    if base not in rule_by_name:
+        return base
+    ordinal = 2
+    while f"{base}_{ordinal}" in rule_by_name:
+        ordinal += 1
+    return f"{base}_{ordinal}"
+
+
+def _build_float_key_selector_rule(
+    *,
+    selector_name: str,
+    source_index_name: str,
+    key_map: dict[float, int],
+    parameter_rules: list[dict[str, object]],
+    rules: list[object],
+) -> dict[str, object] | None:
+    if not key_map:
+        return None
+    entity, period = _infer_float_key_selector_scope(
+        table_names=[
+            str(rule.get("name") or "").strip()
+            for rule in parameter_rules
+            if str(rule.get("name") or "").strip()
+        ],
+        rules=rules,
+    )
+    if not entity or not period:
+        return None
+    effective_from = _earliest_parameter_effective_from(parameter_rules)
+    if not effective_from:
+        return None
+    source = _first_rule_source(parameter_rules)
+    formula = _exact_key_selector_formula(source_index_name, key_map)
+    if not formula:
+        return None
+    selector: dict[str, object] = {
+        "name": selector_name,
+        "kind": "derived",
+        "entity": entity,
+        "dtype": "Integer",
+        "period": period,
+        "source": source
+        or f"Generated integer row selector for {source_index_name} table labels",
+        "versions": [
+            {
+                "effective_from": effective_from,
+                "formula": formula,
+            }
+        ],
+    }
+    proof = _first_rule_table_source(parameter_rules)
+    if proof is not None:
+        selector["metadata"] = {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "parameter_table",
+                        "source": proof,
+                    }
+                ]
+            }
+        }
+    return selector
+
+
+def _infer_float_key_selector_scope(
+    *,
+    table_names: list[str],
+    rules: list[object],
+) -> tuple[str | None, str | None]:
+    if not table_names:
+        return None, None
+    lookup_patterns = [
+        re.compile(rf"\b{re.escape(table_name)}\s*\[") for table_name in table_names
+    ]
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "derived",
+            "derived_relation",
+        }:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        formulas = [
+            str(version.get("formula") or "")
+            for version in versions
+            if isinstance(version, dict)
+        ]
+        if not any(
+            pattern.search(formula)
+            for pattern in lookup_patterns
+            for formula in formulas
+        ):
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        period = str(rule.get("period") or "").strip()
+        if entity and period:
+            return entity, period
+    return None, None
+
+
+def _earliest_parameter_effective_from(
+    parameter_rules: list[dict[str, object]],
+) -> str | None:
+    dates: list[str] = []
+    for rule in parameter_rules:
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            effective_from = str(version.get("effective_from") or "").strip()
+            if effective_from:
+                dates.append(effective_from)
+    return min(dates) if dates else None
+
+
+def _first_rule_source(parameter_rules: list[dict[str, object]]) -> str | None:
+    for rule in parameter_rules:
+        source = rule.get("source")
+        if isinstance(source, str) and source.strip():
+            return source.strip()
+    return None
+
+
+def _first_rule_table_source(
+    parameter_rules: list[dict[str, object]],
+) -> dict[str, object] | None:
+    for rule in parameter_rules:
+        metadata = rule.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        proof = metadata.get("proof")
+        if not isinstance(proof, dict):
+            continue
+        atoms = proof.get("atoms")
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if isinstance(source, dict):
+                return copy.deepcopy(source)
+    return None
+
+
+def _exact_key_selector_formula(
+    source_index_name: str,
+    key_map: dict[float, int],
+) -> str | None:
+    linear_formula = _linear_integer_band_selector_formula(source_index_name, key_map)
+    if linear_formula is not None:
+        return linear_formula
+    branches = sorted(key_map.items(), key=lambda item: item[0], reverse=True)
+    if not branches:
+        return None
+    formula = "-1"
+    for numeric_key, band_id in branches:
+        key_literal = _formula_scalar_literal(numeric_key)
+        if key_literal is None:
+            return None
+        formula = f"if {source_index_name} == {key_literal}: {band_id} else: {formula}"
+    return formula
+
+
+def _linear_integer_band_selector_formula(
+    source_index_name: str,
+    key_map: dict[float, int],
+) -> str | None:
+    if len(key_map) < 2:
+        return None
+    try:
+        ordered = sorted(
+            (Decimal(str(numeric_key)), band_id)
+            for numeric_key, band_id in key_map.items()
+        )
+    except (InvalidOperation, ValueError):
+        return None
+    band_ids = [band_id for _, band_id in ordered]
+    if band_ids != list(range(len(band_ids))):
+        return None
+    steps = [
+        ordered[index + 1][0] - ordered[index][0] for index in range(len(ordered) - 1)
+    ]
+    if not steps or any(step != steps[0] for step in steps):
+        return None
+    step = steps[0]
+    if step <= 0:
+        return None
+    multiplier = Decimal(1) / step
+    if multiplier != multiplier.to_integral_value():
+        return None
+    offset = ordered[0][0] * multiplier
+    if offset != offset.to_integral_value():
+        return None
+    multiplier_text = str(int(multiplier))
+    offset_int = int(offset)
+    formula = f"floor({source_index_name} * {multiplier_text})"
+    if offset_int > 0:
+        formula = f"{formula} - {offset_int}"
+    elif offset_int < 0:
+        formula = f"{formula} + {abs(offset_int)}"
+    return formula
+
+
+def _rewrite_indexed_parameter_lookup_keys(
+    rules: list[object],
+    *,
+    table_names: list[str],
+    old_indexed_by: str,
+    new_indexed_by: str,
+    key_map: dict[float, int],
+) -> bool:
+    if not table_names:
+        return False
+    scalar_key_map = _scalar_parameter_band_key_map(rules, key_map)
+    changed = False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            updated = formula
+            for table_name in table_names:
+                updated = _rewrite_single_indexed_parameter_lookup_key(
+                    updated,
+                    table_name=table_name,
+                    old_indexed_by=old_indexed_by,
+                    new_indexed_by=new_indexed_by,
+                    key_map=key_map,
+                    scalar_key_map=scalar_key_map,
+                )
+            if updated != formula:
+                version["formula"] = updated
+                changed = True
+    return changed
+
+
+def _scalar_parameter_band_key_map(
+    rules: list[object],
+    key_map: dict[float, int],
+) -> dict[str, int]:
+    scalar_map: dict[str, int] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not name or not isinstance(versions, list) or len(versions) != 1:
+            continue
+        version = versions[0]
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        numeric = _numeric_value_from_yaml(formula)
+        replacement = key_map.get(numeric) if math.isfinite(numeric) else None
+        if replacement is not None:
+            scalar_map[name] = replacement
+    return scalar_map
+
+
+def _rewrite_single_indexed_parameter_lookup_key(
+    formula: str,
+    *,
+    table_name: str,
+    old_indexed_by: str,
+    new_indexed_by: str,
+    key_map: dict[float, int],
+    scalar_key_map: dict[str, int],
+) -> str:
+    pattern = re.compile(
+        rf"\b{re.escape(table_name)}\s*\[\s*(?P<expr>[A-Za-z0-9_#.\-]+)\s*\]"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        expr = match.group("expr")
+        replacement: str | None = None
+        if expr == old_indexed_by:
+            replacement = new_indexed_by
+        elif expr in scalar_key_map:
+            replacement = str(scalar_key_map[expr])
+        else:
+            numeric = _numeric_value_from_yaml(expr)
+            mapped = key_map.get(numeric) if math.isfinite(numeric) else None
+            if mapped is not None:
+                replacement = str(mapped)
+        if replacement is None:
+            return match.group(0)
+        return f"{table_name}[{replacement}]"
+
+    return pattern.sub(replace, formula)
 
 
 def _rule_has_non_integer_versioned_value_key(rule: dict[str, object]) -> bool:
