@@ -219,10 +219,12 @@ surfaces:
   variable: ny_tanf
   source_type: state_implementation
   state: NY
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include a runnable us-ny/tanf FY 2026 composition over tested State Plan standard-of-need,
+    grant, home-energy, shelter-cap, asset, and income-disregard legal slices. Direct oracle comparison should wait for a
+    New York TANF adapter that targets the same source-faithful monthly boundaries; PolicyEngine's ny_tanf is a final annual
+    program variable with its own graph and older parameterization, and the Axiom shelter table remains partially deferred.
 - country: us
   program_id: tanf
   program_name: Massachusetts TAFDC
