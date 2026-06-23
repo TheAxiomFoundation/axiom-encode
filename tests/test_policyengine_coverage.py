@@ -124,9 +124,7 @@ outputs:
     assert report["total_outputs"] == 2
     assert report["status_counts"] == {"known_not_comparable": 2}
     items_by_id = {item["legal_id"]: item for item in report["items"]}
-    payment_standard = items_by_id[
-        "us-fl:programs/tca/fy-2026#fl_tca_payment_standard"
-    ]
+    payment_standard = items_by_id["us-fl:programs/tca/fy-2026#fl_tca_payment_standard"]
     assert payment_standard["repo"] == "rulespec-us"
     assert payment_standard["file"] == "programs/us-fl/tca/fy-2026.yaml"
     assert payment_standard["kind"] == "program_output"

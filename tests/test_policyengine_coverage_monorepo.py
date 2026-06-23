@@ -131,9 +131,8 @@ def test_monorepo_uk_jurisdiction_directories(tmp_path):
     assert repos == {"rulespec-uk", "rulespec-uk-kingston-upon-thames"}
 
 
-def test_monorepo_skips_non_jurisdiction_directories(tmp_path):
-    """Shared directories such as ``programs/`` are not treated as a
-    jurisdiction, so no ``programs:...`` IDs are emitted."""
+def test_monorepo_program_directory_is_not_a_jurisdiction(tmp_path):
+    """``programs/`` emits program specs without becoming a fake jurisdiction."""
     root = tmp_path / "mono"
     _write(
         root / "rulespec-us" / "us-al" / "policies" / "dhr" / "poe.yaml",
@@ -148,9 +147,11 @@ def test_monorepo_skips_non_jurisdiction_directories(tmp_path):
     report = build_policyengine_coverage_report(root)
     ids = [item["legal_id"] for item in report["items"]]
 
-    assert ids == ["us-al:policies/dhr/poe#brand_new_state_helper_xyz"]
+    assert ids == [
+        "us-al:policies/dhr/poe#brand_new_state_helper_xyz",
+        "us-al:programs/snap/fy-2026#snap_eligible",
+    ]
     assert all(not legal_id.startswith("programs:") for legal_id in ids)
-    assert not any(":programs/" in legal_id for legal_id in ids)
 
 
 def test_fake_monorepo_produces_no_malformed_country_doubled_ids(tmp_path):
