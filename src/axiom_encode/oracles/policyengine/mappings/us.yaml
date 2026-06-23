@@ -366,6 +366,160 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the 47 CFR 54.403(b)(1) carrier application of support to residential service-plan costs. PolicyEngine's lifeline output computes an annual household benefit with cost caps and state supplements rather than this carrier discount-application boundary.
 
+  - legal_id: us:regulations/47-cfr/54/1800#standard_affordable_connectivity_benefit_cap
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.amount.standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal monthly standard Affordable Connectivity Program benefit cap in 47 CFR 54.1800(b), represented in PolicyEngine as the FCC ACP standard amount parameter.
+
+  - legal_id: us:regulations/47-cfr/54/1800#tribal_land_affordable_connectivity_benefit_cap
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.amount.tribal
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal monthly Tribal-land Affordable Connectivity Program benefit cap in 47 CFR 54.1800(b), represented in PolicyEngine as the FCC ACP Tribal amount parameter.
+
+  - legal_id: us:regulations/47-cfr/54/1800#affordable_connectivity_benefit
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level monthly ACP benefit definition from 47 CFR 54.1800(b). PolicyEngine's acp variable is an annual SPM-unit benefit capped by broadband_cost_after_lifeline and zeroed after the program sunset.
+
+  - legal_id: us:regulations/47-cfr/54/1800#eligible_household_income_limit_ratio
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.fpg_limit
+    period: month
+    comparison: rate
+    rationale: Same 200 percent Federal Poverty Guidelines income limit for ACP eligible households in 47 CFR 54.1800(j), represented in PolicyEngine as the FCC ACP FPG limit parameter.
+
+  - legal_id: us:regulations/47-cfr/54/1800/j#federal_poverty_guidelines_income_limit_multiplier
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.fpg_limit
+    period: month
+    comparison: rate
+    rationale: Same 200 percent Federal Poverty Guidelines income limit in the targeted 47 CFR 54.1800(j) eligible-household definition.
+
+  - legal_id: us:regulations/47-cfr/54/1800/j#eligible_household
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: is_acp_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.1800(j) eligible-household definition, including source-level categorical and income paths. PolicyEngine's is_acp_eligible is an annual SPM-unit surface that folds in separate Lifeline categorical lists, excludes Emergency Broadband Benefit enrollment, and omits some source-level verification/provider conditions as separate predicates.
+
+  - legal_id: us:regulations/47-cfr/54/1803#standard_monthly_support_amount_cap
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.amount.standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same monthly standard Affordable Connectivity Program support cap in 47 CFR 54.1803(a), represented in PolicyEngine as the FCC ACP standard amount parameter.
+
+  - legal_id: us:regulations/47-cfr/54/1803#tribal_lands_monthly_support_amount_cap
+    country: us
+    program: acp
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.acp.amount.tribal
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same monthly Tribal-lands Affordable Connectivity Program support cap in 47 CFR 54.1803(a), represented in PolicyEngine as the FCC ACP Tribal amount parameter.
+
+  - legal_id: us:regulations/47-cfr/54/1803#high_cost_area_monthly_support_amount_cap
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the separate enhanced high-cost-area ACP support cap in 47 CFR 54.1803(a). PolicyEngine's acp amount selects only standard versus Tribal-land amounts and does not expose the high-cost-area provider approval branch as a comparable oracle surface.
+
+  - legal_id: us:regulations/47-cfr/54/1803#monthly_affordable_connectivity_benefit_support_amount
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level monthly provider support amount under 47 CFR 54.1803(a), including pass-through certifications and high-cost-area approval. PolicyEngine's acp variable is an annual household benefit capped by broadband_cost_after_lifeline and sunset to zero after June 2024.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_reimbursement_amount_cap
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the separate connected-device reimbursement cap in 47 CFR 54.1803(b). PolicyEngine's ACP surface models broadband-service benefit amounts and does not model the one-time connected-device reimbursement.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_household_charge_lower_bound
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the separate household contribution lower bound for connected-device reimbursement in 47 CFR 54.1803(b)(1). PolicyEngine's ACP surface does not model connected-device reimbursement eligibility.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_household_charge_upper_bound
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the separate household contribution upper bound for connected-device reimbursement in 47 CFR 54.1803(b)(1). PolicyEngine's ACP surface does not model connected-device reimbursement eligibility.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_per_household_limit
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the one-connected-device-per-household limit in 47 CFR 54.1803(b)(2). PolicyEngine's ACP surface does not model connected-device reimbursement.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_reimbursement_available
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes connected-device reimbursement eligibility under 47 CFR 54.1803(b). PolicyEngine's ACP surface does not model connected-device reimbursement availability.
+
+  - legal_id: us:regulations/47-cfr/54/1803#connected_device_reimbursement_amount
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: acp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the connected-device reimbursement amount under 47 CFR 54.1803(b). PolicyEngine's ACP surface does not model connected-device reimbursement amounts.
+
+  - legal_id: us:regulations/47-cfr/54/1805#qualifies_for_affordable_connectivity_program
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: is_acp_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.1805(a) cross-reference to the eligible-household definition. Compare the targeted 54.1800(j) eligibility definition for the source-level eligibility paths; PolicyEngine's is_acp_eligible also includes EBB exclusion and annual SPM-unit aggregation.
+
+  - legal_id: us:regulations/47-cfr/54/1805#qualifies_to_receive_affordable_connectivity_benefit_from_participating_provider
+    country: us
+    program: acp
+    mapping_type: not_comparable
+    policyengine_variable: is_acp_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.1805(b) provider-specific no-duplicate-benefit receipt rule. PolicyEngine's is_acp_eligible is a household/SPM-unit eligibility surface and does not expose provider-specific duplicate-benefit receipt as a comparable output.
+
   - legal_id: us:statutes/42/1382/a/3#resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
     country: us
     program: ssi

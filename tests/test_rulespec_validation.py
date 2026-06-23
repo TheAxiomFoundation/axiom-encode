@@ -3101,6 +3101,40 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
 
 
+def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
+    registry = load_policyengine_registry()
+
+    fpg_mapping = registry.mapping_for_legal_id(
+        "us:regulations/47-cfr/54/1800/j#federal_poverty_guidelines_income_limit_multiplier",
+        country="us",
+    )
+    assert fpg_mapping.mapping_type == "parameter_value"
+    assert fpg_mapping.policyengine_parameter == "gov.fcc.acp.fpg_limit"
+
+    standard_amount_mapping = registry.mapping_for_legal_id(
+        "us:regulations/47-cfr/54/1803#standard_monthly_support_amount_cap",
+        country="us",
+    )
+    assert standard_amount_mapping.mapping_type == "parameter_value"
+    assert (
+        standard_amount_mapping.policyengine_parameter == "gov.fcc.acp.amount.standard"
+    )
+
+    eligible_household_mapping = registry.mapping_for_legal_id(
+        "us:regulations/47-cfr/54/1800/j#eligible_household",
+        country="us",
+    )
+    assert eligible_household_mapping.mapping_type == "not_comparable"
+    assert eligible_household_mapping.policyengine_variable == "is_acp_eligible"
+
+    device_mapping = registry.mapping_for_legal_id(
+        "us:regulations/47-cfr/54/1803#connected_device_reimbursement_amount",
+        country="us",
+    )
+    assert device_mapping.mapping_type == "not_comparable"
+    assert device_mapping.policyengine_variable == "acp"
+
+
 def test_policyengine_oracle_tracks_not_comparable_without_issue_noise(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text("format: rulespec/v1\n")

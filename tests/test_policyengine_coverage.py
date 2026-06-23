@@ -365,6 +365,23 @@ def test_policyengine_program_surface_marks_section_25c_known_not_comparable():
     assert "product-identification-number gate" in section_25c["rationale"]
 
 
+def test_policyengine_program_surface_marks_acp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="acp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    acp = items_by_variable["acp"]
+
+    assert acp["axiom_status"] == "known_not_comparable"
+    assert acp["mapping_count"] >= 1
+    assert acp["comparable_mapping_count"] == 0
+    assert (
+        "us:regulations/47-cfr/54/1803#monthly_affordable_connectivity_benefit_support_amount"
+        in acp["legal_ids"]
+    )
+    assert "broadband_cost_after_lifeline" in acp["rationale"]
+    assert "connected-device" in acp["rationale"]
+
+
 def test_policyengine_program_surface_marks_colorado_oap_wired():
     report = build_policyengine_program_surface_report(program="co_oap")
 
