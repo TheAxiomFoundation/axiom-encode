@@ -1846,12 +1846,13 @@ surfaces:
   variable: acp
   source_type: program
   axiom_status: known_not_comparable
-  priority: P1
+  priority: P3
   rationale: Axiom encodes ACP benefit caps, the 200 percent FPG income limit, source-level eligible-household paths, provider
     receipt constraints, and connected-device reimbursement from 47 CFR 54.1800, 54.1803, and 54.1805. PolicyEngine's acp
     variable is an annual SPM-unit broadband benefit capped by broadband_cost_after_lifeline and sunset to zero after June
-    2024; Axiom maps comparable federal parameters separately and classifies source-level eligibility, provider-support,
-    high-cost-area, and connected-device outputs.
+    2024, so ACP is historical/sunset and should not be prioritized ahead of active current-law surfaces. Axiom maps comparable
+    federal parameters separately and classifies source-level eligibility, provider-support, high-cost-area, and connected-device
+    outputs.
 - country: us
   program_id: pell_grant
   program_name: Pell Grant
@@ -1887,10 +1888,13 @@ surfaces:
   coverage: US
   variable: clean_vehicle_credit
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_oracle_mapping
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: RuleSpec PR 436 encodes current-law sections 25E and 30D from the House US Code releasepoint, including source-backed
+    clean-vehicle credit parameters and per-vehicle rules. Axiom still should not claim a final `clean_vehicle_credit` oracle
+    match because section 30D(a)'s tax-unit aggregate is deferred until a taxpayer-to-vehicle relation with raw per-vehicle
+    credit amounts is represented, and PolicyEngine's clean-vehicle variables are tax-unit simplifications rather than the
+    full statutory relation surface.
 - country: us
   program_id: residential_clean_energy_credit
   program_name: Residential clean energy credit
