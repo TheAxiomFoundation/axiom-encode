@@ -35,6 +35,7 @@ PROGRAM_SURFACE_STATUSES = {
     "pending_source_ingestion",
     "wired",
 }
+PROGRAM_SURFACE_LIFECYCLES = {"active", "inactive", "sunset", "historical"}
 _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
     for token in ("medicaid", "chip", "aca")
@@ -133,6 +134,7 @@ class PolicyEngineProgramSurfaceItem:
     coverage: str
     variable: str
     axiom_status: str
+    lifecycle: str = "active"
     source_type: str = "program"
     agency: str | None = None
     state: str | None = None
@@ -152,6 +154,7 @@ class PolicyEngineProgramSurfaceItem:
             "coverage": self.coverage,
             "variable": self.variable,
             "axiom_status": self.axiom_status,
+            "lifecycle": self.lifecycle,
             "source_type": self.source_type,
             "agency": self.agency,
             "state": self.state,
@@ -241,6 +244,12 @@ def build_policyengine_program_surface_report(
     priority_counts = Counter(
         surface.priority for surface in surfaces if surface.priority
     )
+    lifecycle_counts = Counter(surface.lifecycle for surface in surfaces)
+    active_priority_counts = Counter(
+        surface.priority
+        for surface in surfaces
+        if surface.lifecycle == "active" and surface.priority
+    )
     unwired_statuses = {
         "deferred_jurisdiction",
         "pending_oracle_mapping",
@@ -250,6 +259,19 @@ def build_policyengine_program_surface_report(
     pending_surfaces = [
         surface for surface in surfaces if surface.axiom_status in unwired_statuses
     ]
+    active_pending_surfaces = [
+        surface for surface in pending_surfaces if surface.lifecycle == "active"
+    ]
+    actionable_surfaces = sorted(
+        active_pending_surfaces,
+        key=lambda surface: (
+            _candidate_priority_rank(surface.priority or ""),
+            surface.category,
+            surface.coverage,
+            surface.program_id,
+            surface.variable,
+        ),
+    )
     return {
         "oracle": "policyengine",
         "country": country,
@@ -258,7 +280,11 @@ def build_policyengine_program_surface_report(
         "total_surfaces": len(surfaces),
         "status_counts": dict(sorted(status_counts.items())),
         "priority_counts": dict(sorted(priority_counts.items())),
+        "lifecycle_counts": dict(sorted(lifecycle_counts.items())),
+        "active_priority_counts": dict(sorted(active_priority_counts.items())),
         "pending_surfaces": len(pending_surfaces),
+        "active_pending_surfaces": len(active_pending_surfaces),
+        "actionable_surfaces": [surface.as_dict() for surface in actionable_surfaces],
         "items": [surface.as_dict() for surface in surfaces],
     }
 
@@ -823,6 +849,20 @@ def _load_policyengine_program_surface_manifest(
                 f"Unsupported PolicyEngine surface status for "
                 f"{raw_surface.get('variable')}: {status}"
             )
+        lifecycle = str(raw_surface.get("lifecycle") or "active")
+        if lifecycle not in PROGRAM_SURFACE_LIFECYCLES:
+            raise ValueError(
+                f"Unsupported PolicyEngine surface lifecycle for "
+                f"{raw_surface.get('variable')}: {lifecycle}"
+            )
+        priority = raw_surface.get("priority")
+        if lifecycle != "active" and priority in {"P1", "P2"}:
+            raise ValueError(
+                f"Non-active PolicyEngine surface {raw_surface.get('variable')} "
+                f"must not use top priority {priority}; mark active current-law "
+                "surfaces P1/P2 and demote historical, inactive, or sunset "
+                "surfaces."
+            )
     return payload
 
 
@@ -854,6 +894,7 @@ def _program_surface_item_from_payload(
         coverage=str(payload["coverage"]),
         variable=variable,
         axiom_status=axiom_status,
+        lifecycle=str(payload.get("lifecycle") or "active"),
         source_type=str(payload.get("source_type") or "program"),
         agency=payload.get("agency"),
         state=payload.get("state"),

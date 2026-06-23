@@ -289,9 +289,16 @@ surfaces:
         "pending_rulespec_encoding": 1,
         "wired": 1,
     }
+    assert report["lifecycle_counts"] == {"active": 6}
+    assert report["active_priority_counts"] == {"P1": 6}
     assert report["pending_surfaces"] == 1
+    assert report["active_pending_surfaces"] == 1
+    assert [
+        item["variable"] for item in report["actionable_surfaces"]
+    ] == ["wic"]
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
+    assert items_by_variable["income_tax"]["lifecycle"] == "active"
     assert items_by_variable["income_tax"]["mapping_count"] == 1
     assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
     assert items_by_variable["aca_ptc"]["axiom_status"] == "known_not_comparable"
@@ -303,6 +310,36 @@ surfaces:
     assert items_by_variable["employee_payroll_tax"]["mapping_count"] == 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
+
+
+def test_policyengine_program_surface_rejects_top_priority_sunset_surface(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: acp
+    program_name: Affordable Connectivity Program
+    category: Benefits
+    policyengine_status: complete
+    coverage: US
+    variable: acp
+    lifecycle: sunset
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Expired program should not stay in the top active queue.
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not use top priority"):
+        build_policyengine_program_surface_report(
+            manifest_path=manifest,
+            registry=_ProgramSurfaceRegistry({}),
+        )
 
 
 def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_not_comparable():
@@ -375,6 +412,7 @@ def test_policyengine_program_surface_marks_acp_known_not_comparable():
     acp = items_by_variable["acp"]
 
     assert acp["axiom_status"] == "known_not_comparable"
+    assert acp["lifecycle"] == "sunset"
     assert acp["priority"] == "P3"
     assert acp["mapping_count"] >= 1
     assert acp["comparable_mapping_count"] == 0
