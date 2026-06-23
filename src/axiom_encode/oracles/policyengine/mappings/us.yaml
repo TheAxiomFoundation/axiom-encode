@@ -217,6 +217,155 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec composes the 42 USC 426(b)(2) disability, child disability, widow(er), railroad-retirement, and government-employment entitlement paths. PolicyEngine's is_medicare_eligible uses a simplified SSDI-months proxy and omits several statutory paths and entitlement-timing conditions, so this is not an exact oracle comparison.
 
+  - legal_id: us:regulations/47-cfr/54/409#lifeline_income_limit_ratio
+    country: us
+    program: lifeline
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.lifeline.fpg_limit
+    period: month
+    comparison: rate
+    rationale: Same federal Lifeline household-income limit in 47 CFR 54.409(a)(1), represented in PolicyEngine as the FCC Lifeline FPG limit parameter.
+
+  - legal_id: us:regulations/47-cfr/54/409#income_qualifies_for_lifeline
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_income_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the federal 47 CFR 54.409(a)(1) consumer income path. PolicyEngine's adjacent is_lifeline_income_eligible is an SPM-unit surface that also applies Texas' state-expanded 150 percent FPG limit, so it is not a one-to-one federal oracle boundary.
+
+  - legal_id: us:regulations/47-cfr/54/409#federal_assistance_program_qualifies_for_lifeline
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.409(a)(2) federal-assistance categorical path, including programs that PolicyEngine does not separately expose in its final Lifeline eligibility variable.
+
+  - legal_id: us:regulations/47-cfr/54/409#survivor_emergency_communications_support_qualifies_for_lifeline
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Safe Connections Act survivor emergency-communications support path in 47 CFR 54.409(a)(3). PolicyEngine's Lifeline eligibility variable does not model the survivor financial-hardship and line-separation branch as a separate comparable surface.
+
+  - legal_id: us:regulations/47-cfr/54/409#paragraph_a_lifeline_qualification
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec composes only the paragraph (a) income, federal-assistance, and survivor branches before the tribal-lands and one-per-household conditions. PolicyEngine exposes a simplified final SPM-unit eligibility variable rather than this source-level paragraph boundary.
+
+  - legal_id: us:regulations/47-cfr/54/409#tribal_specific_assistance_program_qualifies_for_lifeline
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.409(b) tribal-specific categorical path. PolicyEngine combines selected tribal categorical programs with federal income and non-tribal categorical eligibility in its final eligibility surface.
+
+  - legal_id: us:regulations/47-cfr/54/409#tribal_lands_lifeline_qualification
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the tribal-lands qualification branch in 47 CFR 54.409(b). PolicyEngine uses household tribal-land status to choose a simplified categorical program list and does not expose this branch as a one-to-one output.
+
+  - legal_id: us:regulations/47-cfr/54/409#qualifying_low_income_consumer_for_lifeline
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: is_lifeline_eligible
+    candidate_priority: P4
+    rationale: RuleSpec follows the 47 CFR 54.409 consumer-level qualification, including survivor emergency support and duplicate-service exclusions. PolicyEngine's SPM-unit eligibility omits several statutory branches and state-expands the income test in Texas.
+
+  - legal_id: us:regulations/47-cfr/54/403#basic_lifeline_support_amount
+    country: us
+    program: lifeline
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.lifeline.amount.standard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal monthly basic Lifeline support amount in 47 CFR 54.403(a)(1).
+
+  - legal_id: us:regulations/47-cfr/54/403#standalone_voice_lifeline_support_amount
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.403(a)(2) standalone-voice phase-down schedule. PolicyEngine's Lifeline amount uses the current standard support amount and does not expose this historical standalone-voice schedule as a separate oracle surface.
+
+  - legal_id: us:regulations/47-cfr/54/403#only_provider_census_block_standalone_voice_support_amount
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the only-provider census-block exception for standalone voice support in 47 CFR 54.403(a)(2)(v). PolicyEngine does not model this provider/census-block support branch.
+
+  - legal_id: us:regulations/47-cfr/54/403#tribal_lands_support_amount_cap
+    country: us
+    program: lifeline
+    mapping_type: parameter_value
+    policyengine_parameter: gov.fcc.lifeline.amount.rural_tribal_supplement
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same monthly additional federal Lifeline support amount for eligible Tribal lands residents in 47 CFR 54.403(a)(3), represented in PolicyEngine as the rural Tribal supplement.
+
+  - legal_id: us:regulations/47-cfr/54/403#emergency_communications_support_amount_cap
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.403(a)(4) emergency communications support cap for qualifying survivors. PolicyEngine's Lifeline amount does not separately model survivor emergency communications support.
+
+  - legal_id: us:regulations/47-cfr/54/403#emergency_tribal_lands_support_amount_cap
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the emergency communications Tribal lands support cap in 47 CFR 54.403(a)(4)(ii). PolicyEngine does not separately model this survivor-specific Tribal support branch.
+
+  - legal_id: us:regulations/47-cfr/54/403#federal_lifeline_support_amount
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the federal carrier support amount before household phone/broadband cost caps and state supplements. PolicyEngine's lifeline output is an annual SPM-unit benefit capped by phone plus broadband cost and includes state-specific and Texas supplements.
+
+  - legal_id: us:regulations/47-cfr/54/403#emergency_communications_support_amount
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the carrier support amount for qualifying survivor emergency communications support. PolicyEngine's Lifeline amount does not model this emergency communications support path.
+
+  - legal_id: us:regulations/47-cfr/54/403#federal_end_user_common_line_charges_must_be_waived
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the carrier obligation to waive Federal End User Common Line or equivalent charges. PolicyEngine's Lifeline household benefit amount does not expose carrier charge-waiver compliance as an oracle output.
+
+  - legal_id: us:regulations/47-cfr/54/403#residential_service_plan_lifeline_discount_amount
+    country: us
+    program: lifeline
+    mapping_type: not_comparable
+    policyengine_variable: lifeline
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 47 CFR 54.403(b)(1) carrier application of support to residential service-plan costs. PolicyEngine's lifeline output computes an annual household benefit with cost caps and state supplements rather than this carrier discount-application boundary.
+
   - legal_id: us:statutes/42/1382/a/3#resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
     country: us
     program: ssi
