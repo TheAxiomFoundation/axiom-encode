@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+import importlib.util
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -308,6 +311,7 @@ def _iter_policyengine_coverage_items(
     registry,
 ) -> list[PolicyEngineCoverageItem]:
     items: list[PolicyEngineCoverageItem] = []
+    items.extend(_iter_program_spec_coverage_items(root, registry))
     # Enumerate each jurisdiction's content root under the workspace, handling
     # both layouts: a legacy ``rulespec-<prefix>`` checkout contributes itself
     # under its prefix; a country monorepo ``rulespec-<country>`` contributes
@@ -379,6 +383,132 @@ def _iter_policyengine_coverage_items(
                     )
                 )
     return items
+
+
+def _iter_program_spec_coverage_items(
+    root: Path,
+    registry,
+) -> list[PolicyEngineCoverageItem]:
+    """Enumerate outputs declared by monorepo-native ``programs/`` specs."""
+    items: list[PolicyEngineCoverageItem] = []
+    for programs_dir, checkout_dir in _program_spec_dirs(root):
+        repo_name = canonical_rulespec_repo_name(checkout_dir) or checkout_dir.name
+        for spec_file in sorted(programs_dir.glob("*/*/*.y*ml")):
+            items.extend(
+                _program_spec_coverage_items_for_file(
+                    root=root,
+                    repo_name=repo_name,
+                    spec_file=spec_file,
+                    registry=registry,
+                )
+            )
+    return items
+
+
+def _program_spec_dirs(root: Path) -> list[tuple[Path, Path]]:
+    """Return ``(programs_dir, checkout_dir)`` pairs under a checkout/workspace."""
+    candidates: list[tuple[Path, Path]] = []
+    direct = root / "programs"
+    if direct.is_dir():
+        candidates.append((direct, root))
+    for checkout in sorted(root.glob("rulespec-*")):
+        programs_dir = checkout / "programs"
+        if programs_dir.is_dir():
+            candidates.append((programs_dir, checkout))
+
+    seen: set[Path] = set()
+    out: list[tuple[Path, Path]] = []
+    for programs_dir, checkout_dir in candidates:
+        resolved = programs_dir.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append((programs_dir, checkout_dir))
+    return out
+
+
+def _program_spec_coverage_items_for_file(
+    *,
+    root: Path,
+    repo_name: str,
+    spec_file: Path,
+    registry,
+) -> list[PolicyEngineCoverageItem]:
+    payload = _load_program_spec_payload(spec_file)
+    if not payload:
+        return []
+    raw_program = payload.get("program")
+    raw_outputs = payload.get("outputs")
+    if not isinstance(raw_program, str) or not raw_program.strip():
+        return []
+    if not isinstance(raw_outputs, list):
+        return []
+    program_id = raw_program.strip()
+    prefix, _, program_path = program_id.partition("/")
+    if not prefix or not program_path:
+        return []
+    period_stem = spec_file.with_suffix("").name
+    spec_legal_path = f"programs/{program_path}/{period_stem}"
+    country = _country_from_rulespec_prefix(prefix)
+    file_path = _display_file_path(spec_file, root)
+    items: list[PolicyEngineCoverageItem] = []
+    for raw_output in raw_outputs:
+        if not isinstance(raw_output, str) or not raw_output.strip():
+            continue
+        output_name = raw_output.strip()
+        legal_id = f"{prefix}:{spec_legal_path}#{output_name}"
+        mapping = registry.mapping_for_legal_id(legal_id, country=country)
+        items.append(
+            _coverage_item_from_program_spec_mapping(
+                legal_id=legal_id,
+                repo_name=repo_name,
+                file_path=file_path,
+                rule_name=output_name,
+                program=program_path,
+                mapping=mapping,
+            )
+        )
+    return items
+
+
+def _coverage_item_from_program_spec_mapping(
+    *,
+    legal_id: str,
+    repo_name: str,
+    file_path: str,
+    rule_name: str,
+    program: str,
+    mapping: PolicyEngineMapping | None,
+) -> PolicyEngineCoverageItem:
+    if mapping is None:
+        status = "unmapped"
+        mapping_type = None
+        report_program = program
+    elif mapping.comparable:
+        status = "comparable"
+        mapping_type = mapping.mapping_type
+        report_program = mapping.program or program
+    else:
+        status = "known_not_comparable"
+        mapping_type = mapping.mapping_type
+        report_program = mapping.program or program
+
+    return PolicyEngineCoverageItem(
+        legal_id=legal_id,
+        repo=repo_name,
+        file=file_path,
+        rule_name=rule_name,
+        kind="program_output",
+        status=status,
+        program=report_program,
+        mapping_type=mapping_type,
+        policyengine_variable=mapping.policyengine_variable if mapping else None,
+        policyengine_parameter=mapping.policyengine_parameter if mapping else None,
+        rationale=mapping.rationale if mapping else None,
+        candidate_priority=mapping.candidate_priority if mapping else None,
+        tested=False,
+        test_output_count=0,
+    )
 
 
 def _candidate_from_coverage_item(
@@ -551,6 +681,9 @@ def _is_policyengine_looking_rule_name(rule_name: str) -> bool:
 
 
 def _load_policyengine_variable_names() -> set[str] | None:
+    source_names = _load_policyengine_variable_names_from_source()
+    if source_names is not None:
+        return source_names
     try:
         from policyengine_us import CountryTaxBenefitSystem
     except Exception:
@@ -559,6 +692,82 @@ def _load_policyengine_variable_names() -> set[str] | None:
         return set(CountryTaxBenefitSystem().variables)
     except Exception:
         return None
+
+
+def _load_policyengine_variable_names_from_source() -> set[str] | None:
+    """Load PolicyEngine-US variable names without importing its model package.
+
+    Candidate triage only needs to know whether a RuleSpec output name exists
+    as a PolicyEngine variable. Importing ``policyengine_us`` can execute the
+    full tax-benefit system and fail before triage starts, so prefer a source
+    tree scan when the package or a local checkout is available.
+    """
+    source_dirs = _policyengine_variable_source_dirs()
+    if not source_dirs:
+        return None
+    names: set[str] = set()
+    for source_dir in source_dirs:
+        for source_file in sorted(source_dir.rglob("*.py")):
+            names.update(_policyengine_variable_names_from_file(source_file))
+    return names
+
+
+def _policyengine_variable_source_dirs() -> list[Path]:
+    source_dirs: list[Path] = []
+    for env_name in ("AXIOM_POLICYENGINE_US_ROOT", "POLICYENGINE_US_ROOT"):
+        raw_path = os.environ.get(env_name)
+        if raw_path:
+            source_dirs.extend(_policyengine_variable_dirs_for_path(Path(raw_path)))
+
+    spec = importlib.util.find_spec("policyengine_us")
+    if spec and spec.submodule_search_locations:
+        for location in spec.submodule_search_locations:
+            source_dirs.extend(_policyengine_variable_dirs_for_path(Path(location)))
+
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for source_dir in source_dirs:
+        resolved = source_dir.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(source_dir)
+    return out
+
+
+def _policyengine_variable_dirs_for_path(path: Path) -> list[Path]:
+    candidates = (
+        path,
+        path / "variables",
+        path / "policyengine_us" / "variables",
+    )
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.is_dir() and candidate.name == "variables"
+    ]
+
+
+def _policyengine_variable_names_from_file(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return set()
+    names: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if any(_is_policyengine_variable_base(base) for base in node.bases):
+            names.add(node.name)
+    return names
+
+
+def _is_policyengine_variable_base(node: ast.expr) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "Variable"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "Variable"
+    return False
 
 
 def _load_policyengine_program_surface_manifest(
@@ -684,6 +893,14 @@ def _load_rulespec_payload(path: Path) -> dict[str, Any] | None:
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return None
     return payload
+
+
+def _load_program_spec_payload(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _rulespec_test_output_counts(path: Path) -> Counter[str]:
