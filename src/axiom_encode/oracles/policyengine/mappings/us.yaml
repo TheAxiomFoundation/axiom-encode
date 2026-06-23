@@ -150,6 +150,73 @@ mappings:
     comparison: rate
     rationale: Same federal SNAP earned-income deduction rate.
 
+  - legal_id: us:statutes/42/426/a/1#attained_age_threshold
+    country: us
+    program: medicare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicare.eligibility.min_age
+    period: month
+    comparison: count
+    rationale: Same Medicare age threshold in 42 USC 426(a)(1), represented in PolicyEngine as the minimum age parameter for Medicare eligibility.
+
+  - legal_id: us:statutes/42/426/a/1#attained_age_65_requirement_satisfied
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    policyengine_variable: is_medicare_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes only the 42 USC 426(a)(1) age-65 limb. PolicyEngine's is_medicare_eligible is a simplified final eligibility proxy and does not require the additional 42 USC 426(a)(2) entitlement, application, railroad-retirement, or government-employment conditions.
+
+  - legal_id: us:statutes/42/426/b/1#age_attainment_threshold
+    country: us
+    program: medicare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicare.eligibility.min_age
+    period: month
+    comparison: count
+    rationale: Same age-65 boundary reused by the under-65 entitlement condition in 42 USC 426(b)(1).
+
+  - legal_id: us:statutes/42/426/b/1#person_has_not_attained_age_threshold
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    policyengine_variable: is_medicare_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the negative age limb for the under-65 hospital-insurance entitlement path. PolicyEngine does not expose this source-level predicate separately; its is_medicare_eligible variable combines a simplified age branch with a simplified disability branch.
+
+  - legal_id: us:statutes/42/426/b/2#disability_related_benefit_entitlement_calendar_month_threshold
+    country: us
+    program: medicare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicare.eligibility.min_months_receiving_social_security_disability
+    period: month
+    comparison: count
+    rationale: Same 24-month disability-benefit waiting period for the disability-insurance branch of 42 USC 426(b)(2)(A); RuleSpec also applies the statutory threshold to disabled child and widow(er) benefit paths that PolicyEngine does not separately expose.
+
+  - legal_id: us:statutes/42/426/b/2#disabled_qualified_railroad_retirement_beneficiary_month_threshold
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    policyengine_variable: is_medicare_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the separate 42 USC 426(b)(2)(B) disabled qualified railroad retirement beneficiary duration threshold. PolicyEngine's Medicare eligibility surface does not model this railroad-retirement entitlement path as a one-to-one variable or parameter.
+
+  - legal_id: us:statutes/42/426/b/2#government_employment_specified_benefit_entitlement_month_threshold
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    policyengine_variable: is_medicare_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 42 USC 426(b)(2)(C) counterfactual government-employment application path. PolicyEngine does not model this application-and-counterfactual-entitlement branch as a one-to-one Medicare eligibility surface.
+
+  - legal_id: us:statutes/42/426/b/2#part_a_disability_or_railroad_condition_satisfied
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    policyengine_variable: is_medicare_eligible
+    candidate_priority: P4
+    rationale: RuleSpec composes the 42 USC 426(b)(2) disability, child disability, widow(er), railroad-retirement, and government-employment entitlement paths. PolicyEngine's is_medicare_eligible uses a simplified SSDI-months proxy and omits several statutory paths and entitlement-timing conditions, so this is not an exact oracle comparison.
+
   - legal_id: us:statutes/42/1382/a/3#resource_limit_amount_for_paragraph_1_B_i_and_paragraph_2_B
     country: us
     program: ssi
