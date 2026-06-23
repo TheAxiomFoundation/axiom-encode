@@ -107,6 +107,72 @@ rules:
     )
 
 
+def test_policyengine_coverage_includes_program_spec_outputs(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _write_rulespec_file(
+        checkout / "programs/us-fl/tca/fy-2026.yaml",
+        """program: us-fl/tca
+period: 2026-01
+outputs:
+  - fl_tca_payment_standard
+  - fl_tca
+""",
+    )
+
+    report = build_policyengine_coverage_report(checkout, program="tca")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    payment_standard = items_by_id["us-fl:programs/tca/fy-2026#fl_tca_payment_standard"]
+    assert payment_standard["repo"] == "rulespec-us"
+    assert payment_standard["file"] == "programs/us-fl/tca/fy-2026.yaml"
+    assert payment_standard["kind"] == "program_output"
+    assert payment_standard["program"] == "tca"
+    assert payment_standard["rule_name"] == "fl_tca_payment_standard"
+    assert payment_standard["policyengine_variable"] == "fl_tca_payment_standard"
+    assert payment_standard["candidate_priority"] == "P4"
+
+
+def test_policyengine_candidates_classify_program_spec_adjacent_targets(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _write_rulespec_file(
+        checkout / "programs/us-fl/tca/fy-2026.yaml",
+        """program: us-fl/tca
+period: 2026-01
+outputs:
+  - fl_tca_payment_standard
+  - fl_tca
+""",
+    )
+
+    report = build_policyengine_candidate_report(checkout, program="tca")
+
+    assert report["category_counts"] == {"known_adjacent_target": 2}
+    assert report["priority_counts"] == {"P4": 2}
+    targets = {item["policyengine_variable"] for item in report["items"]}
+    assert targets == {"fl_tca_payment_standard", "fl_tca"}
+
+
+def test_policyengine_coverage_includes_program_specs_from_workspace_root(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/programs/us-fl/tca/fy-2026.yaml",
+        """program: us-fl/tca
+period: 2026-01
+outputs:
+  - fl_tca
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tca")
+
+    assert report["total_outputs"] == 1
+    item = report["items"][0]
+    assert item["legal_id"] == "us-fl:programs/tca/fy-2026#fl_tca"
+    assert item["repo"] == "rulespec-us"
+    assert item["file"] == "rulespec-us/programs/us-fl/tca/fy-2026.yaml"
+
+
 def test_policyengine_program_surface_report_overlays_legal_registry(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
@@ -13194,6 +13260,46 @@ rules:
     assert first["legal_id"] == "us:statutes/7/9999#snap_new_exact_variable"
     assert first["priority"] == "P1"
     assert first["policyengine_variable"] == "snap_new_exact_variable"
+
+
+def test_policyengine_candidates_discover_variables_from_source_tree(
+    tmp_path, monkeypatch
+):
+    _write_rulespec_file(
+        tmp_path
+        / "policyengine-us"
+        / "policyengine_us"
+        / "variables/gov/states/xx/snap.py",
+        """from policyengine_us.model_api import *
+
+
+class snap_exact_variable_from_source_scan(Variable):
+    value_type = float
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/7/9998.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_exact_variable_from_source_scan
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1
+""",
+    )
+    monkeypatch.setenv(
+        "AXIOM_POLICYENGINE_US_ROOT",
+        str(tmp_path / "policyengine-us"),
+    )
+
+    report = build_policyengine_candidate_report(tmp_path, program="snap")
+
+    assert report["policyengine_variables_available"] is True
+    assert report["category_counts"]["exact_variable_unmapped"] == 1
+    candidate = report["items"][0]
+    assert candidate["policyengine_variable"] == "snap_exact_variable_from_source_scan"
+    assert candidate["priority"] == "P2"
 
 
 def test_policyengine_candidates_report_known_adjacent_targets(tmp_path):

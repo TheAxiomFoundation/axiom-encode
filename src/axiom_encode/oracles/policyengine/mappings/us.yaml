@@ -45,6 +45,70 @@ mappings:
     candidate_priority: P4
     rationale: Alabama's manual output combines categorical eligibility, elderly-or-disabled net-only treatment, and gross/net income standards into a state income bridge. PolicyEngine exposes separate gross, net, categorical, and final eligibility variables, but not this exact combined state bridge.
 
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_payment_standard
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_payment_standard
+    candidate_priority: P4
+    rationale: Axiom's Florida TCA program output composes the DCF Appendix A-5 shelter-tier payment-standard table through filing-unit size 24 plus additional-person increments. PolicyEngine's adjacent fl_tca_payment_standard uses its own shelter inputs and currently caps the payment-standard family size lower, so this is not a one-to-one oracle boundary.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_gross_income
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_gross_income
+    candidate_priority: P4
+    rationale: Axiom's Florida TCA gross-income output follows the DCF eligibility-standard-test income boundary, including source-specific exclusions and assistance-group inputs. PolicyEngine's fl_tca_gross_income sums its general TANF earned and unearned income source graph, which is adjacent but not the same legal boundary.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_gross_income_eligible
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_gross_income_eligible
+    candidate_priority: P4
+    rationale: Axiom applies the DCF "cannot exceed" eligibility-standard test against the Appendix A-5 185 percent standard. PolicyEngine's adjacent variable uses a strict less-than comparison against its FPG-derived threshold, so exact-threshold cases do not share a one-to-one boundary.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_countable_income
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_countable_income
+    candidate_priority: P4
+    rationale: Axiom's Florida TCA countable-income output follows DCF page 21, including the conditional eligibility for the remainder of the $200-and-one-half earned-income disregard. PolicyEngine's adjacent countable-income path applies its TANF income/disregard graph directly, so this needs a PE fix or adapter before it is comparable.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_net_income_eligible
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_net_income_eligible
+    candidate_priority: P4
+    rationale: Axiom treats Florida TCA net-income eligibility as no DCF budget surplus, allowing countable income equal to the applicable budget standard. PolicyEngine's adjacent variable uses a strict countable-income-less-than-payment-standard test and depends on PE's adjacent countable-income and payment-standard boundaries.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_resources_eligible
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_resources_eligible
+    candidate_priority: P4
+    rationale: Axiom applies the DCF TCA standard filing unit resource limit to countable assets excluding TCA deemed individuals. PolicyEngine's adjacent variable compares spm_unit_cash_assets to the asset-limit parameter, so the legal asset boundary is not yet one-to-one.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca_eligible
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca_eligible
+    candidate_priority: P4
+    rationale: The current Axiom Florida TCA wrapper acknowledges final eligibility as incomplete and only composes the financial gates. PolicyEngine's fl_tca_eligible also includes demographic and immigration eligibility, so this output should stay non-comparable until those legal predicates are wired.
+
+  - legal_id: us-fl:programs/tca/fy-2026#fl_tca
+    country: us
+    program: tca
+    mapping_type: not_comparable
+    policyengine_variable: fl_tca
+    candidate_priority: P4
+    rationale: The current Axiom Florida TCA amount depends on the incomplete Axiom eligibility wrapper and DCF page 21's no-issuance rule for deficits below $10. PolicyEngine's adjacent fl_tca uses its own eligibility, countable-income, and payment-standard graph and does not share this exact DCF program boundary yet.
+
   - legal_id: us-ma:policies/dta/snap/fy-2026-cola/heating-cooling-standard-utility-allowance#heating_cooling_standard_utility_allowance
     country: us
     program: snap
