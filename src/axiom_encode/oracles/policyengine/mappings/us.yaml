@@ -16198,6 +16198,20 @@ mappings:
     rationale: PolicyEngine does not expose the section 25C(g) basis-reduction amount as a separate variable.
 
 prefixes:
+  - legal_id_prefix: us:statutes/26/25E#
+    country: us
+    program: clean_vehicle_credits
+    mapping_type: not_comparable
+    candidate_priority: P3
+    rationale: Section 25E RuleSpec outputs expose current-law statutory parameters, buyer/sale/vehicle predicates, and pre-MAGI credit intermediates. PolicyEngine's used-clean-vehicle variables are tax-unit simplifications with separate eligibility gating and no exact source-boundary output for these legal intermediates. Add exact mappings above this prefix when a one-to-one PE target exists.
+
+  - legal_id_prefix: us:statutes/26/30D#
+    country: us
+    program: clean_vehicle_credits
+    mapping_type: not_comparable
+    candidate_priority: P3
+    rationale: Section 30D RuleSpec outputs expose current-law statutory parameters, vehicle predicates, per-vehicle credit components, transfer rules, and deferred taxpayer-to-vehicle aggregation. PolicyEngine's new-clean-vehicle variables are tax-unit simplifications and include legacy/pre-IRA mechanics, so these outputs are not exact PE oracle targets unless a narrower exact mapping is added above this prefix.
+
   - legal_id_prefix: us:statutes/5/5566#
     country: us
     program: unknown

@@ -7,7 +7,10 @@ from axiom_encode.oracles.policyengine.coverage import (
     build_policyengine_coverage_report,
     build_policyengine_program_surface_report,
 )
-from axiom_encode.oracles.policyengine.registry import PolicyEngineMapping
+from axiom_encode.oracles.policyengine.registry import (
+    PolicyEngineMapping,
+    load_policyengine_registry,
+)
 
 
 class _ProgramSurfaceRegistry:
@@ -372,6 +375,7 @@ def test_policyengine_program_surface_marks_acp_known_not_comparable():
     acp = items_by_variable["acp"]
 
     assert acp["axiom_status"] == "known_not_comparable"
+    assert acp["priority"] == "P3"
     assert acp["mapping_count"] >= 1
     assert acp["comparable_mapping_count"] == 0
     assert (
@@ -379,7 +383,43 @@ def test_policyengine_program_surface_marks_acp_known_not_comparable():
         in acp["legal_ids"]
     )
     assert "broadband_cost_after_lifeline" in acp["rationale"]
+    assert "historical/sunset" in acp["rationale"]
     assert "connected-device" in acp["rationale"]
+
+
+def test_policyengine_program_surface_marks_clean_vehicle_pending_oracle_mapping():
+    report = build_policyengine_program_surface_report(program="clean_vehicle_credits")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    clean_vehicle = items_by_variable["clean_vehicle_credit"]
+
+    assert clean_vehicle["axiom_status"] == "pending_oracle_mapping"
+    assert clean_vehicle["priority"] == "P1"
+    assert "sections 25E and 30D" in clean_vehicle["rationale"]
+    assert "taxpayer-to-vehicle relation" in clean_vehicle["rationale"]
+    assert "tax-unit simplifications" in clean_vehicle["rationale"]
+
+
+def test_policyengine_registry_classifies_clean_vehicle_sections_as_noncomparable():
+    registry = load_policyengine_registry()
+
+    section_25e = registry.mapping_for_legal_id(
+        "us:statutes/26/25E#tentative_previously_owned_clean_vehicle_credit",
+        country="us",
+    )
+    section_30d = registry.mapping_for_legal_id(
+        "us:statutes/26/30D#per_vehicle_credit_amount_before_special_rules",
+        country="us",
+    )
+
+    assert section_25e is not None
+    assert section_25e.mapping_type == "not_comparable"
+    assert section_25e.program == "clean_vehicle_credits"
+    assert "tax-unit simplifications" in section_25e.rationale
+    assert section_30d is not None
+    assert section_30d.mapping_type == "not_comparable"
+    assert section_30d.program == "clean_vehicle_credits"
+    assert "taxpayer-to-vehicle aggregation" in section_30d.rationale
 
 
 def test_policyengine_program_surface_marks_colorado_oap_wired():
