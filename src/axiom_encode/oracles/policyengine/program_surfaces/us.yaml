@@ -1831,10 +1831,11 @@ surfaces:
   coverage: US
   variable: lifeline
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes federal Lifeline eligibility and support parameters from 47 CFR 54.403 and 54.409, but PolicyEngine's
+    lifeline variable is an annual SPM-unit amount capped by phone plus broadband costs and includes state-specific/Texas supplements.
+    Axiom maps comparable federal parameters separately and classifies source-level eligibility and carrier-support outputs.
 - country: us
   program_id: acp
   program_name: Affordable Connectivity Program
