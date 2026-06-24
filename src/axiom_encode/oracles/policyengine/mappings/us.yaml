@@ -934,6 +934,103 @@ mappings:
     result_multiplier: 12
     rationale: Same federal SSI couple benefit-rate amount, with PolicyEngine storing the monthly parameter and RuleSpec encoding the annual amount determined under 42 USC 1382f(a) for section 1382(b)(2).
 
+  - legal_id: us:statutes/42/1382c/a/1#aged_age_threshold_years
+    country: us
+    program: ssi
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ssa.ssi.eligibility.aged_threshold
+    period: month
+    comparison: count
+    rationale: Same statutory SSI aged-category threshold of age 65.
+
+  - legal_id: us:statutes/42/1382c/a/1#aged_blind_or_disabled_individual
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_ssi_aged_blind_disabled
+    candidate_priority: P4
+    rationale: RuleSpec encodes the full 42 USC 1382c(a)(1) defined term, including the age/blind/disabled limb plus United States residence, citizen-or-qualified-alien status, and the Armed-Forces child-abroad branch. PolicyEngine's is_ssi_aged_blind_disabled variable exposes only the age/blind/disabled limb.
+
+  - legal_id: us:statutes/42/1382c/a/2#blindness_visual_acuity_threshold_numerator
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_blind
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory visual-acuity numerator used by 42 USC 1382c(a)(2). PolicyEngine treats is_blind as a scenario/input-style boolean and does not expose the legal visual-acuity threshold as a parameter.
+
+  - legal_id: us:statutes/42/1382c/a/2#blindness_visual_acuity_threshold_denominator
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_blind
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory visual-acuity denominator used by 42 USC 1382c(a)(2). PolicyEngine treats is_blind as a scenario/input-style boolean and does not expose the legal visual-acuity threshold as a parameter.
+
+  - legal_id: us:statutes/42/1382c/a/2#blindness_visual_field_widest_diameter_max_degrees
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_blind
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory visual-field threshold used by 42 USC 1382c(a)(2). PolicyEngine treats is_blind as a scenario/input-style boolean and does not expose the legal visual-field threshold as a parameter.
+
+  - legal_id: us:statutes/42/1382c/a/2#blind_for_subchapter
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_blind
+    candidate_priority: P4
+    rationale: RuleSpec encodes the full SSI blindness definition, including visual-acuity, visual-field, and legacy state-plan branches. PolicyEngine's is_blind surface is an input-style demographic boolean rather than this source-level legal determination.
+
+  - legal_id: us:statutes/42/1382/a/1#individual_annual_income_base_limit
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the original 1974 annual income-limit base in 42 USC 1382(a)(1)(A). PolicyEngine stores the final monthly federal benefit-rate parameter after later statutory increases and COLA uprating; the one-to-one PE parameter mapping lives on the final 1382f amount output.
+
+  - legal_id: us:statutes/42/1382/a/1#applicable_individual_annual_income_limit
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.individual
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level 42 USC 1382(a)(1)(A) eligibility income-limit branch using the greater of the original base and a 1382f amount. PolicyEngine stores the materialized monthly federal benefit-rate parameter and does not expose this eligibility-branch helper separately.
+
+  - legal_id: us:statutes/42/1382/a/1#eligible_individual
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_ssi_eligible
+    candidate_priority: P4
+    rationale: RuleSpec encodes the 42 USC 1382(a)(1) source-level no-eligible-spouse eligibility branch, including full 1382c(a)(1) status, countable-income limit, and living-with-spouse resource branch. PolicyEngine's SSI eligibility surfaces use a different decomposition and do not expose this statutory branch one-to-one.
+
+  - legal_id: us:statutes/42/1382/a/2#couple_annual_income_base_limit
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    candidate_priority: P4
+    rationale: RuleSpec exposes the original 1974 annual couple income-limit base in 42 USC 1382(a)(2)(A). PolicyEngine stores the final monthly couple federal benefit-rate parameter after later statutory increases and COLA uprating; the one-to-one PE parameter mapping lives on the final 1382f amount output.
+
+  - legal_id: us:statutes/42/1382/a/2#applicable_couple_annual_income_limit
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_parameter: gov.ssa.ssi.amount.couple
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level 42 USC 1382(a)(2)(A) couple eligibility income-limit branch using the greater of the original base and a 1382f amount. PolicyEngine stores the materialized monthly couple federal benefit-rate parameter and does not expose this eligibility-branch helper separately.
+
+  - legal_id: us:statutes/42/1382/a/2#eligible_individual_with_eligible_spouse
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    policyengine_variable: is_ssi_eligible_spouse
+    candidate_priority: P4
+    rationale: RuleSpec encodes the 42 USC 1382(a)(2) source-level eligible-spouse branch, including full 1382c(a)(1) status plus joint countable-income and resource tests. PolicyEngine's eligible-spouse surface is a narrower marital/status helper and does not expose this statutory eligibility branch one-to-one.
+
   - legal_id: us:statutes/42/1382f/c#dollar_amount_increase_for_section_1382_a_1_a_and_b_1
     country: us
     program: ssi

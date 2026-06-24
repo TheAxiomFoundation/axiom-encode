@@ -2398,6 +2398,42 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert ssi_couple_fbr_mapping.mapping_type == "parameter_value"
     assert ssi_couple_fbr_mapping.policyengine_parameter == "gov.ssa.ssi.amount.couple"
     assert ssi_couple_fbr_mapping.result_multiplier == 12
+    ssi_aged_threshold_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382c/a/1#aged_age_threshold_years",
+        country="us",
+    )
+    assert ssi_aged_threshold_mapping.mapping_type == "parameter_value"
+    assert (
+        ssi_aged_threshold_mapping.policyengine_parameter
+        == "gov.ssa.ssi.eligibility.aged_threshold"
+    )
+    ssi_full_abd_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382c/a/1#aged_blind_or_disabled_individual",
+        country="us",
+    )
+    assert ssi_full_abd_mapping.mapping_type == "not_comparable"
+    assert ssi_full_abd_mapping.policyengine_variable == "is_ssi_aged_blind_disabled"
+    ssi_blind_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382c/a/2#blind_for_subchapter",
+        country="us",
+    )
+    assert ssi_blind_mapping.mapping_type == "not_comparable"
+    assert ssi_blind_mapping.policyengine_variable == "is_blind"
+    ssi_individual_eligibility_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382/a/1#eligible_individual",
+        country="us",
+    )
+    assert ssi_individual_eligibility_mapping.mapping_type == "not_comparable"
+    assert ssi_individual_eligibility_mapping.policyengine_variable == "is_ssi_eligible"
+    ssi_couple_eligibility_mapping = registry.mapping_for_legal_id(
+        "us:statutes/42/1382/a/2#eligible_individual_with_eligible_spouse",
+        country="us",
+    )
+    assert ssi_couple_eligibility_mapping.mapping_type == "not_comparable"
+    assert (
+        ssi_couple_eligibility_mapping.policyengine_variable
+        == "is_ssi_eligible_spouse"
+    )
     ssi_individual_benefit_mapping = registry.mapping_for_legal_id(
         "us:statutes/42/1382/b#annual_benefit_without_eligible_spouse",
         country="us",
