@@ -2431,8 +2431,7 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert ssi_couple_eligibility_mapping.mapping_type == "not_comparable"
     assert (
-        ssi_couple_eligibility_mapping.policyengine_variable
-        == "is_ssi_eligible_spouse"
+        ssi_couple_eligibility_mapping.policyengine_variable == "is_ssi_eligible_spouse"
     )
     ssi_individual_benefit_mapping = registry.mapping_for_legal_id(
         "us:statutes/42/1382/b#annual_benefit_without_eligible_spouse",

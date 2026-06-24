@@ -4590,7 +4590,8 @@ def _applied_manifest_matches_current_deterministic_repair(
     axiom_encode_git: dict[str, object],
     signing_key: str,
 ) -> bool:
-    manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+    content_root = _rulespec_apply_content_root(repo_path, relative_output)
+    manifest_path = content_root / _applied_encoding_manifest_path(relative_output)
     if not manifest_path.exists():
         return False
     try:
@@ -4617,7 +4618,7 @@ def _applied_manifest_matches_current_deterministic_repair(
             return False
 
     expected_hashes = {
-        path.relative_to(repo_path).as_posix(): _sha256_file(path)
+        path.relative_to(content_root).as_posix(): _sha256_file(path)
         for path in applied_files
         if path.exists()
     }
@@ -8305,9 +8306,9 @@ def _repair_current_year_final_amount_test_expectations(
     if not isinstance(payload, dict):
         return False
 
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
+    target_base = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=repo_path,
     )
     specs = _current_year_final_amount_test_specs(payload, repo_path=repo_path)
     if not specs:
@@ -8760,9 +8761,9 @@ def cmd_repair_invalid_test_inputs(args):
 
     removed_refs: list[str] = []
     seen_invalid_refs: set[str] = set()
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
+    target_base = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=repo_path,
     )
     while True:
         validation = ValidatorPipeline(
@@ -12332,9 +12333,13 @@ def cmd_repair_oracle_parameter_tests(args):
 
     test_file = _rulespec_test_path(rules_file)
     original_test_content = test_file.read_text() if test_file.exists() else ""
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
+    target_base = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=repo_path,
+    )
+    manifest_relative_output = _relative_to_live_rulespec_content_root(
+        rules_file,
+        repo_path,
     )
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
@@ -12343,9 +12348,25 @@ def cmd_repair_oracle_parameter_tests(args):
         test_file=test_file,
         target_base=target_base,
     )
+    covered_test_cases = _mapped_oracle_parameter_test_outputs(
+        rules_file=rules_file,
+        test_file=test_file,
+        target_base=target_base,
+    )
     if not repaired_test_cases:
-        print("No oracle parameter test repairs found.")
-        return
+        if not covered_test_cases:
+            print("No oracle parameter test repairs found.")
+            return
+        if _applied_manifest_matches_current_deterministic_repair(
+            repo_path=repo_path,
+            relative_output=manifest_relative_output,
+            applied_files=[rules_file, test_file],
+            model="oracle-parameter-test-v1",
+            axiom_encode_git=axiom_encode_git,
+            signing_key=signing_key,
+        ):
+            print("No oracle parameter test repairs found.")
+            return
 
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
@@ -12382,7 +12403,9 @@ def cmd_repair_oracle_parameter_tests(args):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
-        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output = (
+            output_root / "deterministic-repair" / manifest_relative_output
+        )
         generated_output.parent.mkdir(parents=True, exist_ok=True)
         generated_output.write_text(rules_file.read_text())
         result = argparse.Namespace(
@@ -12400,17 +12423,21 @@ def cmd_repair_oracle_parameter_tests(args):
             result,
             output_root=output_root,
             policy_repo_path=repo_path,
-            relative_output=relative_output,
+            relative_output=manifest_relative_output,
             applied_files=[rules_file, test_file],
             run_id="deterministic-repair",
             signing_key=signing_key,
             axiom_encode_git=axiom_encode_git,
         )
 
-    print(
+    changed_message = (
         "Applied oracle parameter test repair to "
         f"{relative_output}: {', '.join(repaired_test_cases)}"
+        if repaired_test_cases
+        else "Refreshed oracle parameter test repair manifest for "
+        f"{relative_output}: {', '.join(covered_test_cases)}"
     )
+    print(changed_message)
     print(f"manifest={manifest_path}")
 
 
@@ -15386,6 +15413,38 @@ def _append_oracle_parameter_tests_if_missing(
     separator = "" if not existing_content or existing_content.endswith("\n") else "\n"
     test_file.write_text(f"{existing_content}{separator}{rendered}")
     return repaired
+
+
+def _mapped_oracle_parameter_test_outputs(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    target_base: str,
+) -> list[str]:
+    payload = yaml.safe_load(rules_file.read_text()) or {}
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+
+    existing_outputs = _rulespec_test_output_keys(test_file)
+    registry = load_policyengine_registry()
+    covered: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip() != "parameter":
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        legal_id = f"{target_base}#{rule_name}"
+        if legal_id not in existing_outputs:
+            continue
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        if mapping is None or mapping.mapping_type != "parameter_value":
+            continue
+        covered.append(rule_name)
+    return covered
 
 
 def _rulespec_test_output_keys(test_file: Path) -> set[str]:
@@ -30940,6 +30999,26 @@ def _relative_to_rulespec_apply_content_root(
         return Path(path).relative_to(content_root)
     except ValueError:
         return Path(path).relative_to(repo_path)
+
+
+def _relative_to_live_rulespec_content_root(path: Path, repo_path: Path) -> Path:
+    """Return a live repo file path relative to its jurisdiction content root."""
+    resolved_path = Path(path).resolve()
+    resolved_repo = Path(repo_path).resolve()
+    repo_relative = resolved_path.relative_to(resolved_repo)
+    parts = repo_relative.parts
+    if (
+        len(parts) >= 2
+        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+        and (resolved_repo / parts[0]).is_dir()
+    ):
+        return resolved_path.relative_to(resolved_repo / parts[0])
+    content_root = jurisdiction_content_dir(
+        resolved_repo,
+        _repo_jurisdiction_prefix(resolved_repo),
+    )
+    return resolved_path.relative_to(content_root)
 
 
 def _enforce_canonical_concept_registry(
