@@ -1845,6 +1845,7 @@ surfaces:
   coverage: US
   variable: acp
   source_type: program
+  lifecycle: sunset
   axiom_status: known_not_comparable
   priority: P3
   rationale: Axiom encodes ACP benefit caps, the 200 percent FPG income limit, source-level eligible-household paths, provider

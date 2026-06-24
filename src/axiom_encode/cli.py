@@ -3647,12 +3647,18 @@ def cmd_oracle_coverage(args):
             "PolicyEngine program surfaces: "
             f"{surfaces['total_surfaces']} "
             f"status={_format_counter(surfaces['status_counts'])} "
-            f"pending={surfaces['pending_surfaces']}"
+            f"pending={surfaces['pending_surfaces']} "
+            f"active_pending={surfaces.get('active_pending_surfaces', 0)}"
         )
         print(
             "PolicyEngine surface priorities: "
             f"{_format_counter(surfaces['priority_counts'])}"
         )
+        if surfaces.get("lifecycle_counts"):
+            print(
+                "PolicyEngine surface lifecycles: "
+                f"{_format_counter(surfaces['lifecycle_counts'])}"
+            )
     print()
 
     for repo in report["repos"]:
@@ -3689,7 +3695,8 @@ def cmd_oracle_coverage(args):
     program_surfaces = report.get("program_surfaces") or {}
     pending_surface_items = [
         item
-        for item in program_surfaces.get("items", [])
+        for item in program_surfaces.get("actionable_surfaces")
+        or program_surfaces.get("items", [])
         if item.get("axiom_status")
         in {
             "deferred_jurisdiction",
@@ -3697,10 +3704,11 @@ def cmd_oracle_coverage(args):
             "pending_rulespec_encoding",
             "pending_source_ingestion",
         }
+        and item.get("lifecycle", "active") == "active"
     ]
     if pending_surface_items:
         print()
-        print(f"Pending PolicyEngine program surfaces (first {args.limit}):")
+        print(f"Active pending PolicyEngine program surfaces (first {args.limit}):")
         for item in pending_surface_items[: args.limit]:
             state = f" [{item['state']}]" if item.get("state") else ""
             print(
