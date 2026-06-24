@@ -109,6 +109,166 @@ mappings:
     candidate_priority: P4
     rationale: The current Axiom Florida TCA amount depends on the incomplete Axiom eligibility wrapper and DCF page 21's no-issuance rule for deficits below $10. PolicyEngine's adjacent fl_tca uses its own eligibility, countable-income, and payment-standard graph and does not share this exact DCF program boundary yet.
 
+  - legal_id: us:policies/ed/fsa/gen-26-01-pell-award-amounts/block-1#maximum_pell_grant_award
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.amount.max
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Department of Education maximum Pell Grant award amount.
+
+  - legal_id: us:policies/ed/fsa/gen-26-01-pell-award-amounts/block-1#minimum_pell_grant_award
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.amount.min
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Department of Education minimum Pell Grant award amount.
+
+  - legal_id: us:statutes/20/1070a/b/1#maximum_pell_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.max_pell_limits
+    parameter_key: DEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 225 percent maximum-Pell poverty-line threshold used by PolicyEngine's single-parent Pell household type.
+
+  - legal_id: us:statutes/20/1070a/b/1#maximum_pell_not_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.max_pell_limits
+    parameter_key: DEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 175 percent maximum-Pell poverty-line threshold used by PolicyEngine's not-single-parent Pell household type.
+
+  - legal_id: us:statutes/20/1070a/b/1#minimum_pell_dependent_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: DEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 325 percent dependent single-parent minimum-Pell poverty-line threshold.
+
+  - legal_id: us:statutes/20/1070a/b/1#minimum_pell_dependent_not_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: DEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 275 percent dependent not-single-parent minimum-Pell poverty-line threshold.
+
+  - legal_id: us:statutes/20/1070a/b/1#minimum_pell_independent_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 400 percent independent single-parent minimum-Pell poverty-line threshold.
+
+  - legal_id: us:statutes/20/1070a/b/1#minimum_pell_independent_parent_not_single_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 350 percent independent parent not-single-parent minimum-Pell poverty-line threshold.
+
+  - legal_id: us:statutes/20/1070a/b/1#minimum_pell_independent_not_parent_poverty_line_multiplier
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_NOT_PARENT
+    period: year
+    comparison: rate
+    rationale: Same 275 percent independent not-parent minimum-Pell poverty-line threshold.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-8#maximum_pell_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.max_pell_limits
+    parameter_key: DEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 225 percent maximum-Pell poverty-guideline threshold used by PolicyEngine's single-parent Pell household type.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-8#maximum_pell_not_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.max_pell_limits
+    parameter_key: DEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 175 percent maximum-Pell poverty-guideline threshold used by PolicyEngine's not-single-parent Pell household type.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-30#dependent_minimum_pell_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: DEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 325 percent dependent single-parent minimum-Pell poverty-guideline threshold.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-30#dependent_minimum_pell_not_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: DEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 275 percent dependent not-single-parent minimum-Pell poverty-guideline threshold.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-30#independent_minimum_pell_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 400 percent independent single-parent minimum-Pell poverty-guideline threshold.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-30#independent_minimum_pell_parent_not_single_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_NOT_SINGLE
+    period: year
+    comparison: rate
+    rationale: Same 350 percent independent parent not-single-parent minimum-Pell poverty-guideline threshold.
+
+  - legal_id: us:policies/ed/fsa/2026-27-sai-pell-guide/page-30#independent_minimum_pell_not_parent_poverty_guideline_rate
+    country: us
+    program: pell
+    mapping_type: parameter_value
+    policyengine_parameter: gov.ed.pell_grant.sai.fpg_fraction.min_pell_limits
+    parameter_key: INDEPENDENT_NOT_PARENT
+    period: year
+    comparison: rate
+    rationale: Same 275 percent independent not-parent minimum-Pell poverty-guideline threshold.
+
   - legal_id: us-ma:policies/dta/snap/fy-2026-cola/heating-cooling-standard-utility-allowance#heating_cooling_standard_utility_allowance
     country: us
     program: snap
@@ -16198,6 +16358,27 @@ mappings:
     rationale: PolicyEngine does not expose the section 25C(g) basis-reduction amount as a separate variable.
 
 prefixes:
+  - legal_id_prefix: us:policies/ed/fsa/2026-27-sai-pell-guide/
+    country: us
+    program: pell
+    mapping_type: not_comparable
+    candidate_priority: P3
+    rationale: PolicyEngine-US exposes final Pell amount, SAI, eligibility type, and FPG threshold surfaces, but not the FSA guide's ISIR indicator, flag, and branch-level procedural outputs at one-to-one legal granularity; exact comparable Pell parameters carry mappings which take precedence over this prefix.
+
+  - legal_id_prefix: us:policies/ed/fsa/gen-26-01-pell-award-amounts/
+    country: us
+    program: pell
+    mapping_type: not_comparable
+    candidate_priority: P3
+    rationale: PolicyEngine-US exposes adjacent Pell award amount parameters and final grant variables, but not GEN-26-01's SAI prohibition, rounding, annual receipt cap, lifetime semester limit, or SAI-calculated award intermediates as one-to-one surfaces; exact comparable Pell parameters carry mappings which take precedence over this prefix.
+
+  - legal_id_prefix: us:statutes/20/1070a/b/
+    country: us
+    program: pell
+    mapping_type: not_comparable
+    candidate_priority: P3
+    rationale: PolicyEngine-US exposes adjacent Pell amount, SAI, eligibility type, and poverty-threshold surfaces, but not HEA section 401(b)'s statutory subparagraph predicates and intermediate amount determinations at one-to-one legal granularity; exact comparable Pell parameters carry mappings which take precedence over this prefix.
+
   - legal_id_prefix: us:statutes/26/25E#
     country: us
     program: clean_vehicle_credits

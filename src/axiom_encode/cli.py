@@ -15362,7 +15362,7 @@ def _append_oracle_parameter_tests_if_missing(
         sample = _first_scalar_parameter_value(rule, indexed=index_name is not None)
         if sample is None:
             continue
-        key, value = sample
+        key, value, effective_from = sample
         case_name_parts = ["oracle_parameter", _safe_test_name(rule_name)]
         if index_name is not None:
             case_name_parts.append(_safe_test_name(str(key)))
@@ -15370,11 +15370,7 @@ def _append_oracle_parameter_tests_if_missing(
         appended_cases.append(
             {
                 "name": "_".join(case_name_parts),
-                "period": {
-                    "period_kind": "tax_year",
-                    "start": "2026-01-01",
-                    "end": "2026-12-31",
-                },
+                "period": _oracle_parameter_test_period(effective_from),
                 "input": inputs,
                 "output": {legal_id: value},
             }
@@ -15424,25 +15420,62 @@ def _single_parameter_index_name(rule: dict) -> str | None:
 
 def _first_scalar_parameter_value(
     rule: dict, *, indexed: bool
-) -> tuple[object | None, object] | None:
+) -> tuple[object | None, object, str | None] | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
         return None
     for version in versions:
         if not isinstance(version, dict):
             continue
+        effective_from = version.get("effective_from")
+        effective_from_text = (
+            str(effective_from).strip() if effective_from is not None else None
+        )
         if indexed:
             values = version.get("values")
             if not isinstance(values, dict):
                 continue
             for key, value in values.items():
                 if isinstance(value, (str, int, float, bool)) or value is None:
-                    return key, value
+                    return key, value, effective_from_text
         else:
             value = _scalar_formula_value(version.get("formula"))
             if value is not None:
-                return None, value
+                return None, value, effective_from_text
     return None
+
+
+def _oracle_parameter_test_period(effective_from: str | None) -> dict[str, str]:
+    """Return a one-year period that is valid for a generated parameter test."""
+    default = {
+        "period_kind": "tax_year",
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+    }
+    if not effective_from:
+        return default
+    try:
+        start = date.fromisoformat(effective_from)
+    except ValueError:
+        return default
+    if start.year < 1900:
+        return default
+    if start.month == 1 and start.day == 1:
+        return {
+            "period_kind": "tax_year",
+            "start": f"{start.year:04d}-01-01",
+            "end": f"{start.year:04d}-12-31",
+        }
+    try:
+        next_start = start.replace(year=start.year + 1)
+    except ValueError:
+        next_start = start.replace(year=start.year + 1, day=28)
+    return {
+        "period_kind": "custom",
+        "name": "policy_year",
+        "start": start.isoformat(),
+        "end": date.fromordinal(next_start.toordinal() - 1).isoformat(),
+    }
 
 
 def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
