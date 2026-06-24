@@ -110,6 +110,72 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_head_start_45_cfr_1302_12(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us/regulations/45-cfr/1302/12.yaml",
+        """format: rulespec/v1
+rules:
+  - name: overincome_exception_enrollment_cap
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: 0.10
+  - name: additional_allowance_enrollment_cap
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: 0.35
+  - name: additional_allowance_income_limit_multiplier
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: 1.30
+  - name: reportable_overincome_lower_bound_multiplier
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: 1.00
+  - name: paragraph_c_participant_eligible
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: family_income <= poverty_line_amount
+  - name: additional_allowance_participant_may_be_enrolled
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: family_income < poverty_line_amount * additional_allowance_income_limit_multiplier
+  - name: report_to_regional_office_required_for_between_100_and_130_percent_enrollment
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: family_income >= poverty_line_amount
+  - name: tribal_service_area_participant_eligible
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: tribal_program and participant_in_approved_service_area
+  - name: migrant_or_seasonal_participant_eligible
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: at_least_one_family_member_income_comes_primarily_from_agricultural_employment
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="head_start")
+
+    assert report["total_outputs"] == 9
+    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["program"] for item in report["items"]} == {"head_start"}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_surface = items_by_id[
+        "us:regulations/45-cfr/1302/12#paragraph_c_participant_eligible"
+    ]
+    assert final_surface["policyengine_variable"] == "head_start"
+    assert final_surface["mapping_type"] == "not_comparable"
+
+
 def test_policyengine_coverage_includes_program_spec_outputs(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _write_rulespec_file(
@@ -364,6 +430,25 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestio
     assert arizona_ccap["axiom_status"] == "pending_source_ingestion"
     assert arizona_ccap["mapping_count"] == 0
     assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
+
+
+def test_policyengine_program_surface_marks_head_start_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="head_start")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    national = items_by_variable["head_start"]
+
+    assert national["axiom_status"] == "known_not_comparable"
+    assert national["mapping_count"] == 1
+    assert national["comparable_mapping_count"] == 0
+    assert national["legal_ids"] == [
+        "us:regulations/45-cfr/1302/12#paragraph_c_participant_eligible"
+    ]
+    assert items_by_variable["wa_eceap"]["axiom_status"] == "deferred_jurisdiction"
+    assert (
+        items_by_variable["wa_birth_to_three_eceap"]["axiom_status"]
+        == "deferred_jurisdiction"
+    )
 
 
 def test_policyengine_program_surface_marks_colorado_health_value_surfaces_out_of_scope():

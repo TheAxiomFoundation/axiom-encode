@@ -1332,10 +1332,11 @@ surfaces:
   coverage: US, WA
   variable: head_start
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes the national 45 CFR 1302.12 Head Start eligibility and enrollment-allowance rules. PolicyEngine's
+    `head_start` variable is a final imputed dollar value using eligibility, take-up, and state spending/enrollment allocation,
+    so the national legal surface is not a one-to-one oracle boundary.
 - country: us
   program_id: head_start
   program_name: ECEAP

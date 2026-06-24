@@ -386,6 +386,74 @@ mappings:
     comparison: rate
     rationale: Same federal Lifeline household-income limit in 47 CFR 54.409(a)(1), represented in PolicyEngine as the FCC Lifeline FPG limit parameter.
 
+  - legal_id: us:regulations/45-cfr/1302/12#overincome_exception_enrollment_cap
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 45 CFR 1302.12(c)(2) 10 percent over-income enrollment allowance. PolicyEngine's Head Start model does not expose this program-level enrollment-cap parameter or apply program-cap administration.
+
+  - legal_id: us:regulations/45-cfr/1302/12#additional_allowance_enrollment_cap
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 45 CFR 1302.12(d)(1) additional 35 percent participant allowance. PolicyEngine does not model this separate discretionary enrollment allowance.
+
+  - legal_id: us:regulations/45-cfr/1302/12#additional_allowance_income_limit_multiplier
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_income_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (d) below-130-percent-of-poverty allowance for additional participants. PolicyEngine's income eligibility variable models only the ordinary at-or-below-poverty path, not this separate allowance.
+
+  - legal_id: us:regulations/45-cfr/1302/12#reportable_overincome_lower_bound_multiplier
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 100 percent lower bound for paragraph (d)(2) reporting on 100-to-130-percent-of-poverty enrollments. PolicyEngine does not expose this reporting threshold.
+
+  - legal_id: us:regulations/45-cfr/1302/12#paragraph_c_participant_eligible
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: head_start
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (c) participant eligibility paths before age, take-up, per-slot spending, and final benefit assignment. PolicyEngine's head_start variable is a final imputed dollar value after eligibility, state spending/enrollment allocation, and take-up.
+
+  - legal_id: us:regulations/45-cfr/1302/12#additional_allowance_participant_may_be_enrolled
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (d) additional-enrollment allowance, including required program outreach and selection policies. PolicyEngine's Head Start eligibility variable does not model this discretionary allowance or its program-administration predicates.
+
+  - legal_id: us:regulations/45-cfr/1302/12#report_to_regional_office_required_for_between_100_and_130_percent_enrollment
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (d)(2) regional-office reporting trigger. PolicyEngine does not expose Head Start reporting duties.
+
+  - legal_id: us:regulations/45-cfr/1302/12#tribal_service_area_participant_eligible
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (e) Tribal program service-area eligibility path notwithstanding paragraph (c). PolicyEngine's Head Start eligibility variable does not model Tribal service-area eligibility as a distinct legal branch.
+
+  - legal_id: us:regulations/45-cfr/1302/12#migrant_or_seasonal_participant_eligible
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (f) Migrant or Seasonal Head Start eligibility path based on primary agricultural-employment income and age requirements. PolicyEngine's Head Start eligibility variable does not model this branch separately.
+
   - legal_id: us:regulations/47-cfr/54/409#income_qualifies_for_lifeline
     country: us
     program: lifeline
