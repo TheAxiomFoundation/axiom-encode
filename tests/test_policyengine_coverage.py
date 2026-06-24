@@ -293,9 +293,7 @@ surfaces:
     assert report["active_priority_counts"] == {"P1": 6}
     assert report["pending_surfaces"] == 1
     assert report["active_pending_surfaces"] == 1
-    assert [
-        item["variable"] for item in report["actionable_surfaces"]
-    ] == ["wic"]
+    assert [item["variable"] for item in report["actionable_surfaces"]] == ["wic"]
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
     assert items_by_variable["income_tax"]["lifecycle"] == "active"
