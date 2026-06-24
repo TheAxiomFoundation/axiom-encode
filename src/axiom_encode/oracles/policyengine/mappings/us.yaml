@@ -16454,7 +16454,306 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 25C(g) basis-reduction amount as a separate variable.
 
+  - legal_id: us:statutes/42/18795/c/2#modeled_savings_lower_threshold
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.threshold.medium
+    period: year
+    comparison: rate
+    rationale: Same HOMES modeled energy-system savings threshold for the medium modeled-rebate branch.
+
+  - legal_id: us:statutes/42/18795/c/2#modeled_savings_higher_threshold
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.threshold.high
+    period: year
+    comparison: rate
+    rationale: Same HOMES modeled energy-system savings threshold for the high modeled-rebate branch.
+
+  - legal_id: us:statutes/42/18795/c/2#measured_savings_threshold
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.threshold.low
+    period: year
+    comparison: rate
+    rationale: Same HOMES measured energy-savings threshold.
+
+  - legal_id: us:statutes/42/18795/c/2#standard_single_family_lower_modeled_amount_cap
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.medium
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-low/moderate-income HOMES single-family medium modeled-rebate dollar cap.
+
+  - legal_id: us:statutes/42/18795/c/2#standard_single_family_higher_modeled_amount_cap
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.high
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-low/moderate-income HOMES single-family high modeled-rebate dollar cap.
+
+  - legal_id: us:statutes/42/18795/c/2#standard_project_cost_cap_rate
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.percent
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same non-low/moderate-income HOMES project-cost percentage cap.
+
+  - legal_id: us:statutes/42/18795/c/2#low_or_moderate_income_lower_modeled_amount_cap
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.medium
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same low/moderate-income HOMES medium modeled-rebate dollar cap.
+
+  - legal_id: us:statutes/42/18795/c/2#low_or_moderate_income_higher_modeled_amount_cap
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.high
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same low/moderate-income HOMES high modeled-rebate dollar cap.
+
+  - legal_id: us:statutes/42/18795/c/2#low_or_moderate_income_project_cost_cap_rate
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.percent
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    comparison: rate
+    rationale: Same low/moderate-income HOMES project-cost percentage cap.
+
+  - legal_id: us:statutes/42/18795/c/2#standard_measured_payment_amount_for_twenty_percent_reduction
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.low
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 20
+    rationale: Same non-low/moderate-income HOMES measured-savings amount, with PolicyEngine storing the $2,000 per 20 percent statutory amount as $100 per one-percent reduction.
+
+  - legal_id: us:statutes/42/18795/c/2#low_or_moderate_income_measured_payment_amount_for_twenty_percent_reduction
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.residential_efficiency_electrification_rebate.cap.low
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    unit: USD
+    comparison: money
+    result_multiplier: 20
+    rationale: Same low/moderate-income HOMES measured-savings amount, with PolicyEngine storing the $4,000 per 20 percent statutory amount as $200 per one-percent reduction.
+
+  - legal_id: us:statutes/42/18795/c#homes_rebate_program_rebate_amounts_and_limitations
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: not_comparable
+    policyengine_variable: residential_efficiency_electrification_rebate
+    candidate_priority: P4
+    rationale: RuleSpec encodes the statutory HOMES thresholds, dollar caps, project-cost caps, multifamily caps, low/moderate-income branches, and anti-combination limits at source granularity. PolicyEngine's residential_efficiency_electrification_rebate collapses the program to tax-unit retrofit expenditure and energy-use inputs, omits multifamily/building/portfolio structure, and stores the measured-savings payment rate in a transformed per-percent form, so the final PE variable is not a one-to-one legal oracle.
+
+  - legal_id: us:statutes/42/18795a/c/3#heat_pump_water_heater_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.heat_pump_water_heater
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same high-efficiency electric home rebate cap for a heat pump water heater.
+
+  - legal_id: us:statutes/42/18795a/c/3#heat_pump_space_heating_or_cooling_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.heat_pump
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same high-efficiency electric home rebate cap for a heat pump for space heating or cooling.
+
+  - legal_id: us:statutes/42/18795a/c/3#electric_stove_cooktop_range_oven_or_heat_pump_clothes_dryer_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.electric_stove_cooktop_range_or_oven
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same $840 cap for electric stove, cooktop, range, or oven purchases; PolicyEngine also stores the same statutory $840 amount separately for electric heat-pump clothes dryers.
+
+  - legal_id: us:statutes/42/18795a/c/3#electric_load_service_center_upgrade_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.electric_load_service_center_upgrade
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same high-efficiency electric home rebate cap for an electric load service center upgrade.
+
+  - legal_id: us:statutes/42/18795a/c/3#insulation_air_sealing_and_ventilation_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.insulation_air_sealing_ventilation
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same high-efficiency electric home rebate cap for insulation, air sealing, and ventilation.
+
+  - legal_id: us:statutes/42/18795a/c/3#electric_wiring_rebate_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.electric_wiring
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same high-efficiency electric home rebate cap for electric wiring.
+
+  - legal_id: us:statutes/42/18795a/c/3#eligible_entity_multiple_rebate_total_cap
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.cap.total
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same total high-efficiency electric home rebate cap for an eligible entity receiving multiple rebates.
+
+  - legal_id: us:statutes/42/18795a/c/4#household_income_lower_bound_for_partial_project_cost_rebate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.percent_covered
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same 80 percent AMI threshold where the high-efficiency electric home rebate partial project-cost cap begins.
+
+  - legal_id: us:statutes/42/18795a/c/4#household_income_upper_bound_for_partial_project_cost_rebate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.percent_covered
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    comparison: rate
+    rationale: Same 150 percent AMI threshold above which high-efficiency electric home rebate project-cost coverage is zero.
+
+  - legal_id: us:statutes/42/18795a/c/4#household_income_upper_bound_for_full_project_cost_rebate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.percent_covered
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same 80 percent AMI threshold below which high-efficiency electric home rebate project-cost coverage is 100 percent.
+
+  - legal_id: us:statutes/42/18795a/c/4#partial_project_cost_rebate_cap_rate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.percent_covered
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same high-efficiency electric home rebate partial project-cost cap rate.
+
+  - legal_id: us:statutes/42/18795a/c/4#full_project_cost_rebate_cap_rate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: parameter_value
+    policyengine_parameter: gov.doe.high_efficiency_electric_home_rebate.percent_covered
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    comparison: rate
+    rationale: Same high-efficiency electric home rebate full project-cost cap rate.
+
+  - legal_id: us:statutes/42/18795a/c/4#project_cost_rebate_cap_rate
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: not_comparable
+    policyengine_variable: high_efficiency_electric_home_rebate_percent_covered
+    candidate_priority: P4
+    rationale: RuleSpec derives the cap rate across the individual, multifamily, and entity-on-behalf-of-household branches in 42 USC 18795a(c)(4). PolicyEngine's percent-covered variable is a tax-unit income-to-AMI lookup and does not expose the statutory eligible-entity or multifamily resident-share branches.
+
+  - legal_id: us:statutes/42/18795a/c/3#high_efficiency_electric_home_rebate_program_rebate_amount
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: not_comparable
+    policyengine_variable: high_efficiency_electric_home_rebate
+    candidate_priority: P4
+    rationale: RuleSpec encodes the statutory high-efficiency electric home rebate item caps, total cap, and project-cost percentage limits as source-level project/payment components. PolicyEngine's high_efficiency_electric_home_rebate sums tax-unit expenditure helper variables and caps the result, so it is not a one-to-one legal oracle until Axiom has the same project/entity/rebate aggregation surface.
+
 prefixes:
+  - legal_id_prefix: us:statutes/42/18795
+    country: us
+    program: doe_efficiency_rebate
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: HOMES rebate outputs not carrying exact parameter mappings are source-level project, multifamily, portfolio, grant-administration, or anti-combination surfaces that PolicyEngine-US does not expose one-to-one.
+
+  - legal_id_prefix: us:statutes/42/18795a
+    country: us
+    program: doe_high_efficiency_rebate
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: High-efficiency electric home rebate outputs not carrying exact parameter mappings are source-level eligible-entity, project, installer-payment, grant-administration, or anti-combination surfaces that PolicyEngine-US does not expose one-to-one.
+
   - legal_id_prefix: us:policies/ed/fsa/2026-27-sai-pell-guide/
     country: us
     program: pell

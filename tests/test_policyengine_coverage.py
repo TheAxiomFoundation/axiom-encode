@@ -435,6 +435,37 @@ def test_policyengine_program_surface_marks_section_25d_known_not_comparable():
     assert "post-2025 credits" in section_25d["rationale"]
 
 
+def test_policyengine_program_surface_marks_doe_rebates_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="doe_high_efficiency_rebate")
+
+    high_efficiency = {
+        item["variable"]: item for item in report["items"]
+    }["high_efficiency_electric_home_rebate"]
+
+    assert high_efficiency["axiom_status"] == "known_not_comparable"
+    assert high_efficiency["mapping_count"] >= 1
+    assert high_efficiency["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/42/18795a/c/3#high_efficiency_electric_home_rebate_program_rebate_amount"
+        in high_efficiency["legal_ids"]
+    )
+    assert "project/payment aggregation surface" in high_efficiency["rationale"]
+
+    report = build_policyengine_program_surface_report(program="doe_efficiency_rebate")
+    homes = {
+        item["variable"]: item for item in report["items"]
+    }["residential_efficiency_electrification_rebate"]
+
+    assert homes["axiom_status"] == "known_not_comparable"
+    assert homes["mapping_count"] >= 1
+    assert homes["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/42/18795/c#homes_rebate_program_rebate_amounts_and_limitations"
+        in homes["legal_ids"]
+    )
+    assert "project, building, portfolio" in homes["rationale"]
+
+
 def test_policyengine_program_surface_marks_acp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="acp")
 
