@@ -403,6 +403,38 @@ def test_policyengine_program_surface_marks_section_25c_known_not_comparable():
     assert "product-identification-number gate" in section_25c["rationale"]
 
 
+def test_policyengine_program_surface_marks_education_tax_credit_wired():
+    report = build_policyengine_program_surface_report(program="education_tax_credits")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    aotc = items_by_variable["american_opportunity_credit"]
+
+    assert aotc["axiom_status"] == "wired"
+    assert aotc["mapping_count"] >= 1
+    assert aotc["comparable_mapping_count"] >= 1
+    assert "us:statutes/26/25A#american_opportunity_credit" in aotc["legal_ids"]
+    assert "section 25A education credit surfaces" in aotc["rationale"]
+    assert "exact PE variables" in aotc["rationale"]
+
+
+def test_policyengine_program_surface_marks_section_25d_known_not_comparable():
+    report = build_policyengine_program_surface_report(
+        program="residential_clean_energy_credit"
+    )
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    section_25d = items_by_variable["residential_clean_energy_credit"]
+
+    assert section_25d["axiom_status"] == "known_not_comparable"
+    assert section_25d["mapping_count"] >= 1
+    assert section_25d["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/26/25D#residential_clean_energy_credit" in section_25d["legal_ids"]
+    )
+    assert "Pub. L. 119-21" in section_25d["rationale"]
+    assert "post-2025 credits" in section_25d["rationale"]
+
+
 def test_policyengine_program_surface_marks_acp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="acp")
 

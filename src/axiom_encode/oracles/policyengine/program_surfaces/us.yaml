@@ -1879,10 +1879,11 @@ surfaces:
   coverage: US
   variable: american_opportunity_credit
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_oracle_mapping
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: RuleSpec encodes current-law section 25A education credit surfaces and the PolicyEngine registry maps the American
+    Opportunity Credit, refundable and nonrefundable AOTC components, Lifetime Learning Credit components, and education tax
+    credit aggregate to exact PE variables for supported current-law cases.
 - country: us
   program_id: clean_vehicle_credits
   program_name: Clean vehicle credits
@@ -1908,10 +1909,12 @@ surfaces:
   coverage: US
   variable: residential_clean_energy_credit
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: RuleSpec encodes current-law section 25D residential clean energy credit surfaces. Axiom should not claim a comparable
+    oracle match for PolicyEngine's final `residential_clean_energy_credit` surface because PolicyEngine is stale after Pub.
+    L. 119-21 and still allows post-2025 credits; see PolicyEngine/policyengine-us#8694. Source-level parameters and intermediates
+    remain classified individually in the legal-ID registry.
 - country: us
   program_id: ira_tax_credits
   program_name: IRA tax credits
