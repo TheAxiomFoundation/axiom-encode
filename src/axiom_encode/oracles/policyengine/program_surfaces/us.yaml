@@ -1940,10 +1940,13 @@ surfaces:
   coverage: US
   variable: high_efficiency_electric_home_rebate
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    RuleSpec encodes 42 USC 18795a(c)(3)-(4) item caps, total caps, and project-cost percentage limits, with exact
+    PolicyEngine parameter mappings where PE exposes the same statutory values. The final PE variable collapses those
+    statutory project/entity/rebate concepts into tax-unit expenditure helpers, so Axiom should not claim one-to-one final
+    variable parity until the project/payment aggregation surface is encoded.
 - country: us
   program_id: doe_efficiency_rebate
   program_name: DOE efficiency rebate
@@ -1953,10 +1956,13 @@ surfaces:
   coverage: US
   variable: residential_efficiency_electrification_rebate
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    RuleSpec encodes 42 USC 18795 HOMES definitions and 42 USC 18795(c)(2) thresholds, modeled/measured caps, and
+    low/moderate-income branches, with exact PolicyEngine parameter mappings where PE exposes the same statutory values.
+    The final PE variable collapses the statutory project, building, portfolio, and anti-combination structure into
+    tax-unit energy-use inputs, so it is not a one-to-one final variable oracle yet.
 - country: us
   program_id: co_oap
   program_name: Colorado OAP
