@@ -423,13 +423,28 @@ def test_policyengine_program_surface_marks_acp_known_not_comparable():
     assert "connected-device" in acp["rationale"]
 
 
-def test_policyengine_program_surface_marks_clean_vehicle_pending_oracle_mapping():
+def test_policyengine_program_surface_marks_pell_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="pell_grant")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    pell = items_by_variable["pell_grant"]
+
+    assert pell["axiom_status"] == "known_not_comparable"
+    assert pell["priority"] == "P1"
+    assert pell["mapping_count"] == 0
+    assert pell["comparable_mapping_count"] == 0
+    assert "exact mappings for comparable Pell" in pell["rationale"]
+    assert "program aggregate" in pell["rationale"]
+    assert "Compare exact Pell parameters" in pell["rationale"]
+
+
+def test_policyengine_program_surface_marks_clean_vehicle_known_not_comparable():
     report = build_policyengine_program_surface_report(program="clean_vehicle_credits")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
     clean_vehicle = items_by_variable["clean_vehicle_credit"]
 
-    assert clean_vehicle["axiom_status"] == "pending_oracle_mapping"
+    assert clean_vehicle["axiom_status"] == "known_not_comparable"
     assert clean_vehicle["priority"] == "P1"
     assert "sections 25E and 30D" in clean_vehicle["rationale"]
     assert "taxpayer-to-vehicle relation" in clean_vehicle["rationale"]

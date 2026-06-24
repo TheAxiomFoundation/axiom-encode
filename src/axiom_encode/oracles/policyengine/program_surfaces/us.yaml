@@ -1863,10 +1863,13 @@ surfaces:
   coverage: US
   variable: pell_grant
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: RuleSpec PR 437 encodes current-law Pell Grant statutory and Department of Education guidance surfaces, including
+    exact mappings for comparable Pell award and poverty-line threshold parameters. Axiom should not claim a one-to-one oracle
+    match for PolicyEngine's final `pell_grant` program aggregate because PolicyEngine composes SAI/EFC-era paths, cost-of-attendance
+    caps, enrollment timing, eligibility-type variables, and simplified program inputs outside a single source-boundary legal
+    output. Compare exact Pell parameters and source-level branch outputs separately.
 - country: us
   program_id: education_tax_credits
   program_name: Education tax credits
@@ -1889,7 +1892,7 @@ surfaces:
   coverage: US
   variable: clean_vehicle_credit
   source_type: program
-  axiom_status: pending_oracle_mapping
+  axiom_status: known_not_comparable
   priority: P1
   rationale: RuleSpec PR 436 encodes current-law sections 25E and 30D from the House US Code releasepoint, including source-backed
     clean-vehicle credit parameters and per-vehicle rules. Axiom still should not claim a final `clean_vehicle_credit` oracle
