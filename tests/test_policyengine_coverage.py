@@ -436,11 +436,13 @@ def test_policyengine_program_surface_marks_section_25d_known_not_comparable():
 
 
 def test_policyengine_program_surface_marks_doe_rebates_known_not_comparable():
-    report = build_policyengine_program_surface_report(program="doe_high_efficiency_rebate")
+    report = build_policyengine_program_surface_report(
+        program="doe_high_efficiency_rebate"
+    )
 
-    high_efficiency = {
-        item["variable"]: item for item in report["items"]
-    }["high_efficiency_electric_home_rebate"]
+    high_efficiency = {item["variable"]: item for item in report["items"]}[
+        "high_efficiency_electric_home_rebate"
+    ]
 
     assert high_efficiency["axiom_status"] == "known_not_comparable"
     assert high_efficiency["mapping_count"] >= 1
@@ -452,9 +454,9 @@ def test_policyengine_program_surface_marks_doe_rebates_known_not_comparable():
     assert "project/payment aggregation surface" in high_efficiency["rationale"]
 
     report = build_policyengine_program_surface_report(program="doe_efficiency_rebate")
-    homes = {
-        item["variable"]: item for item in report["items"]
-    }["residential_efficiency_electrification_rebate"]
+    homes = {item["variable"]: item for item in report["items"]}[
+        "residential_efficiency_electrification_rebate"
+    ]
 
     assert homes["axiom_status"] == "known_not_comparable"
     assert homes["mapping_count"] >= 1

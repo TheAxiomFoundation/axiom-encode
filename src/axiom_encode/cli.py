@@ -15408,6 +15408,8 @@ def _append_oracle_parameter_tests_if_missing(
         return []
 
     existing_content = test_file.read_text() if test_file.exists() else ""
+    if (yaml.safe_load(existing_content) if existing_content.strip() else None) == []:
+        existing_content = ""
     test_file.parent.mkdir(parents=True, exist_ok=True)
     rendered = yaml.safe_dump(appended_cases, sort_keys=False)
     separator = "" if not existing_content or existing_content.endswith("\n") else "\n"

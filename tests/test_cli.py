@@ -25047,6 +25047,77 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
+    def test_repair_oracle_parameter_tests_replaces_empty_list_file(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/42/18795a/c/3.yaml"
+        test_file = policy_repo / "statutes/42/18795a/c/3.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: heat_pump_water_heater_rebate_cap
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2022-08-16'
+        formula: '1750'
+"""
+        )
+        test_file.write_text("[]\n")
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/42/18795a/c/3.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if (
+                    legal_id
+                    == "us:statutes/42/18795a/c/3#heat_pump_water_heater_rebate_cap"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert isinstance(payload, list)
+        assert len(payload) == 1
+        assert payload[0]["name"] == (
+            "oracle_parameter_heat_pump_water_heater_rebate_cap"
+        )
+        assert "[]\n-" not in test_file.read_text()
+
     def test_repair_oracle_parameter_tests_uses_canonical_country_monorepo_anchor(
         self, tmp_path
     ):
