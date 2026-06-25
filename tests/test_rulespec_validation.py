@@ -13299,6 +13299,61 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_slices_local_parent_corpus_artifact(
+    tmp_path,
+    monkeypatch,
+):
+    provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us-ca" / "statute"
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "wic.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "us-ca/statute/wic/11450",
+                "body": (
+                    "(a) (1) (A) Aid shall be paid to families. "
+                    "For family size 1, the maximum aid payment is $326. "
+                    "(B) Different aid is $999. "
+                    "\n(b) Pregnancy aid is $47."
+                ),
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ca/statute/wic/11450/a/1/A
+    values:
+      maximum_aid_payment_family_size_1: 326
+rules:
+  - name: maximum_aid_payment_family_size_1
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '326'
+"""
+
+    source_text = validator_pipeline._fetch_local_corpus_source_text(
+        "us-ca/statute/wic/11450/a/1/A"
+    )
+
+    assert source_text is not None
+    assert source_text.startswith("(A) Aid shall be paid")
+    assert "$326" in source_text
+    assert "$999" not in source_text
+    assert "$47" not in source_text
+    assert find_source_verification_issues(content) == []
+    assert find_ungrounded_numeric_issues(content) == []
+
+
 def test_source_verification_prefers_current_repo_corpus_artifact(
     tmp_path,
     monkeypatch,
