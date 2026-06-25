@@ -775,6 +775,21 @@ def test_policyengine_program_surface_marks_georgia_ssp_known_not_comparable():
     )
 
 
+def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    georgia_tanf = items_by_variable["ga_tanf"]
+
+    assert georgia_tanf["program_id"] == "tanf"
+    assert georgia_tanf["state"] == "GA"
+    assert georgia_tanf["axiom_status"] == "known_not_comparable"
+    assert georgia_tanf["mapping_count"] == 0
+    assert georgia_tanf["comparable_mapping_count"] == 0
+    assert "Georgia TANF assistance-standard" in georgia_tanf["rationale"]
+    assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
+
+
 def test_policyengine_coverage_classifies_federal_ssi_benefit_rate_intermediates(
     tmp_path,
 ):
