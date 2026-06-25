@@ -419,7 +419,7 @@ def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_no
     assert "final modeled subsidy" in colorado_ccap["rationale"]
 
 
-def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestion():
+def test_policyengine_program_surface_marks_arizona_ccap_pending_rulespec_encoding():
     report = build_policyengine_program_surface_report(program="ccap")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -427,9 +427,9 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestio
 
     assert arizona_ccap["program_id"] == "ccdf"
     assert arizona_ccap["state"] == "AZ"
-    assert arizona_ccap["axiom_status"] == "pending_source_ingestion"
+    assert arizona_ccap["axiom_status"] == "pending_rulespec_encoding"
     assert arizona_ccap["mapping_count"] == 0
-    assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
+    assert "TheAxiomFoundation/axiom-corpus#130" in arizona_ccap["rationale"]
 
 
 def test_policyengine_program_surface_marks_georgia_caps_known_not_comparable():
