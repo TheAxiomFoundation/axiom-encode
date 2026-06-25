@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
+    _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
     _unit_scoped_person_definition_issue_names,
@@ -7453,6 +7454,120 @@ rules:
             }
         ]
         assert rule["metadata"]["proof"]["atoms"][0]["path"] == "versions[0].formula"
+
+    def test_repair_unreferenced_percent_label_parameter_for_apply(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies/dfcs/tanf/appendix-a.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: grg_income_limit_for_listed_assistance_unit_size
+  kind: parameter
+  dtype: Money
+  indexed_by: assistance_unit_size
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      1: 2128
+- name: grg_income_limit_fpl_rate
+  kind: parameter
+  dtype: Rate
+  source: DFCS TANF Appendix A, GRG income limit column
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ga/manual/dfcs/tanf/appendix-a/block-2
+          excerpt: "160% FPL GRG Income Limits"
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 1.60
+- name: grg_income_limit_160_percent_fpl
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: grg_income_limit_for_listed_assistance_unit_size[assistance_unit_size]
+"""
+        )
+        test_file = rules_file.with_name("appendix-a.test.yaml")
+        test_file.write_text(
+            """- name: grg
+  output:
+    us-ga:policies/dfcs/tanf/appendix-a#grg_income_limit_fpl_rate: 1.6
+    us-ga:policies/dfcs/tanf/appendix-a#grg_income_limit_160_percent_fpl: 2128
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = (
+            _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=tmp_path / "rulespec-us-ga",
+                issues=[
+                    "Ungrounded generated numeric literal: 1.60 (1.6) does not "
+                    "appear as a substantive numeric value in the source text."
+                ],
+            )
+        )
+
+        assert repaired == ["grg_income_limit_fpl_rate"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "grg_income_limit_for_listed_assistance_unit_size",
+            "grg_income_limit_160_percent_fpl",
+        ]
+        tests = yaml.safe_load(test_file.read_text())
+        assert tests[0]["output"] == {
+            "us-ga:policies/dfcs/tanf/appendix-a#grg_income_limit_160_percent_fpl": 2128
+        }
+
+    def test_repair_percent_label_parameter_keeps_referenced_rule(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies/dfcs/tanf/appendix-a.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: grg_income_limit_fpl_rate
+  kind: parameter
+  dtype: Rate
+  source: 160% FPL GRG Income Limits
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 1.60
+- name: grg_amount
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  period: Month
+  versions:
+  - effective_from: '0001-01-01'
+    formula: federal_poverty_line * grg_income_limit_fpl_rate
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = (
+            _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=tmp_path / "rulespec-us-ga",
+                issues=[
+                    "Ungrounded generated numeric literal: 1.60 (1.6) does not "
+                    "appear as a substantive numeric value in the source text."
+                ],
+            )
+        )
+
+        assert repaired == []
+        assert "grg_income_limit_fpl_rate" in rules_file.read_text()
 
     def test_convert_indexed_parameter_values_skips_unsafe_literals(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"

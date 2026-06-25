@@ -20046,6 +20046,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_percent_label_parameters = (
+                    _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_percent_label_parameters:
+                    outcome[
+                        "auto_repaired_unreferenced_percent_label_parameters"
+                    ] = repaired_percent_label_parameters
+                    print(
+                        "  apply=auto_repaired_unreferenced_percent_label_parameters:"
+                        + ",".join(repaired_percent_label_parameters)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_shared_rate_names = (
                     _try_repair_generated_shared_statutory_rate_names_for_apply(
                         result,
@@ -27818,6 +27847,261 @@ def _try_repair_generated_indexed_parameter_lookups_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     return _repair_bare_indexed_parameter_references(rules_file)
+
+
+def _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path | None = None,
+    issues: list[str],
+) -> list[str]:
+    ungrounded_values = _ungrounded_numeric_values_from_issues(issues)
+    if not ungrounded_values:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    referenced_names = _referenced_local_rule_names(rules)
+    retained_rules: list[object] = []
+    removed: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            retained_rules.append(rule)
+            continue
+        name = str(rule.get("name") or "").strip()
+        if (
+            not name
+            or name in referenced_names
+            or not _is_unreferenced_percent_label_parameter(
+                rule,
+                ungrounded_values=ungrounded_values,
+            )
+        ):
+            retained_rules.append(rule)
+            continue
+        removed.append(name)
+
+    if not removed:
+        return []
+    payload["rules"] = retained_rules
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+    test_file = _rulespec_test_path(rules_file)
+    target_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    _remove_companion_outputs_for_removed_rules(
+        test_file,
+        target_anchor=target_anchor,
+        removed_names=set(removed),
+    )
+    return removed
+
+
+def _ungrounded_numeric_values_from_issues(issues: list[str]) -> set[float]:
+    values: set[float] = set()
+    pattern = re.compile(
+        r"Ungrounded generated numeric literal:\s+"
+        r"(?P<raw>-?[\d,]+(?:\.\d+)?)"
+        r"(?:\s+\((?P<normalized>-?[\d,]+(?:\.\d+)?)\))?"
+    )
+    for issue in issues:
+        match = pattern.search(str(issue))
+        if match is None:
+            continue
+        raw_value = match.group("normalized") or match.group("raw")
+        with contextlib.suppress(ValueError):
+            values.add(float(raw_value.replace(",", "")))
+    return values
+
+
+def _referenced_local_rule_names(rules: list[Any]) -> set[str]:
+    referenced: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        for formula in _rulespec_rule_formula_texts_for_generated_repair(rule):
+            referenced.update(_formula_identifiers(formula))
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            import_payload = atom.get("import")
+            if not isinstance(import_payload, dict):
+                continue
+            output = str(import_payload.get("output") or "").strip()
+            if output:
+                referenced.add(output)
+                continue
+            target = str(import_payload.get("target") or "").strip()
+            if "#" in target:
+                referenced.add(target.rsplit("#", 1)[1].strip())
+    return referenced
+
+
+def _rulespec_rule_formula_texts_for_generated_repair(rule: dict[str, Any]) -> list[str]:
+    formulas: list[str] = []
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return formulas
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str) and formula.strip():
+            formulas.append(formula)
+    return formulas
+
+
+def _is_unreferenced_percent_label_parameter(
+    rule: dict[str, Any],
+    *,
+    ungrounded_values: set[float],
+) -> bool:
+    if str(rule.get("kind") or "").strip().lower() != "parameter":
+        return False
+    value = _single_numeric_formula_value(rule)
+    if value is None or not any(math.isclose(value, item) for item in ungrounded_values):
+        return False
+    if value <= 0:
+        return False
+    percent = value * 100
+    if not math.isfinite(percent) or percent <= 0:
+        return False
+    source_text = _generated_rule_source_context(rule)
+    if not source_text:
+        return False
+    percent_text = ("%f" % percent).rstrip("0").rstrip(".")
+    return bool(
+        re.search(
+            rf"(?<![\d.]){re.escape(percent_text)}\s*(?:%(?!\w)|percent\b)",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _single_numeric_formula_value(rule: dict[str, Any]) -> float | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    formula = version.get("formula")
+    if isinstance(formula, bool):
+        return None
+    if isinstance(formula, int | float):
+        return float(formula)
+    if isinstance(formula, str):
+        normalized = formula.strip().replace(",", "")
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+            return float(normalized)
+    return None
+
+
+def _generated_rule_source_context(rule: dict[str, Any]) -> str:
+    parts: list[str] = []
+    source = rule.get("source")
+    if isinstance(source, str):
+        parts.append(source)
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source_payload = atom.get("source")
+            if not isinstance(source_payload, dict):
+                continue
+            excerpt = source_payload.get("excerpt")
+            if isinstance(excerpt, str):
+                parts.append(excerpt)
+    return "\n".join(parts)
+
+
+def _remove_companion_outputs_for_removed_rules(
+    test_file: Path,
+    *,
+    target_anchor: str,
+    removed_names: set[str],
+) -> None:
+    if not removed_names or not test_file.exists():
+        return
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(cases, list):
+        return
+    changed = False
+    retained_cases: list[object] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            retained_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            retained_cases.append(case)
+            continue
+        retained_outputs = {
+            key: value
+            for key, value in outputs.items()
+            if not _test_output_targets_removed_rule(
+                key,
+                target_anchor=target_anchor,
+                removed_names=removed_names,
+            )
+        }
+        if len(retained_outputs) != len(outputs):
+            changed = True
+            if retained_outputs:
+                case["output"] = retained_outputs
+                retained_cases.append(case)
+            continue
+        retained_cases.append(case)
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(retained_cases, sort_keys=False, allow_unicode=False)
+        )
+
+
+def _test_output_targets_removed_rule(
+    key: object,
+    *,
+    target_anchor: str,
+    removed_names: set[str],
+) -> bool:
+    key_text = str(key).strip()
+    if "#" in key_text:
+        base, fragment = key_text.split("#", 1)
+        return base.strip() == target_anchor and fragment.strip() in removed_names
+    return key_text in removed_names
 
 
 def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
