@@ -125,6 +125,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "predicate for the excepted category",
         "toggle each gate at least once",
         "Validation fails if a direct local `#input.*_exception_applies`",
+        "Compute each expected `output:` value by evaluating the emitted RuleSpec",
+        "flat\n  threshold with a percentage of excess income",
         "`clause_ii_provides_otherwise`",
         "Axiom formulas have no date literal type",
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`",
