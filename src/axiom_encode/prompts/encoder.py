@@ -294,6 +294,14 @@ _TABLES_PROTOCOL = """- Use `kind: parameter` with `indexed_by` and versioned `v
   `match` arms over the source-stated text labels, or encode source-stated
   boolean predicates for listed categories and combine them. Keep the text
   labels in proof excerpts/tests, not as parameter table keys.
+- For long source-stated text-label lists, do not emit one giant `or` chain or
+  one giant `match` with every label. Large nested formula trees can exceed the
+  compiled artifact parser's recursion limit. If a category list has more than
+  about 25 text labels, split it into private source-backed `dtype: Judgment`
+  helper predicates for chunks of that category (for example
+  `zone_3_county_group_1`, `zone_3_county_group_2`), keep each helper formula
+  to at most 25 text comparisons, and make the exported selector combine the
+  helpers with a short conditional.
 - For source tables with interval/range row labels such as "at least / but less
   than" bands, do not create one scalar parameter per row, bound, or cell with
   names like `*_row_0_upper_*`, `*_row_3_rate`, or
