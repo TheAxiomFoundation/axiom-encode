@@ -104,6 +104,24 @@ fixed `parameter_keys` that must agree, or by a RuleSpec test input through
     3: HEAD_OF_HOUSEHOLD
 ```
 
+For nested PE parameter objects, use `parameter_key_path`. Path entries can
+select from RuleSpec inputs and can optionally bound numeric keys before
+lookup. This is for source-stated capped rows such as "10 or more", where the
+RuleSpec output and PE parameter table share the same capped row:
+
+```yaml
+- legal_id: us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment
+  mapping_type: parameter_value
+  policyengine_parameter: gov.states.ca.cdss.tanf.cash.monthly_payment.region1
+  parameter_key_path:
+    - input: assistance_unit_is_exempt
+      key_map:
+        "True": exempt
+        "False": non_exempt
+    - input: persons_on_aid
+      max_value: 10
+```
+
 Use `parameter_keys` when one legal output intentionally groups multiple PE
 table cells that should have the same value:
 

@@ -2586,6 +2586,31 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert ca_snap_monthly_income_mapping.mapping_type == "not_comparable"
     assert ca_snap_monthly_income_mapping.policyengine_variable == "snap_gross_income"
+    ca_calworks_region1_map_mapping = registry.mapping_for_legal_id(
+        "us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment",
+        country="us",
+    )
+    assert ca_calworks_region1_map_mapping.mapping_type == "parameter_value"
+    assert (
+        ca_calworks_region1_map_mapping.policyengine_parameter
+        == "gov.states.ca.cdss.tanf.cash.monthly_payment.region1"
+    )
+    assert ca_calworks_region1_map_mapping.parameter_key_path == (
+        {
+            "input": "assistance_unit_is_exempt",
+            "key_map": {"True": "exempt", "False": "non_exempt"},
+        },
+        {"input": "persons_on_aid", "max_value": 10},
+    )
+    ca_calworks_resource_mapping = registry.mapping_for_legal_id(
+        "us-ca:policies/cdss/calworks/maximum-resource-limit#calworks_maximum_resource_limit",
+        country="us",
+    )
+    assert ca_calworks_resource_mapping.mapping_type == "parameter_value"
+    assert (
+        ca_calworks_resource_mapping.policyengine_parameter
+        == "gov.states.ca.cdss.tanf.cash.resources.limit"
+    )
     shelter_cap_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_alaska",
         country="us",
@@ -3575,6 +3600,64 @@ def test_policyengine_oracle_compares_nested_parameter_key_path(tmp_path):
     assert result.details["coverage"]["comparable"] == 1
     assert "gov.irs.income.bracket.thresholds" in scripts[0]
     assert 'key_paths = [["1", "SINGLE"]]' in scripts[0]
+
+
+def test_policyengine_oracle_clamps_nested_parameter_key_path(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: calworks_region_1_more_than_ten
+  period: 2024-10
+  input:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#input.assistance_unit_is_exempt: false
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#input.persons_on_aid: 12
+  output:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment: 2876
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment": PolicyEngineMapping(
+                legal_id="us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.states.ca.cdss.tanf.cash.monthly_payment.region1",
+                parameter_key_path=(
+                    {
+                        "input": "assistance_unit_is_exempt",
+                        "key_map": {"True": "exempt", "False": "non_exempt"},
+                    },
+                    {"input": "persons_on_aid", "max_value": 10},
+                ),
+                period="month",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:2876\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert "gov.states.ca.cdss.tanf.cash.monthly_payment.region1" in scripts[0]
+    assert 'key_paths = [["non_exempt", "10"]]' in scripts[0]
 
 
 def test_policyengine_oracle_compares_integer_parameter_key_path(tmp_path):
