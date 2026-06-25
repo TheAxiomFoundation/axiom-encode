@@ -933,6 +933,14 @@ _SCHEDULE_BARE_ARROW_ROW_PATTERN = re.compile(
     r"^\s*[-*]\s*(?:=>|->|=)\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
+_SCHEDULE_SPLIT_ROW_KEY_PATTERN = re.compile(
+    r"^\s*(\d+)(?:\s+or\s+more)?\s*\.{2,}\s*$",
+    re.IGNORECASE,
+)
+_SCHEDULE_SPLIT_VALUE_PATTERN = re.compile(
+    r"^\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
 _VALUE_BEARING_TABLE_ROW_PATTERN = re.compile(
     r"^\s*[-*]?\s*[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
@@ -2824,9 +2832,21 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     text = re.sub(r"\\r\\n|\\n|\\r", "\n", text)
     text = text.replace(r"\t", "\t")
     cleaned_lines: list[str] = []
+    preserve_split_schedule_value = False
     for line in text.splitlines():
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
+            structural_stripped
+        ):
+            cleaned_lines.append(line)
+            preserve_split_schedule_value = False
+            continue
+        preserve_split_schedule_value = False
+        if _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(structural_stripped):
+            cleaned_lines.append(line)
+            preserve_split_schedule_value = True
+            continue
         if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
             continue
         if _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped):
@@ -2914,13 +2934,46 @@ def _extract_collapsed_schedule_row_occurrences(
     seen_values: set[float] = set()
     ungrouped_block = 0
     current_ungrouped_block: str | None = None
+    pending_split_block_key: str | None = None
 
     for line in text.splitlines():
         stripped = line.strip()
+        if pending_split_block_key is not None:
+            split_value_match = _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(stripped)
+            if split_value_match:
+                with contextlib.suppress(ValueError):
+                    value = float(split_value_match.group(1).replace(",", ""))
+                    if (
+                        last_value_by_block.get(pending_split_block_key) != value
+                        and value not in seen_values
+                    ):
+                        occurrences.append(value)
+                        last_value_by_block[pending_split_block_key] = value
+                        seen_values.add(value)
+                pending_split_block_key = None
+                continue
+            pending_split_block_key = None
+
         if _SCHEDULE_BLOCK_HEADING_PATTERN.fullmatch(stripped):
             current_heading = stripped
             current_ungrouped_block = None
             retained_lines.append(line)
+            continue
+
+        split_key_match = _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(stripped)
+        if split_key_match:
+            with contextlib.suppress(ValueError):
+                key_value = float(split_key_match.group(1).replace(",", ""))
+                if key_value not in seen_values:
+                    occurrences.append(key_value)
+                    seen_values.add(key_value)
+            if current_heading is not None:
+                pending_split_block_key = current_heading
+            else:
+                if current_ungrouped_block is None:
+                    ungrouped_block += 1
+                    current_ungrouped_block = f"__ungrouped_{ungrouped_block}"
+                pending_split_block_key = current_ungrouped_block
             continue
 
         row_match = (
