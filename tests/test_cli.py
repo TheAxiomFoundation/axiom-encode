@@ -25507,6 +25507,102 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
+    def test_repair_oracle_parameter_tests_assigns_local_factual_inputs(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0020.yaml"
+        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0020.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: cash_assistance_payment_standard_size_band
+    kind: derived
+    entity: AssistanceUnit
+    dtype: Integer
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if assistance_unit_size >= 10: 10 else: assistance_unit_size
+  - name: cash_assistance_maximum_monthly_payment_standard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: cash_assistance_payment_standard_size_band
+    versions:
+      - effective_from: '0001-01-01'
+        values:
+          1: 450
+          10: 1662
+"""
+        )
+        test_file.write_text(
+            """- name: existing
+  output:
+    us-wa:regulations/388/388-478/388-478-0020#some_other_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us-wa/regulations/388/388-478/388-478-0020.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if legal_id == (
+                    "us-wa:regulations/388/388-478/388-478-0020"
+                    "#cash_assistance_maximum_monthly_payment_standard"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        added = payload[-1]
+        assert added["name"] == (
+            "oracle_parameter_cash_assistance_maximum_monthly_payment_standard_1"
+        )
+        assert added["input"] == {
+            "us-wa:regulations/388/388-478/388-478-0020#input.assistance_unit_size": 1,
+            "us-wa:regulations/388/388-478/388-478-0020#input.cash_assistance_payment_standard_size_band": 1,
+        }
+        assert added["output"] == {
+            "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_maximum_monthly_payment_standard": 450
+        }
+
     def test_repair_oracle_parameter_tests_replaces_empty_list_file(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/42/18795a/c/3.yaml"
