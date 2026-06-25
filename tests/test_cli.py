@@ -5607,6 +5607,54 @@ rules:
             "snap_gross_income_standard_for_household_scalar_limit" in repaired_formula
         )
 
+    def test_embedded_scalar_literal_repair_preserves_table_name_digits(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "policies" / "des" / "ccap" / "chart.yaml"
+        rules_file.parent.mkdir(parents=True)
+        formula = (
+            "if family_monthly_gross_income "
+            "<= fee_level_4_income_upper_limit_by_family_size[family_size]: "
+            "4 else: -1"
+        )
+        rules_file.write_text(
+            f"""format: rulespec/v1
+module:
+  summary: Arizona CCAP income chart.
+rules:
+- name: child_care_assistance_fee_level
+  kind: derived
+  entity: Family
+  dtype: Integer
+  period: Month
+  source: Gross Monthly Income Eligibility Chart
+  versions:
+  - effective_from: '2025-10-01'
+    formula: {formula!r}
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us-az",
+            issues=[
+                "Embedded scalar literal: child_care_assistance_fee_level "
+                "line 10 embeds 4 in `4`; extract the value to its own named "
+                "numeric concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["child_care_assistance_fee_level_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        derived = payload["rules"][1]
+        repaired_formula = derived["versions"][0]["formula"]
+        assert "fee_level_4_income_upper_limit_by_family_size" in repaired_formula
+        assert "fee_level_child_care_assistance_fee_level_scalar_limit" not in (
+            repaired_formula
+        )
+        assert "child_care_assistance_fee_level_scalar_limit else" in repaired_formula
+
     def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
         self, tmp_path
     ):

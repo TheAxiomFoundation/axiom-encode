@@ -21869,7 +21869,11 @@ def _replace_embedded_scalar_literal(
         parameter_name,
         expression,
     )
-    if expression_replacement != expression and expression in formula:
+    if (
+        expression.strip() != literal
+        and expression_replacement != expression
+        and expression in formula
+    ):
         formula = formula.replace(expression, expression_replacement, 1)
     return re.sub(
         rf"(?<![A-Za-z0-9_.]){re.escape(literal)}(?![A-Za-z0-9_.])",
