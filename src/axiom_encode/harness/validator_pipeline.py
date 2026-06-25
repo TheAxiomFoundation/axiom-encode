@@ -2785,11 +2785,63 @@ def _iter_cardinal_word_number_matches(
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
     for match in _CARDINAL_NUMBER_WORD_PATTERN.finditer(text):
-        value = _parse_cardinal_number_words(match.group(0))
+        phrase = match.group(0)
+        split_values = _split_flat_coordinated_cardinal_phrase(
+            phrase, offset=match.start()
+        )
+        if split_values is not None:
+            matches.extend(split_values)
+            continue
+        value = _parse_cardinal_number_words(phrase)
         if value is None:
             continue
         matches.append((match.span(), value))
     return matches
+
+
+def _split_flat_coordinated_cardinal_phrase(
+    phrase: str,
+    *,
+    offset: int = 0,
+) -> list[tuple[tuple[int, int], float]] | None:
+    """Split phrases like "sixteen and eighteen" into separate values.
+
+    The generic cardinal parser treats all number words in one phrase as one
+    value, which is correct for scaled phrases such as "one hundred and
+    twenty" but wrong for statutory ranges written as coordinated bare
+    cardinals. Only split when the phrase contains "and", has no scale word,
+    and each side independently parses as a simple cardinal sequence.
+    """
+    lowered = phrase.lower()
+    if not re.search(r"\band\b", lowered):
+        return None
+    if any(
+        re.search(rf"\b{re.escape(scale_word)}\b", lowered)
+        for scale_word in _CARDINAL_SCALE_WORD_VALUES
+    ):
+        return None
+
+    segments: list[tuple[tuple[int, int], float]] = []
+    start = 0
+    for separator in re.finditer(r"\band\b", lowered):
+        raw_segment = phrase[start : separator.start()]
+        parsed = _parse_cardinal_word_sequence(raw_segment)
+        if parsed is None:
+            return None
+        segment_start = start + len(raw_segment) - len(raw_segment.lstrip())
+        segment_end = start + len(raw_segment.rstrip())
+        segments.append(((offset + segment_start, offset + segment_end), parsed))
+        start = separator.end()
+
+    raw_segment = phrase[start:]
+    parsed = _parse_cardinal_word_sequence(raw_segment)
+    if parsed is None:
+        return None
+    segment_start = start + len(raw_segment) - len(raw_segment.lstrip())
+    segment_end = start + len(raw_segment.rstrip())
+    segments.append(((offset + segment_start, offset + segment_end), parsed))
+
+    return segments if len(segments) >= 2 else None
 
 
 def _parse_cardinal_number_words(text: str) -> float | None:
