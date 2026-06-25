@@ -31335,6 +31335,8 @@ def _factual_input_appears_numeric(
         "remuneration",
         "salary",
         "age",
+        "month",
+        "months",
         "threshold",
         "rate",
         "value",

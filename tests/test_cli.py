@@ -15797,6 +15797,37 @@ rules:
 
         assert value == 0
 
+    def test_generated_test_input_defaults_treat_month_counts_as_numeric(self):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "countable_months_for_required_disability_entitlement_period",
+                    "kind": "derived",
+                    "dtype": "Count",
+                    "versions": [
+                        {
+                            "formula": (
+                                "current_period_months_entitled_to_specified_monthly_benefits_on_basis_of_disability\n"
+                                "+ (if previous_period_months_not_included_in_required_count: 0 else: previous_period_months_entitled_to_specified_monthly_benefits)"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+
+        numeric_value = _default_generated_test_input_value(
+            "previous_period_months_entitled_to_specified_monthly_benefits",
+            rules_payload=rules_payload,
+        )
+        boolean_value = _default_generated_test_input_value(
+            "individual_had_been_entitled_to_specified_monthly_benefits_of_same_type_during_previous_period",
+            rules_payload=rules_payload,
+        )
+
+        assert numeric_value == 0
+        assert boolean_value is False
+
     def test_encode_apply_repeats_missing_test_input_assignment_repairs(
         self, capsys, tmp_path
     ):
