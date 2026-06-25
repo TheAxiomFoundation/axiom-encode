@@ -22487,6 +22487,36 @@ rules:
     assert 4 in extract_numeric_occurrences_from_text(source_text)
 
 
+def test_ungrounded_numeric_accepts_compound_source_ordinal_word():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/426/h
+rules:
+  - name: ordinary_entitlement_beginning_month_replaced_for_als
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          25
+"""
+    source_text = (
+        "The entitlement under such subsection shall begin with the first month "
+        "(rather than twenty-fifth month) of entitlement or status."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 25 in source_values
+    assert 20 not in source_values
+    assert 5 not in source_values
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 25 in occurrences
+    assert 20 not in occurrences
+    assert 5 not in occurrences
+
+
 def test_ungrounded_numeric_preserves_substantive_parenthetical_days():
     content = """format: rulespec/v1
 module:

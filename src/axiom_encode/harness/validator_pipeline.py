@@ -907,8 +907,37 @@ _ORDINAL_WORD_VALUES = {
     "eightieth": 80.0,
     "ninetieth": 90.0,
 }
+_COMPOUND_ORDINAL_TENS_VALUES = {
+    "twenty": 20.0,
+    "thirty": 30.0,
+    "forty": 40.0,
+    "fifty": 50.0,
+    "sixty": 60.0,
+    "seventy": 70.0,
+    "eighty": 80.0,
+    "ninety": 90.0,
+}
+_COMPOUND_ORDINAL_UNIT_VALUES = {
+    "first": 1.0,
+    "second": 2.0,
+    "third": 3.0,
+    "fourth": 4.0,
+    "fifth": 5.0,
+    "sixth": 6.0,
+    "seventh": 7.0,
+    "eighth": 8.0,
+    "ninth": 9.0,
+}
+for _tens_word, _tens_value in _COMPOUND_ORDINAL_TENS_VALUES.items():
+    for _unit_word, _unit_value in _COMPOUND_ORDINAL_UNIT_VALUES.items():
+        _ORDINAL_WORD_VALUES[f"{_tens_word}-{_unit_word}"] = _tens_value + _unit_value
+        _ORDINAL_WORD_VALUES[f"{_tens_word} {_unit_word}"] = _tens_value + _unit_value
 _ORDINAL_WORD_PATTERN = re.compile(
-    r"\b(" + "|".join(re.escape(word) for word in _ORDINAL_WORD_VALUES) + r")\b",
+    r"\b("
+    + "|".join(
+        re.escape(word) for word in sorted(_ORDINAL_WORD_VALUES, key=len, reverse=True)
+    )
+    + r")\b",
     re.IGNORECASE,
 )
 _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
@@ -2581,10 +2610,16 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    for span, value in _iter_ordinal_word_number_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_cardinal_word_number_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
         numbers.add(value)
+        occupied_spans.append(span)
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
@@ -2597,16 +2632,16 @@ def extract_numbers_from_text(text: str) -> set[float]:
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group(1)))
 
-    for match in _ORDINAL_WORD_PATTERN.finditer(text):
-        numbers.add(_ORDINAL_WORD_VALUES[match.group(1).lower()])
-
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         if glyph in text:
             numbers.add(value)
 
     text_lower = text.lower()
     for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
+        if _span_overlaps(match.span(1), occupied_spans):
+            continue
         numbers.add(_CARDINAL_WORD_VALUES[match.group(1)])
+        occupied_spans.append(match.span(1))
 
     return numbers
 
@@ -2710,6 +2745,19 @@ def _iter_normalized_special_numeric_matches(
         with contextlib.suppress(ValueError):
             matches.append((match.span(1), float(match.group(1).replace(",", ""))))
 
+    return matches
+
+
+def _iter_ordinal_word_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return English ordinal word phrases such as "twenty-fifth"."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _ORDINAL_WORD_PATTERN.finditer(text):
+        value = _ORDINAL_WORD_VALUES.get(match.group(1).lower())
+        if value is None:
+            continue
+        matches.append((match.span(), value))
     return matches
 
 
@@ -3048,10 +3096,12 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
                 continue
             occurrences.append(value)
 
-    for match in _ORDINAL_WORD_PATTERN.finditer(cleaned):
-        value = _ORDINAL_WORD_VALUES[match.group(1).lower()]
+    for span, value in _iter_ordinal_word_number_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
         if value not in GROUNDING_ALLOWED_VALUES:
             occurrences.append(value)
+        spans.append(span)
 
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
