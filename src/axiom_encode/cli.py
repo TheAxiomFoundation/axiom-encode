@@ -15362,11 +15362,21 @@ def _append_oracle_parameter_tests_if_missing(
     test_file: Path,
     target_base: str,
 ) -> list[str]:
-    payload = yaml.safe_load(rules_file.read_text()) or {}
+    rules_content = rules_file.read_text()
+    payload = yaml.safe_load(rules_content) or {}
     rules = payload.get("rules") if isinstance(payload, dict) else None
     if not isinstance(rules, list):
         return []
 
+    factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
+    input_defaults = {
+        f"{target_base}#input.{input_name}": _default_generated_test_input_value(
+            input_name,
+            rules_payload=payload,
+            prefer_positive_counts=True,
+        )
+        for input_name in sorted(factual_inputs)
+    }
     existing_outputs = _rulespec_test_output_keys(test_file)
     registry = load_policyengine_registry()
     appended_cases: list[dict] = []
@@ -15394,7 +15404,9 @@ def _append_oracle_parameter_tests_if_missing(
         case_name_parts = ["oracle_parameter", _safe_test_name(rule_name)]
         if index_name is not None:
             case_name_parts.append(_safe_test_name(str(key)))
-        inputs = {f"{target_base}#input.{index_name}": key} if index_name else {}
+        inputs = dict(input_defaults)
+        if index_name:
+            inputs[f"{target_base}#input.{index_name}"] = key
         appended_cases.append(
             {
                 "name": "_".join(case_name_parts),
