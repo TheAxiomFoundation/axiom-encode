@@ -26586,6 +26586,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
     seed_rules: set[str] = set()
     issue_reasons: dict[str, list[str]] = defaultdict(list)
     issue_source_values: dict[str, set[str]] = defaultdict(set)
+    orphan_source_value_rules: set[str] = set()
     unrelated_same_section_imports: list[str] = []
     for issue in issues:
         issue_text = str(issue)
@@ -26636,6 +26637,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 seed_rules.add(rule_name)
                 issue_reasons[rule_name].append("unused_source_modifier")
                 issue_source_values[rule_name].add(source_value_rule)
+        no_affected_modifier_match = _NO_AFFECTED_SOURCE_MODIFIER_ISSUE_PATTERN.search(
+            issue_text
+        )
+        if no_affected_modifier_match:
+            orphan_source_value_rules.add(
+                no_affected_modifier_match.group("source_value")
+            )
         tax_status_component_match = _TAX_STATUS_COMPONENT_ISSUE_RE.search(issue_text)
         if tax_status_component_match:
             rule_name = tax_status_component_match.group("rule")
@@ -26703,14 +26711,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 continue
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("unrelated_same_section_term_import")
-    if not seed_rules:
-        return []
-
-    affected_rules = _expand_affected_generated_rule_dependencies(
-        rules_by_name=rules_by_name,
-        seed_rules=seed_rules,
-    )
-    if not affected_rules:
+    if not seed_rules and not orphan_source_value_rules:
         return []
 
     base_anchor = _relative_output_to_anchor(
@@ -26728,6 +26729,30 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         for record in deferred_outputs
         if isinstance(record, dict)
     }
+
+    if not seed_rules:
+        source_value_targets = _source_value_targets_for_generated_rule_names(
+            rule_names=orphan_source_value_rules,
+            rules_by_name=rules_by_name,
+            base_anchor=base_anchor,
+        )
+        repaired_deferred_outputs = _append_source_values_to_existing_deferred_outputs(
+            deferred_outputs=deferred_outputs,
+            source_value_targets=source_value_targets,
+        )
+        if not repaired_deferred_outputs:
+            return []
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+        return repaired_deferred_outputs
+
+    affected_rules = _expand_affected_generated_rule_dependencies(
+        rules_by_name=rules_by_name,
+        seed_rules=seed_rules,
+    )
+    if not affected_rules:
+        return []
 
     deferred_targets: list[str] = []
     for rule_name in sorted(affected_rules):
@@ -26834,6 +26859,19 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             existing_outputs.add(output)
         deferred_targets.append(output)
 
+    if orphan_source_value_rules:
+        source_value_targets = _source_value_targets_for_generated_rule_names(
+            rule_names=orphan_source_value_rules,
+            rules_by_name=rules_by_name,
+            base_anchor=base_anchor,
+        )
+        for output in _append_source_values_to_existing_deferred_outputs(
+            deferred_outputs=deferred_outputs,
+            source_value_targets=source_value_targets,
+        ):
+            if output not in deferred_targets:
+                deferred_targets.append(output)
+
     if not deferred_targets:
         return []
 
@@ -26856,6 +26894,40 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         rule_names=affected_rules,
     )
     return deferred_targets
+
+
+def _append_source_values_to_existing_deferred_outputs(
+    *,
+    deferred_outputs: list[Any],
+    source_value_targets: list[str],
+) -> list[str]:
+    if not source_value_targets:
+        return []
+
+    repaired: list[str] = []
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        if not output:
+            continue
+        existing_values = record.get("source_values")
+        if isinstance(existing_values, list):
+            merged_values = [
+                str(value).strip()
+                for value in existing_values
+                if str(value or "").strip()
+            ]
+        else:
+            merged_values = []
+        for target in source_value_targets:
+            if target not in merged_values:
+                merged_values.append(target)
+        if merged_values == existing_values:
+            continue
+        record["source_values"] = merged_values
+        repaired.append(output)
+    return repaired
 
 
 def _unexported_import_symbols_for_missing_inputs(
@@ -27321,6 +27393,10 @@ _SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN = re.compile(
 _UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN = re.compile(
     r"Source-stated modifier parameter is not used by any numeric derived output: "
     r"`(?P<source_value>[^`]+)`.+?but (?P<affected>.+?) ignores it\.",
+)
+_NO_AFFECTED_SOURCE_MODIFIER_ISSUE_PATTERN = re.compile(
+    r"Source-stated modifier parameter has no affected numeric derived output: "
+    r"`(?P<source_value>[^`]+)`"
 )
 _UNRELATED_SAME_SECTION_TERM_IMPORT_ISSUE_PATTERN = re.compile(
     r"Unrelated same-section term import: `(?P<import>[^`]+)` "
