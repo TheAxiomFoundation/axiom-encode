@@ -20,6 +20,9 @@ class PolicyEngineUSVarAdapter:
     monthly_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     monthly_boolean_person_inputs: tuple[tuple[str, str], ...] = ()
+    monthly_derived_boolean_person_inputs: tuple[
+        tuple[str, str, tuple[str, ...]], ...
+    ] = ()
     direct_spm_overrides: tuple[tuple[str, str], ...] = ()
     derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     annual_direct_spm_overrides: tuple[tuple[str, str], ...] = ()
@@ -755,6 +758,26 @@ PE_US_SSI_VAR_ADAPTERS = (
         entity="person",
         period="year",
         comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("expected_state_supplement_for_nursing_home_ssi_recipient",),
+        pe_var="ga_ssp_person",
+        entity="person",
+        period="month",
+        unit="USD",
+        comparison="money",
+        monthly=True,
+        default_state_code="GA",
+        monthly_derived_boolean_person_inputs=(
+            (
+                "ga_ssp_eligible_person",
+                "all",
+                (
+                    "receives_ssi_only",
+                    "month_following_nursing_home_admission",
+                ),
+            ),
+        ),
     ),
 )
 

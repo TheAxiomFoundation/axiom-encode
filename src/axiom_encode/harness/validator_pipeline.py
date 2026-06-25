@@ -24573,6 +24573,10 @@ print("BENCHMARK:" + json.dumps(result))
             ):
                 aliases.add(source_key)
             for _target_key, _operation, source_keys in (
+                *adapter.monthly_derived_boolean_person_inputs,
+            ):
+                aliases.update(source_keys)
+            for _target_key, _operation, source_keys in (
                 *adapter.derived_spm_overrides,
                 *adapter.annual_derived_spm_overrides,
             ):
@@ -25478,6 +25482,31 @@ print(f'RESULT:{{float(value)}}')
                         else adult_attrs
                     )
                     attrs.append(f"'{pe_attr}': {{'{period}': {bool(value)}}}")
+            for (
+                pe_attr,
+                operation,
+                rule_keys,
+            ) in adapter.monthly_derived_boolean_person_inputs:
+                values = [
+                    self._rulespec_test_input_value(inputs, rule_key)
+                    for rule_key in rule_keys
+                ]
+                if not all(value is not None for value in values):
+                    continue
+                if operation == "all":
+                    derived_value = all(bool(value) for value in values)
+                elif operation == "any":
+                    derived_value = any(bool(value) for value in values)
+                else:
+                    continue
+                attrs = (
+                    target_person_attrs
+                    if target_person_attrs is not None
+                    else adult_attrs
+                )
+                attrs.append(
+                    f"'{pe_attr}': {{'{period}': {pe_literal(derived_value)}}}"
+                )
 
         snap_eligible_member_proxy = None
         if "snap_household_has_eligible_participating_member" in inputs:
