@@ -16921,6 +16921,13 @@ mappings:
     rationale: RuleSpec encodes the statutory high-efficiency electric home rebate item caps, total cap, and project-cost percentage limits as source-level project/payment components. PolicyEngine's high_efficiency_electric_home_rebate sums tax-unit expenditure helper variables and caps the result, so it is not a one-to-one legal oracle until Axiom has the same project/entity/rebate aggregation surface.
 
 prefixes:
+  - legal_id_prefix: us:statutes/42/426
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 USC 426 section-level hospital-insurance entitlement outputs not carrying exact parameter mappings are source-level Medicare Part A, railroad-retirement, government-employment, death-month, widow/widower, ALS, and entitlement-timing paths. PolicyEngine-US exposes a simplified Medicare eligibility surface and a small set of parameters, but not these statutory path and timing intermediates one-to-one.
+
   - legal_id_prefix: us:statutes/42/18795
     country: us
     program: doe_efficiency_rebate
