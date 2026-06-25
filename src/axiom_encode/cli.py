@@ -12337,7 +12337,7 @@ def cmd_repair_oracle_parameter_tests(args):
         relative_output,
         policy_repo_path=repo_path,
     )
-    manifest_relative_output = _relative_to_live_rulespec_content_root(
+    manifest_relative_output = _deterministic_repair_manifest_relative_output(
         rules_file,
         repo_path,
     )
@@ -31021,6 +31021,33 @@ def _relative_to_live_rulespec_content_root(path: Path, repo_path: Path) -> Path
         _repo_jurisdiction_prefix(resolved_repo),
     )
     return resolved_path.relative_to(content_root)
+
+
+def _deterministic_repair_manifest_relative_output(
+    path: Path,
+    repo_path: Path,
+) -> Path:
+    """Return a manifest relative path for deterministic repairs.
+
+    Country monorepo files such as ``rulespec-us/us/statutes/...`` keep the
+    existing content-root-relative layout under ``us/.axiom``. State subroots
+    such as ``rulespec-us/us-ga/policies/...`` keep their subroot prefix so
+    deterministic repair manifests are written under the root manifest tree
+    like other monorepo state repair tools.
+    """
+    resolved_path = Path(path).resolve()
+    resolved_repo = Path(repo_path).resolve()
+    repo_relative = resolved_path.relative_to(resolved_repo)
+    parts = repo_relative.parts
+    jurisdiction = _repo_jurisdiction_prefix(resolved_repo)
+    if (
+        len(parts) >= 2
+        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and parts[0].startswith(f"{jurisdiction}-")
+        and (resolved_repo / parts[0]).is_dir()
+    ):
+        return repo_relative
+    return _relative_to_live_rulespec_content_root(resolved_path, resolved_repo)
 
 
 def _enforce_canonical_concept_registry(
