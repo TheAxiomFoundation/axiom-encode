@@ -405,10 +405,13 @@ surfaces:
   variable: ga_tanf
   source_type: state_implementation
   state: GA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Georgia TANF assistance-standard, resource-limit, gross/net income eligibility,
+    countable-income, work-deduction, dependent-care-deduction, and benefit-amount legal slices from the DFCS manual and eligibility
+    guidance. Those outputs are source-specific legal boundaries, while PolicyEngine's ga_tanf is a final monthly TANF benefit
+    variable built from PE's own TANF graph and parameter table; do not treat it as a direct one-to-one oracle target until Axiom
+    has an equivalent final Georgia TANF benefit surface or PE exposes compatible helper boundaries.
 - country: us
   program_id: tanf
   program_name: Mississippi TANF
