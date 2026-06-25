@@ -930,6 +930,12 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys
   referenced directly by formulas.
+- Compute each expected `output:` value by evaluating the emitted RuleSpec
+  formula against the case inputs step by step. Do not guess expected outputs
+  from nearby statutory thresholds or caps. For formulas that combine a flat
+  threshold with a percentage of excess income, include the threshold amount,
+  the excess amount, and the percentage amount in the calculation reflected by
+  the scalar expected output.
 - For proration, average, ratio, or percentage tests with a source-stated
   denominator, choose input amounts divisible by that denominator so expected
   outputs are exact decimals, not rounded approximations. For example, if the
