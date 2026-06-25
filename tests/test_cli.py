@@ -3773,6 +3773,7 @@ class TestCmdEncode:
             "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
             "corpus_source": "local",
             "requested_source": "us/guidance/irs/rev-proc-2025-32/page-18",
+            "resolved_corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
         }
         output = capsys.readouterr().out
         assert (

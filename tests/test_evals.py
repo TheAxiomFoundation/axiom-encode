@@ -39,6 +39,7 @@ from axiom_encode.harness.evals import (
     _normalize_test_case_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
+    _prompt_corpus_citation_path,
     _resolve_eval_output_path,
     _resolve_eval_reference_source_id,
     _rulespec_validation_target,
@@ -959,6 +960,69 @@ class TestCorpusSourceResolution:
             in prompt
         )
         assert "Do not emit `source_url`" in prompt
+
+    def test_child_slice_prompt_uses_requested_corpus_locator(self, tmp_path):
+        corpus_path = tmp_path / "axiom-corpus"
+        provisions_dir = (
+            corpus_path / "data" / "corpus" / "provisions" / "us-ca" / "statute"
+        )
+        provisions_dir.mkdir(parents=True)
+        (provisions_dir / "2026-01-01.jsonl").write_text(
+            json.dumps(
+                {
+                    "citation_path": "us-ca/statute/wic/11450",
+                    "body": (
+                        "(a) (1) (A) Aid shall be paid after deducting income. "
+                        "(B) Federal contribution adjustment. "
+                        "(2) Cost-of-living adjustment pause. "
+                        "(b) Pregnancy aid."
+                    ),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        source = resolve_corpus_source_unit(
+            "us-ca/statute/wic/11450/a/1/A", corpus_path
+        )
+
+        assert source.citation_path == "us-ca/statute/wic/11450"
+        assert source.body.startswith("(A) Aid shall be paid")
+        assert _prompt_corpus_citation_path(source) == ("us-ca/statute/wic/11450/a/1/A")
+
+        workspace = prepare_eval_workspace(
+            citation="policies/cdss/calworks/monthly-aid-payment",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=source.body,
+            axiom_rules_path=tmp_path / "rulespec-us",
+            mode="cold",
+            source_metadata_payload={
+                "corpus_citation_path": _prompt_corpus_citation_path(source),
+                "requested_source": source.requested,
+                "resolved_corpus_citation_path": source.citation_path,
+            },
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "policies/cdss/calworks/monthly-aid-payment",
+            "cold",
+            workspace,
+            [],
+            target_file_name="monthly-aid-payment.yaml",
+            include_tests=True,
+            runner_backend="codex",
+        )
+
+        assert (
+            "read from `corpus.provisions` at `us-ca/statute/wic/11450/a/1/A`"
+        ) in prompt
+        assert (
+            "module.source_verification.corpus_citation_path: "
+            "us-ca/statute/wic/11450/a/1/A"
+        ) in prompt
 
     def test_workspace_writes_corpus_source_metadata_payload(self, tmp_path):
         workspace = prepare_eval_workspace(
