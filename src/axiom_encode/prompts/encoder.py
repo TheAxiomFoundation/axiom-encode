@@ -286,6 +286,14 @@ _TABLES_PROTOCOL = """- Use `kind: parameter` with `indexed_by` and versioned `v
   jurisdiction. Do not invent a fake `State` entity, row-index input, or
   all-state table surface just to preserve every row. Defer any broader
   all-state table output that cannot be represented faithfully.
+- Indexed parameter `values` keys must be integers. If a source table maps
+  textual labels such as county names, program names, payment codes, provider
+  classes, or other strings to an amount, rate, or numeric classification, do
+  not put those strings under `values:` and do not set `indexed_by` to a text
+  input. Instead encode a `derived` selector/result using string equality or
+  `match` arms over the source-stated text labels, or encode source-stated
+  boolean predicates for listed categories and combine them. Keep the text
+  labels in proof excerpts/tests, not as parameter table keys.
 - For source tables with interval/range row labels such as "at least / but less
   than" bands, do not create one scalar parameter per row, bound, or cell with
   names like `*_row_0_upper_*`, `*_row_3_rate`, or

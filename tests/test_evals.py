@@ -1242,6 +1242,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "integer band ids such as `0`, `1`, and `2`" in prompt
     assert "do not use decimal row thresholds like `1.33`, `2.5`" in prompt
     assert "or strings such as `2_5_to_less_than_3_0`" in prompt
+    assert "Indexed parameter `values` keys must be integers" in prompt
+    assert "such as county names" in prompt
     assert "For interval-table repair of an existing target" in prompt
     assert "do not add extra exported derived rules" in prompt
     assert "`clause_ii_provides_otherwise`" in prompt
