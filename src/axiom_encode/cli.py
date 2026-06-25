@@ -64,6 +64,7 @@ from .harness.evals import (
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
     _looks_like_corpus_citation_path,
+    _prompt_corpus_citation_path,
     _source_identifier_to_relative_rulespec_path,
     _target_source_scope_for_heuristics,
     evaluate_artifact,
@@ -18941,6 +18942,7 @@ def cmd_encode(args):
     source_unit = None
     if source_id:
         source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
+        prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
         source_text = _scoped_source_text_for_encode_source_id(
             source_unit.body,
             source_id=source_id,
@@ -18953,9 +18955,10 @@ def cmd_encode(args):
             output_root=args.output,
             policy_path=policy_repo_path,
             source_metadata_payload={
-                "corpus_citation_path": source_unit.citation_path,
+                "corpus_citation_path": prompt_corpus_citation_path,
                 "corpus_source": source_unit.source,
                 "requested_source": source_unit.requested,
+                "resolved_corpus_citation_path": source_unit.citation_path,
             },
             runtime_axiom_rules_path=axiom_rules_path,
             mode=args.mode,
@@ -35245,6 +35248,7 @@ def cmd_eval_source(args):
         sys.exit(1)
 
     source_unit = resolve_corpus_source_unit(args.corpus_citation_path, corpus_path)
+    prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
     source_id = args.source_id or source_unit.citation_path
     policy_repo_path = _resolve_policy_repo_for_corpus_source(
         source_unit.citation_path,
@@ -35270,9 +35274,10 @@ def cmd_eval_source(args):
         output_root=args.output,
         policy_path=policy_repo_path,
         source_metadata_payload={
-            "corpus_citation_path": source_unit.citation_path,
+            "corpus_citation_path": prompt_corpus_citation_path,
             "corpus_source": source_unit.source,
             "requested_source": source_unit.requested,
+            "resolved_corpus_citation_path": source_unit.citation_path,
         },
         runtime_axiom_rules_path=runtime_axiom_rules_path,
         mode=args.mode,

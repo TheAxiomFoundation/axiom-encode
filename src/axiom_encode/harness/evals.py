@@ -3699,6 +3699,7 @@ def _run_single_eval(
 ) -> EvalResult:
     source_unit = resolve_corpus_source_unit(citation, corpus_path)
     source_text = source_unit.body
+    prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
 
     workspace = prepare_eval_workspace(
         citation=citation,
@@ -3708,9 +3709,10 @@ def _run_single_eval(
         axiom_rules_path=policy_path,
         mode=mode,
         source_metadata_payload={
-            "corpus_citation_path": source_unit.citation_path,
+            "corpus_citation_path": prompt_corpus_citation_path,
             "corpus_source": source_unit.source,
             "requested_source": source_unit.requested,
+            "resolved_corpus_citation_path": source_unit.citation_path,
         },
         extra_context_paths=extra_context_paths,
     )
@@ -3987,6 +3989,33 @@ def _resolve_eval_output_path(
     if fallback is not None:
         return fallback(citation)
     return _source_identifier_to_relative_rulespec_path(citation)
+
+
+def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
+    """Return the citation path the prompt should ask RuleSpec to verify.
+
+    `CorpusSourceUnit.citation_path` intentionally records the row that supplied
+    text. For child-fragment requests resolved by slicing a parent row, prompts
+    and validators should use the requested child path so source coverage is
+    scoped to the encoded subtree instead of the whole parent section.
+    """
+
+    resolved = source_unit.citation_path.strip().strip("/")
+    requested = source_unit.requested.strip().strip("/")
+    if not resolved or not requested:
+        return resolved
+    try:
+        primary_requested = _candidate_corpus_citation_paths(requested)[0]
+    except (IndexError, ValueError):
+        return resolved
+    primary_requested = primary_requested.strip().strip("/")
+    if (
+        primary_requested
+        and primary_requested != resolved
+        and primary_requested.startswith(f"{resolved}/")
+    ):
+        return primary_requested
+    return resolved
 
 
 def _resolve_eval_reference_source_id(
