@@ -16922,6 +16922,12 @@ def _positive_generated_test_input_value(
     rules_payload: dict[str, object],
     formula: str,
 ) -> object:
+    string_value = _string_positive_assignment_for_expression(
+        input_name=input_name,
+        expression=formula,
+    )
+    if string_value is not None:
+        return string_value
     comparison_value = _numeric_positive_assignment_for_expression(
         input_name=input_name,
         expression=formula,
@@ -16931,6 +16937,33 @@ def _positive_generated_test_input_value(
     if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
         return True
     return 999999
+
+
+def _string_positive_assignment_for_expression(
+    *,
+    input_name: str,
+    expression: str,
+) -> str | None:
+    token = re.escape(input_name)
+    literal = _RULESPEC_STRING_LITERAL_RE
+    right_pattern = re.compile(rf"\b{token}\b\s*==\s*(?P<literal>{literal})")
+    left_pattern = re.compile(rf"(?P<literal>{literal})\s*==\s*\b{token}\b")
+    for pattern in (right_pattern, left_pattern):
+        match = pattern.search(expression)
+        if match is None:
+            continue
+        return _rulespec_string_literal_value(match["literal"])
+    return None
+
+
+def _rulespec_string_literal_value(token: str) -> str | None:
+    try:
+        value = yaml.safe_load(token)
+    except yaml.YAMLError:
+        return None
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def _numeric_positive_assignment_for_expression(
@@ -26967,7 +27000,7 @@ def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
             continue
         formula = version.get("formula")
         if isinstance(formula, str):
-            identifiers.update(_RULESPEC_IDENTIFIER_PATTERN.findall(formula))
+            identifiers.update(_formula_identifiers(formula))
     return identifiers - _RULESPEC_FORMULA_BUILTINS
 
 
@@ -27307,6 +27340,8 @@ _INPUT_FIELD_ACCESS_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])input\.([A-Za-z_][A-Za-z0-9_]*)"
 )
 _RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_RULESPEC_STRING_LITERAL_RE = r'"(?:\\.|[^"\\])*"|\'(?:\'\'|\\.|[^\'\\])*\''
+_RULESPEC_STRING_LITERAL_PATTERN = re.compile(_RULESPEC_STRING_LITERAL_RE)
 _RULESPEC_FORMULA_BUILTINS = {
     "abs",
     "all",
@@ -29660,9 +29695,21 @@ def _first_rule_formula(rule: dict[str, object]) -> str:
     return ""
 
 
+def _formula_without_string_literals(formula: str) -> str:
+    return _RULESPEC_STRING_LITERAL_PATTERN.sub(
+        lambda match: " " * (match.end() - match.start()),
+        formula,
+    )
+
+
 def _formula_identifiers(formula: str) -> set[str]:
     return (
-        set(_RULESPEC_IDENTIFIER_PATTERN.findall(formula)) - _RULESPEC_FORMULA_BUILTINS
+        set(
+            _RULESPEC_IDENTIFIER_PATTERN.findall(
+                _formula_without_string_literals(formula)
+            )
+        )
+        - _RULESPEC_FORMULA_BUILTINS
     )
 
 
@@ -31264,6 +31311,15 @@ def _factual_input_appears_numeric(
                 if not isinstance(formula, str) or not pattern.search(formula):
                     continue
                 formula_hits.append(formula)
+        if any(
+            _string_positive_assignment_for_expression(
+                input_name=input_name,
+                expression=formula,
+            )
+            is not None
+            for formula in formula_hits
+        ):
+            return False
         if any(numeric_context.search(formula) for formula in formula_hits):
             return True
         if any(boolean_context.search(formula) for formula in formula_hits):

@@ -14316,6 +14316,55 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_synthesizes_string_equality_input(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us-ga"
+        rules_file = (
+            repo_path / "policies" / "decal" / "caps" / "appendix-c-payment-zones.yaml"
+        )
+        test_file = rules_file.with_name("appendix-c-payment-zones.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: county_in_payment_zone_1
+    kind: derived
+    entity: Business
+    dtype: Judgment
+    period: Day
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          county_name == "Camden"
+          or county_name == "Cobb"
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("policies/decal/caps/appendix-c-payment-zones.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us-ga:policies/decal/caps/appendix-c-payment-zones#county_in_payment_zone_1` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_county_in_payment_zone_1"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[0]
+        assert synthesized["input"] == {
+            "us-ga:policies/decal/caps/appendix-c-payment-zones#input.county_name": "Camden"
+        }
+        assert synthesized["output"] == {
+            "us-ga:policies/decal/caps/appendix-c-payment-zones#county_in_payment_zone_1": "holds"
+        }
+
     def test_judgment_positive_test_repair_synthesizes_count_helper_inputs(
         self, tmp_path
     ):
