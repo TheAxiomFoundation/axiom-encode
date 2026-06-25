@@ -5063,6 +5063,13 @@ RuleSpec requirements:
   exists. Do not defer that excess output merely because a later aggregate
   resource, income, or liability calculation is outside the source slice; defer
   only the later aggregate if necessary.
+- When the source states a final effective legal amount and also explains that
+  amount as an increase by a percentage, inflation index, or cost-of-living
+  adjustment, do not encode the explanatory percentage or index as a standalone
+  scalar unless the source also supplies the prior base and the target formula
+  uses that calculation. Encode the final effective amount as the operative
+  scalar; keep the explanatory increase text in the summary or proof excerpt
+  rather than as an unused modifier parameter.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

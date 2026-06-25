@@ -1218,6 +1218,13 @@ _NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, in
   exists. Do not defer that excess output merely because a later aggregate
   resource, income, or liability calculation is outside the source slice; defer
   only the later aggregate if necessary.
+- When the source states a final effective legal amount and also explains that
+  amount as an increase by a percentage, inflation index, or cost-of-living
+  adjustment, do not encode the explanatory percentage or index as a standalone
+  scalar unless the source also supplies the prior base and the target formula
+  uses that calculation. Encode the final effective amount as the operative
+  scalar; keep the explanatory increase text in the summary or proof excerpt
+  rather than as an unused modifier parameter.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named numeric concept when it is a legal amount, rate, threshold, cap, or
   limit, including structural interval-table row labels used by a source-backed
