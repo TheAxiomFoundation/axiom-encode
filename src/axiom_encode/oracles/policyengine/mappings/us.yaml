@@ -1708,6 +1708,34 @@ mappings:
     candidate_priority: P2
     rationale: PolicyEngine's Colorado CCAP entry income predicate does not include the 3.111(H)(4)(c) one-million-dollar asset cap and uses PE's separate FPG entry-rate predicate.
 
+  - legal_id: us-az:policies/des/ccap/income-fee-schedule-ffy2026#initial_application_monthly_income_limit
+    country: us
+    program: ccap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.ccap.income.threshold.level_6
+    parameter_key_path:
+      - input: family_size
+        min_value: 1
+        max_value: 12
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona CCAP initial-application monthly gross-income limit, using the FFY 2026 level 6 table keyed by family size.
+
+  - legal_id: us-az:policies/des/ccap/income-fee-schedule-ffy2026#redetermination_monthly_income_limit
+    country: us
+    program: ccap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.az.hhs.ccap.income.threshold.level_7
+    parameter_key_path:
+      - input: family_size
+        min_value: 1
+        max_value: 12
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona CCAP redetermination monthly gross-income limit, using the FFY 2026 level 7 table keyed by family size.
+
   - legal_id: us-co:regulations/9-ccr-2503-5/3.530#oap_total_monthly_grant_standard
     country: us
     program: co_oap

@@ -926,11 +926,14 @@ surfaces:
   variable: az_ccap
   source_type: state_implementation
   state: AZ
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models Arizona CCAP from Arizona Administrative Code Title 6, Chapter 5 plus DES income-fee
-    and reimbursement schedules. The official DES/AZSOS sources were ingested in TheAxiomFoundation/axiom-corpus#130;
-    RuleSpec encoding and oracle wiring remain before this surface can claim parity.
+  rationale: Current RuleSpec encodes Arizona Administrative Code Title 6, Chapter 5 eligibility, activity/need,
+    income, fee-assignment, DES FFY 2026 income-fee schedule, and DES reimbursement-rate source components, with
+    exact oracle mappings for the shared income-limit tables. PolicyEngine's az_ccap is a final monthly subsidy amount
+    that also depends on actual childcare expenses, final eligibility rollup, copay aggregation, maximum reimbursement,
+    and PE-specific proxies, so this program surface is adjacent rather than one-to-one until Axiom has a final Arizona
+    CCAP composition and adapter.
 - country: us
   program_id: ccdf
   program_name: CalWORKs childcare
