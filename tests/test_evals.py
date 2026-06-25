@@ -1210,6 +1210,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
+    assert "in excess of" in prompt
+    assert "max(0, measured_value - limit)" in prompt
+    assert "Do not defer that excess output merely" in prompt
     assert "do not model that numeric term as a local" in prompt
     assert "tier_1_applicable_percentage" in prompt
     assert "output` target path must include that source path segment" in prompt

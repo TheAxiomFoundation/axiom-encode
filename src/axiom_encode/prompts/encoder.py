@@ -1210,6 +1210,14 @@ _NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, in
   otherwise explain the unknown blocker in `reason`.
   Do not solve this by deleting the affected numeric output while leaving the
   modifier parameter stranded.
+- When the source says a value or amount "in excess of" a stated limit is
+  counted, included, deemed, or added, that is an executable excess formula.
+  Encode the limit as a named scalar and encode the affected numeric output as
+  `max(0, measured_value - limit)` or the source-stated equivalent, using a
+  local factual input for `measured_value` if no source-backed upstream measure
+  exists. Do not defer that excess output merely because a later aggregate
+  resource, income, or liability calculation is outside the source slice; defer
+  only the later aggregate if necessary.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named numeric concept when it is a legal amount, rate, threshold, cap, or
   limit, including structural interval-table row labels used by a source-backed
