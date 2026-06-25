@@ -17879,6 +17879,97 @@ rules:
             }
         ]
 
+    def test_unsafe_formula_output_repair_links_orphan_modifier_to_deferred_outputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "openai-gpt-5.5"
+            / "policies/des/ccap/reimbursement-rates.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  deferred_outputs:
+    - output: us:policies/des/ccap/reimbursement-rates#child_care_daily_reimbursement_rate
+      reason: Upstream branching condition is deferred.
+      source_values:
+        - us:policies/des/ccap/reimbursement-rates#cda_enhancement_rate
+rules:
+  - name: quality_enhancement_rate
+    kind: parameter
+    dtype: Rate
+    source: Quality enhanced-rate percentage
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              excerpt: "A 50% increase for child care providers with a three-star rating"
+    versions:
+      - effective_from: '2024-08-01'
+        formula: '0.50'
+  - name: cda_enhancement_rate
+    kind: parameter
+    dtype: Rate
+    source: CDA enhanced-rate percentage
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              excerpt: "A 35% increase for family child care providers with a Child Development Associate credential."
+    versions:
+      - effective_from: '2024-08-01'
+        formula: '0.35'
+  - name: quality_enhanced_provider
+    kind: derived
+    entity: ChildCareProvider
+    dtype: Judgment
+    versions:
+      - effective_from: '2024-08-01'
+        formula: provider_has_quality_first_three_star_rating
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "policies/des/ccap/reimbursement-rates.yaml: ci: "
+                "Source-stated modifier parameter has no affected numeric "
+                "derived output: `quality_enhancement_rate` appears to encode "
+                "a substitution/modification amount, but the module has no "
+                "numeric derived output that can apply it. Encode the affected "
+                "numeric output using the modifier, or defer that affected "
+                "output and list this source value under "
+                "`module.deferred_outputs[].source_values` until the upstream "
+                "branching condition is encoded."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == [
+            "us:policies/des/ccap/reimbursement-rates#child_care_daily_reimbursement_rate"
+        ]
+        assert payload["module"]["deferred_outputs"][0]["source_values"] == [
+            "us:policies/des/ccap/reimbursement-rates#cda_enhancement_rate",
+            "us:policies/des/ccap/reimbursement-rates#quality_enhancement_rate",
+        ]
+
     def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.yaml"
