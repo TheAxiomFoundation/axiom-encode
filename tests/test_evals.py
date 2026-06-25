@@ -4333,6 +4333,31 @@ rules:
         assert 0.1224 in numbers
         assert 683 in numbers
 
+    def test_extracts_split_california_schedule_table_money_cells(self):
+        numbers = validator_pipeline.extract_numbers_from_text(
+            """The schedule of minimum basic standards of adequate care is as follows:
+Number of eligible needy persons in the same family
+Minimum basic standards of adequate care
+1 ........................
+$ 341
+2 ........................
+560
+3 ........................
+694
+4 ........................
+824
+5 ........................
+940
+6 ........................
+1,057
+10 ........................
+1,489
+plus fourteen dollars ($14) for each additional needy person."""
+        )
+
+        for value in (10, 341, 560, 694, 824, 940, 1057, 1489, 14):
+            assert float(value) in numbers
+
     def test_accepts_pence_threshold_grounded_as_decimal_gbp(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
         rulespec_file.write_text(
