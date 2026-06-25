@@ -6077,6 +6077,36 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_coordinated_cardinal_age_bounds():
+    content = """format: rulespec/v1
+rules:
+  - name: youth_exemption_lower_age_years
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 16
+  - name: youth_exemption_upper_age_years
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 18
+"""
+
+    source_text = "a person between the ages of sixteen and eighteen"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 16 in source_values
+    assert 18 in source_values
+    assert 34 not in source_values
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 16 in occurrences
+    assert 18 in occurrences
+    assert 34 not in occurrences
+
+
 def test_rulespec_grounding_accepts_large_cardinal_word_amounts():
     content = """format: rulespec/v1
 rules:
