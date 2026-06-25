@@ -419,7 +419,7 @@ def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_no
     assert "final modeled subsidy" in colorado_ccap["rationale"]
 
 
-def test_policyengine_program_surface_marks_arizona_ccap_pending_rulespec_encoding():
+def test_policyengine_program_surface_marks_arizona_ccap_known_not_comparable():
     report = build_policyengine_program_surface_report(program="ccap")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -427,9 +427,13 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_rulespec_encodi
 
     assert arizona_ccap["program_id"] == "ccdf"
     assert arizona_ccap["state"] == "AZ"
-    assert arizona_ccap["axiom_status"] == "pending_rulespec_encoding"
+    assert arizona_ccap["axiom_status"] == "known_not_comparable"
     assert arizona_ccap["mapping_count"] == 0
-    assert "TheAxiomFoundation/axiom-corpus#130" in arizona_ccap["rationale"]
+    assert "final monthly subsidy amount" in arizona_ccap["rationale"]
+    assert (
+        "exact oracle mappings for the shared income-limit tables"
+        in (arizona_ccap["rationale"])
+    )
 
 
 def test_policyengine_program_surface_marks_georgia_caps_known_not_comparable():
@@ -6557,6 +6561,70 @@ rules:
     assert (
         combined_predicate["policyengine_variable"] == "co_ccap_entry_income_eligible"
     )
+
+
+def test_policyengine_coverage_maps_arizona_ccap_income_limits(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-az/policies/des/ccap/income-fee-schedule-ffy2026.yaml",
+        """format: rulespec/v1
+rules:
+  - name: initial_application_monthly_income_limit
+    kind: derived
+    entity: Family
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: fee_level_6_income_max_by_family_size[family_size]
+  - name: redetermination_monthly_income_limit
+    kind: derived
+    entity: Family
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: fee_level_7_income_max_by_family_size[family_size]
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-az/policies/des/ccap/income-fee-schedule-ffy2026.test.yaml",
+        """- name: family size two limits
+  period: 2025-10
+  input:
+    us-az:policies/des/ccap/income-fee-schedule-ffy2026#input.family_size: 2
+  output:
+    us-az:policies/des/ccap/income-fee-schedule-ffy2026#initial_application_monthly_income_limit: 2909
+    us-az:policies/des/ccap/income-fee-schedule-ffy2026#redetermination_monthly_income_limit: 5202
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ccap")
+
+    assert report["status_counts"] == {"comparable": 2}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    initial = items_by_id[
+        "us-az:policies/des/ccap/income-fee-schedule-ffy2026#initial_application_monthly_income_limit"
+    ]
+    redetermination = items_by_id[
+        "us-az:policies/des/ccap/income-fee-schedule-ffy2026#redetermination_monthly_income_limit"
+    ]
+    assert initial["mapping_type"] == "parameter_value"
+    assert initial["policyengine_parameter"] == (
+        "gov.states.az.hhs.ccap.income.threshold.level_6"
+    )
+    assert initial["tested"] is True
+    assert redetermination["mapping_type"] == "parameter_value"
+    assert redetermination["policyengine_parameter"] == (
+        "gov.states.az.hhs.ccap.income.threshold.level_7"
+    )
+    assert redetermination["tested"] is True
 
 
 def test_policyengine_coverage_tags_georgia_caps_manual_outputs(tmp_path):
