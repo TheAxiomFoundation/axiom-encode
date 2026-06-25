@@ -120,6 +120,7 @@ from axiom_encode.cli import (
     _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
+    _try_repair_generated_day_period_test_shorthands_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -17969,6 +17970,59 @@ rules:
             "us:policies/des/ccap/reimbursement-rates#cda_enhancement_rate",
             "us:policies/des/ccap/reimbursement-rates#quality_enhancement_rate",
         ]
+
+    def test_repair_generated_day_period_test_shorthands_for_apply(self, tmp_path):
+        output_root = tmp_path / "out"
+        runner = "openai-gpt-5.5"
+        rules_file = output_root / runner / "policies/des/ccap/reimbursement-rates.yaml"
+        test_file = rules_file.with_name("reimbursement-rates.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: daily_case
+  period: '2024-08-01'
+  input: {}
+  output:
+    us-az:policies/des/ccap/reimbursement-rates#daily_rate_attendance_requirement_met: holds
+- name: monthly_case
+  period: 2024-08
+  input: {}
+  output:
+    us-az:policies/des/ccap/reimbursement-rates#school_age_summer_daily_rate_months_apply: not_holds
+- name: second_daily_case
+  period: '2024-08-15'
+  input: {}
+  output:
+    us-az:policies/des/ccap/reimbursement-rates#daily_rate_attendance_requirement_met: holds
+"""
+        )
+        result = SimpleNamespace(output_file=str(rules_file), runner=runner)
+
+        repaired = _try_repair_generated_day_period_test_shorthands_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "policies/des/ccap/reimbursement-rates.yaml: ci: "
+                "Test case `daily_case` period invalid: unsupported period "
+                "shorthand: '2024-08-01'"
+            ],
+        )
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert repaired == ["daily_case", "second_daily_case"]
+        assert payload[0]["period"] == {
+            "period_kind": "custom",
+            "name": "day",
+            "start": "2024-08-01",
+            "end": "2024-08-01",
+        }
+        assert payload[1]["period"] == "2024-08"
+        assert payload[2]["period"] == {
+            "period_kind": "custom",
+            "name": "day",
+            "start": "2024-08-15",
+            "end": "2024-08-15",
+        }
 
     def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
         output_root = tmp_path / "out"

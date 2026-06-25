@@ -19902,6 +19902,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_day_period_cases = (
+                    _try_repair_generated_day_period_test_shorthands_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_day_period_cases:
+                    outcome["auto_repaired_day_test_periods"] = (
+                        repaired_day_period_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_day_test_periods:"
+                        + ",".join(repaired_day_period_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_field_accesses = (
                     _try_repair_generated_input_field_access_for_apply(
                         result,
@@ -27253,6 +27281,82 @@ def _try_repair_generated_empty_test_outputs_for_apply(
     )
 
 
+def _try_repair_generated_day_period_test_shorthands_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Convert generated `YYYY-MM-DD` test periods to explicit day mappings."""
+    case_periods = _day_period_test_cases_from_issues(issues)
+    if not case_periods:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    test_file = _rulespec_test_path(Path(str(getattr(result, "output_file", "") or "")))
+    return _rewrite_generated_day_period_test_shorthands(
+        test_file=test_file,
+        case_periods=case_periods,
+    )
+
+
+def _day_period_test_cases_from_issues(issues: list[str]) -> dict[str, str]:
+    case_periods: dict[str, str] = {}
+    for issue in issues:
+        match = _DAY_PERIOD_TEST_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            case_periods[match.group("case").strip()] = match.group("period")
+    return case_periods
+
+
+def _rewrite_generated_day_period_test_shorthands(
+    *,
+    test_file: Path,
+    case_periods: dict[str, str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    repaired: list[str] = []
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or f"case[{index}]")
+        current_period = case.get("period")
+        if isinstance(current_period, date):
+            current_day = current_period.isoformat()
+        else:
+            current_day = str(current_period or "").strip()
+        if _DAY_PERIOD_VALUE_PATTERN.fullmatch(current_day) is None:
+            continue
+        reported_day = case_periods.get(case_name)
+        if reported_day is not None and current_day != reported_day:
+            continue
+        case["period"] = {
+            "period_kind": "custom",
+            "name": "day",
+            "start": current_day,
+            "end": current_day,
+        }
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
 def _empty_test_output_case_names_from_issues(issues: list[str]) -> set[str]:
     names: set[str] = set()
     for issue in issues:
@@ -27408,6 +27512,11 @@ _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
 _EMPTY_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
     r"Test case `(?P<case>[^`]+)` output must be a mapping\."
 )
+_DAY_PERIOD_TEST_ISSUE_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` period invalid: unsupported period shorthand: "
+    r"['\"](?P<period>\d{4}-\d{2}-\d{2})['\"]"
+)
+_DAY_PERIOD_VALUE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
 )
