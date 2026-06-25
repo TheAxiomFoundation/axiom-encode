@@ -20046,18 +20046,16 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_percent_label_parameters = (
-                    _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
-                    )
+                repaired_percent_label_parameters = _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
                 )
                 if repaired_percent_label_parameters:
-                    outcome[
-                        "auto_repaired_unreferenced_percent_label_parameters"
-                    ] = repaired_percent_label_parameters
+                    outcome["auto_repaired_unreferenced_percent_label_parameters"] = (
+                        repaired_percent_label_parameters
+                    )
                     print(
                         "  apply=auto_repaired_unreferenced_percent_label_parameters:"
                         + ",".join(repaired_percent_label_parameters)
@@ -27963,7 +27961,9 @@ def _referenced_local_rule_names(rules: list[Any]) -> set[str]:
     return referenced
 
 
-def _rulespec_rule_formula_texts_for_generated_repair(rule: dict[str, Any]) -> list[str]:
+def _rulespec_rule_formula_texts_for_generated_repair(
+    rule: dict[str, Any],
+) -> list[str]:
     formulas: list[str] = []
     versions = rule.get("versions")
     if not isinstance(versions, list):
@@ -27985,7 +27985,9 @@ def _is_unreferenced_percent_label_parameter(
     if str(rule.get("kind") or "").strip().lower() != "parameter":
         return False
     value = _single_numeric_formula_value(rule)
-    if value is None or not any(math.isclose(value, item) for item in ungrounded_values):
+    if value is None or not any(
+        math.isclose(value, item) for item in ungrounded_values
+    ):
         return False
     if value <= 0:
         return False
