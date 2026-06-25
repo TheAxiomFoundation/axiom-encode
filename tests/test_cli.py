@@ -25200,6 +25200,96 @@ rules:
             "statutes/42/1382c/a/1.test.yaml",
         ]
 
+    def test_repair_oracle_parameter_tests_uses_state_subroot_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us-ga/policies/dfcs/medicaid/2578.yaml"
+        test_file = policy_repo / "us-ga/policies/dfcs/medicaid/2578.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: nursing_home_state_supplement_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2006-07-01'
+        formula: '20'
+"""
+        )
+        test_file.write_text(
+            """- name: existing
+  output:
+    us-ga:policies/dfcs/medicaid/2578#some_other_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us-ga/policies/dfcs/medicaid/2578.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if legal_id == (
+                    "us-ga:policies/dfcs/medicaid/2578"
+                    "#nursing_home_state_supplement_amount"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        added = payload[-1]
+        assert added["name"] == "oracle_parameter_nursing_home_state_supplement_amount"
+        assert added["input"] == {}
+        assert added["output"] == {
+            "us-ga:policies/dfcs/medicaid/2578#nursing_home_state_supplement_amount": 20
+        }
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/us-ga/policies/dfcs/medicaid/2578.json"
+        )
+        manifest_payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in manifest_payload["applied_files"]] == [
+            "us-ga/policies/dfcs/medicaid/2578.yaml",
+            "us-ga/policies/dfcs/medicaid/2578.test.yaml",
+        ]
+        assert not (
+            policy_repo
+            / "us/.axiom/encoding-manifests/policies/dfcs/medicaid/2578.json"
+        ).exists()
+
     def test_repair_oracle_parameter_tests_refreshes_manifest_when_case_exists(
         self, tmp_path
     ):
