@@ -4610,6 +4610,11 @@ Preferred principal output:
 Author the output in Axiom RuleSpec YAML.
 Do not narrate your plan or describe what you will do before emitting the artifact.
 The response must begin with the requested RuleSpec artifact, not with prose.
+This is Axiom encoding work. Do not read, load, or apply PolicyEngine skills,
+PolicyEngine workflow docs, or PolicyEngine implementation guidance. PolicyEngine
+may be mentioned only as oracle/comparison data when explicitly supplied by this
+prompt. Use only the inline source, copied context files, RuleSpec/Axiom
+instructions in this prompt, and local Axiom/RuleSpec files.
 
 Primary legal authority:
 - `./source.txt` contains the complete source text for this target source unit.
@@ -8003,6 +8008,7 @@ def _run_codex_prompt_eval(
         "exec",
         "--json",
         "--skip-git-repo-check",
+        "--ignore-user-config",
         "-o",
         str(last_message_file),
         "-m",
@@ -8021,9 +8027,13 @@ def _run_codex_prompt_eval(
     timed_out = False
     timeout_reason = None
     with (
+        tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
+        codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
+        codex_env = os.environ.copy()
+        codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
         process = subprocess.Popen(
@@ -8033,6 +8043,7 @@ def _run_codex_prompt_eval(
             stderr=stderr_file,
             text=True,
             cwd=workspace.root,
+            env=codex_env,
         )
         try:
             terminated_after_output = _wait_for_codex_process(
@@ -8078,6 +8089,13 @@ def _run_codex_prompt_eval(
                 assistant_messages.append(item["text"])
             if item.get("type") == "command_execution":
                 command = item.get("command", "")
+                if _command_uses_policyengine_skill(command):
+                    unexpected_accesses.append(command)
+                    if not error:
+                        error = (
+                            "Codex eval attempted to use PolicyEngine skills, "
+                            "which are disallowed for Axiom encoding"
+                        )
                 if _command_looks_out_of_bounds(command, workspace.root):
                     unexpected_accesses.append(command)
         elif payload.get("type") == "turn.completed":
@@ -8133,6 +8151,23 @@ def _run_codex_prompt_eval(
         unexpected_accesses=unexpected_accesses,
         error=error,
     )
+
+
+def _prepare_codex_eval_home(codex_home: Path) -> Path:
+    """Create a minimal CODEX_HOME for eval subprocesses without user skills."""
+    codex_home.mkdir(parents=True, exist_ok=True)
+    (codex_home / "skills").mkdir(exist_ok=True)
+    source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    for filename in ("auth.json", "installation_id"):
+        source = source_home / filename
+        target = codex_home / filename
+        if target.exists() or target.is_symlink() or not source.exists():
+            continue
+        try:
+            target.symlink_to(source)
+        except OSError:
+            shutil.copy2(source, target)
+    return codex_home
 
 
 def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:
@@ -8451,6 +8486,20 @@ def _command_looks_out_of_bounds(command: str, workspace_root: Path) -> bool:
             return True
 
     return False
+
+
+def _command_uses_policyengine_skill(command: str) -> bool:
+    """Return True when a Codex shell command reads PolicyEngine skill material."""
+    if not command:
+        return False
+    normalized = command.lower()
+    policyengine_skill_markers = (
+        "/policyengine-skills/",
+        "policyengine-skills/",
+        "/skills/workflows/encode-policy",
+        "encode-policy-v2-skill",
+    )
+    return any(marker in normalized for marker in policyengine_skill_markers)
 
 
 def _extract_rulespec_content(llm_response: str) -> str | None:

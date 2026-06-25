@@ -2685,6 +2685,108 @@ mappings:
     comparison: rate
     rationale: Same Arizona TANF base income-limit rate for parent or non-parent caretaker relative self-and-child cases.
 
+  - legal_id: us-wa:regulations/388/388-478/388-478-0020#cash_assistance_payment_standard_size_floor_for_final_row
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.tanf.maximum_family_size
+    candidate_priority: P4
+    rationale: Axiom exposes the WAC 388-478-0020 "10 or more" table-row floor as a generated table selector helper. PolicyEngine stores the adjacent maximum family size parameter, but does not expose this source-row helper as a one-to-one output.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0020#cash_assistance_payment_standard_size_band
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.tanf.payment_standard.amount
+    candidate_priority: P4
+    rationale: Axiom exposes the generated assistance-unit-size band used to select the WAC 388-478-0020 payment-standard table row. PolicyEngine compares the final table value, not this selector helper.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0020#cash_assistance_maximum_monthly_payment_standard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.payment_standard.amount
+    parameter_key_path:
+      - input: assistance_unit_size
+        max: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-478-0020 monthly payment-standard table, keyed by assistance-unit size and capped at the 10-or-more row.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0020#cash_assistance_unit_maximum_monthly_payment_standard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.payment_standard.amount
+    parameter_key_path:
+      - input: assistance_unit_size
+        max: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-478-0020 monthly payment-standard amount after selecting the assistance-unit-size row.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_earnings_deduction
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.deductions.earned_income_disregard.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same $500 family earnings deduction referenced by WAC 388-478-0035 and used by PolicyEngine's Washington TANF earned-income-disregard parameter.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_final_family_size_floor
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.tanf.maximum_family_size
+    candidate_priority: P4
+    rationale: Axiom exposes the WAC 388-478-0035 "10 or more" table-row floor as a generated table selector helper. PolicyEngine stores the adjacent maximum family size parameter, but does not expose this source-row helper as a one-to-one output.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_family_size_band
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.limit
+    candidate_priority: P4
+    rationale: Axiom exposes the generated family-size band used to select the WAC 388-478-0035 gross-earned-income limit table row. PolicyEngine compares the final limit value or combined income-eligibility variable, not this selector helper.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_maximum_monthly_gross_earned_income_level
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.limit
+    parameter_key_path:
+      - input: number_of_family_members
+        max: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-478-0035 monthly gross earned-income limit table, keyed by family size and capped at the 10-or-more row.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_maximum_monthly_gross_earned_income_level
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.limit
+    parameter_key_path:
+      - input: number_of_family_members
+        max: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-478-0035 monthly gross earned-income limit after selecting the family-size row.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_gross_earned_income_requirement_satisfied
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf_income_eligible
+    candidate_priority: P4
+    rationale: Axiom's WAC 388-478-0035 output is only the strict gross-earned-income-below-limit requirement. PolicyEngine's adjacent wa_tanf_income_eligible combines that gross-income test with countable-income eligibility and, in the local PE implementation reviewed, treats income equal to the limit as eligible.
+
   - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age#jobs_program_participation_age_exemption_applies
     country: us
     program: tanf
