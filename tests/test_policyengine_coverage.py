@@ -1489,6 +1489,124 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_calworks_exact_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-aid-payment-region-1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: calworks_region_1_maximum_aid_payment
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-10-01'
+        formula: calworks_region_1_non_exempt_maximum_aid_payment[10]
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-aid-payment-region-1.test.yaml",
+        """- name: non_exempt_more_than_ten_person_region_1_map
+  period: 2024-10
+  input:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#input.persons_on_aid: 12
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#input.assistance_unit_is_exempt: false
+  output:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment: 2876
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-aid-payment-region-2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: calworks_region_2_maximum_aid_payment
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-10-01'
+        formula: calworks_region_2_exempt_maximum_aid_payment[1]
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-aid-payment-region-2.test.yaml",
+        """- name: exempt_one_person_region_2_map
+  period: 2024-10
+  input:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-2#input.persons_on_aid: 1
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-2#input.assistance_unit_is_exempt: true
+  output:
+    us-ca:policies/cdss/calworks/maximum-aid-payment-region-2#calworks_region_2_maximum_aid_payment: 770
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-resource-limit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: calworks_maximum_resource_limit
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 12137
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/cdss/calworks/maximum-resource-limit.test.yaml",
+        """- name: standard_calworks_resource_limit
+  period: 2025-01
+  input:
+    us-ca:policies/cdss/calworks/maximum-resource-limit#input.assistance_unit_includes_member_age_60_or_older_or_disabled: false
+  output:
+    us-ca:policies/cdss/calworks/maximum-resource-limit#calworks_maximum_resource_limit: 12137
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+
+    exact_ids = {
+        "us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment",
+        "us-ca:policies/cdss/calworks/maximum-aid-payment-region-2#calworks_region_2_maximum_aid_payment",
+        "us-ca:policies/cdss/calworks/maximum-resource-limit#calworks_maximum_resource_limit",
+    }
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"comparable": 3}
+    assert report["untested_comparable"] == 0
+    assert {items_by_id[legal_id]["mapping_type"] for legal_id in exact_ids} == {
+        "parameter_value"
+    }
+    assert {items_by_id[legal_id]["tested"] for legal_id in exact_ids} == {True}
+    assert (
+        items_by_id[
+            "us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment"
+        ]["policyengine_parameter"]
+        == "gov.states.ca.cdss.tanf.cash.monthly_payment.region1"
+    )
+    assert (
+        items_by_id[
+            "us-ca:policies/cdss/calworks/maximum-resource-limit#calworks_maximum_resource_limit"
+        ]["policyengine_parameter"]
+        == "gov.states.ca.cdss.tanf.cash.resources.limit"
+    )
+
+
 def test_policyengine_coverage_classifies_new_york_tanf_state_plan_outputs(
     tmp_path,
 ):

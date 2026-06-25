@@ -25555,6 +25555,7 @@ print(f'RESULT:{{float(value)}}')
             key_map = part.get("parameter_key_map") or part.get("key_map") or {}
             key_map = {str(key): str(value) for key, value in key_map.items()}
             raw_key = str(input_value)
+            raw_key = self._bounded_pe_parameter_key(raw_key, part)
             if raw_key in key_map:
                 resolved_path.append(key_map[raw_key])
             elif key_map:
@@ -25565,6 +25566,24 @@ print(f'RESULT:{{float(value)}}')
             else:
                 resolved_path.append(raw_key)
         return [resolved_path]
+
+    @staticmethod
+    def _bounded_pe_parameter_key(raw_key: str, selector: dict) -> str:
+        minimum = selector.get("min_value", selector.get("min"))
+        maximum = selector.get("max_value", selector.get("max"))
+        if minimum is None and maximum is None:
+            return raw_key
+        try:
+            value = Decimal(str(raw_key))
+            if minimum is not None:
+                value = max(value, Decimal(str(minimum)))
+            if maximum is not None:
+                value = min(value, Decimal(str(maximum)))
+        except (InvalidOperation, TypeError, ValueError):
+            return raw_key
+        if value == value.to_integral_value():
+            return str(int(value))
+        return format(value.normalize(), "f")
 
     def _resolve_pe_parameter_calc_values(
         self,

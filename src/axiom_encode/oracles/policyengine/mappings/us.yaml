@@ -2061,6 +2061,55 @@ mappings:
     candidate_priority: P4
     rationale: California CalFresh benefit composition gates the federal allotment through Axiom eligibility and state shelter surfaces; PE's SNAP amount is adjacent but depends on PE's own full graph.
 
+  - legal_id: us-ca:policies/cdss/calworks/maximum-aid-payment-region-1#calworks_region_1_maximum_aid_payment
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ca.cdss.tanf.cash.monthly_payment.region1
+    parameter_key_path:
+      - input: assistance_unit_is_exempt
+        key_map:
+          "True": exempt
+          "False": non_exempt
+      - input: persons_on_aid
+        max_value: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same California CalWORKs Region 1 monthly maximum-aid-payment table, keyed by exempt status and persons on aid with the source 10-or-more cap.
+
+  - legal_id: us-ca:policies/cdss/calworks/maximum-aid-payment-region-2#calworks_region_2_maximum_aid_payment
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ca.cdss.tanf.cash.monthly_payment.region2
+    parameter_key_path:
+      - input: assistance_unit_is_exempt
+        key_map:
+          "True": exempt
+          "False": non_exempt
+      - input: persons_on_aid
+        max_value: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same California CalWORKs Region 2 monthly maximum-aid-payment table, keyed by exempt status and persons on aid with the source 10-or-more cap.
+
+  - legal_id: us-ca:policies/cdss/calworks/maximum-resource-limit#calworks_maximum_resource_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ca.cdss.tanf.cash.resources.limit
+    parameter_key_path:
+      - input: assistance_unit_includes_member_age_60_or_older_or_disabled
+        key_map:
+          "True": with_elderly_or_disabled_member
+          "False": without_elderly_or_disabled_member
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same California CalWORKs maximum resource limit, selecting the elderly-or-disabled assistance-unit parameter when the legal condition holds.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
     country: us
     program: snap
