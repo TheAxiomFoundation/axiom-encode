@@ -576,6 +576,35 @@ def _extract_proof_source_excerpt_text(content: str) -> str:
     return ""
 
 
+def _has_parameter_table_proof_atom(content: str) -> bool:
+    """Return true when a RuleSpec artifact grounds values in a source table."""
+    with contextlib.suppress(ValueError, TypeError, yaml.YAMLError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return False
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return False
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            metadata = rule.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            proof = metadata.get("proof")
+            if not isinstance(proof, dict):
+                continue
+            atoms = proof.get("atoms")
+            if not isinstance(atoms, list):
+                continue
+            if any(
+                isinstance(atom, dict) and atom.get("kind") == "parameter_table"
+                for atom in atoms
+            ):
+                return True
+    return False
+
+
 @dataclass(frozen=True)
 class EvalRunnerSpec:
     """How to invoke a model in an eval."""
@@ -3132,8 +3161,15 @@ def evaluate_artifact(
     if not numeric_source_text and source_text:
         numeric_source_text = source_text
     numeric_validation_source_text = embedded_source or numeric_source_text
+    numeric_grounding_validation_source_text = numeric_validation_source_text
+    if source_text and _has_parameter_table_proof_atom(content):
+        numeric_grounding_validation_source_text = "\n".join(
+            part for part in (source_text, numeric_validation_source_text) if part
+        )
     numeric_grounding_source_text = "\n".join(
-        part for part in (numeric_validation_source_text, proof_excerpt_text) if part
+        part
+        for part in (numeric_grounding_validation_source_text, proof_excerpt_text)
+        if part
     )
     source_numbers = extract_numbers_from_text(numeric_grounding_source_text or "")
     source_numeric_occurrences = Counter(
@@ -3153,7 +3189,7 @@ def evaluate_artifact(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )
     source_is_table = _source_text_looks_like_table(
-        numeric_validation_source_text or ""
+        numeric_grounding_validation_source_text or ""
     )
     inline_table_formula_occurrences = (
         _inline_table_formula_numeric_occurrences(content)

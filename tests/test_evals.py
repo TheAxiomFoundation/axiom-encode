@@ -3986,6 +3986,67 @@ rules:
         assert metrics.ungrounded_numeric_count == 0
         assert metrics.source_numeric_occurrence_count == 0
 
+    def test_parameter_table_grounding_uses_corpus_source_with_compact_summary(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "policies" / "des" / "ccap" / "chart.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-az/manual/des/ccap/income-chart-ffy2026/page-1
+  summary: |-
+    Child Care Assistance Gross Monthly Income Eligibility Chart and Fee Schedule.
+rules:
+  - name: fee_level_1_monthly_income_maximum
+    kind: parameter
+    dtype: Money
+    period: Month
+    unit: USD
+    indexed_by: family_size
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              corpus_citation_path: us-az/manual/des/ccap/income-chart-ffy2026/page-1
+              excerpt: Fee Level 1 monthly income maximum
+              table:
+                header: Gross Monthly Income Eligibility Chart
+                row_key: Family Size
+                column_key: Fee Level 1
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 1110
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "Family Size Fee Level 1 Income Maximum 1 0-1,110 2 0-1,499"
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.grounded_numeric_count == 1
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.source_numeric_occurrence_count == 0
+
     def test_numeric_occurrence_check_counts_imported_named_scalars(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "B.yaml"
