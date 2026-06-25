@@ -1213,6 +1213,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "in excess of" in prompt
     assert "max(0, measured_value - limit)" in prompt
     assert "Do not defer that excess output merely" in prompt
+    assert "final effective legal amount" in prompt
+    assert "explanatory percentage or index" in prompt
+    assert "unused modifier parameter" in prompt
     assert "do not model that numeric term as a local" in prompt
     assert "tier_1_applicable_percentage" in prompt
     assert "output` target path must include that source path segment" in prompt
