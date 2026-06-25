@@ -1669,9 +1669,7 @@ rules:
         "parameter_value"
     }
     assert {
-        legal_id
-        for legal_id in comparable_ids
-        if items_by_id[legal_id]["tested"]
+        legal_id for legal_id in comparable_ids if items_by_id[legal_id]["tested"]
     } == {
         "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_unit_maximum_monthly_payment_standard",
         "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_maximum_monthly_gross_earned_income_level",
