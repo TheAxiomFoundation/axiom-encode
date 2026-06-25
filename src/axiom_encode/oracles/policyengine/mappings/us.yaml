@@ -1861,6 +1861,70 @@ mappings:
     comparison: money
     rationale: Same Colorado AND-CS monthly grant-standard-minus-countable-income amount.
 
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#resource_transfer_lookback_months
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS Policy 2578 uses this nursing-home vendor-payment resource-transfer lookback; PolicyEngine's Georgia SSP model does not expose the transfer lookback as a one-to-one variable or parameter.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#ssi_only_nursing_home_payment_amount_after_admission
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS Policy 2578 states the federal SSI-only payment reduction after nursing-home admission; PolicyEngine's Georgia SSP surface models the state supplement and does not expose this federal SSI payment boundary as a Georgia SSP oracle target.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#nursing_home_state_supplement_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ga.dhs.ssp.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Georgia monthly State Supplement amount schedule for SSI recipients in nursing-home or institutionalized-hospice settings.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#ssi_recipient_nursing_home_vendor_payment_authorizable
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ga_ssp
+    candidate_priority: P4
+    rationale: RuleSpec encodes the Georgia nursing-home vendor-payment authorization predicate with residency, level-of-care, and resource-transfer gates; PolicyEngine's `ga_ssp` is an SPM-unit aggregate of person-level supplement amounts and uses separate federal living-arrangement and Georgia setting inputs.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#expected_ssi_only_payment_after_nursing_home_admission
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This is the expected federal SSI-only payment amount after nursing-home admission, while PolicyEngine's Georgia SSP variables expose the state supplement rather than this federal SSI payment calculation.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#expected_state_supplement_for_nursing_home_ssi_recipient
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: ga_ssp_person
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Georgia monthly state supplement amount for one eligible SSI recipient; PolicyEngine's person-level variable is the comparable target, while its `ga_ssp` program variable aggregates person amounts to the SPM unit.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#patient_liability_for_month_of_admission_to_lad
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS Policy 2578 patient-liability computation for the admission month is a Medicaid long-term-care budgeting rule; PolicyEngine's Georgia SSP model does not expose this liability boundary.
+
+  - legal_id: us-ga:policies/dfcs/medicaid/2578#patient_liability_for_month_after_admission_to_lad
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Georgia DFCS Policy 2578 patient-liability computation after admission is a Medicaid long-term-care budgeting rule; PolicyEngine's Georgia SSP model does not expose this liability boundary.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
     country: us
     program: snap

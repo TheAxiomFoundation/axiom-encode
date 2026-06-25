@@ -659,6 +659,122 @@ def test_policyengine_program_surface_marks_colorado_ssp_wired():
     )
 
 
+def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",
+        """format: rulespec/v1
+rules:
+  - name: resource_transfer_lookback_months
+    kind: parameter
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 60
+  - name: ssi_only_nursing_home_payment_amount_after_admission
+    kind: parameter
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 30
+  - name: nursing_home_state_supplement_amount
+    kind: parameter
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 40
+  - name: ssi_recipient_nursing_home_vendor_payment_authorizable
+    kind: derived
+    versions:
+      - effective_from: '2019-07-01'
+        formula: holds
+  - name: expected_ssi_only_payment_after_nursing_home_admission
+    kind: derived
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 30
+  - name: expected_state_supplement_for_nursing_home_ssi_recipient
+    kind: derived
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 40
+  - name: patient_liability_for_month_of_admission_to_lad
+    kind: derived
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 800
+  - name: patient_liability_for_month_after_admission_to_lad
+    kind: derived
+    versions:
+      - effective_from: '2019-07-01'
+        formula: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.test.yaml",
+        """- name: person_level_state_supplement
+  period: 2019-07
+  input: {}
+  output:
+    us-ga:policies/dfcs/medicaid/2578#expected_state_supplement_for_nursing_home_ssi_recipient: 40
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="ssi_state_supplement",
+    )
+    items_by_name = {item["rule_name"]: item for item in report["items"]}
+
+    assert report["total_outputs"] == 8
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 6,
+    }
+    assert report["untested_comparable"] == 1
+    assert (
+        items_by_name["nursing_home_state_supplement_amount"]["policyengine_parameter"]
+        == "gov.states.ga.dhs.ssp.amount"
+    )
+    assert (
+        items_by_name["expected_state_supplement_for_nursing_home_ssi_recipient"][
+            "policyengine_variable"
+        ]
+        == "ga_ssp_person"
+    )
+    assert (
+        items_by_name["expected_state_supplement_for_nursing_home_ssi_recipient"][
+            "tested"
+        ]
+        is True
+    )
+    assert (
+        items_by_name["ssi_recipient_nursing_home_vendor_payment_authorizable"][
+            "policyengine_variable"
+        ]
+        == "ga_ssp"
+    )
+    assert (
+        items_by_name["ssi_recipient_nursing_home_vendor_payment_authorizable"][
+            "status"
+        ]
+        == "known_not_comparable"
+    )
+
+
+def test_policyengine_program_surface_marks_georgia_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ga_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    georgia_ssp = items_by_variable["ga_ssp"]
+
+    assert georgia_ssp["program_id"] == "ssi_state_supplement"
+    assert georgia_ssp["state"] == "GA"
+    assert georgia_ssp["axiom_status"] == "known_not_comparable"
+    assert georgia_ssp["mapping_count"] >= 1
+    assert georgia_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-ga:policies/dfcs/medicaid/2578#ssi_recipient_nursing_home_vendor_payment_authorizable"
+        in georgia_ssp["legal_ids"]
+    )
+
+
 def test_policyengine_coverage_classifies_federal_ssi_benefit_rate_intermediates(
     tmp_path,
 ):

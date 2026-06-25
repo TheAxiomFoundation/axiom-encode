@@ -1542,10 +1542,12 @@ surfaces:
   variable: ga_ssp
   source_type: state_implementation
   state: GA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes Georgia DFCS Policy 2578 and maps the monthly person-level state supplement amount to
+    `ga_ssp_person`. PolicyEngine's listed program variable `ga_ssp` is an SPM-unit aggregate over person amounts and
+    PE-specific federal living-arrangement/setting inputs, so the aggregate wrapper is reviewed but not a one-to-one legal
+    output.
 - country: us
   program_id: ssi_state_supplement
   program_name: Idaho AABD
