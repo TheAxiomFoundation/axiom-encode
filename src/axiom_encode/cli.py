@@ -27796,6 +27796,11 @@ def _try_repair_generated_indexed_parameter_values_for_apply(
 
     if not any("has no formula version" in str(issue) for issue in issues):
         return []
+    repaired_top_level_values = _normalize_top_level_parameter_values_to_versions(
+        rules_file
+    )
+    if repaired_top_level_values:
+        return repaired_top_level_values
     return _convert_indexed_parameter_values_to_derived_formulas(rules_file, test_file)
 
 
@@ -27894,6 +27899,122 @@ def _rewrite_bare_indexed_parameter_reference(
         rf"(?!\s*\[)(?![A-Za-z0-9_])"
     )
     return pattern.sub(f"{parameter_name}[{index_name}]", formula)
+
+
+def _normalize_top_level_parameter_values_to_versions(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if "versions" in rule:
+            continue
+        values = rule.get("values")
+        if not isinstance(values, dict) or not values:
+            continue
+
+        versions: list[dict[str, object]] = []
+        version_kind: str | None = None
+        for effective_key, value in values.items():
+            effective_from = _effective_from_from_top_level_values_key(effective_key)
+            if effective_from is None:
+                versions = []
+                break
+            if isinstance(value, dict):
+                if version_kind not in (None, "values"):
+                    versions = []
+                    break
+                version_kind = "values"
+                versions.append(
+                    {
+                        "effective_from": effective_from,
+                        "values": value,
+                    }
+                )
+                continue
+            formula = _formula_text_from_top_level_parameter_value(value)
+            if formula is None:
+                versions = []
+                break
+            if version_kind not in (None, "formula"):
+                versions = []
+                break
+            version_kind = "formula"
+            versions.append(
+                {
+                    "effective_from": effective_from,
+                    "formula": formula,
+                }
+            )
+
+        if not versions or version_kind is None:
+            continue
+        rule.pop("values", None)
+        rule["versions"] = versions
+        _retarget_top_level_values_proof_atoms(
+            rule,
+            "versions[0].values" if version_kind == "values" else "versions[0].formula",
+        )
+        repaired.append(str(rule.get("name") or ""))
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _effective_from_from_top_level_values_key(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        return value.strip()
+    return None
+
+
+def _formula_text_from_top_level_parameter_value(value: object) -> str | None:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _retarget_top_level_values_proof_atoms(
+    rule: dict[str, object],
+    target_path: str,
+) -> None:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = atom.get("path")
+        if isinstance(path, str) and (path == "values" or path.startswith("values[")):
+            atom["path"] = target_path
 
 
 def _convert_indexed_parameter_values_to_derived_formulas(

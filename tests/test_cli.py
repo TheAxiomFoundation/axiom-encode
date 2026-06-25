@@ -50,6 +50,7 @@ from axiom_encode.cli import (
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
     _medicaid_magi_income_helper_issue_names,
+    _normalize_top_level_parameter_values_to_versions,
     _parse_child_numeric_reencoding_issue,
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
@@ -7382,6 +7383,76 @@ rules:
         )
         assert tests[0]["input"][selector] is False
         assert tests[1]["input"][selector] is True
+
+    def test_normalize_top_level_parameter_table_values_to_versions(self, tmp_path):
+        rules_file = tmp_path / "appendix_a.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: tanf_gross_income_ceiling_base
+  kind: parameter
+  dtype: Money
+  indexed_by: appendix_a_table_row
+  metadata:
+    proof:
+      atoms:
+      - path: values
+        kind: parameter_table
+  values:
+    '2026-03-01':
+      1: 435
+      2: 659
+"""
+        )
+
+        repaired = _normalize_top_level_parameter_values_to_versions(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = payload["rules"][0]
+        assert repaired == ["tanf_gross_income_ceiling_base"]
+        assert "values" not in rule
+        assert rule["versions"] == [
+            {
+                "effective_from": "2026-03-01",
+                "values": {
+                    1: 435,
+                    2: 659,
+                },
+            }
+        ]
+        assert rule["metadata"]["proof"]["atoms"][0]["path"] == "versions[0].values"
+
+    def test_normalize_top_level_scalar_values_to_formula_versions(self, tmp_path):
+        rules_file = tmp_path / "appendix_a.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: tanf_standard_of_need_additional_member_increment
+  kind: parameter
+  dtype: Money
+  metadata:
+    proof:
+      atoms:
+      - path: values
+        kind: amount
+  values:
+    '2026-03-01': 24
+"""
+        )
+
+        repaired = _normalize_top_level_parameter_values_to_versions(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = payload["rules"][0]
+        assert repaired == ["tanf_standard_of_need_additional_member_increment"]
+        assert "values" not in rule
+        assert rule["versions"] == [
+            {
+                "effective_from": "2026-03-01",
+                "formula": "24",
+            }
+        ]
+        assert rule["metadata"]["proof"]["atoms"][0]["path"] == "versions[0].formula"
 
     def test_convert_indexed_parameter_values_skips_unsafe_literals(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"
