@@ -28,6 +28,7 @@ from axiom_encode.harness.evals import (
     _clean_generated_file_content,
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
+    _command_uses_policyengine_skill,
     _context_file_executable_surfaces,
     _eval_result_from_payload,
     _evaluate_generated_artifact_with_repairs,
@@ -39,6 +40,7 @@ from axiom_encode.harness.evals import (
     _normalize_test_case_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
+    _prepare_codex_eval_home,
     _prompt_corpus_citation_path,
     _resolve_eval_output_path,
     _resolve_eval_reference_source_id,
@@ -1162,6 +1164,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "unit-level placeholder or aggregate base by the rate" in prompt
     assert '"per taxpayer per beneficiary"' in prompt
     assert "Do not apply one\n  per-unit cap to a single aggregate amount" in prompt
+    assert "This is Axiom encoding work" in prompt
+    assert "Do not read, load, or apply PolicyEngine skills" in prompt
     assert "For claim, overpayment, overissuance, repayment" in prompt
     assert "as collectability caps" in prompt
     assert "not return a bare placeholder such as `claim_amount`" in prompt
@@ -2978,7 +2982,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         )
 
         class FakePopen:
-            def __init__(self, cmd, stdout, stderr, text, cwd):
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = None
                 Path(cwd, ".codex-last-message.txt").write_text(bundle)
@@ -3041,7 +3045,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         bundle = "=== FILE: example.yaml ===\nformat: rulespec/v1\nrules: []\n"
 
         class FakePopen:
-            def __init__(self, cmd, stdout, stderr, text, cwd):
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = None
                 Path(cwd, ".codex-last-message.txt").write_text(bundle)
@@ -3085,7 +3089,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         )
 
         class FakePopen:
-            def __init__(self, cmd, stdout, stderr, text, cwd):
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 0
 
@@ -10516,9 +10520,159 @@ rules:
         assert "Prefer the earliest scaffold date" in prompt
 
 
+class TestCodexPromptEvalPolicyEngineSkillIsolation:
+    def test_prepare_codex_eval_home_omits_user_skills(self, tmp_path, monkeypatch):
+        source_home = tmp_path / "real-codex-home"
+        source_home.mkdir()
+        (source_home / "auth.json").write_text("{}\n")
+        (source_home / "skills").mkdir()
+        (source_home / "skills" / "encode-policy-v2-skill").mkdir()
+        monkeypatch.setenv("CODEX_HOME", str(source_home))
+
+        eval_home = _prepare_codex_eval_home(tmp_path / "eval-home")
+
+        assert (eval_home / "auth.json").exists()
+        assert (eval_home / "skills").is_dir()
+        assert not (eval_home / "skills" / "encode-policy-v2-skill").exists()
+
+    def test_run_codex_prompt_eval_ignores_user_config(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/6/3/a",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="nil amount",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        observed_cmds: list[list[str]] = []
+        observed_envs: list[dict[str, str]] = []
+        observed_skills_dirs: list[bool] = []
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                observed_cmds.append(cmd)
+                observed_envs.append(env or {})
+                observed_skills_dirs.append(
+                    bool(env) and (Path(env["CODEX_HOME"]) / "skills").is_dir()
+                )
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert "--ignore-user-config" in observed_cmds[0]
+        codex_home = Path(observed_envs[0]["CODEX_HOME"])
+        assert codex_home.name.startswith("axiom-codex-home-")
+        with pytest.raises(ValueError):
+            codex_home.resolve().relative_to(workspace.root.resolve())
+        assert observed_skills_dirs == [True]
+
+    def test_run_codex_prompt_eval_errors_on_policyengine_skill_use(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="us-wa/regulation/388/388-478/388-478-0035",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="income limit",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        event_lines = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "command": (
+                                "sed -n '1,200p' "
+                                "/Users/maxghenis/.codex/policyengine-skills/"
+                                "skills/workflows/encode-policy-v2-skill/"
+                                "SKILL.md"
+                            ),
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        },
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.error is not None
+        assert "PolicyEngine skills" in response.error
+        assert response.unexpected_accesses
+
+
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
         assert _command_looks_out_of_bounds("bash -lc 'find .. -name *.yaml'", tmp_path)
+
+    def test_flags_policyengine_skill_reads(self):
+        command = (
+            "sed -n '1,200p' "
+            "/Users/maxghenis/.codex/policyengine-skills/skills/workflows/"
+            "encode-policy-v2-skill/SKILL.md"
+        )
+        assert _command_uses_policyengine_skill(command)
 
     def test_allows_workspace_paths(self, tmp_path):
         local = tmp_path / "context" / "b.yaml"
