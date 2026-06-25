@@ -1322,10 +1322,12 @@ surfaces:
   variable: ga_caps
   source_type: state_implementation
   state: GA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes tested Georgia CAPS income-limit, payment-zone, reimbursement-rate, and family-fee legal slices from
+    the Georgia DECAL CAPS manual and appendices. PolicyEngine's `ga_caps` variable is a final modeled subsidy surface, so those
+    source-specific RuleSpec outputs are not one-to-one comparable to the aggregate PE program variable until Axiom has an equivalent
+    final CAPS subsidy surface or PolicyEngine exposes compatible helper boundaries.
 - country: us
   program_id: head_start
   program_name: Head Start

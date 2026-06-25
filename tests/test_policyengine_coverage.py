@@ -432,6 +432,19 @@ def test_policyengine_program_surface_marks_arizona_ccap_pending_source_ingestio
     assert "official DES/AZSOS sources" in arizona_ccap["rationale"]
 
 
+def test_policyengine_program_surface_marks_georgia_caps_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ccap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    georgia_caps = items_by_variable["ga_caps"]
+
+    assert georgia_caps["program_id"] == "ccdf"
+    assert georgia_caps["state"] == "GA"
+    assert georgia_caps["axiom_status"] == "known_not_comparable"
+    assert georgia_caps["mapping_count"] == 0
+    assert "final modeled subsidy surface" in georgia_caps["rationale"]
+
+
 def test_policyengine_program_surface_marks_head_start_known_not_comparable():
     report = build_policyengine_program_surface_report(program="head_start")
 
@@ -6544,6 +6557,47 @@ rules:
     assert (
         combined_predicate["policyengine_variable"] == "co_ccap_entry_income_eligible"
     )
+
+
+def test_policyengine_coverage_tags_georgia_caps_manual_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-ga/policies/decal/caps/appendix-a-income-limits.yaml",
+        """format: rulespec/v1
+rules:
+  - name: initial_eligibility_income_limit
+    kind: parameter
+    entity: Family
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        value: 28792
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-ga/policies/decal/caps/appendix-a-income-limits.test.yaml",
+        """- name: family size one
+  period: 2026
+  output:
+    us-ga:policies/decal/caps/appendix-a-income-limits#initial_eligibility_income_limit: 28792
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ccap")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-ga:policies/decal/caps/appendix-a-income-limits"
+        "#initial_eligibility_income_limit"
+    )
+    assert item["program"] == "ccap"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["tested"] is True
 
 
 def test_policyengine_coverage_maps_colorado_taxable_income_base(tmp_path):
