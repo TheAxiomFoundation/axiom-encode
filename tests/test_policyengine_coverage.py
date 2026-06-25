@@ -1524,6 +1524,172 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_washington_tanf_wac_components(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-wa"
+        / "regulations/388/388-478/388-478-0020.yaml",
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_payment_standard_size_floor_for_final_row
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 10
+  - name: cash_assistance_payment_standard_size_band
+    kind: derived
+    entity: AssistanceUnit
+    dtype: Integer
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if assistance_unit_size >= cash_assistance_payment_standard_size_floor_for_final_row: cash_assistance_payment_standard_size_floor_for_final_row else: assistance_unit_size
+  - name: cash_assistance_maximum_monthly_payment_standard
+    kind: parameter
+    dtype: Money
+    indexed_by: cash_assistance_payment_standard_size_band
+    versions:
+      - effective_from: '0001-01-01'
+        values:
+          1: 450
+          10: 1662
+  - name: cash_assistance_unit_maximum_monthly_payment_standard
+    kind: derived
+    entity: AssistanceUnit
+    dtype: Money
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          cash_assistance_maximum_monthly_payment_standard[cash_assistance_payment_standard_size_band]
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-wa"
+        / "regulations/388/388-478/388-478-0020.test.yaml",
+        """- name: one_person_assistance_unit_standard
+  input:
+    us-wa:regulations/388/388-478/388-478-0020#input.assistance_unit_size: 1
+  output:
+    us-wa:regulations/388/388-478/388-478-0020#cash_assistance_payment_standard_size_band: 1
+    us-wa:regulations/388/388-478/388-478-0020#cash_assistance_unit_maximum_monthly_payment_standard: 450
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-wa"
+        / "regulations/388/388-478/388-478-0035.yaml",
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_family_earnings_deduction
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 500
+  - name: cash_assistance_earned_income_limit_final_family_size_floor
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 10
+  - name: cash_assistance_earned_income_limit_family_size_band
+    kind: derived
+    entity: Family
+    dtype: Integer
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if number_of_family_members >= cash_assistance_earned_income_limit_final_family_size_floor: cash_assistance_earned_income_limit_final_family_size_floor else: number_of_family_members
+  - name: cash_assistance_maximum_monthly_gross_earned_income_level
+    kind: parameter
+    dtype: Money
+    indexed_by: cash_assistance_earned_income_limit_family_size_band
+    versions:
+      - effective_from: '0001-01-01'
+        values:
+          1: 1400
+          10: 3824
+  - name: cash_assistance_family_maximum_monthly_gross_earned_income_level
+    kind: derived
+    entity: Family
+    dtype: Money
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          cash_assistance_maximum_monthly_gross_earned_income_level[cash_assistance_earned_income_limit_family_size_band]
+  - name: cash_assistance_gross_earned_income_requirement_satisfied
+    kind: derived
+    entity: Family
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          cash_assistance_family_gross_earned_income < cash_assistance_family_maximum_monthly_gross_earned_income_level
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-wa"
+        / "regulations/388/388-478/388-478-0035.test.yaml",
+        """- name: one_person_income_below_limit_satisfies_requirement
+  input:
+    us-wa:regulations/388/388-478/388-478-0035#input.number_of_family_members: 1
+    us-wa:regulations/388/388-478/388-478-0035#input.cash_assistance_family_gross_earned_income: 1399
+  output:
+    us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_family_size_band: 1
+    us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_maximum_monthly_gross_earned_income_level: 1400
+    us-wa:regulations/388/388-478/388-478-0035#cash_assistance_gross_earned_income_requirement_satisfied: holds
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+
+    assert report["total_outputs"] == 10
+    assert report["status_counts"] == {
+        "comparable": 5,
+        "known_not_comparable": 5,
+    }
+    assert report["untested_comparable"] == 3
+
+    comparable_ids = {
+        "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_maximum_monthly_payment_standard",
+        "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_unit_maximum_monthly_payment_standard",
+        "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_earnings_deduction",
+        "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_maximum_monthly_gross_earned_income_level",
+        "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_maximum_monthly_gross_earned_income_level",
+    }
+    assert {items_by_id[legal_id]["mapping_type"] for legal_id in comparable_ids} == {
+        "parameter_value"
+    }
+    assert {
+        legal_id
+        for legal_id in comparable_ids
+        if items_by_id[legal_id]["tested"]
+    } == {
+        "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_unit_maximum_monthly_payment_standard",
+        "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_family_maximum_monthly_gross_earned_income_level",
+    }
+    assert (
+        items_by_id[
+            "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_gross_earned_income_requirement_satisfied"
+        ]["policyengine_variable"]
+        == "wa_tanf_income_eligible"
+    )
+    assert (
+        items_by_id[
+            "us-wa:regulations/388/388-478/388-478-0035#cash_assistance_gross_earned_income_requirement_satisfied"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_calworks_exact_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path
