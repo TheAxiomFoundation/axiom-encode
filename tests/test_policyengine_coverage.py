@@ -468,6 +468,24 @@ def test_policyengine_program_surface_marks_head_start_known_not_comparable():
     )
 
 
+def test_policyengine_program_surface_marks_calworks_cash_benefit_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    calworks = items_by_variable["ca_tanf"]
+
+    assert calworks["program_id"] == "tanf"
+    assert calworks["state"] == "CA"
+    assert calworks["axiom_status"] == "known_not_comparable"
+    assert calworks["mapping_count"] == 1
+    assert calworks["comparable_mapping_count"] == 0
+    assert calworks["legal_ids"] == [
+        "us-ca:policies/cdss/calworks/monthly-aid-payment#monthly_aid_payment"
+    ]
+    assert "WIC 11450 monthly aid payment formula" in calworks["rationale"]
+    assert "immigration-proration graph" in calworks["rationale"]
+
+
 def test_policyengine_program_surface_marks_colorado_health_value_surfaces_out_of_scope():
     report = build_policyengine_program_surface_report()
 

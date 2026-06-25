@@ -2138,6 +2138,14 @@ mappings:
     comparison: money
     rationale: Same California CalWORKs maximum resource limit, selecting the elderly-or-disabled assistance-unit parameter when the legal condition holds.
 
+  - legal_id: us-ca:policies/cdss/calworks/monthly-aid-payment#monthly_aid_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ca_tanf
+    candidate_priority: P4
+    rationale: Axiom's WIC 11450 monthly aid payment is the family-level legal payment formula after state income exemptions and special-needs inputs. PolicyEngine's ca_tanf is an annual SPM-unit final benefit gated through PE's demographic, resource, vehicle-value, and immigration-proration graph, so this is an adjacent final cash-benefit surface rather than a one-to-one oracle target.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
     country: us
     program: snap
