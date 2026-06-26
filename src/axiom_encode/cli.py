@@ -26259,6 +26259,7 @@ def _repair_child_numeric_reencoding_parent_aliases(
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parent_name):
                 continue
             remove_names.add(parent_name)
+            replacements[parent_name] = child_name
         replacements.update(
             _child_numeric_reencoding_wrapper_replacements(
                 rules,
