@@ -74,6 +74,19 @@ surfaces:
   rationale: PolicyEngine's wic variable combines eligibility, take-up, and modeled package values. RuleSpec should encode and compare
     the governing WIC eligibility and benefit-value parameters separately when those sources are ingested.
 - country: us
+  program_id: wic
+  program_name: WIC eligibility
+  category: Benefits
+  agency: USDA
+  policyengine_status: complete
+  coverage: US
+  variable: is_wic_eligible
+  source_type: eligibility
+  axiom_status: pending_rulespec_encoding
+  priority: P1
+  rationale: PolicyBench scores this direct person-level WIC eligibility variable. Axiom should encode WIC categorical, income,
+    adjunctive, and nutritional-risk eligibility before claiming parity.
+- country: us
   program_id: school_meals
   program_name: Free and reduced school meals
   category: Benefits
@@ -126,6 +139,19 @@ surfaces:
     benefit or eligibility output. RuleSpec should compare Medicaid eligibility categories, income limits, and state-set parameters
     separately.
 - country: us
+  program_id: medicaid
+  program_name: Medicaid eligibility
+  category: Healthcare
+  agency: HHS
+  policyengine_status: complete
+  coverage: US
+  variable: is_medicaid_eligible
+  source_type: eligibility
+  axiom_status: pending_rulespec_encoding
+  priority: P1
+  rationale: PolicyBench scores this direct person-level Medicaid eligibility variable. Axiom has source-level category and
+    state-parameter rules, but still needs a PE-facing eligibility composite before claiming parity.
+- country: us
   program_id: chip
   program_name: CHIP
   category: Healthcare
@@ -138,6 +164,19 @@ surfaces:
   priority: P2
   rationale: PolicyEngine's chip variable reports modeled per-capita CHIP value for eligible people, not a one-to-one legal provision.
     RuleSpec should compare CHIP eligibility categories, income limits, and state-set parameters separately.
+- country: us
+  program_id: chip
+  program_name: CHIP eligibility
+  category: Healthcare
+  agency: HHS
+  policyengine_status: complete
+  coverage: US
+  variable: is_chip_eligible
+  source_type: eligibility
+  axiom_status: pending_rulespec_encoding
+  priority: P1
+  rationale: PolicyBench scores this direct person-level CHIP eligibility variable. Axiom should encode the final CHIP category
+    composite and state-set income-limit parameters before claiming parity.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
@@ -1352,6 +1391,32 @@ surfaces:
   rationale: Axiom encodes the national 45 CFR 1302.12 Head Start eligibility and enrollment-allowance rules. PolicyEngine's
     `head_start` variable is a final imputed dollar value using eligibility, take-up, and state spending/enrollment allocation,
     so the national legal surface is not a one-to-one oracle boundary.
+- country: us
+  program_id: head_start
+  program_name: Head Start eligibility
+  category: Benefits
+  agency: HHS
+  policyengine_status: complete
+  coverage: US
+  variable: is_head_start_eligible
+  source_type: eligibility
+  axiom_status: pending_oracle_mapping
+  priority: P1
+  rationale: PolicyBench scores this direct person-level Head Start eligibility variable. Axiom has national eligibility slices, but
+    the PE eligibility boundary still needs a reviewed exact composite or a documented non-comparable classification.
+- country: us
+  program_id: head_start
+  program_name: Early Head Start eligibility
+  category: Benefits
+  agency: HHS
+  policyengine_status: complete
+  coverage: US
+  variable: is_early_head_start_eligible
+  source_type: eligibility
+  axiom_status: pending_rulespec_encoding
+  priority: P1
+  rationale: PolicyBench scores this direct person-level Early Head Start eligibility variable. Axiom should encode the infant,
+    toddler, and pregnancy eligibility boundary before claiming parity.
 - country: us
   program_id: head_start
   program_name: ECEAP

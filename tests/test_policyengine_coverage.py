@@ -529,6 +529,16 @@ surfaces:
     priority: P1
     rationale: Needs RuleSpec encoding.
   - country: us
+    program_id: medicaid
+    program_name: Medicaid
+    category: Healthcare
+    policyengine_status: complete
+    coverage: US
+    variable: is_medicaid_eligible
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs RuleSpec encoding.
+  - country: us
     program_id: medicare
     program_name: Medicare
     category: Healthcare
@@ -569,6 +579,7 @@ surfaces:
 
     assert report["policybench"]["snapshot"] == "2026-06-14"
     assert [item["variable"] for item in report["actionable_surfaces"]] == [
+        "is_medicaid_eligible",
         "is_medicare_eligible",
         "md_montgomery_eitc_refundable",
         "wic",
@@ -577,6 +588,7 @@ surfaces:
     assert [
         item["policybench_household_weight"] for item in report["actionable_surfaces"]
     ] == [
+        pytest.approx(29.86),
         pytest.approx(10.74),
         pytest.approx(0.55),
         pytest.approx(0.32),
@@ -586,6 +598,67 @@ surfaces:
     assert (
         items_by_variable["md_montgomery_eitc_refundable"]["policybench_output"]
         == "state_refundable_credits"
+    )
+    assert (
+        items_by_variable["is_medicaid_eligible"]["policybench_output"]
+        == "person_level_medicaid_eligibility"
+    )
+
+
+def test_policyengine_program_surface_includes_policybench_person_eligibility_surfaces():
+    report = build_policyengine_program_surface_report()
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    medicaid = items_by_variable["is_medicaid_eligible"]
+    chip = items_by_variable["is_chip_eligible"]
+    wic = items_by_variable["is_wic_eligible"]
+    head_start = items_by_variable["is_head_start_eligible"]
+    early_head_start = items_by_variable["is_early_head_start_eligible"]
+
+    assert medicaid["program_id"] == "medicaid"
+    assert medicaid["source_type"] == "eligibility"
+    assert medicaid["axiom_status"] == "pending_rulespec_encoding"
+    assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
+    assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
+
+    assert chip["program_id"] == "chip"
+    assert chip["axiom_status"] == "pending_rulespec_encoding"
+    assert chip["policybench_output"] == "person_level_chip_eligibility"
+    assert chip["policybench_household_weight"] == pytest.approx(0.18)
+
+    assert wic["program_id"] == "wic"
+    assert wic["axiom_status"] == "pending_rulespec_encoding"
+    assert wic["policybench_output"] == "person_level_wic_eligibility"
+    assert wic["policybench_household_weight"] == pytest.approx(0.32)
+
+    assert head_start["program_id"] == "head_start"
+    assert head_start["axiom_status"] == "known_not_comparable"
+    assert head_start["mapping_count"] == 3
+    assert head_start["policybench_output"] == "person_level_head_start_eligibility"
+    assert head_start["policybench_household_weight"] == pytest.approx(1.18)
+
+    assert early_head_start["program_id"] == "head_start"
+    assert early_head_start["axiom_status"] == "pending_rulespec_encoding"
+    assert (
+        early_head_start["policybench_output"]
+        == "person_level_early_head_start_eligibility"
+    )
+    assert early_head_start["policybench_household_weight"] == pytest.approx(3.10)
+
+
+def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
+    report = build_policyengine_program_surface_report(program="medicaid")
+
+    assert report["total_surfaces"] == 2
+    assert report["status_counts"] == {
+        "out_of_scope": 1,
+        "pending_rulespec_encoding": 1,
+    }
+    assert [item["variable"] for item in report["actionable_surfaces"]] == [
+        "is_medicaid_eligible"
+    ]
+    assert report["actionable_surfaces"][0]["policybench_household_weight"] == (
+        pytest.approx(29.86)
     )
 
 
