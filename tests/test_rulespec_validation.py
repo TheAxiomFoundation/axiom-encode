@@ -3225,6 +3225,20 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
 
 
+def test_policyengine_registry_classifies_medicaid_435_120_helpers_not_comparable():
+    registry = load_policyengine_registry()
+
+    for legal_id in (
+        "us:regulations/42-cfr/435/120/ssi-mandatory-group#person_receiving_or_deemed_receiving_ssi_for_mandatory_group",
+        "us:regulations/42-cfr/435/120/ssi-mandatory-group#medicaid_required_for_ssi_mandatory_group",
+    ):
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping is not None
+        assert mapping.program == "medicaid"
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.candidate_priority == "P4"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 

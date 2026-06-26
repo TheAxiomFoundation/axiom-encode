@@ -1,4 +1,18 @@
 mappings:
+  - legal_id: us:regulations/42-cfr/435/120/ssi-mandatory-group#person_receiving_or_deemed_receiving_ssi_for_mandatory_group
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.120 source-level predicate for SSI-related mandatory Medicaid coverage. PolicyEngine exposes final Medicaid eligibility after category, state, income, immigration, and exception gates are composed, not this regulatory intermediate as a one-to-one variable.
+
+  - legal_id: us:regulations/42-cfr/435/120/ssi-mandatory-group#medicaid_required_for_ssi_mandatory_group
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the 42 CFR 435.120 SSI mandatory-group required-coverage branch, including the section 435.121 exception. PolicyEngine exposes final Medicaid eligibility, not this source-specific Medicaid obligation as a standalone oracle target.
+
   - legal_id: us:regulations/42-cfr/435/121#medicaid_required_for_section_1619_b_3_individual
     country: us
     program: medicaid
