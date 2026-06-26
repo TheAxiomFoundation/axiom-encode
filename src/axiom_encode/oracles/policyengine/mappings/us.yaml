@@ -785,7 +785,7 @@ mappings:
     mapping_type: direct_variable
     policyengine_variable: is_medicare_eligible
     entity: person
-    period: month
+    period: year
     comparison: boolean
     rationale: CMS's Original Medicare guidance backs the simplified PolicyEngine Medicare eligibility surface for age-based eligibility at 65 and disability-based automatic Medicare Part A and Part B enrollment after 24 months of Social Security disability benefits.
 

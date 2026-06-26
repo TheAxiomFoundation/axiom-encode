@@ -25149,6 +25149,10 @@ print("BENCHMARK:" + json.dumps(result))
             ):
                 aliases.add(source_key)
             for _target_key, _operation, source_keys in (
+                *adapter.derived_person_inputs,
+            ):
+                aliases.update(source_keys)
+            for _target_key, _operation, source_keys in (
                 *adapter.monthly_derived_boolean_person_inputs,
             ):
                 aliases.update(source_keys)
@@ -26035,6 +26039,33 @@ print(f'RESULT:{{float(value)}}')
             )
 
         if adapter is not None:
+            for pe_attr, operation, rule_keys in adapter.derived_person_inputs:
+                raw_values = [
+                    self._rulespec_test_input_value(inputs, rule_key)
+                    for rule_key in rule_keys
+                ]
+                numeric_values: list[float] = []
+                for raw_value in raw_values:
+                    if raw_value is None:
+                        continue
+                    with contextlib.suppress(TypeError, ValueError):
+                        numeric_values.append(float(raw_value))
+                if not numeric_values:
+                    continue
+                if operation == "max":
+                    derived_value: float | bool = max(numeric_values)
+                elif operation == "positive_if_any":
+                    derived_value = (
+                        1.0 if any(value > 0 for value in numeric_values) else 0.0
+                    )
+                else:
+                    continue
+                attrs = (
+                    target_person_attrs
+                    if target_person_attrs is not None
+                    else adult_attrs
+                )
+                attrs.append(f"'{pe_attr}': {{'{year}': {pe_literal(derived_value)}}}")
             for rule_key, pe_attr in adapter.annualized_person_inputs:
                 value = self._rulespec_test_input_value(inputs, rule_key)
                 if value is None:

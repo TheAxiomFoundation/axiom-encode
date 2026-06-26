@@ -841,6 +841,7 @@ def run_model_eval(
     extra_context_paths: list[Path] | None = None,
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    policyengine_rule_hint: str | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     results: list[EvalResult] = []
@@ -859,6 +860,7 @@ def run_model_eval(
                     extra_context_paths=extra_context_paths or [],
                     include_tests=include_tests,
                     skip_reviewers=skip_reviewers,
+                    policyengine_rule_hint=policyengine_rule_hint,
                 )
             )
 
@@ -3790,6 +3792,7 @@ def _run_single_eval(
     extra_context_paths: list[Path],
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    policyengine_rule_hint: str | None = None,
 ) -> EvalResult:
     source_unit = resolve_corpus_source_unit(citation, corpus_path)
     source_text = source_unit.body
@@ -3843,6 +3846,7 @@ def _run_single_eval(
         ),
         include_tests=include_tests,
         runner_backend=runner.backend,
+        policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = Path(output_root) / runner.name / relative_output
@@ -3855,6 +3859,7 @@ def _run_single_eval(
         source_text=source_text,
         target_file_name=relative_output.name,
         include_tests=include_tests,
+        policyengine_rule_hint=policyengine_rule_hint,
     )
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name

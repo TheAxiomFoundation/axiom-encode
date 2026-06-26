@@ -4684,6 +4684,71 @@ def test_policyengine_and_cs_mappability_blocks_active_unmodeled_exclusions(
     assert "client_is_resident_in_unlicensed_or_uncertified_facility" in (reason or "")
 
 
+def test_policyengine_medicare_adapter_projects_disability_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2026-01",
+        "us:policies/cms/original-medicare-part-a-b#input.enrolled_during_initial_enrollment_period": False,
+        "us:policies/cms/original-medicare-part-a-b#input.coverage_month_is_month_after_enrollment": False,
+        "us:policies/cms/original-medicare-part-a-b#input.months_received_social_security_disability_benefits": 24,
+        "us:policies/cms/original-medicare-part-a-b#input.months_of_disability_benefit_entitlement": 0,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "is_medicare_eligible",
+        inputs,
+        pe_var="is_medicare_eligible",
+    )
+
+    assert mappable is True
+    assert reason is None
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_medicare_eligible",
+        inputs,
+        "2026",
+    )
+
+    assert "'months_receiving_social_security_disability': {'2026': 24.0}" in script
+    assert "'social_security_disability': {'2026': 1.0}" in script
+    assert "calculate('is_medicare_eligible', int('2026'))" in script
+
+
+def test_policyengine_medicare_mappability_blocks_active_enrollment_timing(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2026-01",
+        "us:policies/cms/original-medicare-part-a-b#input.enrolled_during_initial_enrollment_period": True,
+        "us:policies/cms/original-medicare-part-a-b#input.coverage_month_is_month_after_enrollment": True,
+        "us:policies/cms/original-medicare-part-a-b#input.months_received_social_security_disability_benefits": 0,
+        "us:policies/cms/original-medicare-part-a-b#input.months_of_disability_benefit_entitlement": 0,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "is_medicare_eligible",
+        inputs,
+        pe_var="is_medicare_eligible",
+    )
+
+    assert mappable is False
+    assert "does not expose CMS enrollment-window coverage timing facts" in (
+        reason or ""
+    )
+    assert "coverage_month_is_month_after_enrollment" in (reason or "")
+
+
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
