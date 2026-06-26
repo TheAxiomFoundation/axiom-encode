@@ -507,6 +507,21 @@ class TestMain:
                 main()
                 mock_cmd.assert_called_once()
 
+    def test_encode_accepts_policyengine_rule_hint(self):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "encode",
+                "us/statute/42/1396a/a/10",
+                "--policyengine-rule-hint",
+                "is_medicaid_eligible",
+            ],
+        ):
+            with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
     def test_eval_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "eval", "26 USC 24(a)"]):
             with patch("axiom_encode.cli.cmd_eval") as mock_cmd:
@@ -3657,6 +3672,7 @@ class TestCmdEncode:
         args.policy_repo_path = overrides.get("policy_repo_path", policy_repo_path)
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
+        args.policyengine_rule_hint = overrides.get("policyengine_rule_hint", None)
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
         args.skip_reviewers = overrides.get("skip_reviewers", False)
@@ -3703,6 +3719,7 @@ class TestCmdEncode:
         assert mock_run.call_args.kwargs["runner_specs"] == ["codex:test-model"]
         assert mock_run.call_args.kwargs["include_tests"] is True
         assert mock_run.call_args.kwargs["skip_reviewers"] is False
+        assert mock_run.call_args.kwargs["policyengine_rule_hint"] is None
         assert mock_run.call_args.kwargs["policy_path"] == args.policy_repo_path
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
@@ -3773,6 +3790,7 @@ class TestCmdEncode:
         )
         assert mock_run_source.call_args.kwargs["runner_specs"] == ["codex:test-model"]
         assert mock_run_source.call_args.kwargs["skip_reviewers"] is False
+        assert mock_run_source.call_args.kwargs["policyengine_rule_hint"] is None
         assert mock_run_source.call_args.kwargs["policy_path"] == args.policy_repo_path
         assert (
             mock_run_source.call_args.kwargs["runtime_axiom_rules_path"]
@@ -3822,6 +3840,58 @@ class TestCmdEncode:
         assert exc_info.value.code == 0
         assert mock_run_source.call_args.kwargs["skip_reviewers"] is True
         assert "Reviewers: skipped" in capsys.readouterr().out
+
+    def test_encode_passes_policyengine_rule_hint_to_source_eval(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            citation="us/statute/42/1396a/a/10",
+            source_id="us/policies/hhs/medicaid/eligibility",
+            policyengine_rule_hint="is_medicaid_eligible",
+            sync=False,
+        )
+        result = self._make_eval_result(True)
+        result.citation = args.source_id
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=SimpleNamespace(
+                    body="medicaid source text",
+                    citation_path="us/statute/42/1396a/a/10",
+                    source="local",
+                    requested="us/statute/42/1396a/a/10",
+                ),
+            ),
+            patch(
+                "axiom_encode.cli.run_source_eval", return_value=[result]
+            ) as mock_run_source,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert (
+            mock_run_source.call_args.kwargs["policyengine_rule_hint"]
+            == "is_medicaid_eligible"
+        )
+        assert "PolicyEngine rule hint: is_medicaid_eligible" in capsys.readouterr().out
+
+    def test_encode_passes_policyengine_rule_hint_to_model_eval(self, capsys, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            policyengine_rule_hint="is_medicaid_eligible",
+        )
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert (
+            mock_run.call_args.kwargs["policyengine_rule_hint"]
+            == "is_medicaid_eligible"
+        )
+        assert "PolicyEngine rule hint: is_medicaid_eligible" in capsys.readouterr().out
 
     def test_encode_with_errors(self, capsys, tmp_path):
         args = self._make_args(tmp_path, citation="26 USC 1", model=None)
