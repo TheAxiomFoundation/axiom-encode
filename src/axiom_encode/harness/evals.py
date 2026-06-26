@@ -3878,6 +3878,7 @@ def _run_single_eval(
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
+            policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
         )
     validation_error = _eval_artifact_validation_error(metrics)

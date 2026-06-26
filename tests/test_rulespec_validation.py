@@ -4719,6 +4719,34 @@ def test_policyengine_medicare_adapter_projects_disability_inputs(tmp_path):
     assert "calculate('is_medicare_eligible', int('2026'))" in script
 
 
+def test_policyengine_medicare_mappability_blocks_entitlement_boundary(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2026-01",
+        "us:policies/cms/original-medicare-part-a-b#input.enrolled_during_initial_enrollment_period": False,
+        "us:policies/cms/original-medicare-part-a-b#input.coverage_month_is_month_after_enrollment": False,
+        "us:policies/cms/original-medicare-part-a-b#input.months_received_social_security_disability_benefits": 0,
+        "us:policies/cms/original-medicare-part-a-b#input.months_of_disability_benefit_entitlement": 24,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "is_medicare_eligible",
+        inputs,
+        pe_var="is_medicare_eligible",
+    )
+
+    assert mappable is False
+    assert "25th-month disability-entitlement boundary" in (reason or "")
+    assert "months_of_disability_benefit_entitlement" in (reason or "")
+
+
 def test_policyengine_medicare_mappability_blocks_active_enrollment_timing(
     tmp_path,
 ):

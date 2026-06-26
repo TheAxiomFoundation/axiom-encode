@@ -732,27 +732,23 @@ PE_US_MEDICARE_VAR_ADAPTERS = (
             (
                 "months_receiving_social_security_disability",
                 "max",
-                (
-                    "months_received_social_security_disability_benefits",
-                    "months_of_disability_benefit_entitlement",
-                ),
+                ("months_received_social_security_disability_benefits",),
             ),
             (
                 "social_security_disability",
                 "positive_if_any",
-                (
-                    "months_received_social_security_disability_benefits",
-                    "months_of_disability_benefit_entitlement",
-                ),
+                ("months_received_social_security_disability_benefits",),
             ),
         ),
         unsupported_truthy_input_keys=(
             "enrolled_during_initial_enrollment_period",
             "coverage_month_is_month_after_enrollment",
+            "months_of_disability_benefit_entitlement",
         ),
         unsupported_input_reason=(
             "PolicyEngine's Medicare eligibility oracle does not expose CMS "
-            "enrollment-window coverage timing facts"
+            "enrollment-window coverage timing facts or the separate "
+            "25th-month disability-entitlement boundary"
         ),
     ),
 )
