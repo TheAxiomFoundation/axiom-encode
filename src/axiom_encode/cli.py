@@ -32748,11 +32748,15 @@ def _factual_input_appears_numeric(
         "value",
         "count",
         "cost",
+        "costs",
         "need",
         "needs",
         "expense",
+        "expenses",
         "deduction",
+        "deductions",
         "credit",
+        "credits",
         "tax",
         "gross",
         "net",
@@ -36274,6 +36278,8 @@ def _default_refs_for_missing_input(
 
 def _infer_missing_input_default(input_name: str) -> object:
     normalized = input_name.lower()
+    if _factual_input_name_looks_boolean(input_name):
+        return False
     if "contribution_and_benefit_base" in normalized:
         return 999999999
     tokens = set(re.split(r"[^a-z0-9]+", normalized))
@@ -36284,8 +36290,11 @@ def _infer_missing_input_default(input_name: str) -> object:
         "cost",
         "costs",
         "credit",
+        "credits",
         "deduction",
+        "deductions",
         "expense",
+        "expenses",
         "gross",
         "hour",
         "hours",
