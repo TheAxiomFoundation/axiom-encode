@@ -2930,6 +2930,32 @@ rules:
     assert "state income bridge" in str(exact_output["rationale"])
 
 
+def test_policyengine_coverage_classifies_illinois_state_prefix(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-il/statutes/320/30/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: remaining_equity_deferral_capacity
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, property_equity_limit - existing_deferrals)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["total_outputs"] == 1
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-il:statutes/320/30/3#remaining_equity_deferral_capacity"
+    )
+    assert item["mapping_type"] == "not_comparable"
+    assert item["candidate_priority"] == "P4"
+    assert "IL statutes" in str(item["rationale"])
+
+
 def test_policyengine_coverage_classifies_medicaid_work_requirement_prefixes(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/42/1396a/xx.yaml",
