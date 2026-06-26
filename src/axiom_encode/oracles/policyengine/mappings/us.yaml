@@ -1,4 +1,53 @@
 mappings:
+  - legal_id: us:regulations/42-cfr/435/121#medicaid_required_for_section_1619_b_3_individual
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 source-level required-coverage branch for section 1619(b)(3) individuals in States using more restrictive SSI-related Medicaid requirements. PolicyEngine exposes only final Medicaid eligibility, not this regulatory intermediate as a one-to-one variable.
+
+  - legal_id: us:regulations/42-cfr/435/121#medicaid_required_for_medicare_savings_group_without_restrictive_requirements
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 source-level required-coverage branch for qualified Medicare beneficiary and qualified working disabled groups. PolicyEngine exposes final Medicaid eligibility and Medicare Savings Program-adjacent eligibility separately, not this more-restrictive-requirements exception as a one-to-one Medicaid oracle target.
+
+  - legal_id: us:regulations/42-cfr/435/121#medicaid_required_for_recent_section_1619_status_individual
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 source-level required-coverage branch for individuals who met section 1619(a) or (b)(1) status in a reference month. PolicyEngine does not expose this regulatory intermediate separately from final Medicaid eligibility.
+
+  - legal_id: us:regulations/42-cfr/435/121#medicaid_required_for_disabled_child_when_state_uses_adult_disabled_age_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 source-level required-coverage branch for disabled children when a State uses an adult disabled age limit. PolicyEngine does not expose this branch as a one-to-one variable separate from final Medicaid eligibility.
+
+  - legal_id: us:regulations/42-cfr/435/406#medicaid_required_for_citizen_or_national
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the citizenship and verification gate in 42 CFR 435.406 for otherwise eligible individuals. PolicyEngine exposes final Medicaid eligibility after category, income, state, and immigration gates are composed, not this citizenship branch as a standalone oracle variable.
+
+  - legal_id: us:regulations/42-cfr/435/406#medicaid_required_for_qualified_noncitizen
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the qualified-noncitizen and verification gate in 42 CFR 435.406, including source handling for the five-year-bar limitation. PolicyEngine exposes final Medicaid eligibility, not this immigration-status branch as a one-to-one output.
+
+  - legal_id: us:regulations/42-cfr/435/406#medicaid_payment_required_for_emergency_services
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the limited emergency-services payment rule for otherwise eligible state residents who are subject to the five-year bar or are non-qualified noncitizens. PolicyEngine's Medicaid eligibility variable is not a one-to-one oracle for this limited-benefit payment obligation.
+
   - legal_id: us:statutes/7/2014/c#snap_gross_income_excess_rate_over_poverty_line
     country: us
     program: snap
