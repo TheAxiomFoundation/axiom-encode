@@ -20152,6 +20152,46 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                deferred_unsupported_entity_outputs: list[str] = []
+                seen_unsupported_entity_outputs: set[str] = set()
+                while not can_apply:
+                    deferred_entity_pass = (
+                        _try_repair_generated_unsupported_entity_outputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not deferred_entity_pass:
+                        break
+                    new_deferred_outputs = [
+                        output
+                        for output in deferred_entity_pass
+                        if output not in seen_unsupported_entity_outputs
+                    ]
+                    seen_unsupported_entity_outputs.update(deferred_entity_pass)
+                    deferred_unsupported_entity_outputs.extend(new_deferred_outputs)
+                    outcome["auto_deferred_unsupported_entity_outputs"] = (
+                        deferred_unsupported_entity_outputs
+                    )
+                    print(
+                        "  apply=auto_deferred_unsupported_entity_outputs:"
+                        + ",".join(deferred_entity_pass)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_table_band_scalars = (
                     _try_repair_generated_source_table_band_scalars_for_apply(
                         result,
@@ -21891,6 +21931,8 @@ def _try_repair_generated_bare_snapunit_entity_for_apply(
     source_text = (source_text_value or "").lower()
     if "snapunit" in source_text or "snap unit" in source_text:
         return []
+    if "basic food" in source_text:
+        return []
     if "assistance group" not in source_text and "household" not in source_text:
         return []
 
@@ -21915,6 +21957,213 @@ def _try_repair_generated_bare_snapunit_entity_for_apply(
         return []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _try_repair_generated_unsupported_entity_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Defer generated outputs that use an undeclared filtered entity."""
+    records = _unsupported_entity_issue_records(issues)
+    if not records:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rules_by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    unsupported_entities_by_rule: dict[str, str] = {}
+    for record in records:
+        rule_name = str(record.get("rule") or "").strip()
+        entity = str(record.get("entity") or "").strip()
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("entity") or "").strip() != entity:
+            continue
+        unsupported_entities_by_rule[rule_name] = entity
+    if not unsupported_entities_by_rule:
+        return []
+
+    affected_rules = _expand_unsupported_entity_generated_rules(
+        rules_by_name=rules_by_name,
+        unsupported_entities_by_rule=unsupported_entities_by_rule,
+    )
+    if not affected_rules:
+        return []
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    module = payload.setdefault("module", {})
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.setdefault("deferred_outputs", [])
+    if not isinstance(deferred_outputs, list):
+        return []
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+
+    unsupported_entities = sorted(set(unsupported_entities_by_rule.values()))
+    entity_list = ", ".join(unsupported_entities)
+    ordered_affected_rules = [
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("name") or "").strip() in affected_rules
+    ]
+    deferred_targets: list[str] = []
+    for rule_name in ordered_affected_rules:
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        output = _deferred_output_target_for_generated_rule(
+            rule_name=rule_name,
+            rule=rule,
+            base_anchor=base_anchor,
+        )
+        if not output:
+            continue
+        if output not in existing_outputs:
+            deferred_outputs.append(
+                {
+                    "output": output,
+                    "reason": (
+                        "Generated output depends on an undeclared filtered "
+                        f"entity ({entity_list}). It is deferred until that "
+                        "entity relation is encoded or imported instead of "
+                        "inventing the entity surface locally."
+                    ),
+                }
+            )
+            existing_outputs.add(output)
+        deferred_targets.append(output)
+
+    if not deferred_targets:
+        return []
+
+    payload["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict)
+            and str(rule.get("name") or "").strip() in affected_rules
+        )
+    ]
+    if not payload["rules"]:
+        module.setdefault("status", "deferred")
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    _remove_generated_test_outputs_for_deferred_rules(
+        test_file=_rulespec_test_path(rules_file),
+        base_anchor=base_anchor,
+        rule_names=affected_rules,
+    )
+    return deferred_targets
+
+
+def _unsupported_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"Filtered entity dependency missing:\s+"
+        r"`(?P<rule>[A-Za-z_][A-Za-z0-9_]*)`\s+uses\s+"
+        r"`entity:\s+(?P<entity>[A-Za-z_][A-Za-z0-9_]*)`"
+    )
+    for issue in issues:
+        match = pattern.search(str(issue))
+        if match is None:
+            continue
+        records.append(match.groupdict())
+    return records
+
+
+def _expand_unsupported_entity_generated_rules(
+    *,
+    rules_by_name: dict[str, dict[str, Any]],
+    unsupported_entities_by_rule: dict[str, str],
+) -> set[str]:
+    affected = set(unsupported_entities_by_rule)
+    unsupported_entities = set(unsupported_entities_by_rule.values())
+    changed = True
+    while changed:
+        changed = False
+        affected_suffixes = {
+            _top_level_source_suffix_from_rule_source(
+                str(rules_by_name[rule_name].get("source") or ""),
+            )
+            for rule_name in affected
+            if rule_name in rules_by_name
+        }
+        affected_suffixes.discard("")
+
+        for rule_name, rule in rules_by_name.items():
+            if rule_name in affected:
+                continue
+            identifiers = _generated_rule_formula_identifiers(rule)
+            should_add_dependent = bool(identifiers.intersection(affected))
+            should_add_dependency = any(
+                rule_name in _generated_rule_formula_identifiers(rules_by_name[name])
+                for name in affected
+                if name in rules_by_name
+            )
+            if not should_add_dependent and not should_add_dependency:
+                continue
+            if not _is_unsupported_entity_helper_rule(
+                rule,
+                unsupported_entities=unsupported_entities,
+                affected_suffixes=affected_suffixes,
+            ):
+                continue
+            affected.add(rule_name)
+            changed = True
+    return affected
+
+
+def _is_unsupported_entity_helper_rule(
+    rule: dict[str, Any],
+    *,
+    unsupported_entities: set[str],
+    affected_suffixes: set[str],
+) -> bool:
+    kind = str(rule.get("kind") or "").strip().lower()
+    if kind not in {"derived", "parameter", "source_value", "data_relation"}:
+        return False
+    entity = str(rule.get("entity") or "").strip()
+    if entity in unsupported_entities:
+        return True
+    if entity:
+        return False
+    source_suffix = _top_level_source_suffix_from_rule_source(
+        str(rule.get("source") or ""),
+    )
+    return bool(source_suffix and source_suffix in affected_suffixes)
 
 
 def _bare_snapunit_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:
@@ -27621,6 +27870,15 @@ def _top_level_source_suffix_from_rule_source(source: str) -> str:
         r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
         source,
     )
+    if match is None:
+        citation_matches = list(
+            re.finditer(
+                r"\b(?:[A-Za-z0-9_.:-]+/)+[A-Za-z0-9_.-]+"
+                r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+                source,
+            )
+        )
+        match = citation_matches[-1] if citation_matches else None
     if match is None:
         return ""
     parts = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("suffix"))

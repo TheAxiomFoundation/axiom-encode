@@ -141,6 +141,7 @@ from axiom_encode.cli import (
     _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
+    _try_repair_generated_unsupported_entity_outputs_for_apply,
     _unit_scoped_person_definition_issue_names,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
@@ -5779,6 +5780,111 @@ rules:
         assert repaired == ["monthly_benefit"]
         payload = yaml.safe_load(rules_file.read_text())
         assert payload["rules"][0]["entity"] == "Household"
+
+    def test_unsupported_entity_output_repair_defers_sibling_policy_outputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo_path = tmp_path / "us-wa"
+        rules_file = (
+            output_root
+            / "runner"
+            / "regulations"
+            / "388"
+            / "388-450"
+            / "388-450-0162.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Cash assistance and Basic Food income rules.
+rules:
+- name: cash_assistance_monthly_benefit
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  period: Month
+  source: us-wa/regulation/388/388-450/388-450-0162(3)(c)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: max(0, payment_standard - cash_assistance_countable_income)
+- name: basic_food_net_income_allotment_reduction_rate
+  kind: parameter
+  dtype: Rate
+  source: us-wa/regulation/388/388-450/388-450-0162(b)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.30'
+- name: basic_food_income_requirement_satisfied
+  kind: derived
+  entity: SnapUnit
+  dtype: Judgment
+  period: Month
+  source: us-wa/regulation/388/388-450/388-450-0162(a)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: basic_food_countable_monthly_income <= basic_food_net_income_standard
+- name: basic_food_monthly_benefit
+  kind: derived
+  entity: SnapUnit
+  dtype: Money
+  period: Month
+  source: us-wa/regulation/388/388-450/388-450-0162(b)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: max(0, maximum_allotment - basic_food_net_income_allotment_reduction_rate * basic_food_countable_monthly_income)
+"""
+        )
+        test_file = rules_file.with_name("388-450-0162.test.yaml")
+        test_file.write_text(
+            """- name: cash_assistance_case
+  period: 2026-01
+  input: {}
+  output:
+    us-wa:regulations/388/388-450/388-450-0162#cash_assistance_monthly_benefit: 406
+- name: basic_food_case
+  period: 2026-01
+  input: {}
+  output:
+    us-wa:regulations/388/388-450/388-450-0162#basic_food_income_requirement_satisfied: holds
+    us-wa:regulations/388/388-450/388-450-0162#basic_food_monthly_benefit: 23
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_unsupported_entity_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo_path,
+            issues=[
+                "Filtered entity dependency missing: "
+                "`basic_food_income_requirement_satisfied` uses "
+                "`entity: SnapUnit`, but this RuleSpec file does not declare "
+                "`SnapUnit` with a `kind: derived_relation` rule or import its "
+                "declaring relation (`snap_unit`).",
+                "Filtered entity dependency missing: "
+                "`basic_food_monthly_benefit` uses `entity: SnapUnit`, but "
+                "this RuleSpec file does not declare `SnapUnit` with a "
+                "`kind: derived_relation` rule or import its declaring relation "
+                "(`snap_unit`).",
+            ],
+        )
+
+        assert repaired == [
+            "us-wa:regulations/388/388-450/388-450-0162/b#basic_food_net_income_allotment_reduction_rate",
+            "us-wa:regulations/388/388-450/388-450-0162/a#basic_food_income_requirement_satisfied",
+            "us-wa:regulations/388/388-450/388-450-0162/b#basic_food_monthly_benefit",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "cash_assistance_monthly_benefit"
+        ]
+        assert [
+            record["output"] for record in payload["module"]["deferred_outputs"]
+        ] == repaired
+        cases = yaml.safe_load(test_file.read_text())
+        assert [case["name"] for case in cases] == ["cash_assistance_case"]
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
