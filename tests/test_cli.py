@@ -17502,6 +17502,94 @@ rules:
         assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
         assert test_cases[0]["output"] == {"us:statutes/26/3306/d#pay_period": "holds"}
 
+    def test_upstream_placement_duplicate_repair_uses_country_monorepo_content_root(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        upstream_file = policy_repo / "us/statutes/42/1396a/a/10.yaml"
+        rules_file = policy_repo / "us/policies/hhs/medicaid/eligibility.yaml"
+        test_file = policy_repo / "us/policies/hhs/medicaid/eligibility.test.yaml"
+        upstream_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
+        upstream_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: adult_expansion_income_limit_poverty_line_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          1.33
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: adult_expansion_income_limit_poverty_line_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          1.33
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:policies/hhs/medicaid/eligibility#adult_expansion_income_limit_poverty_line_rate
+              output: adult_expansion_income_limit_poverty_line_rate
+              hash: sha256:local
+    versions:
+      - effective_from: '2014-01-01'
+        formula: household_income_as_fraction_of_poverty_line <= adult_expansion_income_limit_poverty_line_rate
+"""
+        )
+        test_file.write_text(
+            """- name: adult_expansion_case
+  period: 2024-01
+  input:
+    us:policies/hhs/medicaid/eligibility#input.household_income_as_fraction_of_poverty_line: 1.2
+  output:
+    us:policies/hhs/medicaid/eligibility#adult_expansion_income_limit_poverty_line_rate: 1.33
+    us:policies/hhs/medicaid/eligibility#is_medicaid_eligible: holds
+"""
+        )
+
+        repaired = _repair_upstream_placement_duplicate_imports(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("policies/hhs/medicaid/eligibility.yaml"),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["adult_expansion_income_limit_poverty_line_rate"]
+        assert rules_payload["imports"] == [
+            "us:statutes/42/1396a/a/10#adult_expansion_income_limit_poverty_line_rate"
+        ]
+        assert [rule["name"] for rule in rules_payload["rules"]] == [
+            "is_medicaid_eligible"
+        ]
+        proof_import = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0][
+            "import"
+        ]
+        assert (
+            proof_import["target"]
+            == "us:statutes/42/1396a/a/10#adult_expansion_income_limit_poverty_line_rate"
+        )
+        assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
+        assert test_cases[0]["output"] == {
+            "us:policies/hhs/medicaid/eligibility#is_medicaid_eligible": "holds"
+        }
+
     def test_upstream_placement_duplicate_repair_restates_duplicate_only_module(
         self, tmp_path
     ):

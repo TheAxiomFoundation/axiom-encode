@@ -35199,18 +35199,19 @@ def _repair_upstream_placement_duplicate_imports(
     if not isinstance(rules, list):
         return []
 
+    content_repo_path = _rulespec_apply_content_root(repo_path, relative_output)
     duplicate_targets_by_name, duplicate_indexes = (
         _upstream_placement_duplicate_targets(
             rules=rules,
             rules_file=rules_file,
-            repo_path=repo_path,
+            repo_path=content_repo_path,
         )
     )
     if not duplicate_targets_by_name:
         return []
 
     target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_repo_jurisdiction_prefix(content_repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
     remaining_rules = [
@@ -35288,7 +35289,7 @@ def _repair_upstream_placement_duplicate_imports(
         content,
         target_base=target_base,
         rules_file=rules_file,
-        repo_path=repo_path,
+        repo_path=content_repo_path,
     )
     rules_file.write_text(content)
 
