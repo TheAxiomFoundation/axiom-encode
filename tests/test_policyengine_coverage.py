@@ -176,6 +176,78 @@ rules:
     assert final_surface["mapping_type"] == "not_comparable"
 
 
+def test_policyengine_coverage_classifies_medicaid_policy_composite(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us/policies/hhs/medicaid/eligibility.yaml",
+        """format: rulespec/v1
+rules:
+  - name: child_ssi_deeming_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 21
+  - name: specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '1995-01-01'
+        formula: 1.2
+  - name: inpatient_hospital_durational_limit_exception_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '1974-01-01'
+        formula: 1
+  - name: adult_expansion_mandatory_eligible
+    kind: derived
+    versions:
+      - effective_from: '2014-01-01'
+        formula: adult_expansion_conditions_met
+  - name: former_foster_care_mandatory_eligible
+    kind: derived
+    versions:
+      - effective_from: '1974-01-01'
+        formula: former_foster_care_conditions_met
+  - name: optional_group_eligible
+    kind: derived
+    versions:
+      - effective_from: '1974-01-01'
+        formula: optional_group_conditions_met
+  - name: is_medicaid_eligible
+    kind: derived
+    versions:
+      - effective_from: '2014-01-01'
+        formula: adult_expansion_mandatory_eligible or former_foster_care_mandatory_eligible or optional_group_eligible
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us/policies/hhs/medicaid/eligibility.test.yaml",
+        """- name: medicaid composite covered
+  period: 2024
+  input:
+    us:policies/hhs/medicaid/eligibility#input.adult_expansion_conditions_met: true
+    us:policies/hhs/medicaid/eligibility#input.former_foster_care_conditions_met: false
+    us:policies/hhs/medicaid/eligibility#input.optional_group_conditions_met: false
+  output:
+    us:policies/hhs/medicaid/eligibility#is_medicaid_eligible: holds
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="medicaid")
+
+    assert report["total_outputs"] == 7
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 6,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_surface = items_by_id[
+        "us:policies/hhs/medicaid/eligibility#is_medicaid_eligible"
+    ]
+    assert final_surface["mapping_type"] == "direct_variable"
+    assert final_surface["policyengine_variable"] == "is_medicaid_eligible"
+    assert final_surface["tested"] is True
+
+
 def test_policyengine_coverage_includes_program_spec_outputs(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _write_rulespec_file(
@@ -617,7 +689,9 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
 
     assert medicaid["program_id"] == "medicaid"
     assert medicaid["source_type"] == "eligibility"
-    assert medicaid["axiom_status"] == "pending_rulespec_encoding"
+    assert medicaid["axiom_status"] == "wired"
+    assert medicaid["mapping_count"] == 4
+    assert medicaid["comparable_mapping_count"] == 1
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 
@@ -655,14 +729,9 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["total_surfaces"] == 2
     assert report["status_counts"] == {
         "out_of_scope": 1,
-        "pending_rulespec_encoding": 1,
+        "wired": 1,
     }
-    assert [item["variable"] for item in report["actionable_surfaces"]] == [
-        "is_medicaid_eligible"
-    ]
-    assert report["actionable_surfaces"][0]["policybench_household_weight"] == (
-        pytest.approx(29.86)
-    )
+    assert report["actionable_surfaces"] == []
 
 
 def test_policyengine_program_surface_local_tax_credit_uses_local_weight(tmp_path):
