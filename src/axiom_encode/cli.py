@@ -19875,6 +19875,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_mixed_missing_deferred_outputs = (
+                    _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_mixed_missing_deferred_outputs:
+                    outcome["auto_repaired_mixed_missing_deferred_outputs"] = (
+                        repaired_mixed_missing_deferred_outputs
+                    )
+                    print(
+                        "  apply=auto_repaired_mixed_missing_deferred_outputs:"
+                        + ",".join(repaired_mixed_missing_deferred_outputs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_missing_deferred_outputs = (
                     _try_repair_generated_missing_deferred_outputs_for_apply(
                         result,
@@ -20994,6 +21023,43 @@ def cmd_encode(args):
                 if repaired_target_ref_typos:
                     outcome["auto_repaired_target_prefix_typos"] = (
                         repaired_target_ref_typos
+                    )
+            if not can_apply:
+                repaired_import_target_ref_typos: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_import_target_prefix_typos_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_import_target_ref_typos.extend(repaired_refs)
+                    outcome["auto_repaired_import_target_prefix_typos"] = (
+                        repaired_import_target_ref_typos
+                    )
+                    print(
+                        "  apply=auto_repaired_import_target_prefix_typos:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_import_target_ref_typos:
+                    outcome["auto_repaired_import_target_prefix_typos"] = (
+                        repaired_import_target_ref_typos
                     )
             if not can_apply:
                 repaired_invalid_input_refs: list[str] = []
@@ -26985,6 +27051,93 @@ def _try_repair_generated_missing_deferred_outputs_for_apply(
     return [output]
 
 
+def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Add deferred outputs for unsupported source gaps in otherwise encoded modules."""
+    source_gaps = [
+        gap
+        for issue in issues
+        if "Source sub-paragraph coverage missing" in str(issue)
+        and "module.deferred_outputs" in str(issue)
+        for gap in [_parse_source_coverage_gap_issue(str(issue))]
+        if gap is not None
+    ]
+    if not source_gaps:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        module = {}
+        payload["module"] = module
+    deferred_outputs = module.get("deferred_outputs")
+    if deferred_outputs is None:
+        deferred_outputs = []
+        module["deferred_outputs"] = deferred_outputs
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+    repaired: list[str] = []
+    for citation, excerpt in source_gaps:
+        output_path = _source_coverage_output_path(base_anchor, citation=citation)
+        symbol = _source_coverage_deferred_symbol(excerpt, citation=citation)
+        output = f"{output_path}#{symbol}"
+        if output in existing_outputs:
+            continue
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "Generated module encodes the supported rules from this "
+                    "source, but this source subparagraph depends on policy "
+                    "surfaces or entities that are not available in the current "
+                    "RuleSpec context. It is deferred instead of being modeled "
+                    "as a caller-supplied input or an unsupported local entity."
+                ),
+            }
+        )
+        existing_outputs.add(output)
+        repaired.append(output)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
 def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
     result,
     *,
@@ -27302,6 +27455,30 @@ def _source_coverage_output_path(base_anchor: str, *, citation: str) -> str:
     ):
         return base_anchor
     return f"{base_anchor}/{'/'.join(segments)}"
+
+
+def _source_coverage_deferred_symbol(excerpt: str, *, citation: str) -> str:
+    normalized = " ".join(str(excerpt or "").lower().split())
+    if "basic food" in normalized:
+        if "income eligible" in normalized or "income eligibility" in normalized:
+            return "basic_food_income_eligible"
+        if "benefit" in normalized or "allotment" in normalized:
+            return "basic_food_monthly_benefit"
+    if "income eligible" in normalized or "income eligibility" in normalized:
+        return "income_eligible"
+    if "monthly benefit" in normalized:
+        return "monthly_benefit"
+    symbol, _label = _infer_deferred_output_symbol_from_summary(excerpt)
+    if symbol:
+        return symbol
+    segments = [
+        segment.strip().lower()
+        for segment in re.findall(r"\(([A-Za-z0-9.]+)\)", str(citation or ""))
+        if segment.strip()
+    ]
+    if segments:
+        return "deferred_" + "_".join(re.sub(r"[^a-z0-9]+", "_", s) for s in segments)
+    return "deferred_output"
 
 
 def _infer_deferred_output_symbol_from_summary(summary: str) -> tuple[str, str]:
@@ -31141,6 +31318,121 @@ def _try_repair_generated_target_prefix_typos_for_apply(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return [f"{old}->{new}" for old, new in sorted(replacements.items())]
+
+
+def _try_repair_generated_import_target_prefix_typos_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Normalize generated-test refs that typo one of the module's imports."""
+    unresolved_refs = _unresolved_test_input_refs_from_issues(issues)
+    if not unresolved_refs:
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists() or not test_file.exists():
+        return []
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    imports = rules_payload.get("imports")
+    if not isinstance(imports, list):
+        return []
+    imported_bases = list(
+        dict.fromkeys(
+            raw_import.split("#", 1)[0].strip()
+            for raw_import in imports
+            if isinstance(raw_import, str) and "#" in raw_import
+        )
+    )
+    if not imported_bases:
+        return []
+
+    replacements: dict[str, str] = {}
+    for input_ref in unresolved_refs:
+        replacement = _import_target_replacement_for_near_ref_typo(
+            input_ref,
+            imported_bases=imported_bases,
+            policy_repo_path=policy_repo_path,
+        )
+        if replacement is not None:
+            replacements[input_ref] = replacement
+    if not replacements:
+        return []
+    if not _replace_mapping_keys_recursive(test_payload, replacements):
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return [f"{old}->{new}" for old, new in sorted(replacements.items())]
+
+
+def _import_target_replacement_for_near_ref_typo(
+    input_ref: str,
+    *,
+    imported_bases: list[str],
+    policy_repo_path: Path,
+) -> str | None:
+    if "#input." not in input_ref:
+        return None
+    input_base, fragment = input_ref.split("#", 1)
+    if not fragment.startswith("input."):
+        return None
+
+    input_jurisdiction = _rulespec_ref_jurisdiction(input_base)
+    input_tail = _rulespec_ref_without_jurisdiction(input_base).strip("/")
+    if not input_tail:
+        return None
+
+    candidates: list[tuple[float, str]] = []
+    for imported_base in imported_bases:
+        if input_base == imported_base:
+            continue
+        imported_jurisdiction = _rulespec_ref_jurisdiction(imported_base)
+        if (
+            input_jurisdiction
+            and imported_jurisdiction
+            and input_jurisdiction != imported_jurisdiction
+        ):
+            continue
+        import_file = _import_base_to_repo_file(
+            imported_base,
+            repo_path=policy_repo_path,
+        )
+        if import_file is None or not import_file.exists():
+            continue
+        imported_tail = _rulespec_ref_without_jurisdiction(imported_base).strip("/")
+        if not imported_tail:
+            continue
+        input_parts = Path(input_tail).parts
+        imported_parts = Path(imported_tail).parts
+        if len(input_parts) != len(imported_parts) or not input_parts:
+            continue
+        if input_parts[:-1] != imported_parts[:-1]:
+            continue
+        similarity = difflib.SequenceMatcher(None, input_tail, imported_tail).ratio()
+        if similarity < 0.93:
+            continue
+        if (similarity, imported_base) not in candidates:
+            candidates.append((similarity, imported_base))
+
+    if len(candidates) != 1:
+        return None
+    return f"{candidates[0][1]}#{fragment}"
 
 
 def _try_repair_generated_imported_test_inputs_for_apply(
