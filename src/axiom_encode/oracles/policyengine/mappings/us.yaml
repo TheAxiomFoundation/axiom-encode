@@ -237,6 +237,62 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output is a source-level statutory definition used by Medicaid category rules. PolicyEngine exposes final Medicaid eligibility and category parameters, not this 42 USC 1396d(n) definition as a direct variable.
 
+  - legal_id: us:statutes/42/1397jj/b/1#medicaid_applicable_income_level_additional_percentage_points
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the federal statutory increment used in the targeted low-income child definition. PolicyEngine exposes state effective CHIP income limits and final eligibility, not this federal definition helper as a one-to-one parameter.
+
+  - legal_id: us:statutes/42/1397jj/b/1#targeted_low_income_child
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is a federal source-level targeted-low-income-child definition. PolicyEngine exposes final CHIP child eligibility, not this statutory prerequisite as a standalone oracle variable.
+
+  - legal_id: us:statutes/42/1397jj/c/1#child
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the federal CHIP child definition. PolicyEngine exposes final CHIP eligibility surfaces, not this statutory definition as a one-to-one variable.
+
+  - legal_id: us:statutes/42/1397jj/c/1#child_age_limit
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the age scalar inside the federal CHIP child definition. PolicyEngine does not expose this statutory helper separately from final CHIP child eligibility.
+
+  - legal_id: us:statutes/42/1397jj/c/4#low_income_child
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the federal low-income-child definition used by CHIP. PolicyEngine exposes final CHIP child eligibility and state income tables, not this source-level statutory predicate.
+
+  - legal_id: us:statutes/42/1397jj/c/4#low_income_child_family_income_limit
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the federal poverty-line threshold in the CHIP low-income-child definition. PolicyEngine's CHIP income-limit parameters are state effective limits, not this federal definition helper.
+
+  - legal_id: us:statutes/42/1397jj/c/8#uncovered_child
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: This RuleSpec output is the federal uncovered-child definition. PolicyEngine exposes final CHIP eligibility and insurance-status inputs, not this statutory prerequisite as a standalone oracle variable.
+
   - legal_id: us:statutes/8/1612/b/2/G#paragraph_1_nonapplication_exception_applies
     country: us
     program: medicaid
