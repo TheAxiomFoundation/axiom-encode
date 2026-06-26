@@ -48,6 +48,216 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output is the limited emergency-services payment rule for otherwise eligible state residents who are subject to the five-year bar or are non-qualified noncitizens. PolicyEngine's Medicaid eligibility variable is not a one-to-one oracle for this limited-benefit payment obligation.
 
+  - legal_id: us:regulations/42-cfr/435/121#income_standard_must_use_higher_optional_categorically_needy_standard
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 income-standard coordination rule for SSI-related groups in States using more restrictive requirements. PolicyEngine exposes final Medicaid eligibility and state/effective category thresholds, not this regulatory coordination predicate as a standalone target.
+
+  - legal_id: us:regulations/42-cfr/435/121#spend_down_to_categorically_needy_standard_required_for_specified_beneficiaries_with_medically_needy_program
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level spend-down obligation for specified beneficiaries in States with medically needy programs. PolicyEngine does not expose this 42 CFR 435.121 spend-down branch separately from final Medicaid eligibility.
+
+  - legal_id: us:regulations/42-cfr/435/121#spend_down_to_categorically_needy_standard_required_without_medically_needy_program
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level spend-down obligation for specified beneficiaries in States without medically needy programs. PolicyEngine exposes modeled eligibility outcomes, not this regulatory spend-down branch as a one-to-one variable.
+
+  - legal_id: us:regulations/42-cfr/435/121#spend_down_to_medically_needy_income_standard_required_for_other_individuals
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a 42 CFR 435.121 spend-down rule for other individuals subject to the medically needy income standard. PolicyEngine does not expose this regulatory intermediate separately from Medicaid eligibility.
+
+  - legal_id: us:regulations/42-cfr/435/406#citizenship_documentation_verification_exempt
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a citizenship-documentation verification exemption predicate under 42 CFR 435.406. PolicyEngine's Medicaid oracle surface is final eligibility after citizenship, immigration, category, income, and state gates are composed.
+
+  - legal_id: us:regulations/42-cfr/435/406#qualified_noncitizen_subject_to_five_year_bar_limited_to_emergency_services
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output marks a qualified noncitizen whose Medicaid coverage is limited to emergency services by the five-year bar. PolicyEngine does not expose this limitation predicate as a separate Medicaid oracle target.
+
+  - legal_id: us:statutes/42/1396a/a/10#adult_expansion_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal adult-expansion age ceiling in 42 USC 1396a(a)(10). PolicyEngine models Medicaid through final eligibility and state/effective category parameters, not this statutory scalar as a one-to-one output.
+
+  - legal_id: us:statutes/42/1396a/a/10#adult_expansion_income_limit_poverty_line_rate
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the 42 USC 1396a(a)(10) federal adult-expansion income rate before state/effective MAGI treatment. PolicyEngine stores effective Medicaid category thresholds, so this federal statutory scalar is not directly comparable.
+
+  - legal_id: us:statutes/42/1396a/a/10#former_foster_care_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal former-foster-care age ceiling in 42 USC 1396a(a)(10). PolicyEngine does not expose this statutory scalar separately from final Medicaid eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#former_foster_care_attainment_age_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal former-foster-care attained-age condition in 42 USC 1396a(a)(10). PolicyEngine has no one-to-one oracle parameter for this statutory helper.
+
+  - legal_id: us:statutes/42/1396a/a/10#inpatient_hospital_durational_limit_exception_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is an inpatient-hospital service durational-limit exception age threshold, not a person-level Medicaid eligibility result or exposed PolicyEngine Medicaid parameter.
+
+  - legal_id: us:statutes/42/1396a/a/10#institution_services_alternative_minimum_paragraph_count
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a statutory count threshold used in an institutional-services alternative pathway. PolicyEngine does not expose this 42 USC 1396a(a)(10) drafting scalar as a one-to-one oracle target.
+
+  - legal_id: us:statutes/42/1396a/a/10#medically_needy_child_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a federal medically-needy child age ceiling. PolicyEngine's comparable Medicaid surface is final eligibility and effective state thresholds, not this statutory scalar.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_adult_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is an optional adult-group age ceiling from 42 USC 1396a(a)(10). PolicyEngine does not expose this statutory helper separately from Medicaid eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_adult_income_lower_bound_poverty_line_rate
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a federal optional adult income lower-bound rate, while PolicyEngine represents Medicaid through effective category thresholds and final eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_medical_institution_minimum_consecutive_days
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a consecutive-day threshold for an optional medical-institution pathway. PolicyEngine does not expose this statutory helper as a standalone Medicaid oracle variable.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_ssi_excess_earnings_family_income_limit_poverty_line_rate
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a federal optional SSI excess-earnings family-income threshold. PolicyEngine does not expose this 42 USC 1396a(a)(10) scalar as a one-to-one Medicaid oracle parameter.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_working_disabled_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the upper age threshold for an optional working-disabled pathway. PolicyEngine does not expose that statutory helper separately from final Medicaid eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_working_disabled_minimum_age_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the lower age threshold for an optional working-disabled pathway. PolicyEngine does not expose that statutory helper separately from final Medicaid eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#qualifying_individual_income_lower_bound_poverty_line_rate
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal lower income bound for qualifying individuals under 42 USC 1396a(a)(10). PolicyEngine does not expose this Medicare Savings Program-adjacent statutory scalar as a direct Medicaid oracle target.
+
+  - legal_id: us:statutes/42/1396a/a/10#qualifying_individual_income_upper_bound_poverty_line_rate
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal upper income bound for qualifying individuals under 42 USC 1396a(a)(10). PolicyEngine does not expose this statutory scalar separately from modeled eligibility.
+
+  - legal_id: us:statutes/42/1396a/a/10#specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate_1993_1994
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a historical specified-low-income Medicare beneficiary income-limit rate for 1993-1994. PolicyEngine does not expose this time-specific statutory scalar as a direct Medicaid oracle target.
+
+  - legal_id: us:statutes/42/1396a/a/10#specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate_after_1994
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the post-1994 specified-low-income Medicare beneficiary income-limit rate. PolicyEngine does not expose this statutory scalar separately from modeled eligibility or Medicare Savings Program surfaces.
+
+  - legal_id: us:statutes/42/1396d/n#child_age_attainment_threshold
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the child age-attainment threshold in the qualified pregnant woman or child definition. PolicyEngine does not expose this definitional scalar as a standalone Medicaid oracle target.
+
+  - legal_id: us:statutes/42/1396d/n#qualified_pregnant_woman_or_child
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level statutory definition used by Medicaid category rules. PolicyEngine exposes final Medicaid eligibility and category parameters, not this 42 USC 1396d(n) definition as a direct variable.
+
+  - legal_id: us:statutes/8/1612/b/2/G#paragraph_1_nonapplication_exception_applies
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is an immigration-law exception predicate used to determine whether a federal-benefit restriction applies. PolicyEngine does not expose this 8 USC 1612 Medicaid-related helper as a one-to-one oracle variable.
+
+  - legal_id: us:statutes/8/1613#assistance_or_benefit_excluded_from_subsection_a_limitation
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is an exclusion predicate from the five-year federal-benefit limitation. PolicyEngine does not expose it separately from final Medicaid immigration eligibility treatment.
+
+  - legal_id: us:statutes/8/1613#subsection_a_ineligibility_period_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the five-year ineligibility period scalar in 8 USC 1613. PolicyEngine does not expose this immigration-law scalar as a direct Medicaid oracle parameter.
+
+  - legal_id: us:statutes/8/1641/b#minimum_parole_period_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a qualified-alien parole-duration scalar under 8 USC 1641(b). PolicyEngine does not expose it as a standalone Medicaid oracle parameter.
+
+  - legal_id: us:statutes/8/1641/b#qualified_alien
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is an immigration-law qualified-alien classification predicate used by Medicaid citizenship and noncitizen eligibility gates. PolicyEngine exposes final Medicaid eligibility, not this definition as a one-to-one target.
+
   - legal_id: us:statutes/7/2014/c#snap_gross_income_excess_rate_over_poverty_line
     country: us
     program: snap
