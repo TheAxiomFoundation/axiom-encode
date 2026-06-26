@@ -2849,6 +2849,209 @@ rules:
     assert "community-engagement" in str(disenrollment_output["rationale"])
 
 
+def test_policyengine_coverage_classifies_medicaid_building_block_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/121.yaml",
+        """format: rulespec/v1
+rules:
+  - name: income_standard_must_use_higher_optional_categorically_needy_standard
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: spend_down_to_categorically_needy_standard_required_for_specified_beneficiaries_with_medically_needy_program
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: spend_down_to_categorically_needy_standard_required_without_medically_needy_program
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: spend_down_to_medically_needy_income_standard_required_for_other_individuals
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/406.yaml",
+        """format: rulespec/v1
+rules:
+  - name: citizenship_documentation_verification_exempt
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: qualified_noncitizen_subject_to_five_year_bar_limited_to_emergency_services
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1396a/a/10.yaml",
+        """format: rulespec/v1
+rules:
+  - name: adult_expansion_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 65
+  - name: adult_expansion_income_limit_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.33
+  - name: former_foster_care_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 26
+  - name: former_foster_care_attainment_age_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 18
+  - name: inpatient_hospital_durational_limit_exception_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 21
+  - name: institution_services_alternative_minimum_paragraph_count
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 3
+  - name: medically_needy_child_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 18
+  - name: optional_adult_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 65
+  - name: optional_adult_income_lower_bound_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.33
+  - name: optional_medical_institution_minimum_consecutive_days
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 30
+  - name: optional_ssi_excess_earnings_family_income_limit_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 2.5
+  - name: optional_working_disabled_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 65
+  - name: optional_working_disabled_minimum_age_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 16
+  - name: qualifying_individual_income_lower_bound_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.2
+  - name: qualifying_individual_income_upper_bound_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.35
+  - name: specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate_1993_1994
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.1
+  - name: specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate_after_1994
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1.2
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1396d/n.yaml",
+        """format: rulespec/v1
+rules:
+  - name: child_age_attainment_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 19
+  - name: qualified_pregnant_woman_or_child
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/8/1612/b/2/G.yaml",
+        """format: rulespec/v1
+rules:
+  - name: paragraph_1_nonapplication_exception_applies
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/8/1613.yaml",
+        """format: rulespec/v1
+rules:
+  - name: assistance_or_benefit_excluded_from_subsection_a_limitation
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: subsection_a_ineligibility_period_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 5
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/8/1641/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: minimum_parole_period_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1
+  - name: qualified_alien
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="medicaid")
+
+    assert report["total_outputs"] == 30
+    assert report["status_counts"] == {"known_not_comparable": 30}
+    assert report["untested_comparable"] == 0
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
+
+
 def test_policyengine_coverage_classifies_medicaid_magi_prefixes(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "regulations/42-cfr/435/110.yaml",
