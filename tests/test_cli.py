@@ -80,6 +80,7 @@ from axiom_encode.cli import (
     _repair_generated_import_symbol_near_misses,
     _repair_generated_restatement_source_relation_for_apply,
     _repair_generated_unused_imports_for_apply,
+    _repair_half_unit_add_person_formulas,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
@@ -91,6 +92,7 @@ from axiom_encode.cli import (
     _repair_new_york_snap_categorical_eligibility_rules,
     _repair_new_york_snap_categorical_eligibility_tests,
     _repair_person_scoped_definition_entities,
+    _repair_predecessor_scalar_limits,
     _repair_scalar_relation_rows,
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
@@ -7894,6 +7896,197 @@ rules:
         assert payload["rules"][1]["versions"][0]["values"] == {0: 0.05, 1: 0.10}
         tests = yaml.safe_load(test_file.read_text())
         assert tests[0]["output"]["us:policies/example#income_band"] == 0
+
+    def test_repair_float_keyed_indexed_parameter_values_without_selector(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "fl_tca.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: maximum_listed_filing_unit_size
+  kind: parameter
+  dtype: Decimal
+  source: Florida TCA standards table
+  versions:
+  - effective_from: '1996-07-01'
+    formula: '2'
+- name: tca_payment_standard_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Month
+  indexed_by: filing_unit_size
+  source: Florida TCA standards table
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us-fl/manual/example/page-1
+          table:
+            header: Filing Unit Size Payment Standard
+            row_key: Filing Unit Size
+            column_key: Payment Standard
+  versions:
+  - effective_from: '1996-07-01'
+    values:
+      0.5: 90
+      1: 180
+      1.5: 211
+      2: 241
+- name: temporary_cash_assistance_payment_standard
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  unit: USD
+  period: Month
+  versions:
+  - effective_from: '1996-07-01'
+    formula: 'if filing_unit_size <= maximum_listed_filing_unit_size: tca_payment_standard_table[filing_unit_size] else: tca_payment_standard_table[maximum_listed_filing_unit_size]'
+"""
+        )
+
+        repaired = _repair_float_keyed_indexed_parameter_values(rules_file)
+
+        assert repaired == [
+            "tca_payment_standard_table",
+            "filing_unit_size_band",
+        ]
+        serialized = rules_file.read_text()
+        assert "&id" not in serialized
+        assert "*id" not in serialized
+        payload = yaml.safe_load(serialized)
+        selector = payload["rules"][1]
+        assert selector["name"] == "filing_unit_size_band"
+        assert selector["kind"] == "derived"
+        assert selector["entity"] == "TanfUnit"
+        assert selector["dtype"] == "Integer"
+        assert selector["period"] == "Month"
+        assert selector["versions"][0]["formula"] == "floor(filing_unit_size * 2) - 1"
+        table = payload["rules"][2]
+        assert table["indexed_by"] == "filing_unit_size_band"
+        assert table["versions"][0]["values"] == {
+            0: 90,
+            1: 180,
+            2: 211,
+            3: 241,
+        }
+        output = payload["rules"][3]
+        assert output["versions"][0]["formula"] == (
+            "if filing_unit_size <= maximum_listed_filing_unit_size: "
+            "tca_payment_standard_table[filing_unit_size_band] else: "
+            "tca_payment_standard_table[3]"
+        )
+
+    def test_repair_half_unit_add_person_formulas(self, tmp_path):
+        rules_file = tmp_path / "fl_tca.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: monthly_185_percent_fpl
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  unit: USD
+  period: Month
+  versions:
+  - effective_from: '2025-04-01'
+    formula: 'if filing_unit_size_half_units <= maximum_listed_filing_unit_half_units: monthly_185_percent_fpl_table[filing_unit_size_half_units] else: monthly_185_percent_fpl_table[maximum_listed_filing_unit_half_units - 1] + ((filing_unit_size_half_units - (maximum_listed_filing_unit_half_units - 1)) * fpl_185_percent_additional_half_unit_amount)'
+- name: monthly_tier_i_payment_standard
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  unit: USD
+  period: Month
+  versions:
+  - effective_from: '1996-07-01'
+    formula: 'if filing_unit_size_half_units <= maximum_listed_filing_unit_half_units: monthly_tier_i_payment_standard_table[filing_unit_size_half_units] else: monthly_tier_i_payment_standard_table[maximum_listed_filing_unit_half_units] + ((filing_unit_size_half_units - maximum_listed_filing_unit_half_units) * tier_i_payment_standard_additional_half_unit_amount)'
+"""
+        )
+
+        repaired = _repair_half_unit_add_person_formulas(rules_file)
+
+        assert repaired == ["monthly_185_percent_fpl"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "if filing_unit_size_half_units <= maximum_listed_filing_unit_half_units: "
+            "monthly_185_percent_fpl_table[filing_unit_size_half_units] else: "
+            "monthly_185_percent_fpl_table[maximum_listed_filing_unit_half_units - 1] "
+            "+ (((filing_unit_size_half_units - "
+            "(maximum_listed_filing_unit_half_units - 1)) / 2) * "
+            "fpl_185_percent_additional_half_unit_amount)"
+        )
+        assert (
+            payload["rules"][1]["versions"][0]["formula"]
+            == "if filing_unit_size_half_units <= maximum_listed_filing_unit_half_units: "
+            "monthly_tier_i_payment_standard_table[filing_unit_size_half_units] else: "
+            "monthly_tier_i_payment_standard_table[maximum_listed_filing_unit_half_units] "
+            "+ ((filing_unit_size_half_units - maximum_listed_filing_unit_half_units) * "
+            "tier_i_payment_standard_additional_half_unit_amount)"
+        )
+
+    def test_repair_predecessor_scalar_limits(self, tmp_path):
+        rules_file = tmp_path / "fl_tca.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: maximum_listed_filing_unit_half_units
+  kind: parameter
+  dtype: Count
+  versions:
+  - effective_from: '1996-07-01'
+    formula: '48'
+- name: monthly_185_percent_fpl_income_standard_scalar_limit
+  kind: parameter
+  dtype: Count
+  versions:
+  - effective_from: '2025-04-01'
+    formula: '47'
+- name: unrelated_scalar_limit
+  kind: parameter
+  dtype: Count
+  versions:
+  - effective_from: '2025-04-01'
+    formula: '47'
+- name: monthly_185_percent_fpl_income_standard
+  kind: derived
+  entity: TanfUnit
+  dtype: Money
+  unit: USD
+  period: Month
+  versions:
+  - effective_from: '2025-04-01'
+    formula: monthly_185_percent_fpl_table[monthly_185_percent_fpl_income_standard_scalar_limit]
+"""
+        )
+
+        repaired = _repair_predecessor_scalar_limits(
+            rules_file,
+            ungrounded_literals={47},
+            target_anchor="us-fl:policies/dcf/ess-program-policy-manual/appendix-a-5",
+        )
+
+        assert repaired == ["monthly_185_percent_fpl_income_standard_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        scalar = payload["rules"][1]
+        assert scalar["versions"][0]["formula"] == (
+            "maximum_listed_filing_unit_half_units - 1"
+        )
+        assert scalar["metadata"]["proof"]["atoms"][-1]["import"] == {
+            "target": (
+                "us-fl:policies/dcf/ess-program-policy-manual/appendix-a-5"
+                "#maximum_listed_filing_unit_half_units"
+            ),
+            "output": "maximum_listed_filing_unit_half_units",
+            "hash": "sha256:local",
+        }
+        assert payload["rules"][2]["versions"][0]["formula"] == "47"
+        assert (
+            payload["rules"][3]["versions"][0]["formula"]
+            == "monthly_185_percent_fpl_table[monthly_185_percent_fpl_income_standard_scalar_limit]"
+        )
 
     def test_repair_bare_indexed_parameter_references(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"
