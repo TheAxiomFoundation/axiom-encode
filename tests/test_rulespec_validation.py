@@ -6496,6 +6496,15 @@ def test_numeric_occurrence_extraction_ignores_bare_dotted_regulatory_reference(
     assert extract_numeric_occurrences_from_text(text) == [pytest.approx(0.0831)]
 
 
+def test_numeric_occurrence_extraction_ignores_section_symbol_reference():
+    text = (
+        "Except as allowed under § 435.121, the agency must provide Medicaid. "
+        "The matching threshold is 8.31%."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [pytest.approx(0.0831)]
+
+
 def test_numeric_occurrence_extraction_ignores_form_and_line_identifiers():
     text = (
         "Show the shortage on Line 13 of Form FNS-250. Attach Form G-845 "
