@@ -2841,6 +2841,32 @@ rules:
     assert "Indexed interval-bound helper" in str(lower_bound["rationale"])
 
 
+def test_policyengine_coverage_classifies_aca_ptc_family_size_not_comparable(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/36B.yaml",
+        """format: rulespec/v1
+rules:
+  - name: family_size
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_section_151_deduction_count
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="aca_ptc")
+
+    assert report["total_outputs"] == 1
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/36B#family_size"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "tax_unit_size"
+    assert "section 151 deduction" in str(item["rationale"])
+
+
 def test_policyengine_coverage_classifies_alabama_snap_manual_prefix(tmp_path):
     _write_rulespec_file(
         tmp_path

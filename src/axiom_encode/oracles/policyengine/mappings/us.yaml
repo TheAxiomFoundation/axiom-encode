@@ -5104,6 +5104,14 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine applies the ACA PTC income range through gov.aca.ptc_income_eligibility inside is_aca_ptc_eligible, which also includes filing status, immigration, coverage, and premium-payment conditions. This RuleSpec output is only the section 36B(c)(1) income-percentage predicate.
 
+  - legal_id: us:statutes/26/36B#family_size
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: tax_unit_size
+    candidate_priority: P4
+    rationale: Section 36B(d)(1) family size counts individuals for whom the taxpayer is allowed a section 151 deduction. PolicyEngine exposes tax_unit_size as an adjacent tax-unit membership count, but not this section-specific deduction-family-size helper as a one-to-one oracle target.
+
   - legal_id: us:statutes/26/36B/c/1/A#applicable_taxpayer_lower_poverty_line_percentage
     country: us
     program: aca_ptc
