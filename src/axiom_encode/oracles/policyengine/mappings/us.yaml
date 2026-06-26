@@ -17672,6 +17672,14 @@ prefixes:
     candidate_priority: P4
     rationale: Colorado Works basic-cash-assistance composition outputs are Axiom assembly points across encoded 9 CCR 2503-6 Section 3.606.1 and 3.606.2 provisions. PolicyEngine-US does not expose this exact composed monthly TANF legal slice one-to-one; direct oracle comparison should wait for an adapter that targets the same Colorado Works source boundaries and updated grant parameters.
 
+  - legal_id_prefix: us-wy:policies/dfs/snap-power-policy-manual/1101-power-payment-tests-computations#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wy_power
+    candidate_priority: P4
+    rationale: Wyoming POWER payment-test outputs decompose DFS manual section 1101 earned-income disregards, deeming, maximum-benefit-level testing, performance-payment calculation, and child-support termination predicates. PolicyEngine-US exposes wy_power as a final benefit surface built from its own TANF graph and parameter table, not these source-specific POWER legal helper boundaries one-to-one.
+
   - legal_id_prefix: us-co:policies/cdhs/snap/
     country: us
     program: snap
