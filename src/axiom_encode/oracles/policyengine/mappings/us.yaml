@@ -2859,6 +2859,59 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's WAC 388-478-0035 output is only the strict gross-earned-income-below-limit requirement. PolicyEngine's adjacent wa_tanf_income_eligible combines that gross-income test with countable-income eligibility and, in the local PE implementation reviewed, treats income equal to the limit as eligible.
 
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#tanf_unit_payment_standard_size_band
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.tanf.payment_standard.amount
+    candidate_priority: P4
+    rationale: Axiom exposes the generated assistance-unit-size band used by WAC 388-450-0162 to select the WAC 388-478-0020 payment-standard table row. PolicyEngine compares the final payment-standard value, not this selector helper.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#cash_assistance_unit_payment_standard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.payment_standard.amount
+    parameter_key_path:
+      - input: assistance_unit_size
+        max: 10
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-478-0020 monthly payment-standard table as used by WAC 388-450-0162's cash-assistance countable-income comparison, keyed by assistance-unit size and capped at the 10-or-more row.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#cash_assistance_dependent_care_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf_countable_income
+    candidate_priority: P4
+    rationale: Axiom exposes WAC 388-450-0162's dependent-care deduction as a standalone cash-assistance legal deduction. PolicyEngine's adjacent wa_tanf_countable_income does not expose this deduction boundary separately.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#cash_assistance_countable_income
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf_countable_income
+    candidate_priority: P4
+    rationale: Axiom's WAC 388-450-0162 output subtracts cash-assistance deductions, deemed or allocated income, and allocations outside the assistance unit after importing WAC 388-450-0170 earned-income deductions. PolicyEngine's adjacent wa_tanf_countable_income currently adds WA countable earned income and TANF gross unearned income only, so this is not a one-to-one oracle target.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#cash_assistance_income_requirement_satisfied
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes only WAC 388-450-0162's countable-income-below-payment-standard requirement. PolicyEngine's wa_tanf_income_eligible combines that requirement with the WAC 388-478-0035 gross-earned-income test and PE-specific helper inputs.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0162#cash_assistance_monthly_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf
+    candidate_priority: P4
+    rationale: Axiom's WAC 388-450-0162 output is the source-local benefit level equal to payment standard minus countable income. PolicyEngine's wa_tanf is the final monthly SPM-unit TANF variable gated by broader PE eligibility, resources, immigration, and countable-income surfaces, so compare the legal components separately until Axiom has an equivalent final Washington TANF adapter.
+
   - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age#jobs_program_participation_age_exemption_applies
     country: us
     program: tanf

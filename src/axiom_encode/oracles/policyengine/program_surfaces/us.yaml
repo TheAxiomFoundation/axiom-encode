@@ -307,10 +307,13 @@ surfaces:
   variable: wa_tanf
   source_type: state_implementation
   state: WA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Washington TANF payment-standard, gross-earned-income-limit,
+    earned-income-deduction, countable-income comparison, and benefit-level legal slices. Those outputs map to
+    PE parameters or adjacent helper/final variables, while PolicyEngine's wa_tanf is a final SPM-unit benefit
+    gated by PE's broader eligibility, resources, immigration, and countable-income graph; do not treat it as a
+    direct one-to-one oracle target until Axiom has an equivalent final Washington TANF adapter.
 - country: us
   program_id: tanf
   program_name: Arizona TANF
