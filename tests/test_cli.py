@@ -25992,6 +25992,12 @@ rules:
         target.write_text(
             """format: rulespec/v1
 rules:
+  - name: qualifying_child_marker
+    kind: derived
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, qualifying_child_count)
   - name: eitc_phase_in_rates
     kind: parameter
     dtype: Rate
@@ -26487,6 +26493,183 @@ rules:
             "statutes/42/1382c/a/1.yaml",
             "statutes/42/1382c/a/1.test.yaml",
         ]
+
+    def test_repair_oracle_parameter_tests_refreshes_existing_input_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us/statutes/42/601.yaml"
+        test_file = policy_repo / "us/statutes/42/601.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: tanf_thirty_dollar_earned_income_disregard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '30'
+  - name: earned_income_disregards
+    kind: derived
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, incapacitated_adult_care_expenses)
+"""
+        )
+        test_file.write_text(
+            """- name: oracle_parameter_tanf_thirty_dollar_earned_income_disregard
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/601#input.incapacitated_adult_care_expenses: false
+  output:
+    us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard: 30
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us/statutes/42/601.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if (
+                    legal_id
+                    == "us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert payload[0]["input"] == {
+            "us:statutes/42/601#input.incapacitated_adult_care_expenses": 0
+        }
+
+    def test_repair_oracle_parameter_tests_refreshes_cases_mapping_inputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us/statutes/42/601.yaml"
+        test_file = policy_repo / "us/statutes/42/601.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: tanf_thirty_dollar_earned_income_disregard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '30'
+  - name: earned_income_disregards
+    kind: derived
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, incapacitated_adult_care_expenses)
+"""
+        )
+        test_file.write_text(
+            """cases:
+  - name: oracle_parameter_tanf_thirty_dollar_earned_income_disregard
+    period:
+      period_kind: tax_year
+      start: '2026-01-01'
+      end: '2026-12-31'
+    input:
+      us:statutes/42/601#input.incapacitated_adult_care_expenses: false
+    output:
+      us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard: 30
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us/statutes/42/601.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if (
+                    legal_id
+                    == "us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert payload["cases"][0]["input"] == {
+            "us:statutes/42/601#input.incapacitated_adult_care_expenses": 0
+        }
 
     def test_repair_oracle_parameter_tests_appends_scalar_parameter_case(
         self, tmp_path
