@@ -2366,6 +2366,26 @@ rules:
         formula: |-
           1 / premium_assistance_annual_income_month_count
 
+  - name: direct_parent_alias_consumer
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: 26 USC 36B(b)(2)(B)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/36B#premium_assistance_annual_income_month_count
+              output: premium_assistance_annual_income_month_count
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income <= premium_assistance_annual_income_month_count
+
   - name: applicable_taxpayer_minimum_household_income_poverty_line_ratio
     kind: parameter
     dtype: Rate
@@ -2403,8 +2423,22 @@ rules:
         ]
         payload = yaml.safe_load(rules_file.read_text())
         assert [rule["name"] for rule in payload["rules"]] == [
-            "applicable_taxpayer_minimum_household_income_poverty_line_ratio"
+            "direct_parent_alias_consumer",
+            "applicable_taxpayer_minimum_household_income_poverty_line_ratio",
         ]
+        consumer = payload["rules"][0]
+        assert (
+            consumer["versions"][0]["formula"]
+            == "household_income <= required_contribution_monthly_fraction"
+        )
+        assert (
+            consumer["metadata"]["proof"]["atoms"][0]["import"]["target"]
+            == "us:statutes/26/36B/b#required_contribution_monthly_fraction"
+        )
+        assert (
+            consumer["metadata"]["proof"]["atoms"][0]["import"]["output"]
+            == "required_contribution_monthly_fraction"
+        )
         assert payload["module"]["deferred_outputs"][0]["source_values"] == [
             "us:statutes/26/36B/b#required_contribution_monthly_fraction"
         ]

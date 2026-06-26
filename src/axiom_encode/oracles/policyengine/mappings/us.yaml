@@ -761,6 +761,34 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec composes the 42 USC 426(b)(2) disability, child disability, widow(er), railroad-retirement, and government-employment entitlement paths. PolicyEngine's is_medicare_eligible uses a simplified SSDI-months proxy and omits several statutory paths and entitlement-timing conditions, so this is not an exact oracle comparison.
 
+  - legal_id: us:policies/cms/original-medicare-part-a-b#medicare_age_trigger_years
+    country: us
+    program: medicare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicare.eligibility.min_age
+    period: month
+    comparison: count
+    rationale: CMS's Original Medicare guidance uses age 65 as the age-based Medicare eligibility trigger, matching PolicyEngine's Medicare minimum-age parameter.
+
+  - legal_id: us:policies/cms/original-medicare-part-a-b#disability_auto_enrollment_months
+    country: us
+    program: medicare
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicare.eligibility.min_months_receiving_social_security_disability
+    period: month
+    comparison: count
+    rationale: CMS's Original Medicare guidance states disabled individuals are automatically enrolled in Medicare Part A and Part B after receiving Social Security disability benefits for 24 months, matching PolicyEngine's simplified disability-month threshold.
+
+  - legal_id: us:policies/cms/original-medicare-part-a-b#is_medicare_eligible
+    country: us
+    program: medicare
+    mapping_type: direct_variable
+    policyengine_variable: is_medicare_eligible
+    entity: person
+    period: year
+    comparison: boolean
+    rationale: CMS's Original Medicare guidance backs the simplified PolicyEngine Medicare eligibility surface for age-based eligibility at 65 and disability-based automatic Medicare Part A and Part B enrollment after 24 months of Social Security disability benefits.
+
   - legal_id: us:regulations/47-cfr/54/409#lifeline_income_limit_ratio
     country: us
     program: lifeline
@@ -17916,6 +17944,13 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: 42 USC 426 section-level hospital-insurance entitlement outputs not carrying exact parameter mappings are source-level Medicare Part A, railroad-retirement, government-employment, death-month, widow/widower, ALS, and entitlement-timing paths. PolicyEngine-US exposes a simplified Medicare eligibility surface and a small set of parameters, but not these statutory path and timing intermediates one-to-one.
+
+  - legal_id_prefix: us:policies/cms/original-medicare-part-a-b
+    country: us
+    program: medicare
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: CMS Original Medicare Part A and Part B guidance outputs not carrying exact final-eligibility or parameter mappings are source-level enrollment-window and coverage-start helpers. PolicyEngine's Medicare surface exposes the simplified final eligibility variable and age/disability-month parameters, not the CMS enrollment administration helpers one-to-one.
 
   - legal_id_prefix: us:statutes/42/18795
     country: us

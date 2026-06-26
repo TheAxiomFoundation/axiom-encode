@@ -16,6 +16,7 @@ class PolicyEngineUSVarAdapter:
     comparison: str | None = None
     monthly: bool = False
     spm: bool = False
+    derived_person_inputs: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
     monthly_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
@@ -720,10 +721,43 @@ PE_US_ACA_PTC_VAR_ADAPTERS = (
     ),
 )
 
+PE_US_MEDICARE_VAR_ADAPTERS = (
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_medicare_eligible",),
+        pe_var="is_medicare_eligible",
+        entity="person",
+        period="year",
+        comparison="decision",
+        derived_person_inputs=(
+            (
+                "months_receiving_social_security_disability",
+                "max",
+                ("months_received_social_security_disability_benefits",),
+            ),
+            (
+                "social_security_disability",
+                "positive_if_any",
+                ("months_received_social_security_disability_benefits",),
+            ),
+        ),
+        unsupported_truthy_input_keys=(
+            "enrolled_during_initial_enrollment_period",
+            "coverage_month_is_month_after_enrollment",
+            "months_of_disability_benefit_entitlement",
+        ),
+        unsupported_input_reason=(
+            "PolicyEngine's Medicare eligibility oracle does not expose CMS "
+            "enrollment-window coverage timing facts or the separate "
+            "25th-month disability-entitlement boundary"
+        ),
+    ),
+)
+
 PE_US_HEALTH_VAR_ADAPTERS = (
     *PE_US_MEDICAID_VAR_ADAPTERS,
     *PE_US_CHIP_VAR_ADAPTERS,
     *PE_US_ACA_PTC_VAR_ADAPTERS,
+    *PE_US_MEDICARE_VAR_ADAPTERS,
 )
 
 PE_US_SSI_VAR_ADAPTERS = (
@@ -786,6 +820,7 @@ PE_US_PROGRAM_VAR_ADAPTERS = {
     "medicaid": PE_US_MEDICAID_VAR_ADAPTERS,
     "chip": PE_US_CHIP_VAR_ADAPTERS,
     "aca_ptc": PE_US_ACA_PTC_VAR_ADAPTERS,
+    "medicare": PE_US_MEDICARE_VAR_ADAPTERS,
     "health": PE_US_HEALTH_VAR_ADAPTERS,
     "ssi": PE_US_SSI_VAR_ADAPTERS,
 }

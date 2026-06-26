@@ -10864,7 +10864,10 @@ class TestUnexpectedAccessDetection:
 
 
 class TestSourceEval:
-    def test_run_model_eval_passes_skip_reviewers_to_evaluate_artifact(self, tmp_path):
+    def test_run_model_eval_passes_validation_options_to_evaluate_artifact(
+        self,
+        tmp_path,
+    ):
         corpus_path = _write_test_corpus_provision(
             tmp_path,
             citation_path="us/statute/7/2017/a",
@@ -10917,10 +10920,15 @@ class TestSourceEval:
                 corpus_path=corpus_path,
                 mode="cold",
                 include_tests=True,
+                policyengine_rule_hint="source_amount",
                 skip_reviewers=True,
             )
 
         assert mock_evaluate_artifact.call_args.kwargs["skip_reviewers"] is True
+        assert (
+            mock_evaluate_artifact.call_args.kwargs["policyengine_rule_hint"]
+            == "source_amount"
+        )
 
     def test_run_source_eval_uses_explicit_context_without_statute_lookup(
         self, tmp_path
