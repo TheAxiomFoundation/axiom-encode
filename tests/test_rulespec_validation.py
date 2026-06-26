@@ -2582,6 +2582,21 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert head_start_overincome_exception_mapping.mapping_type == "not_comparable"
     assert head_start_overincome_exception_mapping.program == "head_start"
+    chip_definition_mappings = [
+        "us:statutes/42/1397jj/b/1#medicaid_applicable_income_level_additional_percentage_points",
+        "us:statutes/42/1397jj/b/1#targeted_low_income_child",
+        "us:statutes/42/1397jj/c/1#child",
+        "us:statutes/42/1397jj/c/1#child_age_limit",
+        "us:statutes/42/1397jj/c/4#low_income_child",
+        "us:statutes/42/1397jj/c/4#low_income_child_family_income_limit",
+        "us:statutes/42/1397jj/c/8#uncovered_child",
+    ]
+    for legal_id in chip_definition_mappings:
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.program == "chip"
+        assert mapping.candidate_priority == "P4"
+        assert mapping.policyengine_variable == "is_chip_eligible_child"
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",
