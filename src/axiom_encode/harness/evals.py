@@ -3478,10 +3478,24 @@ def _apply_generated_eval_repairs(
 
 def _validation_policy_repo_root(validation_file: Path, policy_repo_root: Path) -> Path:
     """Return the repo root that contains the validation copy."""
-    repo_name = policy_repo_root.name
+    repo_names = {
+        name
+        for name in (
+            policy_repo_root.name,
+            canonical_rulespec_repo_name(policy_repo_root),
+        )
+        if name
+    }
+    jurisdiction = jurisdiction_prefix(policy_repo_root)
     for parent in validation_file.parents:
-        if parent.name == repo_name:
+        if parent.name in repo_names:
+            content_root = jurisdiction_content_dir(parent, jurisdiction)
+            if _is_under_root(validation_file, content_root):
+                return content_root
             return parent
+    discovered = find_policy_repo_root(validation_file)
+    if discovered is not None:
+        return discovered
     return policy_repo_root
 
 
@@ -3602,7 +3616,11 @@ def _rulespec_validation_target(
                 )
             except OSError:
                 shutil.copytree(eval_workspaces_root, eval_overlay)
-        validation_file = overlay_repo / relative
+        validation_content_root = jurisdiction_content_dir(
+            overlay_repo,
+            jurisdiction_prefix(policy_repo_root),
+        )
+        validation_file = validation_content_root / relative
         validation_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(rulespec_file, validation_file)
         companion_test = rulespec_file.with_name(f"{rulespec_file.stem}.test.yaml")

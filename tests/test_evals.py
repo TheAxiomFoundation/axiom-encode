@@ -49,6 +49,7 @@ from axiom_encode.harness.evals import (
     _select_cross_section_context_files,
     _source_identifier_to_relative_rulespec_path,
     _target_source_scope_for_heuristics,
+    _validation_policy_repo_root,
     _wait_for_codex_process,
     evaluate_artifact,
     find_admin_agency_aggregate_entity_issues,
@@ -2021,6 +2022,91 @@ def test_rulespec_validation_overlay_preserves_eval_source_metadata(tmp_path):
 
     assert metadata is not None
     assert metadata["requested_source"] == "us-co/statute/39/39-22-104/1.5"
+
+
+def test_rulespec_validation_overlay_resolves_generated_nested_source_id(
+    tmp_path,
+):
+    policy_repo = tmp_path / "rulespec-us-medicaid-program-composite-20260626"
+    policy_repo.mkdir()
+    subprocess.run(["git", "init"], cwd=policy_repo, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=policy_repo,
+        check=True,
+        capture_output=True,
+    )
+    (policy_repo / "us").mkdir()
+
+    output_file = (
+        tmp_path
+        / "out"
+        / "codex-gpt-5.5"
+        / "regulations"
+        / "42-cfr"
+        / "435"
+        / "120"
+        / "ssi-mandatory-group.yaml"
+    )
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: ssi_mandatory_group
+    kind: derived
+    entity: Person
+    dtype: Boolean
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_aged_blind_or_disabled
+"""
+    )
+    output_file.with_name("ssi-mandatory-group.test.yaml").write_text(
+        """- name: aged_blind_or_disabled_person_is_in_group
+  period:
+    period_kind: month
+    start: '2026-01-01'
+    end: '2026-01-31'
+  input:
+    us:regulations/42-cfr/435/120/ssi-mandatory-group#input.person_is_aged_blind_or_disabled: true
+  output:
+    us:regulations/42-cfr/435/120/ssi-mandatory-group#ssi_mandatory_group: true
+"""
+    )
+
+    with _rulespec_validation_target(output_file, policy_repo) as validation_file:
+        validation_policy_root = _validation_policy_repo_root(
+            validation_file,
+            policy_repo,
+        )
+        target_ref = validator_pipeline._parse_rulespec_target(
+            "us:regulations/42-cfr/435/120/ssi-mandatory-group"
+            "#input.person_is_aged_blind_or_disabled"
+        )
+
+        assert validation_file.parts[-6:] == (
+            "us",
+            "regulations",
+            "42-cfr",
+            "435",
+            "120",
+            "ssi-mandatory-group.yaml",
+        )
+        assert validation_policy_root == validation_file.parents[4]
+        assert target_ref is not None
+        resolved_target = validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            validation_policy_root,
+        )
+        assert resolved_target is not None
+        assert resolved_target.resolve() == validation_file.resolve()
 
 
 def test_materialize_eval_artifact_repairs_source_table_band_scalars(tmp_path):
