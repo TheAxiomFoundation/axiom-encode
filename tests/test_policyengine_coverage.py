@@ -632,14 +632,14 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert wic["policybench_household_weight"] == pytest.approx(0.32)
 
     assert head_start["program_id"] == "head_start"
-    assert head_start["axiom_status"] == "pending_oracle_mapping"
+    assert head_start["axiom_status"] == "known_not_comparable"
     assert head_start["mapping_count"] == 6
     assert head_start["comparable_mapping_count"] == 0
     assert head_start["policybench_output"] == "person_level_head_start_eligibility"
     assert head_start["policybench_household_weight"] == pytest.approx(1.18)
 
     assert early_head_start["program_id"] == "head_start"
-    assert early_head_start["axiom_status"] == "pending_rulespec_encoding"
+    assert early_head_start["axiom_status"] == "known_not_comparable"
     assert early_head_start["mapping_count"] == 1
     assert early_head_start["comparable_mapping_count"] == 0
     assert (
@@ -783,10 +783,14 @@ def test_policyengine_program_surface_marks_head_start_known_not_comparable():
         "us:regulations/45-cfr/1302/12#paragraph_c_participant_eligible"
     ]
     assert items_by_variable["wa_eceap"]["axiom_status"] == "deferred_jurisdiction"
+    assert items_by_variable["wa_eceap"]["lifecycle"] == "inactive"
+    assert items_by_variable["wa_eceap"]["priority"] == "P3"
     assert (
         items_by_variable["wa_birth_to_three_eceap"]["axiom_status"]
         == "deferred_jurisdiction"
     )
+    assert items_by_variable["wa_birth_to_three_eceap"]["lifecycle"] == "inactive"
+    assert items_by_variable["wa_birth_to_three_eceap"]["priority"] == "P3"
 
 
 def test_policyengine_program_surface_marks_calworks_cash_benefit_known_not_comparable():

@@ -1825,6 +1825,7 @@ class TestCmdValidate:
                     "status_counts": {"pending_rulespec_encoding": 1},
                     "priority_counts": {"P1": 1},
                     "pending_surfaces": 1,
+                    "active_pending_surfaces": 1,
                     "items": [
                         {
                             "variable": "wic",
