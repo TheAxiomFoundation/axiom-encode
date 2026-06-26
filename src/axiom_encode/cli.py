@@ -3655,6 +3655,13 @@ def cmd_oracle_coverage(args):
             "PolicyEngine surface priorities: "
             f"{_format_counter(surfaces['priority_counts'])}"
         )
+        policybench = surfaces.get("policybench")
+        if policybench:
+            print(
+                "PolicyBench weights: "
+                f"{policybench.get('weighting')} "
+                f"snapshot={policybench.get('snapshot')}"
+            )
         if surfaces.get("lifecycle_counts"):
             print(
                 "PolicyEngine surface lifecycles: "
@@ -3712,8 +3719,12 @@ def cmd_oracle_coverage(args):
         print(f"Active pending PolicyEngine program surfaces (first {args.limit}):")
         for item in pending_surface_items[: args.limit]:
             state = f" [{item['state']}]" if item.get("state") else ""
+            weight = item.get("policybench_household_weight")
+            weight_prefix = (
+                f"{weight:.2f}% " if isinstance(weight, (int, float)) else ""
+            )
             print(
-                f"  - {item['variable']}{state}: "
+                f"  - {weight_prefix}{item['variable']}{state}: "
                 f"{item['axiom_status']} ({item['program_id']})"
             )
         if len(pending_surface_items) > args.limit:
@@ -3755,9 +3766,15 @@ def cmd_oracle_candidates(args):
             )
             target_suffix = f" -> {target}" if target else ""
             tested = "tested" if item.get("tested") else "untested"
+            weight = item.get("policybench_household_weight")
+            weight_suffix = (
+                f" policybench={weight:.2f}%"
+                if isinstance(weight, (int, float))
+                else ""
+            )
             print(
                 f"  - [{item['priority']}] {item['category']} "
-                f"{item['legal_id']}{target_suffix} ({tested})"
+                f"{item['legal_id']}{target_suffix} ({tested}{weight_suffix})"
             )
             print(f"    {item['recommendation']}")
             if item.get("rationale"):

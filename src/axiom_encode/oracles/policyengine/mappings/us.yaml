@@ -2737,6 +2737,78 @@ mappings:
     comparison: money
     rationale: Same $500 family earnings deduction referenced by WAC 388-478-0035 and used by PolicyEngine's Washington TANF earned-income-disregard parameter.
 
+  - legal_id: us-il:policies/dhs/csmm/15232/block-1#earned_income_deduction_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.il.dhs.tanf.income.disregard.rate
+    period: month
+    unit: /1
+    comparison: numeric
+    rationale: Same three-quarters earned-income deduction rate stated by Illinois DHS PM 08-01-02-c and used by PolicyEngine's Illinois TANF income-disregard parameter.
+
+  - legal_id: us-il:policies/dhs/csmm/15232/block-1#three_quarters_earned_income_deduction_allowed
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf_countable_earned_income_for_grant_calculation
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 08-01-02-c legal predicate for when Illinois allows the three-quarters earned-income deduction. PolicyEngine applies its Illinois TANF disregard inside countable earned income formulas and does not expose this source-specific allowed predicate as a one-to-one output.
+
+  - legal_id: us-il:policies/dhs/csmm/15232/block-1#three_quarters_earned_income_deduction_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf_countable_earned_income_for_grant_calculation
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 08-01-02-c earned-income deduction amount itself. PolicyEngine computes adjacent Illinois TANF countable earned income after applying its disregard parameter, but does not expose the standalone deduction amount at this legal boundary.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#tanf_minimum_cash_payment_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 one-dollar no-issuance threshold as a standalone legal amount. PolicyEngine's adjacent Illinois TANF benefit formula currently does not expose this minimum-payment threshold as a parameter or separate output.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#non_regular_roll_minimum_check_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 one-dollar minimum for non-regular roll checks. PolicyEngine does not model Illinois TANF non-regular roll or Mercury checks as a distinct surface.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#tanf_cash_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf_income_eligible
+    candidate_priority: P4
+    rationale: Axiom applies PM 10-01-02's rule that nonexempt income must be at least one dollar less than the payment level. PolicyEngine's adjacent il_tanf_income_eligible currently allows income equal to the payment level; see PolicyEngine/policyengine-us#8761.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#regular_monthly_tanf_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom applies PM 10-01-02's one-dollar no-issuance rule and rounds regular monthly TANF benefits down to the nearest whole dollar. PolicyEngine's adjacent il_tanf computes payment level minus countable income without those final-payment rules; see PolicyEngine/policyengine-us#8761.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#initial_prorated_entitlement_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 Initial Prorated Entitlement rounding/no-issuance rule. PolicyEngine's adjacent Illinois TANF amount does not model IPE payments as a distinct surface.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#non_regular_roll_check_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 non-regular roll check minimum-payment rule. PolicyEngine does not model Illinois TANF non-regular roll or Mercury checks as a distinct surface.
+
   - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_final_family_size_floor
     country: us
     program: tanf
@@ -3328,16 +3400,16 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_qualified_business_income_deduction_addback_required
-    candidate_priority: P2
-    rationale: This RuleSpec predicate includes the statutory Schedule F exception for section 199A addbacks; PolicyEngine's required predicate only applies the AGI threshold by filing status.
+    candidate_priority: P4
+    rationale: This RuleSpec predicate includes the statutory Schedule F exception for section 199A addbacks; PolicyEngine's required predicate only applies the AGI threshold by filing status. Tracked in PolicyEngine/policyengine-us#8754.
 
   - legal_id: us-co:statutes/39/39-22-104/3/o#section_199a_deduction_addition_to_federal_taxable_income
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_qualified_business_income_deduction_addback
-    candidate_priority: P2
-    rationale: This RuleSpec output applies the statutory Schedule F exception before adding back the section 199A deduction; PolicyEngine's addback amount does not model that exception.
+    candidate_priority: P4
+    rationale: This RuleSpec output applies the statutory Schedule F exception before adding back the section 199A deduction; PolicyEngine's addback amount does not model that exception. Tracked in PolicyEngine/policyengine-us#8754.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p#federal_adjusted_gross_income_threshold_for_itemized_deduction_addition
     country: us
@@ -3376,7 +3448,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_federal_deduction_addback_required
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec predicate is limited to the subsection (3)(p) itemized-deduction rule and is displaced by subsection (3)(p.5); PolicyEngine exposes a unified federal-deduction addback predicate across both statutory windows.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/5#federal_adjusted_gross_income_threshold
@@ -3416,7 +3488,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_federal_deduction_addback_required
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec predicate includes the statutory healthy-school-meals repeal exception and source-window boundary; PolicyEngine exposes a unified federal-deduction addback predicate without that repeal condition.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income
@@ -3424,7 +3496,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_federal_deduction_addback
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec output is the subsection (3)(p.5) initial-window amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_federal_adjusted_gross_income_threshold
@@ -3442,16 +3514,16 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
-    candidate_priority: P2
-    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) single-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $12,000 single-filer schedule, so this is an adjacent PE target but not a valid parameter comparison.
+    candidate_priority: P4
+    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) single-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $12,000 single-filer schedule, so this is an adjacent PE target but not a valid parameter comparison. Tracked in PolicyEngine/policyengine-us#8755.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_joint_return_deduction_threshold
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
-    candidate_priority: P2
-    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) joint-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $16,000 joint-filer schedule, so this is an adjacent PE target but not a valid parameter comparison.
+    candidate_priority: P4
+    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) joint-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $16,000 joint-filer schedule, so this is an adjacent PE target but not a valid parameter comparison. Tracked in PolicyEngine/policyengine-us#8755.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_return_deduction_threshold
     country: us
@@ -3466,7 +3538,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_federal_deduction_addback_required
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec predicate includes the subsection (3)(p.7) ongoing source-window boundary and healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback predicate without that repeal condition.
 
   - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_to_federal_taxable_income
@@ -3474,7 +3546,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_federal_deduction_addback
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec output is the subsection (3)(p.7) ongoing amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
 
   - legal_id: us-co:statutes/39/39-22-104/4/a#united_states_possessions_obligations_interest_income_subtraction
@@ -3503,7 +3575,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_charitable_contribution_subtraction
-    candidate_priority: P3
+    candidate_priority: P4
     rationale: This RuleSpec output is person-level and includes the 2015-2019 hunger-relief food-contribution credit disallowance; PolicyEngine exposes a tax-unit aggregate charitable contribution subtraction without that credit exception.
 
   - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four
@@ -3530,14 +3602,14 @@ mappings:
     country: us
     program: tax
     mapping_type: not_comparable
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: PolicyEngine-US does not currently expose or implement the 2025 individual-filer AGI threshold for the age 55-64 Social Security cap increase; tracked in PolicyEngine/policyengine-us#8541.
 
   - legal_id: us-co:statutes/39/39-22-104/4/f#joint_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase
     country: us
     program: tax
     mapping_type: not_comparable
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: PolicyEngine-US does not currently expose or implement the 2025 joint-filer AGI threshold for the age 55-64 Social Security cap increase; tracked in PolicyEngine/policyengine-us#8541.
 
   - legal_id: us-co:statutes/39/39-22-104/4/f#individual_qualifies_for_pension_annuity_subtraction
@@ -3545,7 +3617,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_pension_subtraction_indv_eligible
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec predicate captures the statutory age-or-death-benefit qualification; PE's similarly named eligibility variable only limits the claim to the tax-unit head or spouse and leaves age and survivor logic inside amount formulas.
 
   - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_applicable_cap
@@ -3553,7 +3625,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_pension_subtraction_indv
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output is the person-level statutory cap after Social Security cap-increase rules; PE computes separate Social Security and pension components and does not expose this combined cap boundary.
 
   - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction
@@ -3561,7 +3633,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_pension_subtraction
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output is the person-level subsection (4)(f) subtraction including pension and Social Security benefit treatment; PE exposes a tax-unit aggregate split across pension and Social Security component variables and is missing the 2025 age 55-64 AGI-limited Social Security cap increase tracked in PolicyEngine/policyengine-us#8541.
 
   - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase
@@ -3634,7 +3706,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_tentative_minimum_tax
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output is the person-level statutory AMT amount before the regular-tax offset and before nonresident apportionment; PolicyEngine exposes a tax-unit tentative minimum tax derived from its Colorado AMTI aggregate.
 
   - legal_id: us-co:statutes/39/39-22-119.5#low_income_adjusted_gross_income_limit
@@ -3889,7 +3961,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_ctc
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output is a statutory per-child amount selected from resident single/joint AGI bands; PolicyEngine exposes final tax-unit co_ctc after eligible-child counting, filing-status mapping, and inflation-adjusted bracket-scale lookup.
 
   - legal_id: us-co:statutes/39/39-22-123.5#credit_percentage_after_revenue_adjustment
@@ -3897,7 +3969,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_parameter: gov.states.co.tax.income.credits.eitc.match
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output computes Colorado's EITC percentage from the statutory base rate plus temporary and revenue-growth adjustments using the estimated adjustment factor; PolicyEngine stores a final date-varying match parameter and does not expose the adjustment-factor calculation boundary.
 
   - legal_id: us-co:statutes/39/39-22-123.5#regular_federal_return_eitc_branch_before_part_year_apportionment
@@ -3905,7 +3977,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_eitc
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: This RuleSpec output is the person-level regular federal-return branch before part-year apportionment; PolicyEngine exposes a final tax-unit Colorado EITC amount computed from federal eitc and a date-varying match parameter, not this branch-specific statutory boundary.
 
   - legal_id: us-co:statutes/39/39-22-123.5#missing_valid_ssn_eitc_branch_before_part_year_apportionment
@@ -3913,8 +3985,8 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_eitc
-    candidate_priority: P2
-    rationale: This RuleSpec output is the Colorado branch for credits that would have been allowed but for missing valid employment Social Security numbers; PolicyEngine's co_eitc uses federal eitc and does not expose this alternate state statutory branch.
+    candidate_priority: P4
+    rationale: This RuleSpec output is the Colorado branch for credits that would have been allowed but for missing valid employment Social Security numbers; PolicyEngine's co_eitc uses federal eitc and does not expose this alternate state statutory branch. Tracked in PolicyEngine/policyengine-us#8758.
 
   - legal_id_prefix: us-ny:regulations/18-nycrr/387/14/a/1#
     country: us
@@ -4124,16 +4196,16 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: taxable_self_employment_income
-    candidate_priority: P2
-    rationale: Section 1402(b) self-employment income is adjacent to PE taxable_self_employment_income, but this RuleSpec output is a tax-unit statutory boundary with nonresident-alien exclusions and imported section 1402(a) source components. Use a section-specific adapter before treating it as an exact PE oracle target.
+    candidate_priority: P4
+    rationale: Section 1402(b) self-employment income is adjacent to PE taxable_self_employment_income, but this RuleSpec output applies nonresident-alien, section 233 agreement, and territory-resident branches that PolicyEngine does not currently expose. Tracked in PolicyEngine/policyengine-us#8759.
 
   - legal_id: us:statutes/26/1402/b#self_employment_income_for_section_1401_a
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_variable: social_security_taxable_self_employment_income
-    candidate_priority: P2
-    rationale: Section 1402(b)(1) wage-base-limited self-employment income is adjacent to PE social_security_taxable_self_employment_income, but the generated RuleSpec tests can supply source-specific wage-base inputs and nonresident-alien exclusions that PE does not expose as direct scenario inputs. Compare through an explicit SECA adapter.
+    candidate_priority: P4
+    rationale: Section 1402(b)(1) wage-base-limited self-employment income is adjacent to PE social_security_taxable_self_employment_income, but the generated RuleSpec tests can supply source-specific wage-base inputs and nonresident-alien, section 233 agreement, and territory-resident branches that PE does not expose as direct scenario inputs. Tracked in PolicyEngine/policyengine-us#8759.
 
   - legal_id: us:statutes/26/1402/b#self_employment_income_excluded_for_taxpayer
     country: us
@@ -7680,6 +7752,14 @@ mappings:
     comparison: money
     rationale: Same CTC phaseout income increment.
 
+  - legal_id: us:statutes/26/24#ctc_qualifying_child
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: ctc_qualifying_child
+    candidate_priority: P4
+    rationale: RuleSpec exposes the section 24(c) qualifying-child predicate before the separate identification-number reduction is applied to the child count, while PolicyEngine folds identification requirements into its person-level ctc_qualifying_child variable. Compare ctc_qualifying_children_count to PolicyEngine ctc_qualifying_children instead.
+
   - legal_id: us:statutes/26/24#ctc_qualifying_children_count
     country: us
     program: tax
@@ -8808,6 +8888,7 @@ mappings:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: is_eligible_for_american_opportunity_credit
+    candidate_priority: P4
     rationale: Axiom derives the person-level AOTC claim predicate from section 25A facts; PolicyEngine treats the equivalent eligibility as an input.
 
   - legal_id: us:statutes/26/25A#aotc_student_first_band_expenses
@@ -14549,6 +14630,7 @@ mappings:
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: "Source-specific intermediate output (rule `medical_expense_deduction`, grounded against `106 CMR 364.400 medical expense deduction table`). Not present in the PolicyEngine Populace adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
   - legal_id: us-ma:regulations/106-cmr/364/400/block-1#earned_income_deduction_allowed_for_overissuance
@@ -16019,6 +16101,7 @@ mappings:
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: "Source-specific intermediate output (rule `household_size`, grounded against `Tables I-VII row key`). Not present in the PolicyEngine Populace adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_gross_income_standard
@@ -16055,6 +16138,7 @@ mappings:
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: "Historical Tennessee regulation table value from 1240-01-04-.27 block 1. It shares the generic rule name `snap_standard_deduction`, but the encoded table is not the current FY PolicyEngine SNAP standard deduction parameter and should not be treated as a direct oracle comparable."
 
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_max_shelter_deduction_non_elderly_disabled
@@ -16067,6 +16151,7 @@ mappings:
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: "Historical Tennessee regulation table value from 1240-01-04-.27 block 1. It shares the generic rule name `snap_standard_utility_allowance`, but the encoded table is not the current FY PolicyEngine SNAP utility allowance parameter and should not be treated as a direct oracle comparable."
 
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_basic_utility_allowance
@@ -16559,6 +16644,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.residential_clean_energy.fuel_cell_cap_per_kw
     rationale: Section 25D(b)(1) states the fuel-cell cap per half kilowatt, while PolicyEngine stores the related amount per kilowatt; compare this after adding transformed parameter comparisons for this surface.
 
@@ -16566,12 +16652,14 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25D(e) joint-occupancy fuel-cell expenditure limit as a separate parameter or variable.
 
   - legal_id: us:statutes/26/25D#residential_clean_energy_credit_applicable_percentage_property_placed_after_2016_and_before_2020
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
     rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule.
 
@@ -16579,6 +16667,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
     rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule.
 
@@ -16586,6 +16675,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
     rationale: RuleSpec exposes the statutory placed-in-service percentage branch separately, while PolicyEngine exposes a period-selected percentage schedule that is stale after Pub. L. 119-21; see PolicyEngine/policyengine-us#8694.
 
@@ -16593,6 +16683,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.residential_clean_energy.applicable_percentage
     rationale: PolicyEngine's applicable percentage schedule still includes the pre-Pub. L. 119-21 2033/2034 phase-down and has not yet been updated for the current-law post-2025 termination; see PolicyEngine/policyengine-us#8694.
 
@@ -16600,6 +16691,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: residential_clean_energy_credit_potential
     rationale: PolicyEngine exposes the potential credit, but its applicable percentage schedule is stale after Pub. L. 119-21 and differs for post-2025 positive-expenditure cases; see PolicyEngine/policyengine-us#8694.
 
@@ -16607,6 +16699,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: residential_clean_energy_credit_credit_limit
     rationale: Same broad section 25D(c) current-year limitation concept, but RuleSpec exposes the section 26(a) limit and other-credit subtraction as legal boundary inputs while PolicyEngine computes them from its full tax stack.
 
@@ -16614,6 +16707,7 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: residential_clean_energy_credit
     rationale: Same final residential clean energy credit surface, but PolicyEngine is stale after Pub. L. 119-21 and still allows post-2025 credits; see PolicyEngine/policyengine-us#8694.
 
@@ -16621,18 +16715,21 @@ mappings:
     country: us
     program: residential_clean_energy_credit
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25D(c) carryforward amount as a separate variable.
 
   - legal_id: us:statutes/26/25C#energy_efficient_home_improvement_credit_rate
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: RuleSpec exposes the unified section 25C(a) post-2022 rate across improvements, property, and audits, while PolicyEngine stores separate rate parameters with different historical structure.
 
   - legal_id: us:statutes/26/25C#general_annual_credit_limit
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.total
     rationale: Same broad $1,200 annual cap amount, but PolicyEngine applies it inside a stale lifetime/in-effect graph; promote to parameter comparison only with a dedicated 25C parameter test surface.
 
@@ -16640,6 +16737,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.energy_efficient_building_property
     rationale: Same broad $600 qualified-energy-property cap amount, but PolicyEngine applies it through property-specific helpers and a stale in-effect graph rather than this statutory item-cap output.
 
@@ -16647,6 +16745,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.window
     rationale: Same broad $600 windows-and-skylights amount, but PolicyEngine combines it with a pre-current-law lifetime window cap surface, so it is not an exact oracle target for current section 25C.
 
@@ -16654,12 +16753,14 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine stores the aggregate exterior-door cap but does not expose the section 25C(b)(4)(A) $250 per-door cap as a separate parameter or output.
 
   - legal_id: us:statutes/26/25C#exterior_doors_aggregate_credit_limit
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.door
     rationale: Same broad $500 aggregate exterior-door amount, but PolicyEngine omits the per-door cap and therefore is not an exact oracle target for the statutory door-limit pair.
 
@@ -16667,6 +16768,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.heat_pump_heat_pump_water_heater_biomass_stove_boiler
     rationale: Same broad $2,000 cap amount, but PolicyEngine applies it through rebate-adjusted helper variables and a stale in-effect graph, not as this current-law statutory cap output.
 
@@ -16674,6 +16776,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_parameter: gov.irs.credits.energy_efficient_home_improvement.cap.annual.home_energy_audit
     rationale: Same broad $150 cap amount, but PolicyEngine's audit helper lacks the section 25C(e)(2) substantiation gate encoded by RuleSpec.
 
@@ -16681,36 +16784,42 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(c)(1)(B) five-year expected-use property-classification threshold as a parameter or output.
 
   - legal_id: us:statutes/26/25C#biomass_stove_or_boiler_minimum_thermal_efficiency_rate
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(d)(2)(B) biomass thermal-efficiency threshold as a parameter or output.
 
   - legal_id: us:statutes/26/25C#panelboard_minimum_load_capacity_amps
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(d)(2)(D)(ii) panelboard load-capacity threshold as a parameter or output.
 
   - legal_id: us:statutes/26/25C#eligible_fuel_blend_minimum_volume_rate
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(d)(3)(B) eligible-fuel blend threshold as a parameter or output.
 
   - legal_id: us:statutes/26/25C#home_energy_auditor_guidance_deadline_days_after_enactment
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(e)(4) Secretary guidance deadline as a parameter or output.
 
   - legal_id: us:statutes/26/25C#windows_and_skylights_credit
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: capped_energy_efficient_window_credit
     rationale: PolicyEngine's window helper applies a stale lifetime window cap and prior-credit subtraction, while RuleSpec encodes the current-law annual windows-and-skylights component.
 
@@ -16718,6 +16827,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: capped_energy_efficient_door_credit
     rationale: PolicyEngine's exterior-door helper omits the $250 per-door cap, so it is not an exact oracle target for RuleSpec's section 25C(b)(4) door component.
 
@@ -16725,18 +16835,21 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine splits non-window, non-door envelope improvements into separate insulation and roof helpers and does not expose this combined statutory component.
 
   - legal_id: us:statutes/26/25C#non_heat_pump_residential_energy_property_credit
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine splits non-heat-pump residential energy property into several rebate-adjusted helpers and does not expose this combined section 25C(a)(2)/(b)(2) component.
 
   - legal_id: us:statutes/26/25C#heat_pump_biomass_credit
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: capped_heat_pump_heat_pump_water_heater_biomass_stove_boiler_credit
     rationale: PolicyEngine's heat-pump/biomass helper subtracts rebate variables and lives in a stale in-effect graph, while RuleSpec exposes the statutory current-law component before the final PIN and termination gates.
 
@@ -16744,6 +16857,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: capped_home_energy_audit_credit
     rationale: PolicyEngine caps audit expenditures but does not encode the section 25C(e)(2) return-documentation condition that can zero the audit component.
 
@@ -16751,12 +16865,14 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine computes a broader potential credit using its own qualified-expenditure helper list, lifetime cap, and stale in-effect parameter rather than this pre-heat-pump current-law annual cap subtotal.
 
   - legal_id: us:statutes/26/25C#energy_efficient_home_improvement_credit_before_termination_and_pin_gate
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: energy_efficient_home_improvement_credit_potential
     rationale: PolicyEngine's potential credit includes stale lifetime/in-effect handling and no product-identification-number gate; it is not this current-law pre-termination/PIN subtotal.
 
@@ -16764,6 +16880,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     policyengine_variable: energy_efficient_home_improvement_credit
     rationale: Same final section 25C credit surface, but PolicyEngine still uses the pre-current-law 2033 in-effect schedule, does not include the section 25C(h) product-identification-number gate, and computes the tax-liability limit through its full tax stack; see PolicyEngine/policyengine-us#8703.
 
@@ -16771,6 +16888,7 @@ mappings:
     country: us
     program: ira_tax_credits
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine does not expose the section 25C(g) basis-reduction amount as a separate variable.
 
   - legal_id: us:statutes/42/18795/c/2#modeled_savings_lower_threshold
@@ -17105,15 +17223,15 @@ prefixes:
     country: us
     program: clean_vehicle_credits
     mapping_type: not_comparable
-    candidate_priority: P3
-    rationale: Section 25E RuleSpec outputs expose current-law statutory parameters, buyer/sale/vehicle predicates, and pre-MAGI credit intermediates. PolicyEngine's used-clean-vehicle variables are tax-unit simplifications with separate eligibility gating and no exact source-boundary output for these legal intermediates. Add exact mappings above this prefix when a one-to-one PE target exists.
+    candidate_priority: P4
+    rationale: Section 25E RuleSpec outputs expose current-law statutory parameters, buyer/sale/vehicle predicates, and pre-MAGI credit intermediates. PolicyEngine's used-clean-vehicle variables are tax-unit simplifications with separate eligibility gating and no exact source-boundary output for these legal intermediates; see PolicyEngine/policyengine-us#8760. Add exact mappings above this prefix when a one-to-one PE target exists.
 
   - legal_id_prefix: us:statutes/26/30D#
     country: us
     program: clean_vehicle_credits
     mapping_type: not_comparable
-    candidate_priority: P3
-    rationale: Section 30D RuleSpec outputs expose current-law statutory parameters, vehicle predicates, per-vehicle credit components, transfer rules, and deferred taxpayer-to-vehicle aggregation. PolicyEngine's new-clean-vehicle variables are tax-unit simplifications and include legacy/pre-IRA mechanics, so these outputs are not exact PE oracle targets unless a narrower exact mapping is added above this prefix.
+    candidate_priority: P4
+    rationale: Section 30D RuleSpec outputs expose current-law statutory parameters, vehicle predicates, per-vehicle credit components, transfer rules, and deferred taxpayer-to-vehicle aggregation. PolicyEngine's new-clean-vehicle variables are tax-unit simplifications and include legacy/pre-IRA mechanics, so these outputs are not exact PE oracle targets unless a narrower exact mapping is added above this prefix; see PolicyEngine/policyengine-us#8760.
 
   - legal_id_prefix: us:statutes/5/5566#
     country: us
@@ -17143,24 +17261,28 @@ prefixes:
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: Tennessee DHS SNAP manual pages encode state administrative procedures, verification rules, disqualification predicates, eligibility subtests, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
   - legal_id_prefix: us-nc:policies/dhhs/fns/
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: North Carolina DHHS FNS manual sections encode state SNAP administrative procedures, verification rules, simplified nutrition assistance procedures, eligibility subtests, notices, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
   - legal_id_prefix: us-sc:policies/dss/snap-policy-manual/
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: South Carolina DSS SNAP manual sections encode state administrative procedures, verification rules, work-requirement predicates, notices, disqualification branches, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
   - legal_id_prefix: us-al:policies/dhr/poe/
     country: us
     program: snap
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: Alabama DHR POE SNAP manual sections encode state administrative procedures, verification rules, disqualification predicates, eligibility subtests, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
   - legal_id_prefix: us-co:statutes/39/39-22-104/3/
@@ -17168,16 +17290,16 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_additions
-    candidate_priority: P3
-    rationale: Remaining Colorado subsection 3 generated outputs decompose source-specific federal-taxable-income additions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_additions and selected addback variables. Keep this prefix visible in candidate triage because future generated outputs may deserve exact mappings.
+    candidate_priority: P4
+    rationale: Remaining Colorado subsection 3 generated outputs decompose source-specific federal-taxable-income additions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_additions and selected addback variables.
 
   - legal_id_prefix: us-co:statutes/39/39-22-104/4/
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_subtractions
-    candidate_priority: P3
-    rationale: Remaining Colorado subsection 4 generated outputs decompose source-specific federal-taxable-income subtractions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_subtractions and selected subtraction variables. Keep this prefix visible in candidate triage because future generated outputs may deserve exact mappings.
+    candidate_priority: P4
+    rationale: Remaining Colorado subsection 4 generated outputs decompose source-specific federal-taxable-income subtractions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_subtractions and selected subtraction variables.
 
   - legal_id_prefix: us-co:statutes/39/39-22-105#
     country: us
@@ -17190,29 +17312,30 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_cdcc
-    candidate_priority: P2
-    rationale: Colorado section 119 generated outputs decompose the regular child and dependent care expenses credit into source-specific eligibility, federal-credit-base, child-care-assistance, inflation-adjusted limit, and refundable-excess pieces; PolicyEngine exposes a final tax-unit co_cdcc amount from capped federal CDCC and match parameters, not these statutory boundaries.
+    candidate_priority: P4
+    rationale: Colorado section 119 generated outputs decompose the regular child and dependent care expenses credit into source-specific eligibility, federal-credit-base, child-care-assistance, inflation-adjusted limit, and refundable-excess pieces; PolicyEngine exposes a final tax-unit co_cdcc amount from capped federal CDCC and match parameters, not these statutory boundaries. The 2026 70 percent/pre-section-26 update is tracked in PolicyEngine/policyengine-us#8756.
 
   - legal_id_prefix: us-co:statutes/39/39-22-119.5#
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_low_income_cdcc
-    candidate_priority: P2
-    rationale: Colorado section 119.5 generated outputs decompose the low-income child care expenses credit into statutory-window, provider-identification, dependent-age, earned-income-limit, cap, eligibility, amount, and refundable-excess pieces; exact parameter mappings above compare shared PE parameters, while PolicyEngine exposes final tax-unit co_low_income_cdcc and a simplified eligibility predicate.
+    candidate_priority: P4
+    rationale: Colorado section 119.5 generated outputs decompose the low-income child care expenses credit into statutory-window, provider-identification, dependent-age, earned-income-limit, cap, eligibility, amount, and refundable-excess pieces; exact parameter mappings above compare shared PE parameters, while PolicyEngine exposes final tax-unit co_low_income_cdcc and a simplified eligibility predicate. The statutory window and omitted eligibility predicates are tracked in PolicyEngine/policyengine-us#8757.
 
   - legal_id_prefix: us-co:statutes/39/39-22-129/4.5#
     country: us
     program: tax
     mapping_type: not_comparable
     policyengine_variable: co_ctc
-    candidate_priority: P2
+    candidate_priority: P4
     rationale: Remaining Colorado CTC subsection 4.5 outputs are adjacent current-law statutory helpers; exact mappings above compare the threshold and amount parameters, while PolicyEngine exposes final tax-unit co_ctc after eligible-child counting, filing-status mapping, and inflation adjustments.
 
   - legal_id_prefix: us-co:statutes/39/39-22-123.5#
     country: us
     program: tax
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: Colorado EITC generated outputs decompose statutory rates, revenue-growth adjustments, person-level branches, refundable-excess amounts, and public-benefit exclusions; PolicyEngine exposes only a final tax-unit co_eitc amount and date-varying match parameter unless an exact mapping above records a narrower adjacent target.
 
   - legal_id_prefix: us-az:policies/des/faa5/na-child-support-expense/allowable-deductions#
@@ -17615,6 +17738,14 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 152(c) qualifying-child outputs are dependency-law predicates and tiebreaker intermediates that PolicyEngine derives inside household and dependent-status logic rather than exposing as one-to-one oracle variables.
+
+  - legal_id: us:statutes/26/199A#qualified_business_income_deduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: qualified_business_income_deduction
+    candidate_priority: P4
+    rationale: RuleSpec's section 199A qualified_business_income_deduction output represents the current-law statutory deduction after active-QBI minimum-deduction predicates, while PolicyEngine's qualified_business_income_deduction is a Form 8995/Pub. 535-style graph over qbid_amount with a taxable-income-less-QBI cap and optional floor parameter. Compare narrower shared parameters or add an adapter only if the formulas are made semantically identical.
 
   - legal_id_prefix: us:statutes/26/199A#
     country: us
@@ -18784,89 +18915,107 @@ prefixes:
   - legal_id_prefix: "us-al:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model AL agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ar:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model AR agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-az:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model AZ agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ca:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model CA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-co:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model CO agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-de:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model DE agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-fl:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model FL agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ga:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model GA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-id:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model ID agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ma:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model MA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-md:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model MD agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-nc:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model NC agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-nh:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model NH agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ny:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model NY agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ok:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model OK agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-sc:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model SC agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-tn:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model TN agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-tx:"
     country: us
     mapping_type: not_comparable
+    candidate_priority: P4
     rationale: PolicyEngine-US does not model TX agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.

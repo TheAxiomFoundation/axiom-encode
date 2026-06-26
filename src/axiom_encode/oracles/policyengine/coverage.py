@@ -41,9 +41,119 @@ _PROGRAM_TOKEN_RE = {
     for token in ("medicaid", "chip", "aca")
 }
 _HEALTH_PROGRAMS = frozenset({"medicaid", "chip", "aca_ptc"})
+_US_STATE_CODES = frozenset(
+    {
+        "ak",
+        "al",
+        "ar",
+        "az",
+        "ca",
+        "co",
+        "ct",
+        "dc",
+        "de",
+        "fl",
+        "ga",
+        "hi",
+        "ia",
+        "id",
+        "il",
+        "in",
+        "ks",
+        "ky",
+        "la",
+        "ma",
+        "md",
+        "me",
+        "mi",
+        "mn",
+        "mo",
+        "ms",
+        "mt",
+        "nc",
+        "nd",
+        "ne",
+        "nh",
+        "nj",
+        "nm",
+        "nv",
+        "ny",
+        "oh",
+        "ok",
+        "or",
+        "pa",
+        "ri",
+        "sc",
+        "sd",
+        "tn",
+        "tx",
+        "ut",
+        "va",
+        "vt",
+        "wa",
+        "wi",
+        "wv",
+        "wy",
+    }
+)
+_US_STATE_VARIABLE_PREFIX_RE = re.compile(
+    rf"(^|\s)({'|'.join(sorted(_US_STATE_CODES))})_"
+)
 _INTERVAL_BOUND_HELPER_RE = re.compile(
     r"(^|_)(tier|band|bracket|interval|row)_(lower|upper)_bound$"
 )
+POLICYBENCH_SOURCE_URL = "https://policybench.org/"
+POLICYBENCH_SNAPSHOT = "2026-06-14"
+POLICYBENCH_HOUSEHOLD_OUTPUT_WEIGHTS = {
+    "person_level_medicaid_eligibility": 29.86,
+    "federal_tax_before_refundable_credits": 19.14,
+    "payroll_tax": 15.65,
+    "person_level_medicare_eligibility": 10.74,
+    "state_tax_before_refundable_credits": 6.00,
+    "snap": 4.15,
+    "federal_refundable_credits": 3.70,
+    "person_level_early_head_start_eligibility": 3.10,
+    "self_employment_tax": 2.09,
+    "ssi": 1.97,
+    "person_level_head_start_eligibility": 1.18,
+    "free_school_meals_eligibility": 0.74,
+    "state_refundable_credits": 0.55,
+    "person_level_wic_eligibility": 0.32,
+    "local_income_tax": 0.26,
+    "tanf": 0.26,
+    "person_level_chip_eligibility": 0.18,
+    "reduced_price_school_meals_eligibility": 0.10,
+}
+_POLICYBENCH_OUTPUT_BY_PROGRAM_ID = {
+    "federal_income_tax": "federal_tax_before_refundable_credits",
+    "state_income_tax": "state_tax_before_refundable_credits",
+    "payroll_taxes": "payroll_tax",
+    "medicaid": "person_level_medicaid_eligibility",
+    "medicare": "person_level_medicare_eligibility",
+    "snap": "snap",
+    "wic": "person_level_wic_eligibility",
+    "chip": "person_level_chip_eligibility",
+    "tanf": "tanf",
+    "ssi": "ssi",
+    "ssi_state_supplement": "ssi",
+    "head_start": "person_level_head_start_eligibility",
+    "school_meals": "free_school_meals_eligibility",
+}
+_POLICYBENCH_OUTPUT_BY_VARIABLE = {
+    "income_tax": "federal_tax_before_refundable_credits",
+    "employee_payroll_tax": "payroll_tax",
+    "is_medicare_eligible": "person_level_medicare_eligibility",
+    "state_income_tax": "state_tax_before_refundable_credits",
+    "snap": "snap",
+    "wic": "person_level_wic_eligibility",
+    "medicaid": "person_level_medicaid_eligibility",
+    "chip": "person_level_chip_eligibility",
+    "ssi": "ssi",
+    "free_school_meals": "free_school_meals_eligibility",
+    "reduced_price_school_meals": "reduced_price_school_meals_eligibility",
+    "self_employment_tax": "self_employment_tax",
+    "nyc_income_tax": "local_income_tax",
+}
 
 
 @dataclass(frozen=True)
@@ -102,8 +212,10 @@ class PolicyEngineCandidateItem:
     rationale: str | None = None
     tested: bool = False
     test_output_count: int = 0
+    policybench_output: str | None = None
+    policybench_household_weight: float | None = None
 
-    def as_dict(self) -> dict[str, str | int | bool | None]:
+    def as_dict(self) -> dict[str, str | int | float | bool | None]:
         return {
             "legal_id": self.legal_id,
             "repo": self.repo,
@@ -119,6 +231,8 @@ class PolicyEngineCandidateItem:
             "rationale": self.rationale,
             "tested": self.tested,
             "test_output_count": self.test_output_count,
+            "policybench_output": self.policybench_output,
+            "policybench_household_weight": self.policybench_household_weight,
         }
 
 
@@ -143,8 +257,10 @@ class PolicyEngineProgramSurfaceItem:
     mapping_count: int = 0
     comparable_mapping_count: int = 0
     legal_ids: tuple[str, ...] = ()
+    policybench_output: str | None = None
+    policybench_household_weight: float | None = None
 
-    def as_dict(self) -> dict[str, str | int | list[str] | None]:
+    def as_dict(self) -> dict[str, str | int | float | list[str] | None]:
         return {
             "country": self.country,
             "program_id": self.program_id,
@@ -163,6 +279,8 @@ class PolicyEngineProgramSurfaceItem:
             "mapping_count": self.mapping_count,
             "comparable_mapping_count": self.comparable_mapping_count,
             "legal_ids": list(self.legal_ids),
+            "policybench_output": self.policybench_output,
+            "policybench_household_weight": self.policybench_household_weight,
         }
 
 
@@ -175,8 +293,12 @@ def build_policyengine_coverage_report(
     """Classify executable RuleSpec outputs against the PolicyEngine registry."""
     registry = load_policyengine_registry()
     root = root.resolve()
+    raw_items = _iter_policyengine_coverage_items(root, registry)
+    duplicate_outputs_collapsed = len(raw_items) - len(
+        {item.legal_id for item in raw_items}
+    )
     items = sorted(
-        _iter_policyengine_coverage_items(root, registry),
+        _dedupe_coverage_items_by_legal_id(raw_items),
         key=lambda item: item.legal_id,
     )
     if program:
@@ -196,6 +318,7 @@ def build_policyengine_coverage_report(
         "oracle": "policyengine",
         "root": str(root),
         "total_outputs": len(items),
+        "duplicate_outputs_collapsed": duplicate_outputs_collapsed,
         "status_counts": dict(sorted(status_counts.items())),
         "untested_comparable": len(untested_comparable),
         "program_counts": dict(sorted(program_counts.items())),
@@ -215,6 +338,33 @@ def build_policyengine_coverage_report(
             registry=registry,
         )
     return report
+
+
+def _dedupe_coverage_items_by_legal_id(
+    items: list[PolicyEngineCoverageItem],
+) -> list[PolicyEngineCoverageItem]:
+    """Collapse migrated legacy/country-monorepo duplicates by legal output."""
+    by_legal_id: dict[str, PolicyEngineCoverageItem] = {}
+    for item in items:
+        current = by_legal_id.get(item.legal_id)
+        if current is None or _coverage_item_preference_key(
+            item
+        ) < _coverage_item_preference_key(current):
+            by_legal_id[item.legal_id] = item
+    return list(by_legal_id.values())
+
+
+def _coverage_item_preference_key(item: PolicyEngineCoverageItem) -> tuple:
+    prefix = item.legal_id.split(":", 1)[0]
+    country = prefix.split("-", 1)[0]
+    monorepo_prefixes = (f"rulespec-{country}/{prefix}/", f"{prefix}/")
+    monorepo_rank = 0 if item.file.startswith(monorepo_prefixes) else 1
+    return (
+        monorepo_rank,
+        -item.test_output_count,
+        item.file,
+        item.repo,
+    )
 
 
 def build_policyengine_program_surface_report(
@@ -265,6 +415,7 @@ def build_policyengine_program_surface_report(
     actionable_surfaces = sorted(
         active_pending_surfaces,
         key=lambda surface: (
+            -(surface.policybench_household_weight or 0.0),
             _candidate_priority_rank(surface.priority or ""),
             surface.category,
             surface.coverage,
@@ -282,6 +433,12 @@ def build_policyengine_program_surface_report(
         "priority_counts": dict(sorted(priority_counts.items())),
         "lifecycle_counts": dict(sorted(lifecycle_counts.items())),
         "active_priority_counts": dict(sorted(active_priority_counts.items())),
+        "policybench": {
+            "source": POLICYBENCH_SOURCE_URL,
+            "snapshot": POLICYBENCH_SNAPSHOT,
+            "weighting": "household",
+            "weights": POLICYBENCH_HOUSEHOLD_OUTPUT_WEIGHTS,
+        },
         "pending_surfaces": len(pending_surfaces),
         "active_pending_surfaces": len(active_pending_surfaces),
         "actionable_surfaces": [surface.as_dict() for surface in actionable_surfaces],
@@ -313,6 +470,7 @@ def build_policyengine_candidate_report(
         (candidate for candidate in raw_candidates if candidate is not None),
         key=lambda item: (
             _candidate_priority_rank(item.priority),
+            -(item.policybench_household_weight or 0.0),
             item.category,
             item.legal_id,
         ),
@@ -654,6 +812,11 @@ def _candidate_item(
     policyengine_variable: str | None = None,
     policyengine_parameter: str | None = None,
 ) -> PolicyEngineCandidateItem:
+    output = _policybench_output_for_coverage_item(
+        item,
+        policyengine_variable=policyengine_variable,
+        policyengine_parameter=policyengine_parameter,
+    )
     return PolicyEngineCandidateItem(
         legal_id=str(item.get("legal_id") or ""),
         repo=str(item.get("repo") or ""),
@@ -673,6 +836,10 @@ def _candidate_item(
         rationale=item.get("rationale"),
         tested=bool(item.get("tested")),
         test_output_count=int(item.get("test_output_count") or 0),
+        policybench_output=output,
+        policybench_household_weight=(
+            POLICYBENCH_HOUSEHOLD_OUTPUT_WEIGHTS.get(output) if output else None
+        ),
     )
 
 
@@ -885,6 +1052,11 @@ def _program_surface_item_from_payload(
         axiom_status = "known_not_comparable"
     else:
         axiom_status = manifest_status
+    legal_ids = tuple(mapping.legal_id for mapping in mappings)
+    policybench_output = _policybench_output_for_program_surface(
+        payload,
+        legal_ids=legal_ids,
+    )
     return PolicyEngineProgramSurfaceItem(
         country=country,
         program_id=str(payload["program_id"]),
@@ -902,8 +1074,191 @@ def _program_surface_item_from_payload(
         rationale=payload.get("rationale"),
         mapping_count=len(mappings),
         comparable_mapping_count=comparable_mapping_count,
-        legal_ids=tuple(mapping.legal_id for mapping in mappings),
+        legal_ids=legal_ids,
+        policybench_output=policybench_output,
+        policybench_household_weight=(
+            POLICYBENCH_HOUSEHOLD_OUTPUT_WEIGHTS.get(policybench_output)
+            if policybench_output
+            else None
+        ),
     )
+
+
+def _policybench_output_for_program_surface(
+    payload: dict[str, Any],
+    *,
+    legal_ids: tuple[str, ...] = (),
+) -> str | None:
+    """Return the PolicyBench household output group for a PE program surface."""
+    program_id = str(payload.get("program_id") or "")
+    variable = str(payload.get("variable") or "")
+    category = str(payload.get("category") or "")
+    program_name = str(payload.get("program_name") or "").lower()
+    if "early head start" in program_name:
+        return "person_level_early_head_start_eligibility"
+    if variable in _POLICYBENCH_OUTPUT_BY_VARIABLE:
+        return _POLICYBENCH_OUTPUT_BY_VARIABLE[variable]
+    if program_id in _POLICYBENCH_OUTPUT_BY_PROGRAM_ID:
+        return _POLICYBENCH_OUTPUT_BY_PROGRAM_ID[program_id]
+    if variable.endswith(("_tanf", "_tafdc", "_tca")) or program_id == "tanf":
+        return "tanf"
+    if variable.endswith("_income_tax") and variable != "state_income_tax":
+        return "local_income_tax"
+    if "federal_refundable" in program_id or "federal_refundable" in variable:
+        return "federal_refundable_credits"
+    if "refundable" in variable:
+        return "state_refundable_credits"
+    lowered_legal_ids = tuple(legal_id.lower() for legal_id in legal_ids)
+    if any(legal_id.startswith("us:statutes/26/") for legal_id in lowered_legal_ids):
+        text = " ".join(
+            (program_id, variable, program_name, category, *lowered_legal_ids)
+        ).lower()
+        return _policybench_tax_output_from_text("", text)
+    if category.lower() == "taxes":
+        text = " ".join((program_id, variable, program_name, category)).lower()
+        return _policybench_tax_output_from_text("", text)
+    return None
+
+
+def _policybench_output_for_coverage_item(
+    item: dict[str, Any],
+    *,
+    policyengine_variable: str | None = None,
+    policyengine_parameter: str | None = None,
+) -> str | None:
+    program = str(item.get("program") or "")
+    if program == "medicaid":
+        return "person_level_medicaid_eligibility"
+    if program == "chip":
+        return "person_level_chip_eligibility"
+    if program == "medicare":
+        return "person_level_medicare_eligibility"
+    if program == "snap":
+        return "snap"
+    if program == "wic":
+        return "person_level_wic_eligibility"
+    if program in {"ssi", "ssi_state_supplement"}:
+        return "ssi"
+    if program in {"tanf", "tca"}:
+        return "tanf"
+    if program == "head_start":
+        text = _policybench_candidate_text(
+            item,
+            policyengine_variable=policyengine_variable,
+            policyengine_parameter=policyengine_parameter,
+        )
+        if "early_head_start" in text or "early head start" in text:
+            return "person_level_early_head_start_eligibility"
+        return "person_level_head_start_eligibility"
+    if program == "tax" or _is_us_tax_like_coverage_item(
+        item,
+        policyengine_variable=policyengine_variable,
+        policyengine_parameter=policyengine_parameter,
+    ):
+        return _policybench_tax_output_for_coverage_item(
+            item,
+            policyengine_variable=policyengine_variable,
+            policyengine_parameter=policyengine_parameter,
+        )
+    return None
+
+
+def _is_us_tax_like_coverage_item(
+    item: dict[str, Any],
+    *,
+    policyengine_variable: str | None = None,
+    policyengine_parameter: str | None = None,
+) -> bool:
+    legal_id = str(item.get("legal_id") or "").lower()
+    if legal_id.startswith("us:statutes/26/"):
+        return True
+    parameter = policyengine_parameter or item.get("policyengine_parameter") or ""
+    parameter = str(parameter).lower()
+    if parameter.startswith("gov.irs."):
+        return True
+    if parameter.startswith("gov.states.") and ".tax." in parameter:
+        return True
+    text = _policybench_candidate_text(
+        item,
+        policyengine_variable=policyengine_variable,
+        policyengine_parameter=policyengine_parameter,
+    )
+    return bool(legal_id.startswith("us-") and ".tax." in text)
+
+
+def _policybench_tax_output_for_coverage_item(
+    item: dict[str, Any],
+    *,
+    policyengine_variable: str | None = None,
+    policyengine_parameter: str | None = None,
+) -> str:
+    legal_id = str(item.get("legal_id") or "").lower()
+    text = _policybench_candidate_text(
+        item,
+        policyengine_variable=policyengine_variable,
+        policyengine_parameter=policyengine_parameter,
+    )
+    return _policybench_tax_output_from_text(legal_id, text)
+
+
+def _policybench_tax_output_from_text(legal_id: str, text: str) -> str:
+    if "self_employment" in text or legal_id.startswith(
+        ("us:statutes/26/1401", "us:statutes/26/1402")
+    ):
+        return "self_employment_tax"
+    if any(
+        token in text
+        for token in (
+            "payroll",
+            "oasdi",
+            "fica",
+            "social_security_tax",
+            "medicare_tax",
+        )
+    ) or legal_id.startswith(
+        (
+            "us:statutes/26/3101",
+            "us:statutes/26/3102",
+            "us:statutes/26/3111",
+            "us:statutes/26/3121",
+            "us:statutes/26/3128",
+            "us:statutes/26/3201",
+            "us:statutes/26/3221",
+        )
+    ):
+        return "payroll_tax"
+    if "refundable" in text:
+        return (
+            "state_refundable_credits"
+            if _is_state_tax_candidate(legal_id, text)
+            else "federal_refundable_credits"
+        )
+    if _is_state_tax_candidate(legal_id, text):
+        return "state_tax_before_refundable_credits"
+    return "federal_tax_before_refundable_credits"
+
+
+def _is_state_tax_candidate(legal_id: str, text: str) -> bool:
+    return bool(
+        re.match(r"^us-[a-z]{2}:", legal_id)
+        or ".states." in text
+        or _US_STATE_VARIABLE_PREFIX_RE.search(text)
+    )
+
+
+def _policybench_candidate_text(
+    item: dict[str, Any],
+    *,
+    policyengine_variable: str | None = None,
+    policyengine_parameter: str | None = None,
+) -> str:
+    parts = [
+        str(item.get("legal_id") or ""),
+        str(item.get("rule_name") or ""),
+        str(policyengine_variable or item.get("policyengine_variable") or ""),
+        str(policyengine_parameter or item.get("policyengine_parameter") or ""),
+    ]
+    return " ".join(parts).lower()
 
 
 def _program_surface_matches_filter(
