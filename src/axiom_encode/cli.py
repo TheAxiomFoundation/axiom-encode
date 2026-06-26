@@ -21065,6 +21065,38 @@ def cmd_encode(args):
                         repaired_input_cases
                     )
             if not can_apply:
+                repaired_missing_relations = (
+                    _try_repair_generated_missing_data_relations_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_missing_relations:
+                    prior_repairs = outcome.get("auto_repaired_missing_data_relations")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_missing_data_relations"] = [
+                        *prior_repairs,
+                        *repaired_missing_relations,
+                    ]
+                    print(
+                        "  apply=auto_repaired_missing_data_relations:"
+                        + ",".join(repaired_missing_relations)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_invalid_input_refs = list(
                     outcome.get("auto_repaired_invalid_test_inputs") or []
                 )
@@ -21147,6 +21179,38 @@ def cmd_encode(args):
                             "  apply=auto_repaired_scalar_relation_rows:"
                             + ",".join(repaired_batch)
                         )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_missing_relations = (
+                    _try_repair_generated_missing_data_relations_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_missing_relations:
+                    prior_repairs = outcome.get("auto_repaired_missing_data_relations")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_missing_data_relations"] = [
+                        *prior_repairs,
+                        *repaired_missing_relations,
+                    ]
+                    print(
+                        "  apply=auto_repaired_missing_data_relations:"
+                        + ",".join(repaired_missing_relations)
+                    )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
                             result,
