@@ -127,6 +127,7 @@ from axiom_encode.cli import (
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
+    _try_repair_generated_missing_data_relations_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_negated_comparisons_for_apply,
@@ -20421,6 +20422,92 @@ rules:
                 "uk:statutes/ukpga/2007/3/23#input.amount_charged_to_income_tax_for_tax_year": 5000
             },
         ]
+
+    def test_repair_missing_data_relation_from_generated_aggregate(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "388"
+            / "388-450"
+            / "388-450-0170.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Washington TANF dependent care deduction.
+rules:
+  - name: dependent_care_recipient_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2019-12-01'
+        formula: |-
+          if allowed: expense else: 0
+  - name: dependent_care_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2019-12-01'
+        formula: |-
+          sum_where(dependent_care_recipients, dependent_care_recipient_deduction, care_recipient_gets_cash_assistance_with_household)
+"""
+        )
+        test_file = rules_file.with_name("388-450-0170.test.yaml")
+        test_file.write_text(
+            """- name: generated_case
+  period: 2026-06
+  input:
+    us-wa:regulations/388/388-450/388-450-0170#relation.dependent_care_recipients:
+      - us-wa:regulations/388/388-450/388-450-0170#input.expense: 100
+    us-wa:regulations/388/388-450/388-450-0170#input.dependent_care_recipients: false
+  output:
+    us-wa:regulations/388/388-450/388-450-0170#dependent_care_deduction: 100
+"""
+        )
+
+        repaired = _try_repair_generated_missing_data_relations_for_apply(
+            SimpleNamespace(output_file=str(rules_file), runner="codex-test-model"),
+            output_root=output_root,
+            issues=[
+                "regulations/388/388-450/388-450-0170.yaml: ci: "
+                "Test case `generated_case` input invalid: relation input "
+                "`us-wa:regulations/388/388-450/388-450-0170#relation.dependent_care_recipients` "
+                "does not resolve to a declared relation in "
+                "regulations/388/388-450/388-450-0170.yaml."
+            ],
+        )
+
+        assert repaired == ["dependent_care_recipients"]
+        payload = yaml.safe_load(rules_file.read_text())
+        relation = payload["rules"][1]
+        assert relation == {
+            "name": "dependent_care_recipients",
+            "kind": "data_relation",
+            "data_relation": {
+                "predicate": "dependent_care_recipients",
+                "arity": 2,
+                "arguments": [
+                    {"name": "dependent_care_recipient", "entity": "Person"},
+                    {"name": "household", "entity": "Household"},
+                ],
+            },
+        }
+        [case] = yaml.safe_load(test_file.read_text())
+        assert (
+            "us-wa:regulations/388/388-450/388-450-0170#input.dependent_care_recipients"
+            not in case["input"]
+        )
+        assert (
+            "us-wa:regulations/388/388-450/388-450-0170#relation.dependent_care_recipients"
+            in case["input"]
+        )
 
     def test_try_repair_scalar_relation_rows_from_missing_input_assignment(
         self, tmp_path
