@@ -132,6 +132,30 @@ def test_rulespec_numeric_output_comparison_tolerates_decimal_residue(tmp_path):
     )
 
 
+def test_rulespec_numeric_output_comparison_accepts_quoted_decimal(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert (
+        pipeline._compare_rulespec_output(
+            case_name="one_third",
+            output_name="rate",
+            expected_value="0.3333333333333333333333333333",
+            actual_output={
+                "kind": "scalar",
+                "value": {
+                    "kind": "decimal",
+                    "value": Decimal("0.3333333333333333333333333333"),
+                },
+            },
+        )
+        is None
+    )
+
+
 def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     repo_parent = tmp_path / "repos"
     policy_repo = repo_parent / "rulespec-us-ny"
