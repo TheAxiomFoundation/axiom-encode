@@ -2912,6 +2912,79 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's WAC 388-450-0162 output is the source-local benefit level equal to payment standard minus countable income. PolicyEngine's wa_tanf is the final monthly SPM-unit TANF variable gated by broader PE eligibility, resources, immigration, and countable-income surfaces, so compare the legal components separately until Axiom has an equivalent final Washington TANF adapter.
 
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#earned_income_initial_deduction
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.deductions.earned_income_disregard.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same WAC 388-450-0170 flat earned-income disregard amount used by PolicyEngine's Washington TANF countable-earned-income formula.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#remaining_earned_income_deduction_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.tanf.income.deductions.earned_income_disregard.rate
+    period: month
+    comparison: rate
+    rationale: Same WAC 388-450-0170 percentage disregard applied to earned income remaining after the flat disregard.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#counted_earned_income_after_work_deductions
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: wa_tanf_countable_earned_income
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Washington TANF earned-income calculation after the flat disregard and remaining-income percentage disregard, with PolicyEngine exposing the SPM-unit aggregate as wa_tanf_countable_earned_income.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_hours_band
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the WAC 388-450-0170 dependent-care hours band used to select table limits. PolicyEngine's Washington TANF implementation does not expose dependent-care hours bands or dependent-care deductions separately.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_child_under_two_monthly_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom encodes the WAC 388-450-0170 dependent-care deduction table limit for a child under two. PolicyEngine's Washington TANF implementation does not expose this dependent-care table.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_age_two_or_incapacitated_adult_monthly_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom encodes the WAC 388-450-0170 dependent-care deduction table limit for an older child or incapacitated adult. PolicyEngine's Washington TANF implementation does not expose this dependent-care table.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_recipient_monthly_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the selected WAC 388-450-0170 per-recipient dependent-care monthly limit. PolicyEngine's Washington TANF implementation does not expose dependent-care limits separately.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_deduction_allowed_for_recipient
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the WAC 388-450-0170 eligibility predicate for deducting a recipient's dependent-care payments. PolicyEngine's Washington TANF implementation does not expose this dependent-care predicate.
+
+  - legal_id: us-wa:regulations/388/388-450/388-450-0170#dependent_care_recipient_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: wa_tanf_countable_income
+    candidate_priority: P4
+    rationale: Axiom exposes WAC 388-450-0170's recipient-level dependent-care deduction. PolicyEngine's adjacent Washington TANF countable-income surface does not subtract or expose this dependent-care deduction boundary separately.
+
   - legal_id: us-az:policies/des/faa5/ca-jobs-exemptions/age#jobs_program_participation_age_exemption_applies
     country: us
     program: tanf
