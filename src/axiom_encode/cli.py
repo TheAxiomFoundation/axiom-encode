@@ -31,7 +31,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -15583,9 +15583,21 @@ def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
         denominator = int(fraction_match.group(2))
         if denominator == 0:
             return None
+        if not _fraction_has_terminating_decimal(denominator):
+            with localcontext() as context:
+                context.prec = 28
+                return format(Decimal(numerator) / Decimal(denominator), "f")
         return numerator / denominator
     parsed = yaml.safe_load(stripped)
     return parsed if isinstance(parsed, (int, float)) else None
+
+
+def _fraction_has_terminating_decimal(denominator: int) -> bool:
+    remaining = abs(denominator)
+    for prime in (2, 5):
+        while remaining and remaining % prime == 0:
+            remaining //= prime
+    return remaining == 1
 
 
 def _rulespec_companion_test_failures(

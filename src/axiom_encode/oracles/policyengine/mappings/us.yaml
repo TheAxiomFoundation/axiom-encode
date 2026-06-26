@@ -2685,6 +2685,154 @@ mappings:
     comparison: rate
     rationale: Same Arizona TANF base income-limit rate for parent or non-parent caretaker relative self-and-child cases.
 
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_thirty_dollar_earned_income_disregard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.in.fssa.tanf.income.deductions.eligibility.flat_disregard.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Indiana TANF $30 earned-income disregard amount used in the $30 and 1/3 eligibility deduction.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_one_third_earned_income_disregard_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.in.fssa.tanf.income.deductions.eligibility.earned_income_disregard.rate
+    period: month
+    comparison: rate
+    rationale: Same Indiana TANF one-third earned-income disregard rate used in eligibility countable-income calculations.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_gross_earned_income_disregard_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.in.fssa.tanf.income.deductions.benefit.earned_income_disregard.rate
+    period: month
+    comparison: rate
+    rationale: Same Indiana TANF 75% earned-income disregard rate used when calculating the benefit amount.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_gross_earned_income_applied_rate
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.in.fssa.tanf.income.deductions.benefit.earned_income_disregard.rate
+    candidate_priority: P4
+    rationale: Axiom exposes the applied 25% complement of the statutory 75% earned-income disregard as a source-local helper. PolicyEngine stores the disregard rate itself, not this complementary helper.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_benefit_total_grant_amount_for_participating_ag_members
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_maximum_benefit
+    candidate_priority: P4
+    rationale: Axiom selects the manual's participating-AG grant amount from the 3050.10 source tables and composition-type inputs. PolicyEngine's adjacent in_tanf_maximum_benefit is keyed by SPM-unit size and includes PE's current parameterization, so this legal helper is not a one-to-one oracle target.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_nonexempt_gross_income_for_benefit_calculation
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_for_payment
+    candidate_priority: P4
+    rationale: Axiom exposes the pre-deduction sum of non-exempt earned, unearned, and deemed income for the Indiana manual's benefit-calculation section. PolicyEngine exposes the post-disregard payment-countable income aggregate, not this source-local gross-income boundary.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_thirty_and_one_third_earned_income_disregard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_for_eligibility
+    candidate_priority: P4
+    rationale: Axiom exposes the manual's standalone $30 and one-third earned-income disregard amount. PolicyEngine applies the same parameters inside its eligibility countable-income formula but does not expose this deduction amount separately.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_applicable_earned_income_deductions
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_for_eligibility
+    candidate_priority: P4
+    rationale: Axiom exposes the source-local sum of work-expense, $30 and one-third, and incapacitated-adult-care deductions. PolicyEngine's adjacent countable-income formula does not expose this combined deduction boundary.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_net_countable_income_for_benefit_calculation
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_for_eligibility
+    candidate_priority: P4
+    rationale: Axiom exposes the manual's adjusted net countable income after earned-income deductions for benefit-calculation tests. PolicyEngine has adjacent eligibility and payment countable-income variables with PE-specific helper boundaries, so this source-local amount is not a direct oracle target.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_financially_eligible_for_benefit_calculation
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes only the 3450.35.05 adjusted-net-income-below-grant condition for new applications. PolicyEngine's Indiana TANF income eligibility combines initial and continuing branches with gross-income and PE graph inputs.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_gross_earned_income_disregarded_for_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_earned_income
+    candidate_priority: P4
+    rationale: Axiom exposes the disregarded 75% of gross earned income as a standalone legal helper. PolicyEngine exposes the remaining countable earned income aggregate, not the disregarded amount.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_gross_earned_income_applied_for_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_earned_income
+    candidate_priority: P4
+    rationale: Axiom exposes the source-local 25% applied earned-income amount before adding unearned and deemed income. PolicyEngine's adjacent in_tanf_countable_earned_income aggregates over PE SPM-unit members and is not this legal helper boundary.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_countable_income_for_benefit_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_for_payment
+    candidate_priority: P4
+    rationale: Axiom combines the applied 25% earned income with non-exempt unearned and deemed income for the manual's benefit amount. PolicyEngine's payment countable income is adjacent but does not expose the same source-local deemed-income boundary.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_monthly_benefit_entitlement
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf
+    candidate_priority: P4
+    rationale: Axiom's 3450.35.05 output is the source-local new-application benefit entitlement after the manual's adjusted-net-income test and 75% earned-income disregard. PolicyEngine's in_tanf is a final PE SPM-unit benefit gated by its broader eligibility graph, so compare legal components separately.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation-continuation#tanf_ongoing_minimum_grant_with_earned_income
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the manual's $10 ongoing minimum grant when earned income is the sole factor and no sanctions, voluntary quit, or fiscal penalties apply. PolicyEngine's Indiana TANF final benefit does not expose this minimum-grant rule as a separate parameter or output.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation-continuation#tanf_ongoing_countable_income_below_100_percent_fpl
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_countable_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes only the ongoing 100% FPG countable-income condition from 3450.35.05. PolicyEngine's in_tanf_countable_income_eligible combines initial and continuing branches and PE-specific income helpers.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation-continuation#tanf_ongoing_adjusted_net_income_equals_or_exceeds_adjusted_needs
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf_payment_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the manual's adjusted-net-income-equals-or-exceeds-adjusted-needs predicate, which triggers the $10 or $0 ongoing grant branch. PolicyEngine's adjacent payment eligibility is a strict countable-income-below-maximum-benefit predicate and does not expose this branch condition.
+
+  - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation-continuation#tanf_ongoing_monthly_benefit_entitlement
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: in_tanf
+    candidate_priority: P4
+    rationale: Axiom's ongoing benefit entitlement captures the manual's 100% FPG screen plus the $10 minimum-grant and $0 grant branches. PolicyEngine's in_tanf computes a final PE SPM-unit benefit with a strict payment-eligibility gate, so this is adjacent rather than a one-to-one oracle target.
+
   - legal_id: us-wa:regulations/388/388-478/388-478-0020#cash_assistance_payment_standard_size_floor_for_final_row
     country: us
     program: tanf
