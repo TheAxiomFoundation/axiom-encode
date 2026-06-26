@@ -19100,6 +19100,12 @@ prefixes:
     candidate_priority: P4
     rationale: PolicyEngine-US does not model ID agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
+  - legal_id_prefix: "us-in:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model IN agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
   - legal_id_prefix: "us-ma:"
     country: us
     mapping_type: not_comparable
