@@ -839,6 +839,24 @@ def test_policyengine_program_surface_marks_georgia_caps_known_not_comparable():
     assert "final modeled subsidy surface" in georgia_caps["rationale"]
 
 
+def test_policyengine_program_surface_marks_aca_ptc_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="aca_ptc")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    aca_ptc = items_by_variable["aca_ptc"]
+
+    assert aca_ptc["program_id"] == "aca_subsidies"
+    assert aca_ptc["axiom_status"] == "known_not_comparable"
+    assert aca_ptc["priority"] == "P1"
+    assert aca_ptc["mapping_count"] >= 1
+    assert aca_ptc["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/26/36B/b#premium_assistance_credit_amount" in aca_ptc["legal_ids"]
+    )
+    assert "26 USC 36B premium-assistance amount" in aca_ptc["rationale"]
+    assert "microsimulation program surface" in aca_ptc["rationale"]
+
+
 def test_policyengine_program_surface_marks_head_start_known_not_comparable():
     report = build_policyengine_program_surface_report(program="head_start")
 
