@@ -242,6 +242,132 @@ outputs:
     assert item["file"] == "rulespec-us/programs/us-fl/tca/fy-2026.yaml"
 
 
+def test_policyengine_coverage_deduplicates_migrated_legacy_checkouts(tmp_path):
+    content = """format: rulespec/v1
+rules:
+  - name: co_state_tax_deduplicated_output
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us-co/statutes/39/example.yaml",
+        content,
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co/statutes/39/example.yaml",
+        content,
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["total_outputs"] == 1
+    assert report["duplicate_outputs_collapsed"] == 1
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us-co:statutes/39/example#co_state_tax_deduplicated_output"
+    )
+    assert item["file"] == "rulespec-us/us-co/statutes/39/example.yaml"
+
+
+def test_policyengine_candidate_report_sorts_same_priority_by_policybench_weight(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/7/snap-test.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_new_exact_variable
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/9999.yaml",
+        """format: rulespec/v1
+rules:
+  - name: new_income_tax_exact_variable
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        policyengine_variables={
+            "new_income_tax_exact_variable",
+            "snap_new_exact_variable",
+        },
+    )
+
+    assert [item["rule_name"] for item in report["items"][:2]] == [
+        "new_income_tax_exact_variable",
+        "snap_new_exact_variable",
+    ]
+    assert [
+        item["policybench_household_weight"] for item in report["items"][:2]
+    ] == [pytest.approx(19.14), pytest.approx(4.15)]
+
+
+def test_policyengine_candidate_policybench_state_detection_ignores_is_prefix(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/25A.yaml",
+        """format: rulespec/v1
+rules:
+  - name: is_eligible_for_american_opportunity_credit
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        policyengine_variables={"is_eligible_for_american_opportunity_credit"},
+    )
+
+    item = report["items"][0]
+    assert item["policybench_output"] == "federal_tax_before_refundable_credits"
+    assert item["policybench_household_weight"] == pytest.approx(19.14)
+
+
+def test_policyengine_candidate_policybench_weights_mapped_title_26_credit_program(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/25C.yaml",
+        """format: rulespec/v1
+rules:
+  - name: energy_efficient_home_improvement_credit
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        policyengine_variables={"energy_efficient_home_improvement_credit"},
+    )
+
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us:statutes/26/25C#energy_efficient_home_improvement_credit"
+    )
+    assert item["policybench_output"] == "federal_tax_before_refundable_credits"
+    assert item["policybench_household_weight"] == pytest.approx(19.14)
+
+
 def test_policyengine_program_surface_report_overlays_legal_registry(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
@@ -374,6 +500,95 @@ surfaces:
     assert items_by_variable["employee_payroll_tax"]["mapping_count"] == 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
+    assert (
+        items_by_variable["employee_payroll_tax"]["policybench_output"]
+        == "payroll_tax"
+    )
+    assert items_by_variable["employee_payroll_tax"][
+        "policybench_household_weight"
+    ] == pytest.approx(15.65)
+
+
+def test_policyengine_program_surface_report_sorts_actionable_by_policybench_weight(
+    tmp_path,
+):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: tanf
+    program_name: DC TANF
+    category: Benefits
+    policyengine_status: complete
+    coverage: DC
+    variable: dc_tanf
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs RuleSpec encoding.
+  - country: us
+    program_id: medicare
+    program_name: Medicare
+    category: Healthcare
+    policyengine_status: complete
+    coverage: US
+    variable: is_medicare_eligible
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs RuleSpec encoding.
+  - country: us
+    program_id: wic
+    program_name: WIC
+    category: Benefits
+    policyengine_status: complete
+    coverage: US
+    variable: wic
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs RuleSpec encoding.
+  - country: us
+    program_id: montgomery_county_eitc
+    program_name: Montgomery County EITC
+    category: Taxes
+    policyengine_status: complete
+    coverage: Montgomery County
+    variable: md_montgomery_eitc_refundable
+    axiom_status: deferred_jurisdiction
+    priority: P1
+    rationale: Needs jurisdictional RuleSpec repo.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_program_surface_report(
+        manifest_path=manifest,
+        registry=_ProgramSurfaceRegistry({}),
+    )
+
+    assert report["policybench"]["snapshot"] == "2026-06-14"
+    assert [item["variable"] for item in report["actionable_surfaces"]] == [
+        "is_medicare_eligible",
+        "md_montgomery_eitc_refundable",
+        "wic",
+        "dc_tanf",
+    ]
+    assert [
+        item["policybench_household_weight"]
+        for item in report["actionable_surfaces"]
+    ] == [
+        pytest.approx(10.74),
+        pytest.approx(0.55),
+        pytest.approx(0.32),
+        pytest.approx(0.26),
+    ]
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    assert (
+        items_by_variable["md_montgomery_eitc_refundable"]["policybench_output"]
+        == "state_refundable_credits"
+    )
 
 
 def test_policyengine_program_surface_rejects_top_priority_sunset_surface(tmp_path):
@@ -519,6 +734,10 @@ def test_policyengine_program_surface_marks_section_25c_known_not_comparable():
         "us:statutes/26/25C#energy_efficient_home_improvement_credit"
         in section_25c["legal_ids"]
     )
+    assert section_25c["policybench_output"] == (
+        "federal_tax_before_refundable_credits"
+    )
+    assert section_25c["policybench_household_weight"] == pytest.approx(19.14)
     assert "2033 in-effect schedule" in section_25c["rationale"]
     assert "product-identification-number gate" in section_25c["rationale"]
 
@@ -6937,9 +7156,9 @@ rules:
         "us-co:statutes/39/39-22-104/4/z#retroactive_cares_act_subtraction"
     ]
     assert addition["policyengine_variable"] == "co_additions"
-    assert addition["candidate_priority"] == "P3"
+    assert addition["candidate_priority"] == "P4"
     assert subtraction["policyengine_variable"] == "co_subtractions"
-    assert subtraction["candidate_priority"] == "P3"
+    assert subtraction["candidate_priority"] == "P4"
 
 
 def test_policyengine_coverage_classifies_colorado_base_rates_not_comparable(
@@ -7364,6 +7583,7 @@ rules:
     )
     assert p5_addback["status"] == "known_not_comparable"
     assert p5_addback["policyengine_variable"] == "co_federal_deduction_addback"
+    assert p5_addback["candidate_priority"] == "P4"
     assert (
         p7_agi_threshold["policyengine_parameter"]
         == "gov.states.co.tax.income.additions.federal_deductions.agi_threshold"
@@ -7373,10 +7593,11 @@ rules:
         == "gov.states.co.tax.income.additions.federal_deductions.exemption"
     )
     assert p7_single_threshold["status"] == "known_not_comparable"
-    assert p7_single_threshold["candidate_priority"] == "P2"
+    assert p7_single_threshold["candidate_priority"] == "P4"
     assert p7_single_threshold["tested"] is True
     assert p7_addback["status"] == "known_not_comparable"
     assert p7_addback["policyengine_variable"] == "co_federal_deduction_addback"
+    assert p7_addback["candidate_priority"] == "P4"
     assert (
         charitable_floor["policyengine_parameter"]
         == "gov.states.co.tax.income.subtractions.charitable_contribution.adjustment"
@@ -7386,6 +7607,7 @@ rules:
         charitable_subtraction["policyengine_variable"]
         == "co_charitable_contribution_subtraction"
     )
+    assert charitable_subtraction["candidate_priority"] == "P4"
 
 
 def test_policyengine_coverage_classifies_colorado_military_retirement_outputs(
@@ -7973,7 +8195,7 @@ rules:
     assert (
         rate["policyengine_parameter"] == "gov.states.co.tax.income.credits.eitc.match"
     )
-    assert rate["candidate_priority"] == "P2"
+    assert rate["candidate_priority"] == "P4"
     assert regular_branch["policyengine_variable"] == "co_eitc"
     assert missing_ssn_branch["policyengine_variable"] == "co_eitc"
     assert refundable_excess["policyengine_variable"] is None
