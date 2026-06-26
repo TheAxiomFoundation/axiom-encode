@@ -79,7 +79,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
-    remove_output_columns_already_in_raw,
+    remove_raw_columns_replaced_by_outputs,
     require_policyengine_versions,
     resolve_rulespec_program_path,
     select_tax_unit_indices,
@@ -126,7 +126,7 @@ def test_scalar_value_keeps_plain_float_literal_format():
     }
 
 
-def test_remove_output_columns_already_in_raw_prevents_suffixing():
+def test_remove_raw_columns_replaced_by_outputs_prefers_period_values():
     pd = pytest.importorskip("pandas")
     raw = pd.DataFrame(
         [
@@ -141,22 +141,23 @@ def test_remove_output_columns_already_in_raw_prevents_suffixing():
         [
             {
                 "person_id": 1,
-                "qualified_tuition_expenses": 4_000,
+                "qualified_tuition_expenses": 4_400,
                 "american_opportunity_credit": 2_500,
             }
         ]
     )
 
-    filtered = remove_output_columns_already_in_raw(
+    filtered = remove_raw_columns_replaced_by_outputs(
         raw=raw,
         outputs=outputs,
         key="person_id",
     )
-    merged = raw.merge(filtered, on="person_id", how="left", validate="one_to_one")
+    merged = filtered.merge(outputs, on="person_id", how="left", validate="one_to_one")
 
     assert "qualified_tuition_expenses" in merged
     assert "qualified_tuition_expenses_x" not in merged
     assert "qualified_tuition_expenses_y" not in merged
+    assert merged.loc[0, "qualified_tuition_expenses"] == 4_400
     assert merged.loc[0, "american_opportunity_credit"] == 2_500
 
 
@@ -2273,6 +2274,9 @@ def test_policyengine_variables_for_tax_before_credits_include_main_rates_inputs
 
     assert "income_tax_main_rates" in tax_unit_variables
     assert "taxable_income" in tax_unit_variables
+    assert "unrecaptured_section_1250_gain" in tax_unit_variables
+    assert "long_term_capital_gains" in person_variables
+    assert "qualified_dividend_income" in person_variables
     assert person_variables == ecps_tax.PE_PERSON_VARIABLES
 
 
