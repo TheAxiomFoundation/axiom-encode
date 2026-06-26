@@ -31,6 +31,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     SECTION_7703_BASE,
     TAX_BEFORE_CREDITS_BASE,
     TAX_BEFORE_CREDITS_OUTPUTS,
+    TAX_BEFORE_CREDITS_PROGRAM_PATH,
     additional_standard_deduction_entitlement_count,
     build_aotc_request,
     build_capital_gain_definitions_request,
@@ -80,7 +81,9 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_tax_unit_person_contexts,
     remove_output_columns_already_in_raw,
     require_policyengine_versions,
+    resolve_rulespec_program_path,
     select_tax_unit_indices,
+    tax_unit_positive_weight_mask,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
     valid_child_ssn_type,
@@ -1765,6 +1768,28 @@ def test_select_tax_unit_indices_can_target_known_residuals():
     assert indices.tolist() == [1]
 
 
+def test_resolve_rulespec_program_path_supports_country_monorepo_root(tmp_path):
+    root = tmp_path / "rulespec-us"
+    program = root / "us" / "statutes" / "26" / "1" / "j.yaml"
+    program.parent.mkdir(parents=True)
+    program.write_text("program: {}\n")
+
+    assert (
+        resolve_rulespec_program_path(root, TAX_BEFORE_CREDITS_PROGRAM_PATH) == program
+    )
+
+
+def test_resolve_rulespec_program_path_keeps_direct_layout(tmp_path):
+    root = tmp_path / "rulespec-us"
+    program = root / "statutes" / "26" / "1" / "j.yaml"
+    program.parent.mkdir(parents=True)
+    program.write_text("program: {}\n")
+
+    assert (
+        resolve_rulespec_program_path(root, TAX_BEFORE_CREDITS_PROGRAM_PATH) == program
+    )
+
+
 def test_select_tax_unit_indices_rejects_filtered_requested_case():
     pd = pytest.importorskip("pandas")
     raw_tax_units = pd.DataFrame(
@@ -1782,6 +1807,70 @@ def test_select_tax_unit_indices_rejects_filtered_requested_case():
             positive_ctc_only=True,
             tax_unit_ids=(2976,),
         )
+
+
+def test_select_tax_unit_indices_uses_household_weights_when_tax_unit_weight_absent():
+    pd = pytest.importorskip("pandas")
+    raw_tax_units = pd.DataFrame(
+        [
+            {"tax_unit_id": 10},
+            {"tax_unit_id": 20},
+            {"tax_unit_id": 30},
+        ]
+    )
+    raw_persons = pd.DataFrame(
+        [
+            {"person_tax_unit_id": 10, "person_household_id": 1},
+            {"person_tax_unit_id": 20, "person_household_id": 2},
+            {"person_tax_unit_id": 30, "person_household_id": 3},
+        ]
+    )
+    raw_households = pd.DataFrame(
+        [
+            {"household_id": 1, "household_weight": 4.5},
+            {"household_id": 2, "household_weight": 0},
+            {"household_id": 3, "household_weight": 12},
+        ]
+    )
+    tax_units = pd.DataFrame([{"ctc": 0}, {"ctc": 0}, {"ctc": 0}])
+
+    indices = select_tax_unit_indices(
+        raw_tax_units=raw_tax_units,
+        raw_persons=raw_persons,
+        raw_households=raw_households,
+        tax_units=tax_units,
+        sample_size=0,
+        positive_ctc_only=False,
+    )
+
+    assert indices.tolist() == [0, 2]
+
+
+def test_select_tax_unit_indices_rejects_zero_household_weight_requested_case():
+    pd = pytest.importorskip("pandas")
+    raw_tax_units = pd.DataFrame([{"tax_unit_id": 20}])
+    raw_persons = pd.DataFrame([{"person_tax_unit_id": 20, "person_household_id": 2}])
+    raw_households = pd.DataFrame([{"household_id": 2, "household_weight": 0}])
+    tax_units = pd.DataFrame([{"ctc": 10}])
+
+    with pytest.raises(SystemExit, match="not eligible"):
+        select_tax_unit_indices(
+            raw_tax_units=raw_tax_units,
+            raw_persons=raw_persons,
+            raw_households=raw_households,
+            tax_units=tax_units,
+            sample_size=0,
+            positive_ctc_only=False,
+            tax_unit_ids=(20,),
+        )
+
+
+def test_tax_unit_positive_weight_mask_requires_person_household_tables():
+    pd = pytest.importorskip("pandas")
+    raw_tax_units = pd.DataFrame([{"tax_unit_id": 20}])
+
+    with pytest.raises(SystemExit, match="provide person and household tables"):
+        tax_unit_positive_weight_mask(raw_tax_units=raw_tax_units)
 
 
 def test_compare_outputs_reports_max_relative_diff_for_large_float_noise():

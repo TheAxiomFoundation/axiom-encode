@@ -374,6 +374,23 @@ SURFACE_PROGRAM_PATHS = {
     "nonrefundable-credits": NONREFUNDABLE_CREDITS_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
+
+
+def resolve_rulespec_program_path(rulespec_root: Path, program_path: Path) -> Path:
+    """Resolve pre- and post-country-monorepo RuleSpec paths."""
+
+    direct = rulespec_root / program_path
+    if direct.exists():
+        return direct
+    prefix = jurisdiction_prefix(rulespec_root)
+    if prefix and (not program_path.parts or program_path.parts[0] != prefix):
+        country_scoped = rulespec_root / prefix / program_path
+        if country_scoped.exists():
+            return country_scoped
+        return country_scoped
+    return direct
+
+
 PE_TAX_UNIT_VARIABLES = tuple(
     sorted(
         {
@@ -691,16 +708,19 @@ def compare_tax_ecps(
     oasdi_wage_base_results: list[dict[str, Any]] | None = None
     contribution_base: float | None = None
     for selected_surface in surfaces:
-        program = resolved_rulespec_root / SURFACE_PROGRAM_PATHS[selected_surface]
+        program = resolve_rulespec_program_path(
+            resolved_rulespec_root,
+            SURFACE_PROGRAM_PATHS[selected_surface],
+        )
         if not program.exists():
             raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
         if selected_surface == "eitc" or payroll_surface_uses_axiom_3121(
             selected_surface
         ):
             if contribution_base is None:
-                contribution_base_program = (
-                    resolved_rulespec_root
-                    / contribution_and_benefit_base_program_path(year)
+                contribution_base_program = resolve_rulespec_program_path(
+                    resolved_rulespec_root,
+                    contribution_and_benefit_base_program_path(year),
                 )
                 if not contribution_base_program.exists():
                     raise SystemExit(
@@ -734,7 +754,10 @@ def compare_tax_ecps(
                         output=contribution_base_output,
                     )
             if oasdi_wage_base_results is None:
-                oasdi_program = resolved_rulespec_root / OASDI_WAGE_BASE_PROGRAM_PATH
+                oasdi_program = resolve_rulespec_program_path(
+                    resolved_rulespec_root,
+                    OASDI_WAGE_BASE_PROGRAM_PATH,
+                )
                 if not oasdi_program.exists():
                     raise SystemExit(
                         f"OASDI wage-base RuleSpec not found: {oasdi_program}"
@@ -814,6 +837,7 @@ def load_policyengine_tax_data(
 
     raw_tax_units = population_table(dataset, "tax_unit")
     raw_persons = population_table(dataset, "person")
+    raw_households = population_table(dataset, "household")
     tax_unit_outputs = raw_tax_units[["tax_unit_id"]].copy()
     for variable in tax_unit_variables:
         tax_unit_outputs[variable] = calculate(sim, variable, year)
@@ -822,6 +846,8 @@ def load_policyengine_tax_data(
         person_outputs[variable] = calculate(sim, variable, year)
     indices = select_tax_unit_indices(
         raw_tax_units=raw_tax_units,
+        raw_persons=raw_persons,
+        raw_households=raw_households,
         tax_units=tax_unit_outputs,
         sample_size=sample_size,
         positive_ctc_only=positive_ctc_only,
@@ -908,9 +934,15 @@ def select_tax_unit_indices(
     sample_size: int,
     positive_ctc_only: bool,
     tax_unit_ids: tuple[int, ...] = (),
+    raw_persons: Any | None = None,
+    raw_households: Any | None = None,
 ) -> Any:
     """Select Populace tax-unit row indices for oracle comparison."""
-    mask = np.asarray(raw_tax_units["tax_unit_weight"]) > 0
+    mask = tax_unit_positive_weight_mask(
+        raw_tax_units=raw_tax_units,
+        raw_persons=raw_persons,
+        raw_households=raw_households,
+    )
     if positive_ctc_only:
         mask &= np.asarray(tax_units["ctc"]) > 0
     if not tax_unit_ids:
@@ -944,6 +976,51 @@ def select_tax_unit_indices(
             + ", ".join(str(value) for value in filtered)
         )
     return np.asarray(selected, dtype=int)
+
+
+def tax_unit_positive_weight_mask(
+    *,
+    raw_tax_units: Any,
+    raw_persons: Any | None = None,
+    raw_households: Any | None = None,
+) -> np.ndarray:
+    """Return positive-weight tax-unit rows across legacy and Populace schemas."""
+
+    if "tax_unit_weight" in raw_tax_units.columns:
+        return np.asarray(raw_tax_units["tax_unit_weight"]) > 0
+    if "household_weight" in raw_tax_units.columns:
+        return np.asarray(raw_tax_units["household_weight"]) > 0
+    if raw_persons is None or raw_households is None:
+        raise SystemExit(
+            "Populace tax-unit table has no tax_unit_weight; provide person and "
+            "household tables to derive weights from household_weight."
+        )
+
+    required_person_columns = {"person_tax_unit_id", "person_household_id"}
+    missing_person_columns = required_person_columns - set(raw_persons.columns)
+    if missing_person_columns:
+        raise SystemExit(
+            "Populace person table is missing required tax-unit weight columns: "
+            + ", ".join(sorted(missing_person_columns))
+        )
+    required_household_columns = {"household_id", "household_weight"}
+    missing_household_columns = required_household_columns - set(raw_households.columns)
+    if missing_household_columns:
+        raise SystemExit(
+            "Populace household table is missing required tax-unit weight columns: "
+            + ", ".join(sorted(missing_household_columns))
+        )
+
+    household_weights = raw_households.set_index("household_id")["household_weight"]
+    person_links = raw_persons[["person_tax_unit_id", "person_household_id"]].copy()
+    person_links["tax_unit_household_weight"] = person_links["person_household_id"].map(
+        household_weights
+    )
+    tax_unit_weights = person_links.groupby("person_tax_unit_id")[
+        "tax_unit_household_weight"
+    ].max()
+    row_weights = raw_tax_units["tax_unit_id"].map(tax_unit_weights).fillna(0)
+    return np.asarray(row_weights) > 0
 
 
 def _install_policyengine_data_certification_override() -> None:
@@ -1614,9 +1691,10 @@ def contribution_and_benefit_base_from_rulespec_test(
     year: int,
     output: str | None = None,
 ) -> float | None:
-    test_path = rulespec_root / contribution_and_benefit_base_program_path(
-        year
-    ).with_suffix(".test.yaml")
+    test_path = resolve_rulespec_program_path(
+        rulespec_root,
+        contribution_and_benefit_base_program_path(year).with_suffix(".test.yaml"),
+    )
     if not test_path.exists():
         return None
     try:
