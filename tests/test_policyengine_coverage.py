@@ -632,13 +632,16 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert wic["policybench_household_weight"] == pytest.approx(0.32)
 
     assert head_start["program_id"] == "head_start"
-    assert head_start["axiom_status"] == "known_not_comparable"
-    assert head_start["mapping_count"] == 3
+    assert head_start["axiom_status"] == "pending_oracle_mapping"
+    assert head_start["mapping_count"] == 6
+    assert head_start["comparable_mapping_count"] == 0
     assert head_start["policybench_output"] == "person_level_head_start_eligibility"
     assert head_start["policybench_household_weight"] == pytest.approx(1.18)
 
     assert early_head_start["program_id"] == "head_start"
     assert early_head_start["axiom_status"] == "pending_rulespec_encoding"
+    assert early_head_start["mapping_count"] == 1
+    assert early_head_start["comparable_mapping_count"] == 0
     assert (
         early_head_start["policybench_output"]
         == "person_level_early_head_start_eligibility"

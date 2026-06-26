@@ -2572,7 +2572,9 @@ def test_policyengine_registry_is_legal_id_keyed():
         country="us",
     )
     assert head_start_age_mapping.mapping_type == "parameter_value"
-    assert head_start_age_mapping.policyengine_parameter == "gov.hhs.head_start.age_range"
+    assert (
+        head_start_age_mapping.policyengine_parameter == "gov.hhs.head_start.age_range"
+    )
     assert head_start_age_mapping.parameter_key_path == ("thresholds", 1)
     head_start_overincome_exception_mapping = registry.mapping_for_legal_id(
         "us:regulations/45-cfr/1302/12#paragraph_c_overincome_exception_participant_may_be_enrolled",
@@ -3501,6 +3503,59 @@ def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):
     assert result.details["coverage"]["passed"] == 1
     assert "gov.irs.payroll.medicare.additional.exclusion" in scripts[0]
     assert 'keys = ["JOINT"]' in scripts[0]
+
+
+def test_policyengine_parameter_mapping_ignores_unrelated_legal_inputs(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: early_head_start_age_threshold
+  period: 2026
+  input:
+    us:regulations/45-cfr/1302/12/b#input.child_age_years: 0
+    us:regulations/45-cfr/1302/12/b#input.child_is_infant_or_toddler: false
+    us:regulations/45-cfr/1302/12/b#input.child_transitioning_to_head_start_preschool: false
+  output:
+    us:regulations/45-cfr/1302/12/b#early_head_start_age_threshold_years: 3
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:regulations/45-cfr/1302/12/b#early_head_start_age_threshold_years": PolicyEngineMapping(
+                legal_id="us:regulations/45-cfr/1302/12/b#early_head_start_age_threshold_years",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.hhs.head_start.early_head_start.age_limit",
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:3\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["passed"] == 1
+    assert "gov.hhs.head_start.early_head_start.age_limit" in scripts[0]
+    assert "child_age_years" not in scripts[0]
 
 
 def test_policyengine_oracle_compares_multi_key_parameter_value_mapping(tmp_path):
