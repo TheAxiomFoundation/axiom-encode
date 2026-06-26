@@ -1747,6 +1747,12 @@ def main():
         help="Extra file path to copy into the repo-augmented workspace (repeatable)",
     )
     encode_parser.add_argument(
+        "--policyengine-rule-hint",
+        dest="policyengine_rule_hint",
+        default=None,
+        help="Canonical rule name to use as the PolicyEngine oracle target for this source slice",
+    )
+    encode_parser.add_argument(
         "--db",
         type=Path,
         default=DEFAULT_DB,
@@ -19200,6 +19206,7 @@ def cmd_encode(args):
 
     source_id = getattr(args, "source_id", None)
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
+    policyengine_rule_hint = getattr(args, "policyengine_rule_hint", None)
     source_unit = None
     if source_id:
         source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
@@ -19225,6 +19232,7 @@ def cmd_encode(args):
             mode=args.mode,
             extra_context_paths=[Path(path) for path in args.allow_context],
             skip_reviewers=skip_reviewers,
+            policyengine_rule_hint=policyengine_rule_hint,
         )
     else:
         results = run_model_eval(
@@ -19238,6 +19246,7 @@ def cmd_encode(args):
             extra_context_paths=[Path(path) for path in args.allow_context],
             include_tests=True,
             skip_reviewers=skip_reviewers,
+            policyengine_rule_hint=policyengine_rule_hint,
         )
 
     result = results[0]
@@ -19249,6 +19258,8 @@ def cmd_encode(args):
     print(f"Mode: {args.mode}")
     if skip_reviewers:
         print("Reviewers: skipped")
+    if policyengine_rule_hint:
+        print(f"PolicyEngine rule hint: {policyengine_rule_hint}")
     if source_unit is not None:
         print(f"Corpus source: {source_unit.citation_path} ({source_unit.source})")
         print(f"RuleSpec source id: {source_id}")
