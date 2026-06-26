@@ -3625,7 +3625,7 @@ def cmd_oracle_coverage(args):
     unmapped = int(report["status_counts"].get("unmapped", 0))
     untested_comparable = int(report.get("untested_comparable", 0))
     pending_program_surfaces = int(
-        (report.get("program_surfaces") or {}).get("pending_surfaces", 0)
+        (report.get("program_surfaces") or {}).get("active_pending_surfaces", 0)
     )
     should_fail = (
         (args.fail_on_unmapped and unmapped)

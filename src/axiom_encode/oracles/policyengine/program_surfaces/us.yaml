@@ -1400,10 +1400,13 @@ surfaces:
   coverage: US
   variable: is_head_start_eligible
   source_type: eligibility
-  axiom_status: pending_oracle_mapping
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyBench scores this direct person-level Head Start eligibility variable. Axiom has national eligibility slices, but
-    the PE eligibility boundary still needs a reviewed exact composite or a documented non-comparable classification.
+  rationale: Axiom encodes and classifies the national 45 CFR 1302.12 eligibility slices that touch Head Start eligibility,
+    including ordinary paragraph (c) participant eligibility, preschool age, over-income enrollment allowances, Tribal
+    service-area eligibility, and Migrant or Seasonal eligibility. PolicyEngine's `is_head_start_eligible` variable is a
+    direct person-level model surface that does not expose those legal branches and program-administration predicates as a
+    one-to-one RuleSpec oracle boundary.
 - country: us
   program_id: head_start
   program_name: Early Head Start eligibility
@@ -1413,10 +1416,12 @@ surfaces:
   coverage: US
   variable: is_early_head_start_eligible
   source_type: eligibility
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyBench scores this direct person-level Early Head Start eligibility variable. Axiom should encode the infant,
-    toddler, and pregnancy eligibility boundary before claiming parity.
+  rationale: Axiom encodes and classifies the 45 CFR 1302.12(b)(1) Early Head Start age requirement and the paragraph (c)
+    participant eligibility paths. PolicyEngine's `is_early_head_start_eligible` variable is a direct person-level model
+    surface combining Early Head Start age or pregnancy eligibility with broader model eligibility logic, so the existing
+    source-specific RuleSpec outputs are not a one-to-one oracle boundary.
 - country: us
   program_id: head_start
   program_name: ECEAP
@@ -1428,7 +1433,8 @@ surfaces:
   source_type: state_implementation
   state: WA
   axiom_status: deferred_jurisdiction
-  priority: P1
+  priority: P3
+  lifecycle: inactive
   rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
     and Georgia law before other jurisdictions.
 - country: us
@@ -1442,7 +1448,8 @@ surfaces:
   source_type: state_implementation
   state: WA
   axiom_status: deferred_jurisdiction
-  priority: P1
+  priority: P3
+  lifecycle: inactive
   rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
     and Georgia law before other jurisdictions.
 - country: us
