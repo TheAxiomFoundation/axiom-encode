@@ -2363,11 +2363,10 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
         return ()
 
     try:
-        primary = (
-            normalized
-            if _looks_like_corpus_citation_path(normalized)
-            else citation_to_citation_path(normalized)
-        )
+        if _looks_like_corpus_citation_path(normalized):
+            primary = normalized
+        else:
+            primary = _citation_to_corpus_citation_path(normalized)
     except ValueError:
         primary = normalized
 
@@ -2383,6 +2382,44 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
     for end in range(len(parts) - 1, 2, -1):
         add("/".join(parts[:end]))
     return tuple(candidates)
+
+
+_CFR_CITATION_RE = re.compile(
+    r"^(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s+"
+    r"(?:(?:part|pt\.?)\s+)?(?:§+\s*)?"
+    r"(?P<section>[0-9A-Za-z.-]+)"
+    r"(?P<tail>(?:\([^)]+\))*)$",
+    re.IGNORECASE,
+)
+
+
+def _citation_to_corpus_citation_path(citation: str) -> str:
+    """Convert a bare legal citation to a corpus citation path."""
+    cfr_path = _cfr_citation_to_corpus_citation_path(citation)
+    if cfr_path is not None:
+        return cfr_path
+    if re.search(r"\bC\.?\s*F\.?\s*R\.?\b", citation, flags=re.IGNORECASE):
+        raise ValueError(f"Could not parse CFR citation: {citation}")
+    return citation_to_citation_path(citation)
+
+
+def _cfr_citation_to_corpus_citation_path(citation: str) -> str | None:
+    match = _CFR_CITATION_RE.match(citation.strip().replace("§", "§ "))
+    if match is None:
+        return None
+    section_parts = [part for part in match.group("section").split(".") if part]
+    if not section_parts:
+        return None
+    fragments = re.findall(r"\(([^)]+)\)", match.group("tail"))
+    return "/".join(
+        (
+            "us",
+            "regulation",
+            match.group("title"),
+            *section_parts,
+            *fragments,
+        )
+    )
 
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
@@ -2447,7 +2484,7 @@ def _read_local_corpus_descendant_text(
     except OSError:
         return None
 
-    descendants: list[tuple[int, int, str | None, str]] = []
+    descendants: list[tuple[int, int, str, str, str]] = []
     child_prefix = f"{citation_path}/"
     for line in lines:
         if not line.strip():
@@ -2468,7 +2505,8 @@ def _read_local_corpus_descendant_text(
             (
                 int(record.get("level") or 0),
                 int(record.get("ordinal") or 0),
-                str(record.get("heading") or "") or None,
+                str(record.get("heading") or ""),
+                record_path,
                 str(body),
             )
         )
@@ -2476,7 +2514,7 @@ def _read_local_corpus_descendant_text(
     if not descendants:
         return None
     chunks: list[str] = []
-    for _, _, heading, body in sorted(descendants):
+    for _, _, heading, _, body in sorted(descendants):
         if heading:
             chunks.append(f"{heading}\n\n{body}")
         else:
@@ -3019,7 +3057,7 @@ def _relative_rulespec_path_to_import_target(
 
 
 def _target_rel_for_eval_identifier(citation: str) -> Path | None:
-    """Return the canonical RuleSpec target path for corpus or USC citations."""
+    """Return the canonical RuleSpec target path for corpus or bare citations."""
     normalized = citation.strip().strip("/")
     first_part = normalized.split("/", 1)[0]
     if ":" in first_part:
@@ -3030,7 +3068,9 @@ def _target_rel_for_eval_identifier(citation: str) -> Path | None:
     if _looks_like_corpus_citation_path(normalized):
         return _source_identifier_to_relative_rulespec_path(normalized)
     try:
-        return citation_to_relative_rulespec_path(citation)
+        return _source_identifier_to_relative_rulespec_path(
+            _citation_to_corpus_citation_path(citation)
+        )
     except Exception:
         return None
 
@@ -4022,6 +4062,12 @@ def _resolve_eval_output_path(
     )
     if source_identifier != citation or _looks_like_corpus_citation_path(citation):
         return _source_identifier_to_relative_rulespec_path(source_identifier)
+    try:
+        return _source_identifier_to_relative_rulespec_path(
+            _citation_to_corpus_citation_path(citation)
+        )
+    except ValueError:
+        pass
     if fallback is not None:
         return fallback(citation)
     return _source_identifier_to_relative_rulespec_path(citation)
@@ -9630,9 +9676,33 @@ def _materialize_eval_artifact(
         bundle_by_candidate_name = {
             Path(file_name).name: content for file_name, content in bundle.items()
         }
+        main_bundle_name = expected_path.name
+        test_bundle_name = expected_test_path.name
+        if main_bundle_name not in bundle_by_candidate_name:
+            generated_main_names = [
+                Path(file_name).name
+                for file_name in bundle
+                if Path(file_name).suffix in {".yaml", ".yml"}
+                and not Path(file_name).name.endswith(".test.yaml")
+            ]
+            if len(generated_main_names) == 1:
+                main_bundle_name = generated_main_names[0]
+                generated_test_name = (
+                    Path(main_bundle_name).with_suffix(".test.yaml").name
+                )
+                if generated_test_name in bundle_by_candidate_name:
+                    test_bundle_name = generated_test_name
+                else:
+                    generated_test_names = [
+                        Path(file_name).name
+                        for file_name in bundle
+                        if Path(file_name).name.endswith(".test.yaml")
+                    ]
+                    if len(generated_test_names) == 1:
+                        test_bundle_name = generated_test_names[0]
         normalized_main_content: str | None = None
         stripped_test_output_names: set[str] = set()
-        raw_main_content = bundle_by_candidate_name.get(expected_path.name)
+        raw_main_content = bundle_by_candidate_name.get(main_bundle_name)
         if raw_main_content is not None:
             try:
                 normalized_main_content = _normalize_main_eval_content(
@@ -9653,9 +9723,9 @@ def _materialize_eval_artifact(
                 stripped_test_output_names = set()
         for file_name, content in bundle.items():
             candidate_name = Path(file_name).name
-            if candidate_name == expected_path.name:
+            if candidate_name == main_bundle_name:
                 target_path = expected_path
-            elif candidate_name == expected_test_path.name:
+            elif candidate_name == test_bundle_name:
                 target_path = expected_test_path
             else:
                 continue

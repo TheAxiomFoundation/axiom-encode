@@ -397,6 +397,92 @@ def test_resolve_corpus_source_unit_uses_form_child_blocks(tmp_path):
     assert "Colorado 142% 142% 142% 260% 195% 260% 68% 133%" in source_unit.body
 
 
+def test_resolve_corpus_source_unit_uses_headingless_child_blocks(tmp_path):
+    citation = "us/regulation/42/435/119"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation,
+                        "body": None,
+                        "heading": "Coverage for adults",
+                        "level": 1,
+                        "ordinal": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/b",
+                        "body": "The agency must provide Medicaid to adults.",
+                        "heading": None,
+                        "level": 2,
+                        "ordinal": 2,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/a",
+                        "body": "This section applies beginning January 1, 2014.",
+                        "heading": None,
+                        "level": 2,
+                        "ordinal": 1,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == (
+        "This section applies beginning January 1, 2014.\n\n"
+        "The agency must provide Medicaid to adults."
+    )
+
+
+def test_resolve_corpus_source_unit_parses_bare_cfr_citation(tmp_path):
+    citation = "us/regulation/42/435/119"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": citation,
+                "body": (
+                    "(a) Basis. This section implements coverage for adults.\n\n"
+                    "(b) Eligibility. The agency must provide Medicaid to adults."
+                ),
+                "heading": "Coverage for adults",
+                "level": 2,
+                "ordinal": 119,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit("42 CFR 435.119(b)", corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == (
+        "(b) Eligibility. The agency must provide Medicaid to adults."
+    )
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(
@@ -513,6 +599,17 @@ def test_resolve_eval_output_path_uses_path_like_citation_directly():
 
     assert _resolve_eval_output_path("us/statute/7/2014/e/2/B") == Path(
         "statutes/7/2014/e/2/B.yaml"
+    )
+
+
+def test_resolve_eval_output_path_parses_bare_cfr_citation():
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    assert _resolve_eval_output_path("42 CFR 435.119") == Path(
+        "regulations/42-cfr/435/119.yaml"
+    )
+    assert _resolve_eval_output_path("42 C.F.R. § 435.119(b)(5)") == Path(
+        "regulations/42-cfr/435/119/b/5.yaml"
     )
 
 
