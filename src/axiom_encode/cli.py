@@ -19527,6 +19527,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_missing_relations = (
+                    _try_repair_generated_missing_data_relations_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_missing_relations:
+                    outcome["auto_repaired_missing_data_relations"] = (
+                        repaired_missing_relations
+                    )
+                    print(
+                        "  apply=auto_repaired_missing_data_relations:"
+                        + ",".join(repaired_missing_relations)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_scalar_rows: list[str] = []
                 while not can_apply:
                     repaired_batch = (
@@ -24952,6 +24980,286 @@ def _try_repair_generated_table_relation_tests_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _split_table_row_relation_test_cases(test_file)
+
+
+_UNDECLARED_RELATION_INPUT_ISSUE_PATTERN = re.compile(
+    r"relation input `(?P<reference>[^`]+#relation\.(?P<name>[A-Za-z_][A-Za-z0-9_]*))` "
+    r"does not resolve to a declared relation"
+)
+
+
+def _try_repair_generated_missing_data_relations_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Declare generated local relations proven by formulas and companion tests.
+
+    Model output can contain a valid relation aggregate such as
+    `sum_where(dependent_care_recipients, ...)` and companion
+    `#relation.dependent_care_recipients` rows, but omit the corresponding
+    `kind: data_relation` rule. Repair only that narrow, CI-proven case.
+    """
+    relation_names = _undeclared_relation_names_from_issues(issues)
+    if not relation_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    existing_relations = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower() == "data_relation"
+    }
+
+    repaired: list[str] = []
+    for relation_name in relation_names:
+        if relation_name in existing_relations:
+            continue
+        if not _rulespec_rules_reference_relation(rules, relation_name):
+            continue
+        relation_rule = _build_inferred_data_relation_rule(rules, relation_name)
+        if relation_rule is None:
+            continue
+        insert_at = _first_rule_index_referencing_relation(rules, relation_name)
+        rules.insert(insert_at, relation_rule)
+        existing_relations.add(relation_name)
+        repaired.append(relation_name)
+
+    if not repaired:
+        return []
+
+    test_file = _rulespec_test_path(rules_file)
+    _remove_stale_relation_scalar_inputs(test_file, repaired)
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _undeclared_relation_names_from_issues(issues: list[str]) -> list[str]:
+    relation_names: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = _UNDECLARED_RELATION_INPUT_ISSUE_PATTERN.search(str(issue))
+        if match is None:
+            continue
+        name = match.group("name").strip()
+        if name and name not in seen:
+            seen.add(name)
+            relation_names.append(name)
+    return relation_names
+
+
+def _rulespec_rules_reference_relation(
+    rules: list[object],
+    relation_name: str,
+) -> bool:
+    return any(
+        _formula_references_relation(formula, relation_name)
+        for rule in rules
+        if isinstance(rule, dict)
+        for formula in _rulespec_rule_formula_strings(rule)
+    )
+
+
+def _first_rule_index_referencing_relation(
+    rules: list[object],
+    relation_name: str,
+) -> int:
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if any(
+            _formula_references_relation(formula, relation_name)
+            for formula in _rulespec_rule_formula_strings(rule)
+        ):
+            return index
+    return 0
+
+
+def _build_inferred_data_relation_rule(
+    rules: list[object],
+    relation_name: str,
+) -> dict[str, object] | None:
+    by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    related_entities: list[str] = []
+    enclosing_entities: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        formulas = _rulespec_rule_formula_strings(rule)
+        if not any(
+            _formula_references_relation(formula, relation_name) for formula in formulas
+        ):
+            continue
+        enclosing_entity = str(rule.get("entity") or "").strip()
+        if enclosing_entity:
+            enclosing_entities.append(enclosing_entity)
+        for formula in formulas:
+            for identifier in _relation_aggregate_argument_identifiers(
+                formula,
+                relation_name,
+            ):
+                related_entity = _rulespec_rule_entity(by_name.get(identifier))
+                if related_entity and related_entity != enclosing_entity:
+                    related_entities.append(related_entity)
+
+    relation: dict[str, object] = {
+        "name": relation_name,
+        "kind": "data_relation",
+        "data_relation": {
+            "predicate": relation_name,
+            "arity": 2,
+        },
+    }
+    related_entity = _first_common_value(related_entities)
+    enclosing_entity = _first_common_value(enclosing_entities)
+    if related_entity and enclosing_entity:
+        relation["data_relation"] = {
+            "predicate": relation_name,
+            "arity": 2,
+            "arguments": [
+                {
+                    "name": _singular_relation_argument_name(relation_name),
+                    "entity": related_entity,
+                },
+                {
+                    "name": _snake_case_identifier(enclosing_entity),
+                    "entity": enclosing_entity,
+                },
+            ],
+        }
+    return relation
+
+
+def _formula_references_relation(formula: str, relation_name: str) -> bool:
+    escaped = re.escape(relation_name)
+    return bool(
+        re.search(
+            rf"\b(?:count_where|len|sum|sum_where)\s*\(\s*{escaped}\b",
+            formula,
+        )
+        or re.search(rf"\b{escaped}\.[A-Za-z_][A-Za-z0-9_]*\b", formula)
+    )
+
+
+def _relation_aggregate_argument_identifiers(
+    formula: str,
+    relation_name: str,
+) -> list[str]:
+    escaped = re.escape(relation_name)
+    identifiers: list[str] = []
+    for match in re.finditer(
+        rf"\bsum_where\s*\(\s*{escaped}\s*,\s*"
+        r"(?P<amount>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*"
+        r"(?P<predicate>[A-Za-z_][A-Za-z0-9_]*)\s*\)",
+        formula,
+    ):
+        identifiers.extend([match.group("amount"), match.group("predicate")])
+    for match in re.finditer(
+        rf"\bcount_where\s*\(\s*{escaped}\s*,\s*"
+        r"(?P<predicate>[A-Za-z_][A-Za-z0-9_]*)\s*\)",
+        formula,
+    ):
+        identifiers.append(match.group("predicate"))
+    return identifiers
+
+
+def _rulespec_rule_entity(rule: object) -> str | None:
+    if not isinstance(rule, dict):
+        return None
+    entity = str(rule.get("entity") or "").strip()
+    return entity or None
+
+
+def _first_common_value(values: list[str]) -> str | None:
+    if not values:
+        return None
+    counts = Counter(values)
+    return max(counts, key=lambda item: (counts[item], -values.index(item)))
+
+
+def _singular_relation_argument_name(relation_name: str) -> str:
+    if relation_name.endswith("_children"):
+        return f"{relation_name.removesuffix('_children')}_child"
+    if relation_name == "children":
+        return "child"
+    if relation_name.endswith("ies"):
+        return f"{relation_name[:-3]}y"
+    if relation_name.endswith("s") and not relation_name.endswith("ss"):
+        return relation_name[:-1]
+    return relation_name
+
+
+def _snake_case_identifier(value: str) -> str:
+    value = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    return value.replace("-", "_").lower()
+
+
+def _remove_stale_relation_scalar_inputs(
+    test_file: Path,
+    relation_names: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+        cases = payload["cases"]
+    elif isinstance(payload, list):
+        cases = payload
+    else:
+        return []
+
+    relation_set = set(relation_names)
+    removed: list[str] = []
+    for index, case in enumerate(cases, start=1):
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        case_name = str(case.get("name") or f"case {index}")
+        for key in list(inputs):
+            fragment = _rulespec_test_key_fragment(key)
+            if not fragment.startswith("input."):
+                continue
+            input_name = fragment.removeprefix("input.").strip()
+            if input_name not in relation_set:
+                continue
+            value = inputs.get(key)
+            if isinstance(value, list):
+                continue
+            inputs.pop(key, None)
+            removed.append(f"{case_name}:{input_name}")
+
+    if not removed:
+        return []
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return removed
 
 
 _SCALAR_RELATION_ROW_ISSUE_PATTERN = re.compile(
