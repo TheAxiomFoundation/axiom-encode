@@ -16103,6 +16103,56 @@ rules:
 
         assert value == 0
 
+    @pytest.mark.parametrize(
+        ("input_name", "formula"),
+        [
+            (
+                "eligible_childcare_costs",
+                "max(0, eligible_childcare_costs)",
+            ),
+            (
+                "incapacitated_adult_care_expenses",
+                (
+                    "monthly_work_expense_disregard_amount "
+                    "+ max(0, incapacitated_adult_care_expenses)"
+                ),
+            ),
+            (
+                "above_the_line_deductions",
+                "max(0, gross_income - above_the_line_deductions)",
+            ),
+            (
+                "income_tax_refundable_credits",
+                (
+                    "max(0, tax_before_refundable_credits "
+                    "- income_tax_refundable_credits)"
+                ),
+            ),
+        ],
+    )
+    def test_generated_test_input_defaults_treat_plural_numeric_markers_as_money(
+        self,
+        input_name,
+        formula,
+    ):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "derived_money_amount",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "versions": [{"formula": formula}],
+                }
+            ]
+        }
+
+        value = _default_generated_test_input_value(
+            input_name,
+            rules_payload=rules_payload,
+        )
+
+        assert value == 0
+
     def test_generated_test_input_defaults_treat_month_counts_as_numeric(self):
         rules_payload = {
             "rules": [
@@ -25631,11 +25681,39 @@ rules:
             == 999999999
         )
 
+    @pytest.mark.parametrize(
+        "input_name",
+        [
+            "eligible_childcare_costs",
+            "incapacitated_adult_care_expenses",
+            "above_the_line_deductions",
+            "income_tax_refundable_credits",
+        ],
+    )
+    def test_missing_input_default_treats_plural_numeric_markers_as_numeric(
+        self, input_name
+    ):
+        assert _infer_missing_input_default(input_name) == 0
+
     def test_missing_input_default_does_not_treat_taxpayer_as_tax_numeric(self):
         assert (
             _infer_missing_input_default("is_dependent_under_section_152_of_taxpayer")
             is False
         )
+
+    @pytest.mark.parametrize(
+        "input_name",
+        [
+            "household_has_childcare_costs",
+            "household_has_out_of_pocket_dependent_care_expenses",
+            "taxpayer_has_above_the_line_deductions",
+            "filer_has_refundable_credits",
+        ],
+    )
+    def test_missing_input_default_preserves_boolean_plural_marker_names(
+        self, input_name
+    ):
+        assert _infer_missing_input_default(input_name) is False
 
     def test_repair_imported_proof_hashes_writes_target_file_hash(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
