@@ -443,6 +443,7 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "standard_deduction",
             "tax_unit_childcare_expenses",
             "taxable_income",
+            "unrecaptured_section_1250_gain",
             "used_clean_vehicle_credit",
             "lifetime_learning_credit",
         }
@@ -458,7 +459,10 @@ PE_PERSON_VARIABLES = tuple(
             "attends_eligible_educational_institution_for_american_opportunity_credit",
             "american_opportunity_credit_claimed_prior_years",
             "educational_assistance",
+            "employment_income",
+            "employment_income_before_lsr",
             "irs_employment_income",
+            "farm_operations_income",
             "has_american_opportunity_credit_1098_t_or_exception",
             "has_american_opportunity_credit_institution_ein",
             "has_completed_first_four_years_of_postsecondary_education",
@@ -468,8 +472,23 @@ PE_PERSON_VARIABLES = tuple(
             "is_tax_unit_head",
             "is_tax_unit_head_or_spouse",
             "is_tax_unit_spouse",
+            "investment_income_elected_form_4952",
+            "long_term_capital_gains",
+            "long_term_capital_gains_before_response",
+            "long_term_capital_gains_on_collectibles",
+            "long_term_capital_gains_on_small_business_stock",
+            "non_qualified_dividend_income",
             "payroll_tax_gross_wages",
+            "pre_tax_health_insurance_premiums",
             "qualified_tuition_expenses",
+            "qualified_dividend_income",
+            "rental_income",
+            "self_employment_income_before_lsr",
+            "short_term_capital_gains",
+            "sstb_self_employment_income_before_lsr",
+            "taxable_interest_income",
+            "tax_exempt_interest_income",
+            "health_savings_account_payroll_contributions",
         }
     )
 )
@@ -854,7 +873,7 @@ def load_policyengine_tax_data(
         tax_unit_ids=tax_unit_ids,
     )
     selected = raw_tax_units.iloc[indices].copy()
-    tax_unit_outputs = remove_output_columns_already_in_raw(
+    selected = remove_raw_columns_replaced_by_outputs(
         raw=selected,
         outputs=tax_unit_outputs,
         key="tax_unit_id",
@@ -869,7 +888,7 @@ def load_policyengine_tax_data(
     selected_persons = raw_persons[
         raw_persons["person_tax_unit_id"].astype(int).isin(selected_ids)
     ].copy()
-    person_outputs = remove_output_columns_already_in_raw(
+    selected_persons = remove_raw_columns_replaced_by_outputs(
         raw=selected_persons,
         outputs=person_outputs,
         key="person_id",
@@ -888,18 +907,19 @@ def load_policyengine_tax_data(
     }
 
 
-def remove_output_columns_already_in_raw(*, raw: Any, outputs: Any, key: str) -> Any:
-    """Avoid pandas suffixing when dataset inputs already contain a PE variable.
+def remove_raw_columns_replaced_by_outputs(*, raw: Any, outputs: Any, key: str) -> Any:
+    """Avoid suffixing while keeping period-aligned PolicyEngine values.
 
-    Newer Populace data releases can store source variables that the harness
-    also requests from PolicyEngine. Those columns are already present in the
-    raw table, so keep the raw copy and merge only genuinely new outputs.
+    Populace stores source-year inputs, while the oracle may compare a later
+    tax year after PolicyEngine uprating. If a requested PE output shares a raw
+    column name, drop the raw column before merging so projections use the
+    period-specific PE value instead of stale source-year data.
     """
 
     duplicate_columns = set(raw.columns).intersection(outputs.columns) - {key}
     if not duplicate_columns:
-        return outputs
-    return outputs.drop(columns=sorted(duplicate_columns))
+        return raw
+    return raw.drop(columns=sorted(duplicate_columns))
 
 
 def policyengine_variables_for_surfaces(
