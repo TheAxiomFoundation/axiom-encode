@@ -2763,6 +2763,52 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the PM 08-01-02-c earned-income deduction amount itself. PolicyEngine computes adjacent Illinois TANF countable earned income after applying its disregard parameter, but does not expose the standalone deduction amount at this legal boundary.
 
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#tanf_minimum_cash_payment_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 one-dollar no-issuance threshold as a standalone legal amount. PolicyEngine's adjacent Illinois TANF benefit formula currently does not expose this minimum-payment threshold as a parameter or separate output.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#non_regular_roll_minimum_check_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 one-dollar minimum for non-regular roll checks. PolicyEngine does not model Illinois TANF non-regular roll or Mercury checks as a distinct surface.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#tanf_cash_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf_income_eligible
+    candidate_priority: P4
+    rationale: Axiom applies PM 10-01-02's rule that nonexempt income must be at least one dollar less than the payment level. PolicyEngine's adjacent il_tanf_income_eligible currently allows income equal to the payment level; see PolicyEngine/policyengine-us#8761.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#regular_monthly_tanf_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom applies PM 10-01-02's one-dollar no-issuance rule and rounds regular monthly TANF benefits down to the nearest whole dollar. PolicyEngine's adjacent il_tanf computes payment level minus countable income without those final-payment rules; see PolicyEngine/policyengine-us#8761.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#initial_prorated_entitlement_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: il_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 Initial Prorated Entitlement rounding/no-issuance rule. PolicyEngine's adjacent Illinois TANF amount does not model IPE payments as a distinct surface.
+
+  - legal_id: us-il:policies/dhs/csmm/15820/block-1#non_regular_roll_check_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the PM 10-01-02 non-regular roll check minimum-payment rule. PolicyEngine does not model Illinois TANF non-regular roll or Mercury checks as a distinct surface.
+
   - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_final_family_size_floor
     country: us
     program: tanf
