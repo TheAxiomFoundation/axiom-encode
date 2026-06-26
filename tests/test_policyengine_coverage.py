@@ -1074,6 +1074,58 @@ def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_wyoming_power_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    wyoming_power = items_by_variable["wy_power"]
+
+    assert wyoming_power["program_id"] == "tanf"
+    assert wyoming_power["state"] == "WY"
+    assert wyoming_power["axiom_status"] == "known_not_comparable"
+    assert wyoming_power["mapping_count"] == 1
+    assert wyoming_power["comparable_mapping_count"] == 0
+    assert wyoming_power["legal_ids"] == [
+        "us-wy:policies/dfs/snap-power-policy-manual/1101-power-payment-tests-computations#"
+    ]
+    assert "Wyoming POWER payment-test legal slices" in wyoming_power["rationale"]
+    assert "final benefit surface" in wyoming_power["rationale"]
+
+
+def test_policyengine_coverage_classifies_wyoming_power_payment_helpers(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-wy/policies/dfs/snap-power-policy-manual/1101-power-payment-tests-computations.yaml",
+        """format: rulespec/v1
+rules:
+  - name: power_performance_payment_amount
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: maximum_benefit_level - countable_income
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-wy:policies/dfs/snap-power-policy-manual/"
+        "1101-power-payment-tests-computations#power_performance_payment_amount"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["program"] == "tanf"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "wy_power"
+    assert item["candidate_priority"] == "P4"
+    assert "source-specific POWER legal helper boundaries" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_federal_ssi_benefit_rate_intermediates(
     tmp_path,
 ):
