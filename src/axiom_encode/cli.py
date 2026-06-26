@@ -21062,6 +21062,43 @@ def cmd_encode(args):
                         repaired_import_target_ref_typos
                     )
             if not can_apply:
+                repaired_type_values: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_wrong_typed_test_inputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_type_values.extend(repaired_refs)
+                    outcome["auto_repaired_wrong_typed_test_inputs"] = (
+                        repaired_type_values
+                    )
+                    print(
+                        "  apply=auto_repaired_wrong_typed_test_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_type_values:
+                    outcome["auto_repaired_wrong_typed_test_inputs"] = (
+                        repaired_type_values
+                    )
+            if not can_apply:
                 repaired_invalid_input_refs: list[str] = []
                 while not can_apply:
                     repaired_refs = _try_repair_generated_invalid_test_inputs_for_apply(
@@ -31268,6 +31305,151 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
     return [*repaired_2739_refs, *removed_refs]
 
 
+def _try_repair_generated_wrong_typed_test_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Normalize generated-test input values whose scalar type is clearly wrong."""
+    if not _issues_mention_test_input_type_mismatch(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists() or not test_file.exists():
+        return []
+
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    target_base = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    repaired: list[str] = []
+    for case in test_payload:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "<unnamed>")
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        repaired.extend(
+            _repair_wrong_typed_test_input_values(
+                inputs,
+                case_name=case_name,
+                target_base=target_base,
+                rules_payload=rules_payload,
+            )
+        )
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _issues_mention_test_input_type_mismatch(issues: list[str]) -> bool:
+    patterns = (
+        r"\btype mismatch\b",
+        r"\bnot numeric\b",
+        r"\bexpected (?:numeric|number|money|boolean|judgment)\b",
+        r"\bmust be (?:numeric|a number|money|boolean|a boolean)\b",
+    )
+    return any(
+        re.search(pattern, str(issue), re.IGNORECASE)
+        for issue in issues
+        for pattern in patterns
+    )
+
+
+def _repair_wrong_typed_test_input_values(
+    value: object,
+    *,
+    case_name: str,
+    target_base: str,
+    rules_payload: dict[str, object],
+) -> list[str]:
+    if isinstance(value, list):
+        repaired: list[str] = []
+        for item in value:
+            repaired.extend(
+                _repair_wrong_typed_test_input_values(
+                    item,
+                    case_name=case_name,
+                    target_base=target_base,
+                    rules_payload=rules_payload,
+                )
+            )
+        return repaired
+    if not isinstance(value, dict):
+        return []
+
+    repaired = []
+    for key, current in list(value.items()):
+        key_text = str(key)
+        if key_text.startswith(f"{target_base}#input."):
+            input_name = key_text.split("#input.", 1)[1].strip()
+            replacement = _wrong_typed_test_input_replacement(
+                input_name,
+                current,
+                rules_payload=rules_payload,
+            )
+            if replacement is not None:
+                value[key] = replacement
+                repaired.append(f"{case_name}:{key_text}")
+        nested = value.get(key)
+        if isinstance(nested, (dict, list)):
+            repaired.extend(
+                _repair_wrong_typed_test_input_values(
+                    nested,
+                    case_name=case_name,
+                    target_base=target_base,
+                    rules_payload=rules_payload,
+                )
+            )
+    return repaired
+
+
+def _wrong_typed_test_input_replacement(
+    input_name: str,
+    value: object,
+    *,
+    rules_payload: dict[str, object],
+) -> object | None:
+    expected = _default_generated_test_input_value(
+        input_name,
+        rules_payload=rules_payload,
+    )
+    if isinstance(expected, bool):
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return expected
+        return None
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        if isinstance(value, bool):
+            return expected
+        return None
+    return None
+
+
 def _try_repair_generated_target_prefix_typos_for_apply(
     result,
     *,
@@ -32554,6 +32736,8 @@ def _factual_input_appears_numeric(
         "value",
         "count",
         "cost",
+        "need",
+        "needs",
         "expense",
         "deduction",
         "credit",
