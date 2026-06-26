@@ -793,6 +793,23 @@ def test_policyengine_program_surface_marks_head_start_known_not_comparable():
     assert items_by_variable["wa_birth_to_three_eceap"]["priority"] == "P3"
 
 
+def test_policyengine_program_surface_marks_ssi_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ssi")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ssi = items_by_variable["ssi"]
+
+    assert ssi["axiom_status"] == "known_not_comparable"
+    assert ssi["priority"] == "P1"
+    assert ssi["mapping_count"] == 1
+    assert ssi["comparable_mapping_count"] == 0
+    assert ssi["legal_ids"] == [
+        "us:statutes/42/1382/b#annual_benefit_without_eligible_spouse"
+    ]
+    assert "final person-level" in ssi["rationale"]
+    assert "final program-composition surface" in ssi["rationale"]
+
+
 def test_policyengine_program_surface_marks_calworks_cash_benefit_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
