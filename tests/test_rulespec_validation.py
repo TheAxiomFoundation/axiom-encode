@@ -13249,6 +13249,94 @@ rules:
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
 
+def test_repair_source_table_band_bound_scalars_adds_proof_to_bound_table():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Dependent Care Maximum Deductions | Hours Worked Per Month | Child Under Two Years of Age
+    | 0 to 40 | $50 |
+    | 41 to 80 | $100 |
+    | 81 to 120 | $150 |
+    | 121 or more | $200 |
+rules:
+  - name: dependent_care_hours_band_0_upper_bound
+    kind: parameter
+    dtype: Decimal
+    source: us-wa/regulation/388/388-450/388-450-0170(a)
+    versions:
+      - effective_from: '2019-12-01'
+        formula: 40
+  - name: dependent_care_hours_band_1_upper_bound
+    kind: parameter
+    dtype: Decimal
+    source: us-wa/regulation/388/388-450/388-450-0170(a)
+    versions:
+      - effective_from: '2019-12-01'
+        formula: 80
+  - name: dependent_care_hours_band_2_upper_bound
+    kind: parameter
+    dtype: Decimal
+    source: us-wa/regulation/388/388-450/388-450-0170(a)
+    versions:
+      - effective_from: '2019-12-01'
+        formula: 120
+  - name: dependent_care_hours_band
+    kind: derived
+    entity: Person
+    dtype: Integer
+    period: Month
+    source: us-wa/regulation/388/388-450/388-450-0170(a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter_table
+            source:
+              corpus_citation_path: us-wa/regulation/388/388-450/388-450-0170
+              table:
+                header: Dependent Care Maximum Deductions Hours Worked Per Month
+                row_key: hours_worked_per_month
+                column_key: dependent_care_maximum_deduction
+    versions:
+      - effective_from: '2019-12-01'
+        formula: |-
+          if dependent_care_recipient_hours_worked_per_month <= dependent_care_hours_band_0_upper_bound:
+            0
+          else: if dependent_care_recipient_hours_worked_per_month <= dependent_care_hours_band_1_upper_bound:
+            1
+          else: if dependent_care_recipient_hours_worked_per_month <= dependent_care_hours_band_2_upper_bound:
+            2
+          else:
+            3
+"""
+
+    repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
+
+    payload = yaml.safe_load(repaired)
+    upper_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "dependent_care_hours_band_upper_bound"
+    )
+    assert upper_bound["versions"][0]["values"] == {0: 40, 1: 80, 2: 120}
+    assert upper_bound["metadata"]["proof"]["atoms"] == [
+        {
+            "path": "versions[0].values",
+            "kind": "parameter_table",
+            "source": {
+                "corpus_citation_path": "us-wa/regulation/388/388-450/388-450-0170",
+                "table": {
+                    "header": "Dependent Care Maximum Deductions Hours Worked Per Month",
+                    "row_key": "hours_worked_per_month",
+                    "column_key": "dependent_care_maximum_deduction",
+                },
+            },
+        }
+    ]
+    assert "dependent_care_hours_band_upper_bound" in repaired_rules
+    assert find_source_table_row_scalar_parameter_issues(repaired) == []
+
+
 def test_repair_source_table_band_bound_scalars_uses_external_table_text():
     content = """format: rulespec/v1
 module:
