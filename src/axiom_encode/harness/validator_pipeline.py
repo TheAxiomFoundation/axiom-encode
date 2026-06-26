@@ -16,6 +16,7 @@ Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 
 import ast
 import contextlib
+import copy
 import functools
 import hashlib
 import json
@@ -4505,6 +4506,13 @@ def _upsert_source_table_bound_values_rule(
         }
         if sample_rule.get("source") is not None:
             target_rule["source"] = sample_rule["source"]
+        metadata = _source_table_bound_values_metadata(
+            selector_rule=selector_rule,
+            source_rules=source_rules,
+            sample_rule=sample_rule,
+        )
+        if metadata:
+            target_rule["metadata"] = metadata
         with contextlib.suppress(ValueError):
             rules.insert(rules.index(selector_rule), target_rule)
             return
@@ -4516,6 +4524,20 @@ def _upsert_source_table_bound_values_rule(
     target_rule.setdefault("dtype", sample_rule.get("dtype") or "Decimal")
     target_rule["indexed_by"] = selector_name
     target_rule.setdefault("source", sample_rule.get("source"))
+    metadata = _source_table_bound_values_metadata(
+        selector_rule=selector_rule,
+        source_rules=source_rules,
+        sample_rule=sample_rule,
+    )
+    if metadata and not _rule_has_source_proof(target_rule):
+        existing_metadata = target_rule.get("metadata")
+        if isinstance(existing_metadata, dict):
+            target_rule["metadata"] = {
+                **existing_metadata,
+                "proof": metadata["proof"],
+            }
+        else:
+            target_rule["metadata"] = metadata
     versions = target_rule.get("versions")
     if not isinstance(versions, list) or not versions:
         target_rule["versions"] = [
@@ -4543,6 +4565,59 @@ def _upsert_source_table_bound_values_rule(
         or "1900-01-01",
     )
     first_version["values"] = sorted_values
+
+
+def _source_table_bound_values_metadata(
+    *,
+    selector_rule: dict[str, Any],
+    source_rules: list[dict[str, Any]],
+    sample_rule: dict[str, Any],
+) -> dict[str, Any]:
+    source = _source_table_bound_values_proof_source(
+        [selector_rule, *source_rules],
+    )
+    if source is None:
+        raw_source = sample_rule.get("source") or selector_rule.get("source")
+        if raw_source is not None:
+            source = {"excerpt": str(raw_source)}
+    if source is None:
+        return {}
+    return {
+        "proof": {
+            "atoms": [
+                {
+                    "path": "versions[0].values",
+                    "kind": "parameter_table",
+                    "source": source,
+                }
+            ]
+        }
+    }
+
+
+def _source_table_bound_values_proof_source(
+    rules: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for rule in rules:
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            if not (
+                source.get("corpus_citation_path")
+                or source.get("corpus_citation_paths")
+                or source.get("excerpt")
+            ):
+                continue
+            return copy.deepcopy(source)
+    return None
 
 
 def _single_version_effective_from(rule: dict[str, Any]) -> str | None:
