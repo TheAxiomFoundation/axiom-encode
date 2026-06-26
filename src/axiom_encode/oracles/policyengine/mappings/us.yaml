@@ -493,6 +493,14 @@ mappings:
     candidate_priority: P4
     rationale: The current Axiom Florida TCA amount depends on the incomplete Axiom eligibility wrapper and DCF page 21's no-issuance rule for deficits below $10. PolicyEngine's adjacent fl_tca uses its own eligibility, countable-income, and payment-standard graph and does not share this exact DCF program boundary yet.
 
+  - legal_id: us-il:programs/scretd/fy-2026#il_scretd_deferral_amount
+    country: us
+    program: il_scretd
+    mapping_type: not_comparable
+    policyengine_variable: il_scretd_deferral_amount
+    candidate_priority: P4
+    rationale: Axiom's Illinois SCRETD output follows 320 ILCS 30/2 and 30/3, including qualifying-property requirements, application and agreement gates, requested amount, real-estate taxes or special-assessment installments, available revolving-fund dollars, the annual statutory cap, and remaining 80% equity capacity. PolicyEngine's adjacent variable only gates on age and household-income eligibility before capping real-estate taxes by the annual deferral maximum, so it is not a one-to-one legal oracle boundary.
+
   - legal_id: us:policies/ed/fsa/gen-26-01-pell-award-amounts/block-1#maximum_pell_grant_award
     country: us
     program: pell

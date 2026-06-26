@@ -2250,10 +2250,11 @@ surfaces:
   coverage: IL
   variable: il_scretd_deferral_amount
   source_type: program
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes the current Illinois statute's application, qualifying-property, agreement, fund-availability,
+    requested-amount, special-assessment, and 80% equity-cap constraints. PolicyEngine's adjacent output only applies
+    age/income eligibility and caps real-estate taxes by the annual maximum, so this is not a one-to-one oracle surface.
 - country: us
   program_id: il_ipass_assist
   program_name: Illinois I-PASS Assist
