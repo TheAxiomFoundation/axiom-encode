@@ -1172,7 +1172,7 @@ def _is_us_tax_like_coverage_item(
     legal_id = str(item.get("legal_id") or "").lower()
     if legal_id.startswith("us:statutes/26/"):
         return True
-    parameter = (policyengine_parameter or item.get("policyengine_parameter") or "")
+    parameter = policyengine_parameter or item.get("policyengine_parameter") or ""
     parameter = str(parameter).lower()
     if parameter.startswith("gov.irs."):
         return True

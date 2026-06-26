@@ -3720,7 +3720,9 @@ def cmd_oracle_coverage(args):
         for item in pending_surface_items[: args.limit]:
             state = f" [{item['state']}]" if item.get("state") else ""
             weight = item.get("policybench_household_weight")
-            weight_prefix = f"{weight:.2f}% " if isinstance(weight, (int, float)) else ""
+            weight_prefix = (
+                f"{weight:.2f}% " if isinstance(weight, (int, float)) else ""
+            )
             print(
                 f"  - {weight_prefix}{item['variable']}{state}: "
                 f"{item['axiom_status']} ({item['program_id']})"

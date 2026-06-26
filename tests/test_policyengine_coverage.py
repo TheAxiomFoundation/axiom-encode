@@ -266,8 +266,7 @@ rules:
     assert report["duplicate_outputs_collapsed"] == 1
     item = report["items"][0]
     assert (
-        item["legal_id"]
-        == "us-co:statutes/39/example#co_state_tax_deduplicated_output"
+        item["legal_id"] == "us-co:statutes/39/example#co_state_tax_deduplicated_output"
     )
     assert item["file"] == "rulespec-us/us-co/statutes/39/example.yaml"
 
@@ -310,9 +309,10 @@ rules:
         "new_income_tax_exact_variable",
         "snap_new_exact_variable",
     ]
-    assert [
-        item["policybench_household_weight"] for item in report["items"][:2]
-    ] == [pytest.approx(19.14), pytest.approx(4.15)]
+    assert [item["policybench_household_weight"] for item in report["items"][:2]] == [
+        pytest.approx(19.14),
+        pytest.approx(4.15),
+    ]
 
 
 def test_policyengine_candidate_policybench_state_detection_ignores_is_prefix(
@@ -501,8 +501,7 @@ surfaces:
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
     assert items_by_variable["fdpir"]["axiom_status"] == "input_only"
     assert (
-        items_by_variable["employee_payroll_tax"]["policybench_output"]
-        == "payroll_tax"
+        items_by_variable["employee_payroll_tax"]["policybench_output"] == "payroll_tax"
     )
     assert items_by_variable["employee_payroll_tax"][
         "policybench_household_weight"
@@ -576,8 +575,7 @@ surfaces:
         "dc_tanf",
     ]
     assert [
-        item["policybench_household_weight"]
-        for item in report["actionable_surfaces"]
+        item["policybench_household_weight"] for item in report["actionable_surfaces"]
     ] == [
         pytest.approx(10.74),
         pytest.approx(0.55),
