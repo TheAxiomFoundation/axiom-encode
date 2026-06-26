@@ -16162,7 +16162,22 @@ def _zero_branch_numeric_upper_bound_input_overrides(
         return {}
     scalar_values = _local_scalar_formula_values_by_name(rules_payload)
     overrides: dict[str, int | float] = {}
+    target_formula = _local_formula_for_rule(
+        output_name=output_name,
+        rules_payload=rules_payload,
+    )
     for input_name in sorted(factual_inputs):
+        zero_branch_thresholds = _numeric_upper_bounds_returning_zero_for_input(
+            input_name,
+            formulas=[target_formula] if target_formula else [],
+            scalar_values=scalar_values,
+        )
+        if zero_branch_thresholds:
+            threshold, inclusive = zero_branch_thresholds[0]
+            overrides[f"{target_base}#input.{input_name}"] = _within_upper_bound_value(
+                threshold, inclusive=inclusive
+            )
+            continue
         thresholds = _numeric_upper_bounds_for_input(
             input_name,
             formulas=formulas,
@@ -16175,6 +16190,24 @@ def _zero_branch_numeric_upper_bound_input_overrides(
             threshold
         )
     return overrides
+
+
+def _local_formula_for_rule(
+    *,
+    output_name: str,
+    rules_payload: dict[str, object],
+) -> str | None:
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != output_name:
+            continue
+        formula = _first_rule_formula(rule)
+        return formula or None
+    return None
 
 
 def _reachable_local_formulas_for_rule(
@@ -16244,13 +16277,52 @@ def _numeric_upper_bounds_for_input(
     thresholds: list[float] = []
     for formula in formulas:
         for match in pattern.finditer(formula):
-            rhs = match["rhs"]
-            if re.fullmatch(r"-?\d+(?:\.\d+)?", rhs):
-                with contextlib.suppress(ValueError):
-                    thresholds.append(float(rhs))
-            elif rhs in scalar_values:
-                thresholds.append(scalar_values[rhs])
+            value = _numeric_formula_rhs_value(match["rhs"], scalar_values)
+            if value is not None:
+                thresholds.append(value)
     return thresholds
+
+
+def _numeric_upper_bounds_returning_zero_for_input(
+    input_name: str,
+    *,
+    formulas: list[str],
+    scalar_values: dict[str, float],
+) -> list[tuple[float, bool]]:
+    rhs_pattern = r"(?P<rhs>-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
+    pattern = re.compile(
+        rf"\b{re.escape(input_name)}\b\s*(?P<op><=|<)\s*{rhs_pattern}\s*:"
+        r"\s*0(?:\.0+)?\b"
+    )
+    thresholds: list[tuple[float, bool]] = []
+    for formula in formulas:
+        for match in pattern.finditer(formula):
+            value = _numeric_formula_rhs_value(match["rhs"], scalar_values)
+            if value is not None:
+                thresholds.append((value, match["op"] == "<="))
+    return thresholds
+
+
+def _numeric_formula_rhs_value(
+    rhs: str,
+    scalar_values: dict[str, float],
+) -> float | None:
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", rhs):
+        with contextlib.suppress(ValueError):
+            return float(rhs)
+    return scalar_values.get(rhs)
+
+
+def _within_upper_bound_value(
+    threshold: float,
+    *,
+    inclusive: bool,
+) -> int | float:
+    if inclusive:
+        return int(threshold) if threshold.is_integer() else threshold
+    if threshold.is_integer():
+        return int(threshold) - 1
+    return threshold - max(0.01, abs(threshold) * 0.01)
 
 
 def _above_upper_bound_value(threshold: float) -> int | float:

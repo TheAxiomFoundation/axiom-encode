@@ -11252,6 +11252,64 @@ rules:
             "us:statutes/26/36B/b/3/A#applicable_percentage": 0
         }
 
+    def test_zero_branch_repair_uses_first_upper_bound_for_target_band_zero(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = (
+            tmp_path / "out" / "regulations" / "388" / "388-450" / "388-450-0170.yaml"
+        )
+        test_file = rules_file.with_name("388-450-0170.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: dependent_care_hours_band
+    kind: derived
+    entity: Person
+    dtype: Integer
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if hours_worked_per_month <= dependent_care_band_0_upper_hours: 0 else: if hours_worked_per_month <= dependent_care_band_1_upper_hours: 1 else: 2
+  - name: dependent_care_band_0_upper_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '40'
+  - name: dependent_care_band_1_upper_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '80'
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("regulations/388/388-450/388-450-0170.yaml"),
+            issues=[
+                "Zero branch test coverage missing: `dependent_care_hours_band` "
+                "has a formula branch that returns 0."
+            ],
+        )
+
+        assert repaired == ["auto_zero_dependent_care_hours_band"]
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:regulations/388/388-450/388-450-0170#input.hours_worked_per_month": 40
+        }
+        assert cases[0]["output"] == {
+            "us:regulations/388/388-450/388-450-0170#dependent_care_hours_band": 0
+        }
+
     def test_repair_zero_branch_tests_derives_hidden_zero_issues(
         self, capsys, tmp_path
     ):
