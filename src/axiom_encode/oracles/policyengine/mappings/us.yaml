@@ -4965,6 +4965,30 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine applies the ACA PTC income range through gov.aca.ptc_income_eligibility inside is_aca_ptc_eligible, which also includes filing status, immigration, coverage, and premium-payment conditions. This RuleSpec output is only the section 36B(c)(1) income-percentage predicate.
 
+  - legal_id: us:statutes/26/36B/c/1/A#applicable_taxpayer_lower_poverty_line_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: This RuleSpec output is the statutory lower household-income-to-poverty-line threshold for section 36B(c)(1)(A). PolicyEngine stores ACA PTC income eligibility in a threshold parameter used inside final eligibility, not this scalar as a one-to-one oracle target.
+
+  - legal_id: us:statutes/26/36B/c/1/A#applicable_taxpayer_upper_poverty_line_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: This RuleSpec output is the statutory general upper household-income-to-poverty-line threshold for section 36B(c)(1)(A). PolicyEngine stores ACA PTC income eligibility as a time-varying threshold parameter, including temporary upper-limit overrides, not this scalar as a one-to-one oracle target.
+
+  - legal_id: us:statutes/26/36B/c/1/A#applicable_taxpayer
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.ptc_income_eligibility
+    candidate_priority: P4
+    rationale: This RuleSpec output is only the section 36B(c)(1)(A) income-range predicate for being an applicable taxpayer. PolicyEngine applies this through gov.aca.ptc_income_eligibility inside final ACA PTC eligibility, alongside filing, coverage, premium-payment, and other gates.
+
   - legal_id: us:statutes/26/36B#employer_sponsored_coverage_affordability_ratio
     country: us
     program: aca_ptc

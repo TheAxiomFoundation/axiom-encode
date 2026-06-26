@@ -2915,6 +2915,18 @@ def test_policyengine_registry_is_legal_id_keyed():
             "policyengine_parameter",
             "gov.aca.ptc_income_eligibility",
         ),
+        "us:statutes/26/36B/c/1/A#applicable_taxpayer_lower_poverty_line_percentage": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
+        "us:statutes/26/36B/c/1/A#applicable_taxpayer_upper_poverty_line_percentage": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
+        "us:statutes/26/36B/c/1/A#applicable_taxpayer": (
+            "policyengine_parameter",
+            "gov.aca.ptc_income_eligibility",
+        ),
         "us:statutes/26/36B#employer_sponsored_coverage_affordability_ratio": (
             "policyengine_variable",
             "offered_aca_disqualifying_esi",
