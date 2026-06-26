@@ -1047,10 +1047,15 @@ def _program_surface_item_from_payload(
     country = str(payload.get("country") or "us")
     mappings = registry.mappings_for_policyengine_variable(variable, country=country)
     comparable_mapping_count = sum(1 for mapping in mappings if mapping.comparable)
+    final_non_comparable_mapping_count = sum(
+        1
+        for mapping in mappings
+        if not mapping.comparable and mapping.candidate_priority != "P4"
+    )
     manifest_status = str(payload["axiom_status"])
     if comparable_mapping_count:
         axiom_status = "wired"
-    elif mappings and manifest_status in {
+    elif final_non_comparable_mapping_count and manifest_status in {
         "pending_oracle_mapping",
         "pending_rulespec_encoding",
     }:

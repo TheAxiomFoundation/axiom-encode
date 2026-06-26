@@ -682,6 +682,14 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the paragraph (c) participant eligibility paths before age, take-up, per-slot spending, and final benefit assignment. PolicyEngine's head_start variable is a final imputed dollar value after eligibility, state spending/enrollment allocation, and take-up.
 
+  - legal_id: us:regulations/45-cfr/1302/12#paragraph_c_overincome_exception_participant_may_be_enrolled
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the paragraph (c)(2) over-income exception participant branch, including the program-level 10 percent enrollment cap and service-benefit determination. PolicyEngine's Head Start eligibility variable does not model this over-income exception branch or program enrollment-cap administration as a one-to-one surface.
+
   - legal_id: us:regulations/45-cfr/1302/12#additional_allowance_participant_may_be_enrolled
     country: us
     program: head_start
@@ -712,6 +720,49 @@ mappings:
     policyengine_variable: is_head_start_eligible
     candidate_priority: P4
     rationale: RuleSpec exposes the paragraph (f) Migrant or Seasonal Head Start eligibility path based on primary agricultural-employment income and age requirements. PolicyEngine's Head Start eligibility variable does not model this branch separately.
+
+  - legal_id: us:regulations/45-cfr/1302/12/b#early_head_start_age_threshold_years
+    country: us
+    program: head_start
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.head_start.early_head_start.age_limit
+    period: year
+    rationale: Same Early Head Start under-three age limit in 45 CFR 1302.12(b)(1), represented in PolicyEngine as the Head Start early_head_start age_limit parameter.
+
+  - legal_id: us:regulations/45-cfr/1302/12/b#head_start_preschool_age_threshold_years
+    country: us
+    program: head_start
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.head_start.age_range
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    rationale: Same Head Start Preschool minimum age threshold in 45 CFR 1302.12(b)(2)(i), represented in PolicyEngine as the lower true bracket threshold of the Head Start age_range parameter.
+
+  - legal_id: us:regulations/45-cfr/1302/12/b#early_head_start_age_requirement
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_early_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes only the 45 CFR 1302.12(b)(1) Early Head Start age requirement and transition exception. PolicyEngine's is_early_head_start_eligible composes age or pregnancy with income and categorical eligibility, so this isolated age predicate is not a one-to-one oracle surface.
+
+  - legal_id: us:regulations/45-cfr/1302/12/b#head_start_preschool_age_requirement
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes only the 45 CFR 1302.12(b)(2) Head Start Preschool age requirement, including the public-school eligibility-date alternative and school-attendance-age ceiling. PolicyEngine's is_head_start_eligible composes an age-range parameter with income and categorical eligibility, so this isolated age predicate is not a one-to-one oracle surface.
+
+  - legal_id: us:regulations/45-cfr/1302/12/b#migrant_or_seasonal_head_start_age_requirement
+    country: us
+    program: head_start
+    mapping_type: not_comparable
+    policyengine_variable: is_head_start_eligible
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 45 CFR 1302.12(b)(3) Migrant or Seasonal Head Start age requirement keyed to the community compulsory-school-age date. PolicyEngine does not expose this migrant-or-seasonal age branch separately from final Head Start eligibility.
 
   - legal_id: us:regulations/47-cfr/54/409#income_qualifies_for_lifeline
     country: us
@@ -18161,6 +18212,13 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Federal SNAP regulatory outputs are provision-level eligibility and mechanics intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:regulations/7-cfr/246/7/
+    country: us
+    program: wic
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 7 CFR 246.7(c)-(e) encodes WIC certification, residency, identity, income-screening, adjunctive eligibility, pregnancy-documentation, nutritional-risk, and State/local agency workflow predicates. PolicyEngine-US exposes final WIC eligibility and benefit surfaces, not these certification-procedure helper outputs as one-to-one oracle targets; exact mappings should be added only for later composed WIC eligibility or parameter outputs that share PolicyEngine's variable boundary.
 
   - legal_id_prefix: us:statutes/7/2012/j#
     country: us

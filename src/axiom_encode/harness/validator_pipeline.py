@@ -23564,11 +23564,16 @@ Output ONLY valid JSON:
                 coverage.unsupported += 1
                 continue
 
-            mappability_inputs = policyengine_inputs or inputs
+            pe_inputs = inputs
+            if pe_parameter and isinstance(inputs, dict):
+                pe_inputs = self._pe_parameter_inputs_for_mapping(inputs, mapping)
+
+            mappability_inputs = policyengine_inputs or pe_inputs
             if (
                 country == "us"
                 and not policyengine_inputs
                 and isinstance(mappability_inputs, dict)
+                and not pe_parameter
             ):
                 mappability_inputs = self._pe_us_projectable_inputs_for_mappability(
                     mappability_inputs,
@@ -23595,7 +23600,7 @@ Output ONLY valid JSON:
                 continue
 
             # Build and run PE scenario — include period in inputs for monthly detection
-            inputs_with_period = {**inputs, "period": str(period)}
+            inputs_with_period = {**pe_inputs, "period": str(period)}
             inputs_with_period = {
                 **_policyengine_us_snap_input_aliases(inputs_with_period),
                 **inputs_with_period,
@@ -25035,6 +25040,40 @@ print("BENCHMARK:" + json.dumps(result))
         if saw_projectable_legal_input and saw_unprojectable_legal_input:
             return projected
         return inputs
+
+    @classmethod
+    def _pe_parameter_inputs_for_mapping(
+        cls,
+        inputs: dict,
+        mapping: PolicyEngineMapping | None,
+    ) -> dict:
+        """Keep only inputs needed to resolve a PE parameter mapping.
+
+        Parameter-value oracle comparisons read PolicyEngine's parameter tree.
+        They should not inherit unrelated RuleSpec legal inputs from a companion
+        test case, because those inputs are scenario facts and cannot affect a
+        static parameter lookup unless the mapping names them as key selectors.
+        """
+        if mapping is None or mapping.mapping_type != "parameter_value":
+            return inputs
+
+        required_aliases = {
+            alias.lower() for alias in cls._policyengine_mapping_input_aliases(mapping)
+        }
+        if not required_aliases:
+            return {}
+
+        projected: dict = {}
+        for key, value in inputs.items():
+            key_text = str(key)
+            input_alias = cls._rulespec_legal_input_alias(key_text)
+            if input_alias is not None:
+                if input_alias.lower() in required_aliases:
+                    projected[key] = value
+                continue
+            if key_text.lower() in required_aliases:
+                projected[key] = value
+        return projected
 
     @staticmethod
     def _rulespec_legal_input_alias(key_text: str) -> str | None:
