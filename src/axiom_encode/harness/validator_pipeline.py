@@ -797,7 +797,7 @@ _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN = re.compile(
     r"(?<![\w$£€])\d+(?:\.\d+){2,}(?![\w%])"
 )
 _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
-    r"\b(?:section|sec\.?)\s+\d+(?:[.-]\d+)*"
+    r"(?:\b(?:section|sec\.?)|§{1,2})\s+\d+(?:[.-]\d+)*"
     r"(?:"
     r"(?:\([A-Za-z0-9]+\))+"
     r"(?:-(?:\([A-Za-z0-9]+\))+)*)?"
