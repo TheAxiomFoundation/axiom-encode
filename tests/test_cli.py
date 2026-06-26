@@ -124,12 +124,14 @@ from axiom_encode.cli import (
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
+    _try_repair_generated_import_target_prefix_typos_for_apply,
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_data_relations_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
+    _try_repair_generated_mixed_missing_deferred_outputs_for_apply,
     _try_repair_generated_negated_comparisons_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
@@ -17484,6 +17486,143 @@ rules: []
             }
         ]
         assert payload["rules"] == []
+
+    def test_mixed_missing_deferred_output_repair_keeps_encoded_rules(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us-wa"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-wa/regulation/388/388-450/388-450-0162
+  summary: Cash assistance and Basic Food income eligibility.
+rules:
+  - name: cash_assistance_income_requirement_satisfied
+    kind: derived
+    entity: TanfUnit
+    dtype: Judgment
+    period: Month
+    source: us-wa/regulation/388/388-450/388-450-0162(3)(b)
+    versions:
+      - effective_from: '2019-12-01'
+        formula: cash_assistance_countable_income < cash_assistance_unit_payment_standard
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/388/388-450/388-450-0162.yaml: ci: "
+                "Source sub-paragraph coverage missing: "
+                "us-wa/regulation/388/388-450/388-450-0162(a) "
+                "('How we determine if your AU is income eligible for basic "
+                "food: (i) We compare your AU's total monthly income to the "
+                "gross monthly income standard') has no rule citing it and no "
+                "entry in `module.deferred_outputs`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == [
+            "us-wa:regulations/388/388-450/388-450-0162/a#basic_food_income_eligible"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": (
+                    "us-wa:regulations/388/388-450/388-450-0162/a"
+                    "#basic_food_income_eligible"
+                ),
+                "reason": (
+                    "Generated module encodes the supported rules from this "
+                    "source, but this source subparagraph depends on policy "
+                    "surfaces or entities that are not available in the current "
+                    "RuleSpec context. It is deferred instead of being modeled "
+                    "as a caller-supplied input or an unsupported local entity."
+                ),
+            }
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "cash_assistance_income_requirement_satisfied"
+        ]
+
+    def test_import_target_prefix_typo_repair_uses_declared_import(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_name("388-450-0162.test.yaml")
+        policy_repo = tmp_path / "rulespec-us-wa"
+        imported_file = policy_repo / "regulations/388/388-450/388-450-0170.yaml"
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-wa:regulations/388/388-450/388-450-0170#counted_earned_income_after_work_deductions
+rules:
+  - name: cash_assistance_countable_income
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: counted_earned_income_after_work_deductions
+"""
+        )
+        test_file.write_text(
+            """- name: typoed_import_target_prefix
+  period: 2026-01
+  input:
+    us-wa:regulations/388/388-450/388-0170#input.household_gross_earned_income: 1100
+  output:
+    us-wa:regulations/388/388-450/388-450-0162#cash_assistance_countable_income: 300
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_import_target_prefix_typos_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/388/388-450/388-450-0162.yaml: ci: "
+                "Test case `typoed_import_target_prefix` input invalid: input "
+                "`us-wa:regulations/388/388-450/388-0170#input.household_gross_earned_income` "
+                "points to a RuleSpec file that could not be resolved: "
+                "rulespec-us-wa/regulations/388/388-450/388-0170.yaml."
+            ],
+        )
+
+        assert repaired == [
+            "us-wa:regulations/388/388-450/388-0170#input.household_gross_earned_income"
+            "->us-wa:regulations/388/388-450/388-450-0170#input.household_gross_earned_income"
+        ]
+        payload = yaml.safe_load(test_file.read_text())
+        assert (
+            "us-wa:regulations/388/388-450/388-450-0170"
+            "#input.household_gross_earned_income"
+        ) in payload[0]["input"]
+        assert (
+            "us-wa:regulations/388/388-450/388-0170#input.household_gross_earned_income"
+        ) not in payload[0]["input"]
 
     def test_nonoperative_source_coverage_repair_adds_deferred_output(self, tmp_path):
         output_root = tmp_path / "out"
