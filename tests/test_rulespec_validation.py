@@ -2542,6 +2542,44 @@ def test_policyengine_registry_is_legal_id_keyed():
         section_2014c_net_failure_mapping.policyengine_variable
         == "meets_snap_net_income_test"
     )
+    wic_certification_mapping = registry.mapping_for_legal_id(
+        "us:regulations/7-cfr/246/7/c#applicant_meets_basic_wic_eligibility_criteria",
+        country="us",
+    )
+    assert wic_certification_mapping.mapping_type == "not_comparable"
+    assert wic_certification_mapping.program == "wic"
+    assert wic_certification_mapping.candidate_priority == "P4"
+    assert "certification-procedure helper outputs" in (
+        wic_certification_mapping.rationale or ""
+    )
+    wic_income_mapping = registry.mapping_for_legal_id(
+        "us:regulations/7-cfr/246/7/d#applicant_adjunctively_income_eligible",
+        country="us",
+    )
+    assert wic_income_mapping.mapping_type == "not_comparable"
+    assert wic_income_mapping.program == "wic"
+    early_head_start_age_mapping = registry.mapping_for_legal_id(
+        "us:regulations/45-cfr/1302/12/b#early_head_start_age_threshold_years",
+        country="us",
+    )
+    assert early_head_start_age_mapping.mapping_type == "parameter_value"
+    assert (
+        early_head_start_age_mapping.policyengine_parameter
+        == "gov.hhs.head_start.early_head_start.age_limit"
+    )
+    head_start_age_mapping = registry.mapping_for_legal_id(
+        "us:regulations/45-cfr/1302/12/b#head_start_preschool_age_threshold_years",
+        country="us",
+    )
+    assert head_start_age_mapping.mapping_type == "parameter_value"
+    assert head_start_age_mapping.policyengine_parameter == "gov.hhs.head_start.age_range"
+    assert head_start_age_mapping.parameter_key_path == ("thresholds", 1)
+    head_start_overincome_exception_mapping = registry.mapping_for_legal_id(
+        "us:regulations/45-cfr/1302/12#paragraph_c_overincome_exception_participant_may_be_enrolled",
+        country="us",
+    )
+    assert head_start_overincome_exception_mapping.mapping_type == "not_comparable"
+    assert head_start_overincome_exception_mapping.program == "head_start"
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",
