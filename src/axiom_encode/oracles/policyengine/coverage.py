@@ -1108,6 +1108,13 @@ def _policybench_output_for_program_surface(
         return "federal_refundable_credits"
     if "refundable" in variable:
         return "state_refundable_credits"
+    if category.lower() == "taxes" and _is_local_tax_program_surface(
+        coverage=str(payload.get("coverage") or ""),
+        program_id=program_id,
+        program_name=program_name,
+        variable=variable,
+    ):
+        return "local_income_tax"
     lowered_legal_ids = tuple(legal_id.lower() for legal_id in legal_ids)
     if any(legal_id.startswith("us:statutes/26/") for legal_id in lowered_legal_ids):
         text = " ".join(
@@ -1243,6 +1250,37 @@ def _is_state_tax_candidate(legal_id: str, text: str) -> bool:
         re.match(r"^us-[a-z]{2}:", legal_id)
         or ".states." in text
         or _US_STATE_VARIABLE_PREFIX_RE.search(text)
+    )
+
+
+def _is_local_tax_program_surface(
+    *,
+    coverage: str,
+    program_id: str,
+    program_name: str,
+    variable: str,
+) -> bool:
+    normalized_coverage = coverage.strip().lower()
+    if not normalized_coverage:
+        return False
+    if normalized_coverage in {"us", "u.s.", "united states", "national"}:
+        return False
+    if normalized_coverage in _US_STATE_CODES:
+        return False
+    text = " ".join((normalized_coverage, program_id, program_name, variable)).lower()
+    return bool(
+        re.match(r"^(sf|nyc)_", variable)
+        or any(
+            token in text
+            for token in (
+                "city",
+                "county",
+                "local",
+                "municipal",
+                "san francisco",
+                "new york city",
+            )
+        )
     )
 
 

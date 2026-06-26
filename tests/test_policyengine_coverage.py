@@ -589,6 +589,38 @@ surfaces:
     )
 
 
+def test_policyengine_program_surface_local_tax_credit_uses_local_weight(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: sf_wftc
+    program_name: San Francisco WFTC
+    category: Taxes
+    policyengine_status: complete
+    coverage: San Francisco
+    variable: sf_wftc
+    axiom_status: deferred_jurisdiction
+    priority: P2
+    rationale: Needs jurisdictional RuleSpec repo.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_program_surface_report(
+        manifest_path=manifest,
+        registry=_ProgramSurfaceRegistry({}),
+    )
+
+    item = report["items"][0]
+    assert item["policybench_output"] == "local_income_tax"
+    assert item["policybench_household_weight"] == pytest.approx(0.26)
+
+
 def test_policyengine_program_surface_rejects_top_priority_sunset_surface(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
