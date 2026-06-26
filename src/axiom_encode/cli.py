@@ -12361,11 +12361,17 @@ def cmd_repair_oracle_parameter_tests(args):
     )
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-    repaired_test_cases = _append_oracle_parameter_tests_if_missing(
+    appended_test_cases = _append_oracle_parameter_tests_if_missing(
         rules_file=rules_file,
         test_file=test_file,
         target_base=target_base,
     )
+    refreshed_test_cases = _refresh_existing_oracle_parameter_test_inputs(
+        rules_file=rules_file,
+        test_file=test_file,
+        target_base=target_base,
+    )
+    repaired_test_cases = [*appended_test_cases, *refreshed_test_cases]
     covered_test_cases = _mapped_oracle_parameter_test_outputs(
         rules_file=rules_file,
         test_file=test_file,
@@ -15445,6 +15451,115 @@ def _append_oracle_parameter_tests_if_missing(
     separator = "" if not existing_content or existing_content.endswith("\n") else "\n"
     test_file.write_text(f"{existing_content}{separator}{rendered}")
     return repaired
+
+
+def _refresh_existing_oracle_parameter_test_inputs(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    target_base: str,
+) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    rules_content = rules_file.read_text()
+    payload = yaml.safe_load(rules_content) or {}
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+
+    factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
+    input_defaults = {
+        f"{target_base}#input.{input_name}": _default_generated_test_input_value(
+            input_name,
+            rules_payload=payload,
+            prefer_positive_counts=True,
+        )
+        for input_name in sorted(factual_inputs)
+    }
+    if not input_defaults:
+        return []
+
+    registry = load_policyengine_registry()
+    mapped_parameter_outputs: dict[str, tuple[str, str | None]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip() != "parameter":
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        legal_id = f"{target_base}#{rule_name}"
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        if mapping is None or mapping.mapping_type != "parameter_value":
+            continue
+        index_name = _single_parameter_index_name(rule)
+        mapped_parameter_outputs[legal_id] = (
+            rule_name,
+            f"{target_base}#input.{index_name}" if index_name else None,
+        )
+    if not mapped_parameter_outputs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        return []
+    if isinstance(test_payload, list):
+        test_cases = test_payload
+    elif isinstance(test_payload, dict) and isinstance(test_payload.get("cases"), list):
+        test_cases = test_payload["cases"]
+    else:
+        return []
+
+    refreshed: list[str] = []
+    for case in test_cases:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "")
+        if not case_name.startswith("oracle_parameter_"):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        matching_output_specs = [
+            mapped_parameter_outputs[str(output_ref)]
+            for output_ref in outputs
+            if str(output_ref) in mapped_parameter_outputs
+        ]
+        if not matching_output_specs:
+            continue
+        matching_outputs = [rule_name for rule_name, _ in matching_output_specs]
+        selector_input_refs = {
+            input_ref for _, input_ref in matching_output_specs if input_ref
+        }
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            inputs = {}
+            case["input"] = inputs
+        changed = False
+        for input_ref, default_value in input_defaults.items():
+            if input_ref in selector_input_refs:
+                continue
+            existing_value = inputs.get(input_ref)
+            if (
+                input_ref not in inputs
+                or existing_value != default_value
+                or type(existing_value) is not type(default_value)
+            ):
+                inputs[input_ref] = default_value
+                changed = True
+        if changed:
+            refreshed.extend(matching_outputs)
+
+    if not refreshed:
+        return []
+
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return refreshed
 
 
 def _mapped_oracle_parameter_test_outputs(
