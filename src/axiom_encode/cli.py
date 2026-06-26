@@ -22519,6 +22519,13 @@ def _repair_predecessor_scalar_limits(
 
     numeric_parameter_formulas: dict[int, list[str]] = {}
     referenced_names = _formula_referenced_names(rules)
+    maximum_parameter_names = [
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("name") or "").strip()
+        and _is_maximum_parameter_name(str(rule.get("name") or "").strip())
+    ]
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -22537,7 +22544,7 @@ def _repair_predecessor_scalar_limits(
         if str(rule.get("kind") or "").strip().lower() != "parameter":
             continue
         name = str(rule.get("name") or "").strip()
-        if not name.endswith("_scalar_limit"):
+        if not (name.endswith("_scalar_limit") or _is_maximum_parameter_name(name)):
             continue
         if name not in referenced_names:
             continue
@@ -22547,6 +22554,11 @@ def _repair_predecessor_scalar_limits(
         predecessor_of = _single_predecessor_maximum_parameter(
             numeric_parameter_formulas.get(literal + 1, [])
         )
+        if predecessor_of is None:
+            predecessor_of = _single_predecessor_maximum_name_parameter(
+                name,
+                maximum_parameter_names,
+            )
         if predecessor_of is None:
             continue
         versions = rule.get("versions")
@@ -22628,13 +22640,62 @@ def _single_integer_formula(rule: dict[str, Any]) -> int | None:
 
 def _single_predecessor_maximum_parameter(candidates: list[str]) -> str | None:
     maximum_candidates = [
-        candidate
-        for candidate in candidates
-        if candidate.startswith("maximum_") or candidate.startswith("max_")
+        candidate for candidate in candidates if _is_maximum_parameter_name(candidate)
     ]
     if len(maximum_candidates) != 1:
         return None
     return maximum_candidates[0]
+
+
+def _is_maximum_parameter_name(name: str) -> bool:
+    return name.startswith("maximum_") or name.startswith("max_")
+
+
+def _single_predecessor_maximum_name_parameter(
+    name: str,
+    maximum_parameter_names: list[str],
+) -> str | None:
+    """Infer a grounded maximum predecessor from a generated maximum helper name."""
+    if not _is_maximum_parameter_name(name):
+        return None
+    name_tokens = name.split("_")
+    candidates: list[str] = []
+    for candidate in maximum_parameter_names:
+        if candidate == name:
+            continue
+        candidate_tokens = candidate.split("_")
+        if len(candidate_tokens) >= len(name_tokens):
+            continue
+        if not _tokens_are_ordered_subsequence(candidate_tokens, name_tokens):
+            continue
+        if not _maximum_names_share_structural_suffix(candidate_tokens, name_tokens):
+            continue
+        candidates.append(candidate)
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
+
+
+def _tokens_are_ordered_subsequence(
+    candidate_tokens: list[str],
+    name_tokens: list[str],
+) -> bool:
+    position = 0
+    for token in name_tokens:
+        if position < len(candidate_tokens) and candidate_tokens[position] == token:
+            position += 1
+    return position == len(candidate_tokens)
+
+
+def _maximum_names_share_structural_suffix(
+    candidate_tokens: list[str],
+    name_tokens: list[str],
+) -> bool:
+    suffix_length = min(3, len(candidate_tokens), len(name_tokens))
+    return (
+        suffix_length > 0
+        and candidate_tokens[-suffix_length:] == name_tokens[-suffix_length:]
+    )
 
 
 def _bare_snapunit_entity_issue_records(issues: list[str]) -> list[dict[str, str]]:

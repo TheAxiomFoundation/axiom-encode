@@ -8088,6 +8088,73 @@ rules:
             == "monthly_185_percent_fpl_table[monthly_185_percent_fpl_income_standard_scalar_limit]"
         )
 
+    def test_repair_predecessor_named_maximum_index_limits(self, tmp_path):
+        rules_file = tmp_path / "fl_tca.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: maximum_listed_filing_unit_size
+  kind: parameter
+  dtype: Decimal
+  versions:
+  - effective_from: '1996-07-01'
+    formula: '24'
+- name: half_filing_unit_increment
+  kind: parameter
+  dtype: Decimal
+  versions:
+  - effective_from: '1996-07-01'
+    formula: '0.5'
+- name: maximum_listed_half_unit_index
+  kind: parameter
+  dtype: Integer
+  versions:
+  - effective_from: '1996-07-01'
+    formula: floor(maximum_listed_filing_unit_size / half_filing_unit_increment)
+- name: maximum_listed_income_standard_half_unit_index
+  kind: parameter
+  dtype: Integer
+  versions:
+  - effective_from: '2025-04-01'
+    formula: '47'
+- name: unrelated_maximum_income_standard_half_unit_index
+  kind: parameter
+  dtype: Integer
+  versions:
+  - effective_from: '2025-04-01'
+    formula: '47'
+- name: income_standard_half_unit_index
+  kind: derived
+  entity: TanfUnit
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: '2025-04-01'
+    formula: min(filing_unit_half_unit_index, maximum_listed_income_standard_half_unit_index)
+"""
+        )
+
+        repaired = _repair_predecessor_scalar_limits(
+            rules_file,
+            ungrounded_literals={47},
+            target_anchor="us-fl:policies/dcf/ess-program-policy-manual/appendix-a-5",
+        )
+
+        assert repaired == ["maximum_listed_income_standard_half_unit_index"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][3]["versions"][0]["formula"] == (
+            "maximum_listed_half_unit_index - 1"
+        )
+        assert payload["rules"][3]["metadata"]["proof"]["atoms"][-1]["import"] == {
+            "target": (
+                "us-fl:policies/dcf/ess-program-policy-manual/appendix-a-5"
+                "#maximum_listed_half_unit_index"
+            ),
+            "output": "maximum_listed_half_unit_index",
+            "hash": "sha256:local",
+        }
+        assert payload["rules"][4]["versions"][0]["formula"] == "47"
+
     def test_repair_bare_indexed_parameter_references(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"
         rules_file.write_text(
