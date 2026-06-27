@@ -2540,6 +2540,24 @@ def test_policyengine_registry_is_legal_id_keyed():
         colorado_ssp_grant_standard_mapping.policyengine_parameter
         == "gov.states.co.ssa.state_supplement.grant_standard"
     )
+    michigan_ssp_independent_living_mapping = registry.mapping_for_legal_id(
+        "us-mi:policies/mdhhs/rft/248#independent_living_individual_state_ssi_payment",
+        country="us",
+    )
+    assert michigan_ssp_independent_living_mapping.mapping_type == "parameter_value"
+    assert (
+        michigan_ssp_independent_living_mapping.policyengine_parameter
+        == "gov.states.mi.mdhhs.ssp.payment.individual"
+    )
+    assert michigan_ssp_independent_living_mapping.parameter_key_path == (
+        "INDEPENDENT_LIVING",
+    )
+    michigan_ssp_person_mapping = registry.mapping_for_legal_id(
+        "us-mi:policies/mdhhs/rft/248#mi_ssp_person",
+        country="us",
+    )
+    assert michigan_ssp_person_mapping.mapping_type == "not_comparable"
+    assert michigan_ssp_person_mapping.policyengine_variable == "mi_ssp_person"
     section_2014c_net_failure_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line",
         country="us",

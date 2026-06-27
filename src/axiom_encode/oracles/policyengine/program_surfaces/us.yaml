@@ -1727,10 +1727,11 @@ surfaces:
   variable: mi_ssp
   source_type: state_implementation
   state: MI
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: RuleSpec encodes Michigan BEM 660 MDHHS-issued State SSI Payment eligibility and RFT 248 current-law payment
+    cells. PolicyEngine's `mi_ssp` is an SPM-unit aggregate over person-level amounts, category overrides, SSI eligibility,
+    and countable-income reductions, so no single encoded source output is a one-to-one oracle target for the final aggregate.
 - country: us
   program_id: ssi_state_supplement
   program_name: Maine SSP
