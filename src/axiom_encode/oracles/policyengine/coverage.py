@@ -662,8 +662,9 @@ def _cloud_queue_item_from_program_surface(
 
 
 def canonical_rulespec_repo_name_from_prefix(prefix: str) -> str:
-    """Return the legacy per-jurisdiction RuleSpec repo name for a prefix."""
-    return f"rulespec-{prefix}"
+    """Return the country-level RuleSpec repo name for a jurisdiction prefix."""
+    country = prefix.split("-", 1)[0].lower()
+    return f"rulespec-{country}"
 
 
 def _cloud_queue_oracle_expectation(action: str) -> str:
