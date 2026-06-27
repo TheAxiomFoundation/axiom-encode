@@ -68,6 +68,14 @@ rules:
         formula: standard_rate_output_vat - recoverable_input_vat
 """
 
+_UK_UNIVERSAL_CREDIT_PROGRAM_SPEC = """program: uk/universal-credit
+period: 2026-04
+outputs:
+  - universal_credit_award_amount
+  - universal_credit_maximum_amount
+  - standard_allowance_amount
+"""
+
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -284,6 +292,38 @@ def test_uk_vat_policy_outputs_are_classified_not_comparable(tmp_path):
         item = items_by_id[legal_id]
         assert item["repo"] == "rulespec-uk"
         assert item["program"] == "vat"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+
+
+def test_uk_universal_credit_program_outputs_are_classified_not_comparable(
+    tmp_path,
+):
+    """UC fiscal-year package outputs are explicit assembly surfaces."""
+    root = tmp_path / "mono"
+    _write(
+        root
+        / "rulespec-uk"
+        / "programs"
+        / "uk"
+        / "universal-credit"
+        / "fy-2026-27.yaml",
+        _UK_UNIVERSAL_CREDIT_PROGRAM_SPEC,
+    )
+
+    report = build_policyengine_coverage_report(root)
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for legal_id in (
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount",
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_maximum_amount",
+        "uk:programs/universal-credit/fy-2026-27#standard_allowance_amount",
+    ):
+        item = items_by_id[legal_id]
+        assert item["repo"] == "rulespec-uk"
+        assert item["program"] == "universal_credit"
         assert item["status"] == "known_not_comparable"
         assert item["mapping_type"] == "not_comparable"
 
