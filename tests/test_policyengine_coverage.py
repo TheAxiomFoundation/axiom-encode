@@ -1361,6 +1361,24 @@ def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():
     assert "final SPM-unit benefit" in florida_tca["rationale"]
 
 
+def test_policyengine_program_surface_marks_louisiana_fitap_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    louisiana_fitap = items_by_variable["la_fitap"]
+
+    assert louisiana_fitap["program_id"] == "tanf"
+    assert louisiana_fitap["state"] == "LA"
+    assert louisiana_fitap["axiom_status"] == "known_not_comparable"
+    assert louisiana_fitap["mapping_count"] == 1
+    assert louisiana_fitap["comparable_mapping_count"] == 0
+    assert louisiana_fitap["legal_ids"] == [
+        "us-la:policies/dcfs/economic-independence/b-640-fitap-income-limits-398921#"
+    ]
+    assert "Louisiana FITAP income-limit" in louisiana_fitap["rationale"]
+    assert "under-$10 no-payment rules" in louisiana_fitap["rationale"]
+
+
 def test_policyengine_program_surface_marks_wyoming_power_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
@@ -1377,6 +1395,44 @@ def test_policyengine_program_surface_marks_wyoming_power_known_not_comparable()
     ]
     assert "Wyoming POWER payment-test legal slices" in wyoming_power["rationale"]
     assert "final benefit surface" in wyoming_power["rationale"]
+
+
+def test_policyengine_coverage_classifies_louisiana_fitap_income_limit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-la"
+        / "policies/dcfs/economic-independence/b-640-fitap-income-limits-398921.yaml",
+        """format: rulespec/v1
+rules:
+  - name: la_fitap
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2023-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-la:policies/dcfs/economic-independence/"
+        "b-640-fitap-income-limits-398921#la_fitap"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["program"] == "tanf"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "la_fitap"
+    assert item["candidate_priority"] == "P4"
+    assert "under-$10 no-payment rules" in item["rationale"]
 
 
 def test_policyengine_coverage_classifies_wyoming_power_payment_helpers(
