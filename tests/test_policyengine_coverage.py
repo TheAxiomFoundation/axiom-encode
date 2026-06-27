@@ -778,15 +778,35 @@ def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known
     report = build_policyengine_program_surface_report()
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
-    assert items_by_variable["is_wic_eligible"]["axiom_status"] == (
-        "known_not_comparable"
-    )
-    assert items_by_variable["is_chip_eligible"]["axiom_status"] == (
-        "known_not_comparable"
-    )
+    wic = items_by_variable["is_wic_eligible"]
+    chip = items_by_variable["is_chip_eligible"]
+    assert wic["axiom_status"] == "known_not_comparable"
+    assert wic["mapping_count"] >= 1
+    assert wic["comparable_mapping_count"] == 0
+    assert "us:regulations/7-cfr/246/7/" in wic["legal_ids"]
+    assert chip["axiom_status"] == "known_not_comparable"
+    assert chip["mapping_count"] >= 1
+    assert chip["comparable_mapping_count"] == 0
+    assert "us:statutes/42/1397jj/b/1#" in chip["legal_ids"]
     assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
         {"is_wic_eligible", "is_chip_eligible"}
     )
+
+
+def test_policyengine_registry_resolves_wic_and_chip_eligibility_prefixes():
+    registry = load_policyengine_registry()
+
+    expected_prefix_mappings = {
+        "us:regulations/7-cfr/246/7/local_agency_certification_helper": "is_wic_eligible",
+        "us:statutes/42/1397jj/b/1#future_chip_source_helper": "is_chip_eligible",
+    }
+    for legal_id, variable in expected_prefix_mappings.items():
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+
+        assert mapping is not None
+        assert mapping.match_type == "prefix"
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.policyengine_variable == variable
 
 
 def test_policyengine_program_surface_local_tax_credit_uses_local_weight(tmp_path):
