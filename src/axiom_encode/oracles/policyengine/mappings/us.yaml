@@ -2520,6 +2520,129 @@ mappings:
     comparison: money
     rationale: Same Michigan monthly individual DHS supplement amount for institutional living arrangements under RFT 248.
 
+  - legal_id: us-mi:policies/mdhhs/rft/248#independent_living_couple_state_ssi_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - INDEPENDENT_LIVING
+    period: month
+    unit: USD
+    comparison: money
+    result_multiplier: 0.5
+    rationale: Michigan RFT 248 states the independent-living couple payment as a total couple amount and per-person share; RuleSpec exposes the per-person share while PolicyEngine stores the full monthly couple amount.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#household_of_another_couple_state_ssi_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - HOUSEHOLD_OF_ANOTHER
+    period: month
+    unit: USD
+    comparison: money
+    result_multiplier: 0.5
+    rationale: Michigan RFT 248 states the household-of-another couple payment as a total couple amount and per-person share; RuleSpec exposes the per-person share while PolicyEngine stores the full monthly couple amount.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#domiciliary_care_couple_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - DOMICILIARY_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly couple DHS supplement amount for domiciliary-care adult foster care under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#personal_care_couple_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - PERSONAL_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly couple DHS supplement amount for personal-care adult foster care under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#home_for_aged_couple_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - HOME_FOR_AGED
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly couple DHS supplement amount for home-for-aged living arrangements under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#institution_couple_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.couple
+    parameter_key_path:
+      - INSTITUTION
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly couple DHS supplement amount for institutional living arrangements under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#eligible_child_state_ssi_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 includes an eligible-child State SSI Payment row; PolicyEngine's Michigan SSP parameter table does not expose a child living-arrangement category or one-to-one parameter.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#federal_ssi_benefit_rate
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 repeats the federal SSI benefit rate as context for extended-care waiver calculations; federal SSI is modeled separately from Michigan SSP in PolicyEngine.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#extended_care_waiver_income_limit_multiplier
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 uses this source-table helper multiplier to derive an extended-care waiver income limit; PolicyEngine's Michigan SSP surface does not expose the helper multiplier.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#extended_care_waiver_income_limit
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 derives this extended-care waiver income limit from federal SSI context; PolicyEngine's Michigan SSP surface does not expose a one-to-one output for the derived limit.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#essential_person_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 includes an essential-person payment amount, but PolicyEngine's Michigan SSP model does not expose this optional contextual payment as a parameter or variable.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#adult_foster_care_individual_recipient_retained_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 includes the adult foster care or home-for-aged recipient retained allowance; PolicyEngine's Michigan SSP model does not expose this retained-allowance row as a payment parameter or output.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#adult_foster_care_couple_recipient_retained_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Michigan RFT 248 includes the couple adult foster care or home-for-aged recipient retained allowance; PolicyEngine's Michigan SSP model does not expose this retained-allowance row as a payment parameter or output.
+
   - legal_id: us-mi:policies/mdhhs/rft/248#mi_ssp_person
     country: us
     program: ssi_state_supplement
