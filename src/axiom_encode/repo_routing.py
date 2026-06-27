@@ -239,7 +239,11 @@ def iter_jurisdiction_content_dirs(workspace_root: Path) -> list[tuple[str, Path
 
     root = Path(workspace_root)
     candidate_checkouts = []
-    if root.is_dir() and root.name.startswith("rulespec-"):
+    if (
+        root.is_dir()
+        and root.name.startswith("rulespec-")
+        and not (root / root.name).is_dir()
+    ):
         candidate_checkouts.append(root)
     candidate_checkouts.extend(sorted(root.glob("rulespec-*")))
 

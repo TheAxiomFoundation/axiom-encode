@@ -108,6 +108,23 @@ def test_direct_monorepo_root_is_enumerated(tmp_path):
     assert {item["repo"] for item in report["items"]} == {"rulespec-us-al"}
 
 
+def test_same_named_workspace_wrapper_does_not_become_country_root(tmp_path):
+    """GitHub Actions uses ``.../rulespec-us/rulespec-us``; only the child is a checkout."""
+    workspace = tmp_path / "rulespec-us"
+    checkout = workspace / "rulespec-us"
+    _write(
+        checkout / "us-al" / "policies" / "dhr" / "poe.yaml",
+        _UNMAPPED_US_RULESPEC,
+    )
+
+    report = build_policyengine_coverage_report(workspace)
+
+    assert [item["legal_id"] for item in report["items"]] == [
+        "us-al:policies/dhr/poe#brand_new_state_helper_xyz"
+    ]
+    assert {item["repo"] for item in report["items"]} == {"rulespec-us-al"}
+
+
 def test_direct_legacy_root_is_enumerated(tmp_path):
     """``--root <rulespec-us-al>`` should scan legacy standalone checkouts."""
     root = tmp_path / "rulespec-us-al"
