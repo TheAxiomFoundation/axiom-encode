@@ -104,52 +104,7 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output marks a qualified noncitizen whose Medicaid coverage is limited to emergency services by the five-year bar. PolicyEngine does not expose this limitation predicate as a separate Medicaid oracle target.
 
-  - legal_id: us:policies/hhs/medicaid/eligibility#child_ssi_deeming_age_ceiling_years
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: This RuleSpec output is a statutory child age threshold used inside the Medicaid eligibility composition. PolicyEngine exposes final Medicaid eligibility, not this helper scalar as a one-to-one oracle target.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: This RuleSpec output is a Medicare Savings Program-adjacent statutory income-limit helper. PolicyEngine's Medicaid oracle surface is final eligibility and state/effective thresholds, not this source-level scalar.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#inpatient_hospital_durational_limit_exception_age_ceiling_years
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: This RuleSpec output is a durational-limit exception age threshold for inpatient hospital services, not a person-level Medicaid eligibility result or exposed PolicyEngine Medicaid parameter.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#adult_expansion_mandatory_eligible
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    policyengine_variable: is_medicaid_eligible
-    candidate_priority: P4
-    rationale: This RuleSpec output is the adult-expansion limb of the Medicaid eligibility composition. PolicyEngine exposes final Medicaid eligibility after all category, state, income, and immigration gates, not this limb as a one-to-one variable.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#former_foster_care_mandatory_eligible
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    policyengine_variable: is_medicaid_eligible
-    candidate_priority: P4
-    rationale: This RuleSpec output is the former-foster-care limb of the Medicaid eligibility composition. PolicyEngine exposes final Medicaid eligibility, not this source-level mandatory-group branch separately.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#optional_group_eligible
-    country: us
-    program: medicaid
-    mapping_type: not_comparable
-    policyengine_variable: is_medicaid_eligible
-    candidate_priority: P4
-    rationale: This RuleSpec output is the state-elected optional-group limb of Medicaid eligibility. PolicyEngine exposes final Medicaid eligibility and does not expose this state-election branch as a separate oracle variable.
-
-  - legal_id: us:policies/hhs/medicaid/eligibility#is_medicaid_eligible
+  - legal_id: us:statutes/42/1396a/a/10#is_medicaid_eligible
     country: us
     program: medicaid
     mapping_type: direct_variable
@@ -207,6 +162,13 @@ mappings:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: This RuleSpec output is a federal medically-needy child age ceiling. PolicyEngine's comparable Medicaid surface is final eligibility and effective state thresholds, not this statutory scalar.
+
+  - legal_id: us:statutes/42/1396a/a/10#ssi_child_age_ceiling_years
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the federal child age ceiling for an SSI-related mandatory Medicaid category in 42 USC 1396a(a)(10). PolicyEngine exposes final Medicaid eligibility, not this statutory helper scalar as a one-to-one oracle target.
 
   - legal_id: us:statutes/42/1396a/a/10#optional_adult_age_ceiling_years
     country: us

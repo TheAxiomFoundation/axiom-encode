@@ -179,71 +179,58 @@ rules:
 
 def test_policyengine_coverage_classifies_medicaid_policy_composite(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rulespec-us/us/policies/hhs/medicaid/eligibility.yaml",
+        tmp_path / "rulespec-us/us/statutes/42/1396a/a/10.yaml",
         """format: rulespec/v1
 rules:
-  - name: child_ssi_deeming_age_ceiling_years
+  - name: adult_expansion_age_ceiling_years
     kind: parameter
-    versions:
-      - effective_from: '1974-01-01'
-        formula: 21
-  - name: specified_low_income_medicare_beneficiary_income_limit_poverty_line_rate
-    kind: parameter
-    versions:
-      - effective_from: '1995-01-01'
-        formula: 1.2
-  - name: inpatient_hospital_durational_limit_exception_age_ceiling_years
-    kind: parameter
-    versions:
-      - effective_from: '1974-01-01'
-        formula: 1
-  - name: adult_expansion_mandatory_eligible
-    kind: derived
     versions:
       - effective_from: '2014-01-01'
-        formula: adult_expansion_conditions_met
-  - name: former_foster_care_mandatory_eligible
-    kind: derived
+        formula: 65
+  - name: adult_expansion_income_limit_poverty_line_rate
+    kind: parameter
+    versions:
+      - effective_from: '2014-01-01'
+        formula: 1.33
+  - name: former_foster_care_age_ceiling_years
+    kind: parameter
     versions:
       - effective_from: '1974-01-01'
-        formula: former_foster_care_conditions_met
-  - name: optional_group_eligible
-    kind: derived
+        formula: 26
+  - name: former_foster_care_attainment_age_years
+    kind: parameter
     versions:
       - effective_from: '1974-01-01'
-        formula: optional_group_conditions_met
+        formula: 18
   - name: is_medicaid_eligible
     kind: derived
     versions:
       - effective_from: '2014-01-01'
-        formula: adult_expansion_mandatory_eligible or former_foster_care_mandatory_eligible or optional_group_eligible
+        formula: adult_expansion_conditions_met or former_foster_care_conditions_met
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rulespec-us/us/policies/hhs/medicaid/eligibility.test.yaml",
+        tmp_path / "rulespec-us/us/statutes/42/1396a/a/10.test.yaml",
         """- name: medicaid composite covered
   period: 2024
   input:
-    us:policies/hhs/medicaid/eligibility#input.adult_expansion_conditions_met: true
-    us:policies/hhs/medicaid/eligibility#input.former_foster_care_conditions_met: false
-    us:policies/hhs/medicaid/eligibility#input.optional_group_conditions_met: false
+    us:statutes/42/1396a/a/10#input.adult_expansion_conditions_met: true
+    us:statutes/42/1396a/a/10#input.former_foster_care_conditions_met: false
   output:
-    us:policies/hhs/medicaid/eligibility#is_medicaid_eligible: holds
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
 """,
     )
 
     report = build_policyengine_coverage_report(tmp_path, program="medicaid")
 
-    assert report["total_outputs"] == 7
+    assert report["total_outputs"] == 5
     assert report["status_counts"] == {
         "comparable": 1,
-        "known_not_comparable": 6,
+        "known_not_comparable": 4,
     }
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
-    final_surface = items_by_id[
-        "us:policies/hhs/medicaid/eligibility#is_medicaid_eligible"
-    ]
+    final_surface = items_by_id["us:statutes/42/1396a/a/10#is_medicaid_eligible"]
     assert final_surface["mapping_type"] == "direct_variable"
     assert final_surface["policyengine_variable"] == "is_medicaid_eligible"
     assert final_surface["tested"] is True
@@ -768,7 +755,7 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert medicaid["program_id"] == "medicaid"
     assert medicaid["source_type"] == "eligibility"
     assert medicaid["axiom_status"] == "wired"
-    assert medicaid["mapping_count"] == 4
+    assert medicaid["mapping_count"] == 1
     assert medicaid["comparable_mapping_count"] == 1
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
@@ -3674,6 +3661,11 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         value: 18
+  - name: ssi_child_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 18
   - name: optional_adult_age_ceiling_years
     kind: parameter
     versions:
@@ -3788,8 +3780,8 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="medicaid")
 
-    assert report["total_outputs"] == 30
-    assert report["status_counts"] == {"known_not_comparable": 30}
+    assert report["total_outputs"] == 31
+    assert report["status_counts"] == {"known_not_comparable": 31}
     assert report["untested_comparable"] == 0
     assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
     assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
