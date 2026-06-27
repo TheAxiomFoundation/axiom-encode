@@ -2552,6 +2552,41 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert michigan_ssp_independent_living_mapping.parameter_key_path == (
         "INDEPENDENT_LIVING",
     )
+    michigan_ssp_couple_independent_living_mapping = registry.mapping_for_legal_id(
+        "us-mi:policies/mdhhs/rft/248#independent_living_couple_state_ssi_payment",
+        country="us",
+    )
+    assert michigan_ssp_couple_independent_living_mapping.mapping_type == (
+        "parameter_value"
+    )
+    assert (
+        michigan_ssp_couple_independent_living_mapping.policyengine_parameter
+        == "gov.states.mi.mdhhs.ssp.payment.couple"
+    )
+    assert michigan_ssp_couple_independent_living_mapping.parameter_key_path == (
+        "INDEPENDENT_LIVING",
+    )
+    assert michigan_ssp_couple_independent_living_mapping.result_multiplier == 0.5
+    michigan_ssp_couple_domiciliary_care_mapping = registry.mapping_for_legal_id(
+        "us-mi:policies/mdhhs/rft/248#domiciliary_care_couple_dhs_supplement",
+        country="us",
+    )
+    assert michigan_ssp_couple_domiciliary_care_mapping.mapping_type == (
+        "parameter_value"
+    )
+    assert (
+        michigan_ssp_couple_domiciliary_care_mapping.policyengine_parameter
+        == "gov.states.mi.mdhhs.ssp.payment.couple"
+    )
+    assert michigan_ssp_couple_domiciliary_care_mapping.parameter_key_path == (
+        "DOMICILIARY_CARE",
+    )
+    assert michigan_ssp_couple_domiciliary_care_mapping.result_multiplier is None
+    michigan_ssp_child_mapping = registry.mapping_for_legal_id(
+        "us-mi:policies/mdhhs/rft/248#eligible_child_state_ssi_payment",
+        country="us",
+    )
+    assert michigan_ssp_child_mapping.mapping_type == "not_comparable"
     michigan_ssp_person_mapping = registry.mapping_for_legal_id(
         "us-mi:policies/mdhhs/rft/248#mi_ssp_person",
         country="us",
