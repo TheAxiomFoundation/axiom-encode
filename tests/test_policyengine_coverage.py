@@ -1273,6 +1273,22 @@ def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    florida_tca = items_by_variable["fl_tca"]
+
+    assert florida_tca["program_id"] == "tanf"
+    assert florida_tca["state"] == "FL"
+    assert florida_tca["axiom_status"] == "known_not_comparable"
+    assert florida_tca["mapping_count"] == 1
+    assert florida_tca["comparable_mapping_count"] == 0
+    assert "us-fl:programs/tca/fy-2026#fl_tca" in florida_tca["legal_ids"]
+    assert "runnable us-fl/tca FY 2026 composition" in florida_tca["rationale"]
+    assert "final SPM-unit benefit" in florida_tca["rationale"]
+
+
 def test_policyengine_program_surface_marks_wyoming_power_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 

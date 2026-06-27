@@ -500,10 +500,13 @@ surfaces:
   variable: fl_tca
   source_type: state_implementation
   state: FL
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include a runnable us-fl/tca FY 2026 composition over DCF ESS manual financial,
+    resource, payment-standard, and benefit-calculation boundaries, with legal-ID oracle mappings for the Florida TCA
+    outputs. The Axiom wrapper still acknowledges final eligibility as incomplete, while PolicyEngine's fl_tca is a
+    final SPM-unit benefit using PE-specific eligibility, income, and payment-standard helpers, so compare the legal
+    components separately until both runtimes expose the same final Florida TCA boundary.
 - country: us
   program_id: tanf
   program_name: Maine TANF
