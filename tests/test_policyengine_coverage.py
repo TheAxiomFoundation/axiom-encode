@@ -1142,6 +1142,20 @@ def test_policyengine_program_surface_marks_colorado_ssp_wired():
     )
 
 
+def test_policyengine_program_surface_marks_ca_capi_wired():
+    report = build_policyengine_program_surface_report(program="ca_capi")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ca_capi = items_by_variable["ca_capi"]
+
+    assert ca_capi["program_id"] == "ca_capi"
+    assert ca_capi["state"] == "CA"
+    assert ca_capi["axiom_status"] == "wired"
+    assert ca_capi["mapping_count"] >= 1
+    assert ca_capi["comparable_mapping_count"] >= 1
+    assert "us-ca:regulations/cdss/eas/49/49-055#ca_capi" in ca_capi["legal_ids"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",

@@ -25142,6 +25142,7 @@ print("BENCHMARK:" + json.dumps(result))
             for source_key, _pe_key in (
                 *adapter.direct_spm_overrides,
                 *adapter.annual_direct_spm_overrides,
+                *adapter.direct_person_inputs,
                 *adapter.annualized_person_inputs,
                 *adapter.monthly_person_inputs,
                 *adapter.boolean_person_inputs,
@@ -25886,6 +25887,17 @@ print(f'RESULT:{{float(value)}}')
                 )
             elif operation == "monthly_to_annual" and len(source_values) == 1:
                 derived_value = source_values[0] * 12.0
+            elif operation == "positive_if_any":
+                derived_value = (
+                    1.0 if any(value > 0 for value in source_values) else 0.0
+                )
+            elif (
+                operation == "choose_second_if_third_truthy_else_first"
+                and len(source_values) >= 3
+            ):
+                derived_value = (
+                    source_values[1] if source_values[2] else source_values[0]
+                )
             return derived_value
 
         def pe_literal(value: Any) -> str:
@@ -26053,12 +26065,10 @@ print(f'RESULT:{{float(value)}}')
                 if not numeric_values:
                     continue
                 if operation == "max":
-                    derived_value: float | bool = max(numeric_values)
-                elif operation == "positive_if_any":
-                    derived_value = (
-                        1.0 if any(value > 0 for value in numeric_values) else 0.0
-                    )
+                    derived_value = max(numeric_values)
                 else:
+                    derived_value = derive_override_value(operation, numeric_values)
+                if derived_value is None:
                     continue
                 attrs = (
                     target_person_attrs
@@ -26066,6 +26076,16 @@ print(f'RESULT:{{float(value)}}')
                     else adult_attrs
                 )
                 attrs.append(f"'{pe_attr}': {{'{year}': {pe_literal(derived_value)}}}")
+            for rule_key, pe_attr in adapter.direct_person_inputs:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                attrs = (
+                    target_person_attrs
+                    if target_person_attrs is not None
+                    else adult_attrs
+                )
+                attrs.append(f"'{pe_attr}': {{'{year}': {pe_literal(value)}}}")
             for rule_key, pe_attr in adapter.annualized_person_inputs:
                 value = self._rulespec_test_input_value(inputs, rule_key)
                 if value is None:
