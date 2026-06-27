@@ -107,6 +107,7 @@ from axiom_encode.cli import (
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
+    _rulespec_apply_content_root,
     _rulespec_scalar_matches,
     _scoped_source_text_for_encode_source_id,
     _sha256_file,
@@ -4158,6 +4159,81 @@ class TestCmdEncode:
             "statutes/26/36B.yaml",
             "statutes/26/36B.test.yaml",
         ]
+
+    def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "us-ks"
+            / "policies"
+            / "dcf"
+            / "keesm"
+            / "keesm7410.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("keesm7410.test.yaml").write_text("[]\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        target = policy_repo / "us-ks/policies/dcf/keesm/keesm7410.yaml"
+        target_test = policy_repo / "us-ks/policies/dcf/keesm/keesm7410.test.yaml"
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/us-ks/policies/dcf/keesm/keesm7410.json"
+        )
+        assert applied == [target, target_test, manifest]
+        assert target.exists()
+        assert target_test.exists()
+        assert not (policy_repo / "policies/dcf/keesm/keesm7410.yaml").exists()
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "us-ks/policies/dcf/keesm/keesm7410.yaml",
+            "us-ks/policies/dcf/keesm/keesm7410.test.yaml",
+        ]
+        assert (
+            _rulespec_apply_content_root(
+                policy_repo,
+                Path("us-ks/policies/dcf/keesm/keesm7410.yaml"),
+            )
+            == policy_repo
+        )
 
     def test_write_applied_manifest_deduplicates_applied_files(self, tmp_path):
         output_root = tmp_path / "out"
