@@ -224,10 +224,10 @@ surfaces:
   state: CO
   axiom_status: known_not_comparable
   priority: P1
-  rationale: Current RuleSpec repos include tested Colorado Works basic-cash-assistance, earned-income-disregard, grant-standard,
-    and time-limit legal slices. Those outputs are source-specific legal boundaries, while PolicyEngine's co_tanf is a final monthly
-    benefit variable built from PE's own TANF graph and parameter table; do not treat it as a direct one-to-one oracle target until
-    Axiom has an equivalent final Colorado Works benefit surface or PE exposes compatible helper boundaries.
+  rationale: Axiom now has a country-level Colorado Works FY 2026 program bridge for the encoded basic-cash-assistance
+    grant before pregnancy allowance. That bridge remains source-slice coverage, while PolicyEngine's co_tanf
+    is a final monthly benefit variable built from PE's own Colorado Works graph and parameter table; keep as
+    known-not-comparable until the remaining Colorado Works eligibility, allowance, and procedural gates are composed.
 - country: us
   program_id: tanf
   program_name: DC TANF
