@@ -82,10 +82,12 @@ surfaces:
   coverage: US
   variable: is_wic_eligible
   source_type: eligibility
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyBench scores this direct person-level WIC eligibility variable. Axiom should encode WIC categorical, income,
-    adjunctive, and nutritional-risk eligibility before claiming parity.
+  rationale: PolicyBench scores this direct person-level WIC eligibility variable. Axiom encodes 7 CFR 246.7(c)-(e) source
+    predicates for WIC certification, income, adjunctive eligibility, and nutritional risk; PolicyEngine's is_wic_eligible
+    is a simplified final person-level eligibility surface and does not expose the same residency, identity, agency-workflow,
+    and certification-condition boundary as a one-to-one oracle target.
 - country: us
   program_id: school_meals
   program_name: Free and reduced school meals
@@ -173,10 +175,12 @@ surfaces:
   coverage: US
   variable: is_chip_eligible
   source_type: eligibility
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyBench scores this direct person-level CHIP eligibility variable. Axiom should encode the final CHIP category
-    composite and state-set income-limit parameters before claiming parity.
+  rationale: PolicyBench scores this direct person-level CHIP eligibility variable. Axiom encodes federal CHIP child and
+    targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available; PolicyEngine's
+    is_chip_eligible is a final category aggregate over child, standard pregnant, and FCEP paths, so the currently encoded
+    legal outputs are adjacent rather than a one-to-one oracle target.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
