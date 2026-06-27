@@ -252,10 +252,13 @@ surfaces:
   variable: il_tanf
   source_type: state_implementation
   state: IL
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Illinois DHS CSM Manual earned-income-disregard and cash-payment legal
+    slices, including the one-dollar no-issuance threshold and whole-dollar rounding for regular monthly TANF benefits.
+    Those outputs are source-specific legal boundaries, while PolicyEngine's il_tanf final benefit currently omits the
+    no-issuance and rounding behavior and has a known income-eligibility boundary mismatch; compare the encoded legal
+    components separately until PE exposes compatible helpers or the final legal behavior matches.
 - country: us
   program_id: tanf
   program_name: NY TANF
@@ -486,10 +489,13 @@ surfaces:
   variable: in_tanf
   source_type: state_implementation
   state: IN
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include tested Indiana DFR cash-assistance standards, maximum-benefit tables, and
+    new-application and ongoing benefit-entitlement legal slices from the TANF manual. Those outputs expose source-local
+    monthly benefit entitlement, minimum-grant, countable-income, and parameter boundaries, while PolicyEngine's in_tanf
+    is a final SPM-unit benefit built from PE's broader eligibility graph; compare the encoded legal components separately
+    until Axiom has an equivalent final PE graph surface or PE exposes compatible helper boundaries.
 - country: us
   program_id: tanf
   program_name: Florida TCA

@@ -1174,6 +1174,46 @@ def test_policyengine_program_surface_marks_california_ssp_known_not_comparable(
     assert "annual SPM-unit final amount" in ca_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="il_tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    illinois_tanf = items_by_variable["il_tanf"]
+
+    assert illinois_tanf["program_id"] == "tanf"
+    assert illinois_tanf["state"] == "IL"
+    assert illinois_tanf["axiom_status"] == "known_not_comparable"
+    assert illinois_tanf["mapping_count"] >= 1
+    assert illinois_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-il:policies/dhs/csmm/15820/block-1#regular_monthly_tanf_benefit"
+        in illinois_tanf["legal_ids"]
+    )
+    assert "one-dollar no-issuance" in illinois_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_indiana_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="in_tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    indiana_tanf = items_by_variable["in_tanf"]
+
+    assert indiana_tanf["program_id"] == "tanf"
+    assert indiana_tanf["state"] == "IN"
+    assert indiana_tanf["axiom_status"] == "known_not_comparable"
+    assert indiana_tanf["mapping_count"] >= 1
+    assert indiana_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_new_application_monthly_benefit_entitlement"
+        in indiana_tanf["legal_ids"]
+    )
+    assert (
+        "us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation-continuation#tanf_ongoing_monthly_benefit_entitlement"
+        in indiana_tanf["legal_ids"]
+    )
+    assert "source-local monthly benefit entitlement" in indiana_tanf["rationale"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",
