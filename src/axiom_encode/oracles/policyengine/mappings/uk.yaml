@@ -2094,6 +2094,113 @@ mappings:
     comparison: bool
     rationale: Same Universal Credit childcare work-condition predicate, with the Populace oracle projecting person-level adult work status into the Regulation 32 claimant and other-member work leaves.
 
+  - legal_id: uk:programs/universal-credit/fy-2026-27#amount_included_under_section_10_responsibility_for_children_and_young_persons
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_child_element
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper composes child and disabled-child amounts across benefit-unit children. PolicyEngine UK exposes adjacent child element variables and parameters, while the Populace oracle currently compares the constituent source-law outputs rather than this program-boundary aggregate.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#amount_included_under_section_11_housing_costs
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_housing_costs_element
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper adds renter and owner-occupier housing-cost schedule outputs from the encoded regulations. PolicyEngine UK exposes downstream UC housing outcomes rather than this WRA 2012 section 11 bridge as a one-to-one oracle surface.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#amount_included_under_section_12_other_particular_needs_or_circumstances
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_maximum_amount
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper combines LCWRA, carer, and childcare element bridges. PolicyEngine UK exposes nearby element outputs, but there is not yet a tested program-boundary oracle adapter for this section 12 composite.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#carer_element
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_carer_element
+    candidate_priority: P4
+    rationale: The program wrapper's carer element output is a branch-selected program amount backed by Regulation 36 parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#child_element_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_child_element
+    candidate_priority: P4
+    rationale: The program wrapper's child element amount is a branch-selected program amount backed by Regulation 36 parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#childcare_costs_element_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_childcare_element
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper computes a childcare element bridge from relevant childcare charges and caps. PolicyEngine UK exposes adjacent childcare element outcomes, but the current oracle surface does not test this program-boundary calculation one-to-one.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#childcare_costs_element_maximum_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_maximum_childcare_element_amount
+    candidate_priority: P4
+    rationale: The program wrapper's childcare maximum amount is a branch-selected program amount backed by Regulation 36 childcare cap parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#disabled_child_additional_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_individual_disabled_child_element
+    candidate_priority: P4
+    rationale: The program wrapper's disabled child additional amount is a branch-selected program amount backed by Regulation 36 parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#lcwra_element_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_LCWRA_element
+    candidate_priority: P4
+    rationale: The program wrapper's LCWRA element amount is a branch-selected program amount backed by Regulation 36 parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#standard_allowance_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_standard_allowance
+    candidate_priority: P4
+    rationale: The program wrapper's standard allowance amount is a branch-selected program amount backed by Regulation 36 parameter rows already mapped at the source-law level. PolicyEngine UK stores the parameter branches rather than this program-output boundary.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount
+    country: uk
+    program: universal_credit
+    mapping_type: derived_expression
+    expression: max(uc_maximum_amount - uc_income_reduction, 0)
+    entity: benunit
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same WRA 2012 section 8 award formula as the source-law mapping, comparing the pre-take-up and pre-benefit-cap expression from uc_maximum_amount and uc_income_reduction.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#universal_credit_award_deduction_from_maximum_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_income_reduction
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper sums prescribed earned and unearned income deductions. PolicyEngine UK exposes adjacent income-reduction outputs, but there is not yet a tested Populace adapter for this program-boundary deduction composite.
+
+  - legal_id: uk:programs/universal-credit/fy-2026-27#universal_credit_maximum_amount
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    policyengine_variable: uc_maximum_amount
+    candidate_priority: P4
+    rationale: The Universal Credit program wrapper computes the WRA 2012 section 8 maximum amount from standard allowance, child, housing, and particular-needs components. PolicyEngine UK exposes adjacent component and maximum-amount variables, but this wrapper output is not currently tested as a one-to-one oracle surface.
+
 prefixes:
   - legal_id_prefix: uk:policies/govuk/council-tax-reduction#
     country: uk
