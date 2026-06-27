@@ -843,6 +843,18 @@ surfaces:
     priority: P1
     rationale: Needs source ingestion first.
   - country: us
+    program_id: tanf
+    program_name: Alabama TANF
+    category: Benefits
+    policyengine_status: complete
+    coverage: AL
+    variable: al_tanf
+    source_type: state_implementation
+    state: AL
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs governing law encoding.
+  - country: us
     program_id: snap
     program_name: Montana SNAP
     category: Benefits
@@ -878,9 +890,9 @@ surfaces:
         report["run_artifact_schema"]
         == "axiom-encode/policyengine-cloud-run-artifact/v1"
     )
-    assert report["total_items"] == 2
+    assert report["total_items"] == 3
     assert report["action_counts"] == {
-        "encode_rulespec": 1,
+        "encode_rulespec": 2,
         "ingest_source": 1,
     }
     items_by_variable = {
@@ -893,6 +905,13 @@ surfaces:
     assert new_tax_surface["target_prefix"] == "us"
     assert "repo:rulespec-us" in new_tax_surface["lock_scopes"]
     assert new_tax_surface["oracle_expectation"].startswith("encode source-law output")
+
+    al_tanf = items_by_variable["al_tanf"]
+    assert al_tanf["action"] == "encode_rulespec"
+    assert al_tanf["target_repo"] == "rulespec-us"
+    assert al_tanf["target_prefix"] == "us-al"
+    assert "repo:rulespec-us" in al_tanf["lock_scopes"]
+    assert "target-prefix:us-al" in al_tanf["lock_scopes"]
 
     az_ccap = items_by_variable["az_ccap"]
     assert az_ccap["action"] == "ingest_source"
@@ -934,7 +953,7 @@ surfaces:
     assert report["total_items"] == 1
     item = report["items"][0]
     assert item["action"] == "bootstrap_jurisdiction"
-    assert item["target_repo"] == "rulespec-us-mt"
+    assert item["target_repo"] == "rulespec-us"
     assert item["target_prefix"] == "us-mt"
 
 
