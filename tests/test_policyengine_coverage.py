@@ -1156,6 +1156,24 @@ def test_policyengine_program_surface_marks_ca_capi_wired():
     assert "us-ca:regulations/cdss/eas/49/49-055#ca_capi" in ca_capi["legal_ids"]
 
 
+def test_policyengine_program_surface_marks_california_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ca_state_supplement")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ca_ssp = items_by_variable["ca_state_supplement"]
+
+    assert ca_ssp["program_id"] == "ssi_state_supplement"
+    assert ca_ssp["state"] == "CA"
+    assert ca_ssp["axiom_status"] == "known_not_comparable"
+    assert ca_ssp["mapping_count"] >= 1
+    assert ca_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-ca:policies/dor/spotlight-on-social-security/2026-01/block-7#ca_state_supplement"
+        in ca_ssp["legal_ids"]
+    )
+    assert "annual SPM-unit final amount" in ca_ssp["rationale"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",

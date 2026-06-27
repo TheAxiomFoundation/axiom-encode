@@ -1556,10 +1556,12 @@ surfaces:
   variable: ca_state_supplement
   source_type: state_implementation
   state: CA
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes California's 2026 SSI/SSP chart amounts from state guidance, including the monthly CA Supplement
+    column. PolicyEngine's `ca_state_supplement` is an annual SPM-unit final amount after subtracting SSI and SSI countable
+    income from a broader California payment-standard graph, so compare encoded chart/payment-standard components separately
+    until Axiom has an equivalent WIC 12200/12204 final benefit composition surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Connecticut SSP

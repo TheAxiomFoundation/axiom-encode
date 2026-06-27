@@ -2628,6 +2628,14 @@ mappings:
     comparison: money
     rationale: California CAPI final benefit amount under MPP 49-055; the PE adapter compares individual non-couple cases by projecting the source-selected SSI/SSP standard, CAPI eligibility, and countable income into PolicyEngine's CA CAPI surface while excluding person-level couple-share cases that PE exposes only as an SPM-unit total.
 
+  - legal_id: us-ca:policies/dor/spotlight-on-social-security/2026-01/block-7#ca_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ca_state_supplement
+    candidate_priority: P3
+    rationale: Axiom's DOR 2026 chart output is the monthly CA Supplement column selected by SSI/SSP living-arrangement and blindness/couple rows. PolicyEngine's ca_state_supplement is an annual SPM-unit final benefit after subtracting SSI and SSI countable income from its California payment-standard graph, so this encoded chart component is adjacent but not a one-to-one oracle target for the final PE surface.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
     country: us
     program: snap
