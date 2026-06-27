@@ -114,6 +114,7 @@ from .harness.validator_pipeline import (
 )
 from .oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
+    build_policyengine_cloud_queue_report,
     build_policyengine_coverage_report,
 )
 from .oracles.policyengine.ecps_snap import (
@@ -798,6 +799,50 @@ def main():
         help="Maximum candidates to print in text mode",
     )
     oracle_candidates_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
+
+    cloud_queue_parser = subparsers.add_parser(
+        "cloud-queue",
+        help=(
+            "Export deterministic PolicyEngine parity work items for future "
+            "cloud-parallel encoding"
+        ),
+    )
+    cloud_queue_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rulespec-* repos",
+    )
+    cloud_queue_parser.add_argument(
+        "--oracle",
+        choices=["policyengine"],
+        default="policyengine",
+        help="Oracle surface inventory to inspect",
+    )
+    cloud_queue_parser.add_argument(
+        "--program",
+        default=None,
+        help="Restrict queue to a program label such as snap or tax",
+    )
+    cloud_queue_parser.add_argument(
+        "--country",
+        default="us",
+        help="PolicyEngine program surface country manifest to inspect",
+    )
+    cloud_queue_parser.add_argument(
+        "--include-deferred-jurisdictions",
+        action="store_true",
+        help="Include repo/bootstrap tasks for deferred jurisdictions",
+    )
+    cloud_queue_parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum work items to print in text mode",
+    )
+    cloud_queue_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
 
@@ -2204,6 +2249,8 @@ def main():
         cmd_oracle_coverage(args)
     elif args.command == "oracle-candidates":
         cmd_oracle_candidates(args)
+    elif args.command == "cloud-queue":
+        cmd_cloud_queue(args)
     elif args.command == "classify":
         cmd_classify(args)
     elif args.command in {"snap-populace-compare", "snap-ecps-compare"}:
@@ -3806,6 +3853,47 @@ def cmd_oracle_candidates(args):
             print(f"    {item['recommendation']}")
             if item.get("rationale"):
                 print(f"    current rationale: {item['rationale']}")
+
+
+def cmd_cloud_queue(args):
+    """Export deterministic work items for future cloud-parallel encoding."""
+    if args.oracle != "policyengine":
+        print(f"Unsupported oracle: {args.oracle}")
+        sys.exit(2)
+
+    root = (args.root or _default_rulespec_inventory_root()).resolve()
+    report = build_policyengine_cloud_queue_report(
+        root,
+        country=args.country,
+        program=args.program,
+        include_deferred_jurisdictions=args.include_deferred_jurisdictions,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        sys.exit(0)
+
+    print("PolicyEngine cloud-parallel work queue")
+    print(f"Schema: {report['schema']}")
+    print(f"Root: {report['root']}")
+    print(f"Country: {report['country']}")
+    if args.program:
+        print(f"Program: {args.program}")
+    print(f"Items: {report['total_items']}")
+    print(f"Actions: {_format_counter(report['action_counts'])}")
+    print(f"Priorities: {_format_counter(report['priority_counts'])}")
+
+    items = report["items"]
+    if items:
+        print()
+        print(f"Top work items (first {args.limit}):")
+        for item in items[: args.limit]:
+            state = f" [{item['state']}]" if item.get("state") else ""
+            print(
+                f"  - [{item.get('priority') or 'unprioritized'}] "
+                f"{item['action']} {item['policyengine_variable']}{state} "
+                f"-> {item['target_repo']}"
+            )
+            print(f"    locks: {', '.join(item['lock_scopes'])}")
         if len(items) > args.limit:
             print(f"  - ... {len(items) - args.limit} more")
 

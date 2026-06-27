@@ -4,6 +4,7 @@ import pytest
 
 from axiom_encode.oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
+    build_policyengine_cloud_queue_report,
     build_policyengine_coverage_report,
     build_policyengine_program_surface_report,
 )
@@ -809,6 +810,132 @@ surfaces:
             manifest_path=manifest,
             registry=_ProgramSurfaceRegistry({}),
         )
+
+
+def test_policyengine_cloud_queue_exports_actionable_program_surfaces(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: federal_income_tax
+    program_name: New tax surface
+    category: Taxes
+    policyengine_status: complete
+    coverage: US
+    variable: new_tax_surface
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Needs governing law encoding.
+  - country: us
+    program_id: ccdf
+    program_name: Arizona CCAP
+    category: Benefits
+    policyengine_status: complete
+    coverage: AZ
+    variable: az_ccap
+    source_type: state_implementation
+    state: AZ
+    axiom_status: pending_source_ingestion
+    priority: P1
+    rationale: Needs source ingestion first.
+  - country: us
+    program_id: snap
+    program_name: Montana SNAP
+    category: Benefits
+    policyengine_status: complete
+    coverage: MT
+    variable: mt_snap
+    source_type: state_implementation
+    state: MT
+    axiom_status: deferred_jurisdiction
+    priority: P2
+    rationale: Needs jurisdiction setup.
+  - country: us
+    program_id: fdpir
+    program_name: FDPIR
+    category: Benefits
+    policyengine_status: partial
+    coverage: US
+    variable: fdpir
+    axiom_status: input_only
+    priority: P1
+    rationale: Not queue material.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_cloud_queue_report(
+        tmp_path,
+        manifest_path=manifest,
+    )
+
+    assert report["schema"] == "axiom-encode/policyengine-cloud-queue/v1"
+    assert (
+        report["run_artifact_schema"]
+        == "axiom-encode/policyengine-cloud-run-artifact/v1"
+    )
+    assert report["total_items"] == 2
+    assert report["action_counts"] == {
+        "encode_rulespec": 1,
+        "ingest_source": 1,
+    }
+    items_by_variable = {
+        item["policyengine_variable"]: item for item in report["items"]
+    }
+
+    new_tax_surface = items_by_variable["new_tax_surface"]
+    assert new_tax_surface["action"] == "encode_rulespec"
+    assert new_tax_surface["target_repo"] == "rulespec-us"
+    assert new_tax_surface["target_prefix"] == "us"
+    assert "repo:rulespec-us" in new_tax_surface["lock_scopes"]
+    assert new_tax_surface["oracle_expectation"].startswith("encode source-law output")
+
+    az_ccap = items_by_variable["az_ccap"]
+    assert az_ccap["action"] == "ingest_source"
+    assert az_ccap["target_repo"] == "axiom-corpus"
+    assert az_ccap["target_prefix"] == "us-az"
+    assert "corpus-source:us:ccdf:az_ccap" in az_ccap["lock_scopes"]
+
+
+def test_policyengine_cloud_queue_can_include_deferred_jurisdictions(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: snap
+    program_name: Montana SNAP
+    category: Benefits
+    policyengine_status: complete
+    coverage: MT
+    variable: mt_snap
+    source_type: state_implementation
+    state: MT
+    axiom_status: deferred_jurisdiction
+    priority: P2
+    rationale: Needs jurisdiction setup.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_cloud_queue_report(
+        tmp_path,
+        manifest_path=manifest,
+        include_deferred_jurisdictions=True,
+    )
+
+    assert report["total_items"] == 1
+    item = report["items"][0]
+    assert item["action"] == "bootstrap_jurisdiction"
+    assert item["target_repo"] == "rulespec-us-mt"
+    assert item["target_prefix"] == "us-mt"
 
 
 def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_not_comparable():
