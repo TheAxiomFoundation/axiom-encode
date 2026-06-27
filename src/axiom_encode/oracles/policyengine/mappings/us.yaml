@@ -18948,6 +18948,7 @@ prefixes:
     country: us
     program: wic
     mapping_type: not_comparable
+    policyengine_variable: is_wic_eligible
     candidate_priority: P4
     rationale: 7 CFR 246.7(c)-(e) encodes WIC certification, residency, identity, income-screening, adjunctive eligibility, pregnancy-documentation, nutritional-risk, and State/local agency workflow predicates. PolicyEngine-US exposes final WIC eligibility and benefit surfaces, not these certification-procedure helper outputs as one-to-one oracle targets; exact mappings should be added only for later composed WIC eligibility or parameter outputs that share PolicyEngine's variable boundary.
 
@@ -20100,6 +20101,14 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: Section 1396a(l) qualified pregnant woman and child outputs are federal source-level age-band, postpartum-period, income-rate, resource-option, and waiver-state helpers. PolicyEngine US exposes final Medicaid eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1397jj/b/1#
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible
+    rationale: Section 1397jj(b)(1) targeted-low-income-child outputs are source-level CHIP eligibility prerequisites. PolicyEngine's is_chip_eligible variable is a final person-level category aggregate over child, standard pregnant, and FCEP paths, so this section-level source surface is adjacent rather than one-to-one; exact child-helper mappings continue to classify individual outputs.
 
   - legal_id_prefix: us:regulations/42-cfr/431/213#
     country: us
