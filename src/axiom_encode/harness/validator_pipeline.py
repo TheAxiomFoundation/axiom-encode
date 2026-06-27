@@ -19344,9 +19344,7 @@ class ValidatorPipeline:
             )
         return env
 
-    def _source_texts_for_rulespec_content(
-        self, content: str
-    ) -> dict[str, str] | None:
+    def _source_texts_for_rulespec_content(self, content: str) -> dict[str, str] | None:
         """Map declared RuleSpec source paths to the in-memory source text, if any."""
         if self.source_text is None:
             return None

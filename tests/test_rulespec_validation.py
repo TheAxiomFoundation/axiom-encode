@@ -13985,10 +13985,13 @@ rules:
         )
         == source_text
     )
-    assert find_source_verification_issues(
-        content,
-        source_texts=source_texts,
-    ) == []
+    assert (
+        find_source_verification_issues(
+            content,
+            source_texts=source_texts,
+        )
+        == []
+    )
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 

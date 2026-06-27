@@ -3634,10 +3634,9 @@ def _rulespec_validation_target(
     source_repo_root = policy_repo_root
     if not source_repo_root.name.startswith("rulespec-"):
         maybe_monorepo_root = source_repo_root.parent
-        if (
-            maybe_monorepo_root.name.startswith("rulespec-")
-            and source_repo_root.name in jurisdiction_subdir_names(maybe_monorepo_root)
-        ):
+        if maybe_monorepo_root.name.startswith(
+            "rulespec-"
+        ) and source_repo_root.name in jurisdiction_subdir_names(maybe_monorepo_root):
             source_repo_root = maybe_monorepo_root
         else:
             yield rulespec_file

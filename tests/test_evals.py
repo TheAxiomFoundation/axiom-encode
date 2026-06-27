@@ -3391,9 +3391,7 @@ class TestEvaluateArtifact:
             assert "rulespec-us-ny" in parts
             assert parts != policy_repo.parts
 
-    def test_validation_overlay_preserves_country_monorepo_state_shape(
-        self, tmp_path
-    ):
+    def test_validation_overlay_preserves_country_monorepo_state_shape(self, tmp_path):
         monorepo = tmp_path / "repos" / "rulespec-us"
         policy_repo = monorepo / "us-mn"
         policy_repo.mkdir(parents=True)
@@ -4770,8 +4768,7 @@ rules:
                 policy_repo_root=tmp_path,
                 axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
-                    "Combined Manual 0020.21 provides: Person living alone "
-                    "$1,055.00."
+                    "Combined Manual 0020.21 provides: Person living alone $1,055.00."
                 ),
             )
 
