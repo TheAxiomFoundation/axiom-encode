@@ -696,12 +696,12 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 
     assert chip["program_id"] == "chip"
-    assert chip["axiom_status"] == "pending_rulespec_encoding"
+    assert chip["axiom_status"] == "known_not_comparable"
     assert chip["policybench_output"] == "person_level_chip_eligibility"
     assert chip["policybench_household_weight"] == pytest.approx(0.18)
 
     assert wic["program_id"] == "wic"
-    assert wic["axiom_status"] == "pending_rulespec_encoding"
+    assert wic["axiom_status"] == "known_not_comparable"
     assert wic["policybench_output"] == "person_level_wic_eligibility"
     assert wic["policybench_household_weight"] == pytest.approx(0.32)
 
@@ -732,6 +732,21 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
         "wired": 1,
     }
     assert report["actionable_surfaces"] == []
+
+
+def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():
+    report = build_policyengine_program_surface_report()
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    assert items_by_variable["is_wic_eligible"]["axiom_status"] == (
+        "known_not_comparable"
+    )
+    assert items_by_variable["is_chip_eligible"]["axiom_status"] == (
+        "known_not_comparable"
+    )
+    assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
+        {"is_wic_eligible", "is_chip_eligible"}
+    )
 
 
 def test_policyengine_program_surface_local_tax_credit_uses_local_weight(tmp_path):
