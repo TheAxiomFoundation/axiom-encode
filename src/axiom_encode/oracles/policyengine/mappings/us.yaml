@@ -1594,6 +1594,90 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for couple SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
 
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mn.dhs.msa.assistance_standard.amount
+    parameter_key: INDIVIDUAL_LIVING_ALONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota Supplemental Aid monthly assistance standard for an individual living alone.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_with_others_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mn.dhs.msa.assistance_standard.amount
+    parameter_key: INDIVIDUAL_LIVING_WITH_OTHERS
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota Supplemental Aid monthly assistance standard for an individual living with others.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_married_couple_living_alone_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mn.dhs.msa.assistance_standard.amount
+    parameter_key: COUPLE_LIVING_ALONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota Supplemental Aid monthly assistance standard for a married couple living alone.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_married_couple_living_with_others_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mn.dhs.msa.assistance_standard.amount
+    parameter_key: COUPLE_LIVING_WITH_OTHERS
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota Supplemental Aid monthly assistance standard for a married couple living with others.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_personal_needs_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mn.dhs.msa.assistance_standard.amount
+    parameter_key: MEDICAID_FACILITY
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota Supplemental Aid facilities standard represented by the monthly personal-needs allowance.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_pre_1994_married_couple_living_alone_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes Minnesota's pre-1994 married-couple living-alone standard. PolicyEngine's MSA assistance-standard parameter does not expose this grandfathered category as a separate cell.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_pre_1994_married_couple_living_with_others_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes Minnesota's pre-1994 married-couple living-with-others standard. PolicyEngine's MSA assistance-standard parameter does not expose this grandfathered category as a separate cell.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_living_alone_standard_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level Minnesota living-alone-standard predicate. PolicyEngine materializes this through its MSA payment-category calculation and does not expose the predicate as a one-to-one variable.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#mn_msa_assistance_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: mn_msa_assistance_standard
+    candidate_priority: P4
+    rationale: The generated RuleSpec output composes a household-level assistance-standard branch from Combined Manual 0020.21. PolicyEngine's mn_msa_assistance_standard is a person-level payment-category surface that also includes categories not represented in this generated household output, so it should not be compared one-to-one.
+
   - legal_id: us:statutes/7/2014/e/6/A#snap_net_income_pre_shelter
     country: us
     program: snap

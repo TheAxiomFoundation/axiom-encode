@@ -3343,6 +3343,55 @@ def test_policyengine_registry_classifies_medicaid_title_xix_statutory_helpers_n
         assert mapping.candidate_priority == "P4"
 
 
+def test_policyengine_registry_includes_minnesota_msa_assistance_standard_mappings():
+    registry = load_policyengine_registry()
+
+    living_alone_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#msa_person_living_alone_standard",
+        country="us",
+    )
+    assert living_alone_mapping.mapping_type == "parameter_value"
+    assert (
+        living_alone_mapping.policyengine_parameter
+        == "gov.states.mn.dhs.msa.assistance_standard.amount"
+    )
+    assert living_alone_mapping.parameter_key == "INDIVIDUAL_LIVING_ALONE"
+
+    personal_needs_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#msa_personal_needs_allowance",
+        country="us",
+    )
+    assert personal_needs_mapping.mapping_type == "parameter_value"
+    assert (
+        personal_needs_mapping.policyengine_parameter
+        == "gov.states.mn.dhs.msa.assistance_standard.amount"
+    )
+    assert personal_needs_mapping.parameter_key == "MEDICAID_FACILITY"
+
+    pre_1994_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026"
+        "#msa_pre_1994_married_couple_living_alone_standard",
+        country="us",
+    )
+    assert pre_1994_mapping.mapping_type == "not_comparable"
+    assert pre_1994_mapping.candidate_priority == "P4"
+
+    assistance_standard_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#mn_msa_assistance_standard",
+        country="us",
+    )
+    assert assistance_standard_mapping.mapping_type == "not_comparable"
+    assert (
+        assistance_standard_mapping.policyengine_variable
+        == "mn_msa_assistance_standard"
+    )
+    assert assistance_standard_mapping.candidate_priority == "P4"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 
