@@ -19567,6 +19567,20 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
 
+  - legal_id_prefix: us:statutes/42/1396a/e/14#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396a(e)(14) MAGI methodology outputs are federal source-level Medicaid income-methodology, disregard, asset-test, lottery-lump-sum, hardship, and redetermination helpers. PolicyEngine US exposes final eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1396a/l#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396a(l) qualified pregnant woman and child outputs are federal source-level age-band, postpartum-period, income-rate, resource-option, and waiver-state helpers. PolicyEngine US exposes final Medicaid eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
+
   - legal_id_prefix: us:regulations/42-cfr/431/213#
     country: us
     program: medicaid
