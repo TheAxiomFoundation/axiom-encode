@@ -1330,6 +1330,24 @@ def test_policyengine_program_surface_marks_georgia_ssp_known_not_comparable():
     )
 
 
+def test_policyengine_program_surface_marks_florida_oss_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="fl_oss")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    florida_oss = items_by_variable["fl_oss"]
+
+    assert florida_oss["program_id"] == "ssi_state_supplement"
+    assert florida_oss["state"] == "FL"
+    assert florida_oss["axiom_status"] == "known_not_comparable"
+    assert florida_oss["mapping_count"] >= 1
+    assert florida_oss["comparable_mapping_count"] == 0
+    assert (
+        "us-fl:policies/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-58#fl_oss"
+        in florida_oss["legal_ids"]
+    )
+    assert "source-local OSS payment deficit" in florida_oss["rationale"]
+
+
 def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 

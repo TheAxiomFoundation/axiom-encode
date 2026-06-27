@@ -1639,10 +1639,12 @@ surfaces:
   variable: fl_oss
   source_type: state_implementation
   state: FL
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes the Florida ESS legal eligibility, source-local OSS payment deficit, and Appendix A-12 standards
+    for Optional State Supplementation. PolicyEngine's `fl_oss` is a person-level modeled wrapper that combines simplified
+    eligibility, SSI-countable-income projection, provider-rate arithmetic, and cap logic rather than exposing the same
+    source-local benefit-computation concepts one-to-one.
 - country: us
   program_id: ssi_state_supplement
   program_name: Georgia SSP
