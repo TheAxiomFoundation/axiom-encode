@@ -315,6 +315,35 @@ outputs:
     )
 
 
+def test_policyengine_coverage_classifies_new_york_tanf_program_output(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _write_rulespec_file(
+        checkout / "programs/us-ny/tanf/fy-2026.yaml",
+        """program: us-ny/tanf
+period: 2026-01
+outputs:
+  - ny_tanf
+""",
+    )
+
+    report = build_policyengine_coverage_report(checkout, program="tanf")
+
+    assert report["total_outputs"] == 1
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us-ny:programs/tanf/fy-2026#ny_tanf"
+    assert item["repo"] == "rulespec-us"
+    assert item["file"] == "programs/us-ny/tanf/fy-2026.yaml"
+    assert item["kind"] == "program_output"
+    assert item["program"] == "tanf"
+    assert item["rule_name"] == "ny_tanf"
+    assert item["status"] == "known_not_comparable"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "ny_tanf"
+    assert item["candidate_priority"] == "P4"
+    assert "not a one-to-one oracle target" in item["rationale"]
+
+
 def test_policyengine_candidates_classify_program_spec_adjacent_targets(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _write_rulespec_file(
@@ -1620,6 +1649,22 @@ def test_policyengine_program_surface_marks_arizona_tanf_known_not_comparable():
     assert "us-az:programs/tanf/fy-2026#az_tanf" in arizona_tanf["legal_ids"]
     assert "runnable us-az/tanf FY 2026 composition" in arizona_tanf["rationale"]
     assert "eligible-no-pay" in arizona_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_new_york_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    new_york_tanf = items_by_variable["ny_tanf"]
+
+    assert new_york_tanf["program_id"] == "tanf"
+    assert new_york_tanf["state"] == "NY"
+    assert new_york_tanf["axiom_status"] == "known_not_comparable"
+    assert new_york_tanf["mapping_count"] == 1
+    assert new_york_tanf["comparable_mapping_count"] == 0
+    assert "us-ny:programs/tanf/fy-2026#ny_tanf" in new_york_tanf["legal_ids"]
+    assert "New York TANF FY 2026 program bridge" in new_york_tanf["rationale"]
+    assert "shelter table" in new_york_tanf["rationale"]
 
 
 def test_policyengine_program_surface_marks_kansas_tanf_known_not_comparable():

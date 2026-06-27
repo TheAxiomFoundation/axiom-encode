@@ -2944,6 +2944,14 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Colorado Works FY 2026 program bridge exposes the encoded basic cash assistance grant before pregnancy allowance. PolicyEngine's co_tanf is a final TANF benefit surface built from PE's own Colorado Works graph, so the bridge is adjacent PE coverage but not a one-to-one oracle until the remaining Colorado Works eligibility, allowance, and procedural gates are composed.
 
+  - legal_id: us-ny:programs/tanf/fy-2026#ny_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ny_tanf
+    candidate_priority: P4
+    rationale: Axiom's New York TANF FY 2026 program bridge composes the encoded State Plan standard-of-need, grant, home-energy, shelter-cap, asset, and income-disregard legal slices. PolicyEngine's ny_tanf is a final annual TANF benefit surface with its own graph and older parameterization, while Axiom's shelter table remains partially deferred, so this bridge is adjacent PE coverage but not a one-to-one oracle target.
+
   - legal_id: us-ca:regulations/cdss/eas/49/49-055#ca_capi
     country: us
     program: ssi_state_supplement
@@ -18900,7 +18908,7 @@ prefixes:
     program: tanf
     mapping_type: not_comparable
     candidate_priority: P4
-    rationale: New York TANF State Plan outputs are source-specific OTDA cash-assistance eligibility, income-disregard, standard-of-need, grant, home-energy, and shelter schedule mechanics. PolicyEngine-US does not expose these State Plan provision boundaries as one-to-one TANF oracle outputs; direct comparison should wait for a New York TANF adapter that targets the same state source slices.
+    rationale: New York TANF State Plan outputs are source-specific OTDA cash-assistance eligibility, income-disregard, standard-of-need, grant, home-energy, and shelter schedule mechanics. PolicyEngine-US does not expose these State Plan provision boundaries as one-to-one TANF oracle outputs; compare the Axiom FY 2026 program bridge separately until PE exposes compatible helper boundaries or the final legal behavior matches.
 
   - legal_id_prefix: us-ny:policies/tax/it-201-instructions/nyc-school-tax-credit-rate-reduction#
     country: us
