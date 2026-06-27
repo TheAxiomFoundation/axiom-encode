@@ -1521,6 +1521,22 @@ def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_arizona_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    arizona_tanf = items_by_variable["az_tanf"]
+
+    assert arizona_tanf["program_id"] == "tanf"
+    assert arizona_tanf["state"] == "AZ"
+    assert arizona_tanf["axiom_status"] == "known_not_comparable"
+    assert arizona_tanf["mapping_count"] == 1
+    assert arizona_tanf["comparable_mapping_count"] == 0
+    assert "us-az:programs/tanf/fy-2026#az_tanf" in arizona_tanf["legal_ids"]
+    assert "runnable us-az/tanf FY 2026 composition" in arizona_tanf["rationale"]
+    assert "eligible-no-pay" in arizona_tanf["rationale"]
+
+
 def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
