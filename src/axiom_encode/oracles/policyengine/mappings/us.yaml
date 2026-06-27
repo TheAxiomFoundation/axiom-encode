@@ -18207,6 +18207,41 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the statutory high-efficiency electric home rebate item caps, total cap, and project-cost percentage limits as source-level project/payment components. PolicyEngine's high_efficiency_electric_home_rebate sums tax-unit expenditure helper variables and caps the result, so it is not a one-to-one legal oracle until Axiom has the same project/entity/rebate aggregation surface.
 
+  - legal_id: us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#total_mfip_grant_before_proration
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mn_mfip
+    candidate_priority: P4
+    rationale: Axiom exposes the Minnesota Combined Manual 0022.12 total MFIP grant before applicant proration and recoupment. PolicyEngine's mn_mfip is the final monthly cash portion after the food portion is split out, so this pre-proration total-grant helper is not a one-to-one oracle target.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#final_total_mfip_grant
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mn_mfip
+    candidate_priority: P4
+    rationale: Axiom exposes the final total MFIP grant after applicant proration and recoupment but before issuing the food portion by EBT. PolicyEngine's comparable mn_mfip surface is only the cash portion, because SNAP/food is modeled separately.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#mfip_food_portion_issued_as_ebt
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mn_mfip_food_portion
+    candidate_priority: P4
+    rationale: Axiom caps the MFIP food portion issued as EBT by the final total grant. PolicyEngine's mn_mfip_food_portion is the raw food-portion table amount used inside the MFIP formula, so the two surfaces are adjacent but not one-to-one comparable.
+
+  - legal_id: us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#mfip_cash_portion_issued_as_cash
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: mn_mfip
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Minnesota monthly MFIP cash-benefit surface after subtracting the food portion from the total MFIP grant, which is the boundary PolicyEngine exposes as mn_mfip.
+
 prefixes:
   - legal_id_prefix: us:statutes/42/426
     country: us
