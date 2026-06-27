@@ -2524,6 +2524,13 @@ def test_policyengine_registry_is_legal_id_keyed():
         colorado_ssp_legacy_name_mapping.policyengine_variable == "co_state_supplement"
     )
     assert colorado_ssp_legacy_name_mapping.result_multiplier is None
+    ca_capi_mapping = registry.mapping_for_legal_id(
+        "us-ca:regulations/cdss/eas/49/49-055#ca_capi",
+        country="us",
+    )
+    assert ca_capi_mapping.mapping_type == "direct_variable"
+    assert ca_capi_mapping.policyengine_variable == "ca_capi"
+    assert ca_capi_mapping.result_multiplier is None
     colorado_ssp_grant_standard_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_grant_standard",
         country="us",
@@ -4682,6 +4689,59 @@ def test_policyengine_and_cs_mappability_blocks_active_unmodeled_exclusions(
     assert mappable is False
     assert "does not model these 3.548 grant-payment exclusion facts" in (reason or "")
     assert "client_is_resident_in_unlicensed_or_uncertified_facility" in (reason or "")
+
+
+def test_policyengine_ca_capi_adapter_projects_individual_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    script = pipeline._build_pe_us_scenario_script(
+        "ca_capi",
+        {
+            "period": "2024-01",
+            "us-ca:regulations/cdss/eas/49/49-050#input.ssi_ssp_payment_standard_for_selected_individual_living_arrangement": 1000,
+            "us-ca:regulations/cdss/eas/49/49-050#input.ssi_ssp_payment_standard_for_selected_eligible_couple_living_arrangement": 2000,
+            "us-ca:regulations/cdss/eas/49/49-050#input.person_is_member_of_eligible_couple": False,
+            "us-ca:regulations/cdss/eas/49/49-055#input.ca_capi_countable_income_for_payment_month_under_retrospective_accounting": 390,
+        },
+        "2024",
+    )
+
+    assert "'state_code_str': {'2024': 'CA'}" in script
+    assert "'ssi_amount_if_eligible': {'2024': 0.0}" in script
+    assert "'ca_capi_eligible_person': {'2024': 1.0}" in script
+    assert "'ssi_countable_income': {'2024': 390}" in script
+    assert "'ca_state_supplement': {'2024': 1000}" in script
+    assert "'ca_capi_eligible': {'2024': 1}" in script
+    assert "'spm_unit_is_married': {'2024': False}" in script
+
+
+def test_policyengine_ca_capi_blocks_person_level_couple_share(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "us-ca:regulations/cdss/eas/49/49-050#input.ssi_ssp_payment_standard_for_selected_individual_living_arrangement": 1000,
+        "us-ca:regulations/cdss/eas/49/49-050#input.ssi_ssp_payment_standard_for_selected_eligible_couple_living_arrangement": 2000,
+        "us-ca:regulations/cdss/eas/49/49-050#input.person_is_member_of_eligible_couple": True,
+        "us-ca:regulations/cdss/eas/49/49-055#input.ca_capi_countable_income_for_payment_month_under_retrospective_accounting": 980,
+        "us-ca:regulations/cdss/eas/49/49-055#input.each_member_of_eligible_couple_receives_capi": True,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "ca_capi",
+        inputs,
+        pe_var="ca_capi",
+    )
+
+    assert mappable is False
+    assert "SPM-unit total" in (reason or "")
+    assert "each_member_of_eligible_couple_receives_capi" in (reason or "")
 
 
 def test_policyengine_medicare_adapter_projects_disability_inputs(tmp_path):

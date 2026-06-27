@@ -17,6 +17,7 @@ class PolicyEngineUSVarAdapter:
     monthly: bool = False
     spm: bool = False
     derived_person_inputs: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    direct_person_inputs: tuple[tuple[str, str], ...] = ()
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
     monthly_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
@@ -498,6 +499,67 @@ PE_US_VAR_ADAPTERS = (
         unsupported_input_reason=(
             "PolicyEngine Colorado SSP does not model these 3.548 grant-payment "
             "exclusion facts"
+        ),
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("ca_capi",),
+        pe_var="ca_capi",
+        default_state_code="CA",
+        derived_person_inputs=(
+            (
+                "ssi_amount_if_eligible",
+                "difference",
+                (
+                    "ssi_ssp_payment_standard_for_selected_individual_living_arrangement",
+                    "ssi_ssp_payment_standard_for_selected_individual_living_arrangement",
+                ),
+            ),
+            (
+                "ca_capi_eligible_person",
+                "positive_if_any",
+                (
+                    "ssi_ssp_payment_standard_for_selected_individual_living_arrangement",
+                    "ssi_ssp_payment_standard_for_selected_eligible_couple_living_arrangement",
+                ),
+            ),
+        ),
+        direct_person_inputs=(
+            (
+                "ca_capi_countable_income_for_payment_month_under_retrospective_accounting",
+                "ssi_countable_income",
+            ),
+        ),
+        direct_spm_overrides=(
+            ("person_is_member_of_eligible_couple", "spm_unit_is_married"),
+        ),
+        derived_spm_overrides=(
+            (
+                "ca_state_supplement",
+                "choose_second_if_third_truthy_else_first",
+                (
+                    "ssi_ssp_payment_standard_for_selected_individual_living_arrangement",
+                    "ssi_ssp_payment_standard_for_selected_eligible_couple_living_arrangement",
+                    "person_is_member_of_eligible_couple",
+                ),
+            ),
+            (
+                "ca_capi_eligible",
+                "positive_if_any",
+                (
+                    "ssi_ssp_payment_standard_for_selected_individual_living_arrangement",
+                    "ssi_ssp_payment_standard_for_selected_eligible_couple_living_arrangement",
+                ),
+            ),
+        ),
+        unsupported_truthy_input_keys=(
+            "person_is_member_of_eligible_couple",
+            "couple_one_member_receiving_or_applying_for_capi_and_other_receiving_ssi_ssp",
+            "each_member_of_eligible_couple_receives_capi",
+        ),
+        unsupported_input_reason=(
+            "PolicyEngine California CAPI exposes the SPM-unit total and does "
+            "not directly compare the person-level eligible-couple share or "
+            "mixed CAPI/SSI-SSP couple branch"
         ),
     ),
     PolicyEngineUSVarAdapter(

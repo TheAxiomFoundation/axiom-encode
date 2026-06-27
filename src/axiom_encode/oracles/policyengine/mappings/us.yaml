@@ -2617,6 +2617,17 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's WIC 11450 monthly aid payment is the family-level legal payment formula after state income exemptions and special-needs inputs. PolicyEngine's ca_tanf is an annual SPM-unit final benefit gated through PE's demographic, resource, vehicle-value, and immigration-proration graph, so this is an adjacent final cash-benefit surface rather than a one-to-one oracle target.
 
+  - legal_id: us-ca:regulations/cdss/eas/49/49-055#ca_capi
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: ca_capi
+    entity: person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: California CAPI final benefit amount under MPP 49-055; the PE adapter compares individual non-couple cases by projecting the source-selected SSI/SSP standard, CAPI eligibility, and countable income into PolicyEngine's CA CAPI surface while excluding person-level couple-share cases that PE exposes only as an SPM-unit total.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
     country: us
     program: snap

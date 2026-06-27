@@ -2151,12 +2151,14 @@ surfaces:
   agency: State
   policyengine_status: complete
   coverage: CA
+  state: CA
   variable: ca_capi
   source_type: program
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_oracle_mapping
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through an
+    exact final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in the
+    scanned RuleSpec checkout.
 - country: us
   program_id: care
   program_name: California CARE
