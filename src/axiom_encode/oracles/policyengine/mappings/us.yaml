@@ -2360,6 +2360,30 @@ mappings:
     comparison: money
     rationale: Same Colorado AND-CS monthly grant-standard-minus-countable-income amount.
 
+  - legal_id: us-fl:policies/dcf/ess-program-policy-manual/appendix-a-12-state-funded-programs-eligibility-standards/page-1#fl_oss_max_oss
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: fl_oss_max_oss
+    candidate_priority: P4
+    rationale: RuleSpec returns the Appendix A-12 OSS maximum payment standard by Florida assistance-unit category; PolicyEngine's `fl_oss_max_oss` returns a person-level cap after marital-unit logic and therefore is not a one-to-one oracle target.
+
+  - legal_id: us-fl:policies/dcf/ess-program-policy-manual/200-general-program-information/page-15#fl_oss_eligible
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: fl_oss_eligible
+    candidate_priority: P4
+    rationale: RuleSpec encodes Florida ESS 0240.0118 legal eligibility, including age or Title XVI disability, Florida residence intent, citizenship or qualified-noncitizen status, income, assets, pursuit of benefits, licensed-facility placement, and counselor certification; PolicyEngine's `fl_oss_eligible` is a simplified modeled predicate over SSI eligibility, living arrangement, OSS track, and income-standard checks.
+
+  - legal_id: us-fl:policies/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-58#fl_oss
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: fl_oss
+    candidate_priority: P4
+    rationale: Florida ESS 2640.0131.04-.06 computes the source-level OSS payment deficit from recognized cost of care and income available for cost of care, including dependent-allocation and SSI-eligible-couple treatment. PolicyEngine's `fl_oss` is a person-level modeled wrapper that applies its own eligibility predicate, SSI-countable-income projection, provider-rate arithmetic, and cap logic, so the final surfaces are not one-to-one.
+
   - legal_id: us-ga:policies/dfcs/medicaid/2578#resource_transfer_lookback_months
     country: us
     program: ssi_state_supplement
