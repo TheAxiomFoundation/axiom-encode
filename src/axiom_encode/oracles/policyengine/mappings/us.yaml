@@ -3502,6 +3502,38 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Arizona Cash Assistance wrapper composes DES FAA5 payment-standard, needy-family, prospective-eligibility, and eligible-no-pay issuance rules, including the under-$10 no-pay boundary. PolicyEngine's az_tanf is a final monthly SPM-unit benefit gated by PE's demographic, immigration, resource, and income graph and does not share the DES eligible-no-pay issuance boundary, so this is not a one-to-one oracle target yet.
 
+  - legal_id: us-ks:programs/tanf/fy-2026#ks_tanf_maximum_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ks_tanf_maximum_benefit
+    candidate_priority: P4
+    rationale: The Kansas TANF program wrapper exposes the KEESM 7411 budgetary-standard output from Axiom's shelter-group and Table I/II legal path. PolicyEngine-US exposes an adjacent ks_tanf_maximum_benefit using its own SPM-unit size and parameterization, so this program bridge is not a one-to-one oracle target.
+
+  - legal_id: us-ks:programs/tanf/fy-2026#ks_tanf_before_proration
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ks_tanf
+    candidate_priority: P4
+    rationale: The Kansas TANF program wrapper's pre-proration amount is the encoded KEESM 7411 maximum benefit before the broader income/resource eligibility path is encoded. PolicyEngine-US ks_tanf applies PE eligibility gates and subtracts countable income, so this bridge is not directly comparable.
+
+  - legal_id: us-ks:programs/tanf/fy-2026#ks_tanf_prorated_cash_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ks_tanf
+    candidate_priority: P4
+    rationale: The Kansas TANF program wrapper's prorated cash-benefit bridge applies KEESM 7401 proration to the currently encoded maximum-benefit path before final cash rounding. PolicyEngine-US ks_tanf does not expose KEESM 7401 proration and also includes PE eligibility and countable-income logic, so this is not a one-to-one oracle target.
+
+  - legal_id: us-ks:programs/tanf/fy-2026#ks_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ks_tanf
+    candidate_priority: P4
+    rationale: The Kansas TANF program wrapper composes KEESM 7411 maximum benefit with KEESM 7401/7402 cash proration and rounding, but does not yet encode countable income, income/resource eligibility, demographic eligibility, or immigration eligibility. PolicyEngine-US ks_tanf applies those PE graph gates and a maximum-benefit-minus-countable-income formula, so this surface is currently known not comparable.
+
   - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_thirty_dollar_earned_income_disregard
     country: us
     program: tanf

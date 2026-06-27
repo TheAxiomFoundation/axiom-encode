@@ -276,6 +276,45 @@ outputs:
     assert payment_standard["candidate_priority"] == "P4"
 
 
+def test_policyengine_coverage_classifies_kansas_tanf_program_outputs(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _write_rulespec_file(
+        checkout / "programs/us-ks/tanf/fy-2026.yaml",
+        """program: us-ks/tanf
+period: 2026-01
+outputs:
+  - ks_tanf_maximum_benefit
+  - ks_tanf_before_proration
+  - ks_tanf_prorated_cash_benefit
+  - ks_tanf
+""",
+    )
+
+    report = build_policyengine_coverage_report(checkout, program="tanf")
+
+    assert report["total_outputs"] == 4
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    maximum_benefit = items_by_id["us-ks:programs/tanf/fy-2026#ks_tanf_maximum_benefit"]
+    final_benefit = items_by_id["us-ks:programs/tanf/fy-2026#ks_tanf"]
+    assert maximum_benefit["policyengine_variable"] == "ks_tanf_maximum_benefit"
+    assert final_benefit["policyengine_variable"] == "ks_tanf"
+    assert {item["candidate_priority"] for item in items_by_id.values()} == {"P4"}
+    registry = load_policyengine_registry()
+    final_mapping = registry.mapping_for_legal_id(
+        "us-ks:programs/tanf/fy-2026#ks_tanf",
+        country="us",
+    )
+    assert final_mapping.match_type == "exact"
+    assert (
+        registry.mapping_for_legal_id(
+            "us-ks:programs/tanf/fy-2026#ks_tanf_extra",
+            country="us",
+        )
+        is None
+    )
+
+
 def test_policyengine_candidates_classify_program_spec_adjacent_targets(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _write_rulespec_file(
@@ -1535,6 +1574,22 @@ def test_policyengine_program_surface_marks_arizona_tanf_known_not_comparable():
     assert "us-az:programs/tanf/fy-2026#az_tanf" in arizona_tanf["legal_ids"]
     assert "runnable us-az/tanf FY 2026 composition" in arizona_tanf["rationale"]
     assert "eligible-no-pay" in arizona_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_kansas_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    kansas_tanf = items_by_variable["ks_tanf"]
+
+    assert kansas_tanf["program_id"] == "tanf"
+    assert kansas_tanf["state"] == "KS"
+    assert kansas_tanf["axiom_status"] == "known_not_comparable"
+    assert kansas_tanf["mapping_count"] >= 4
+    assert kansas_tanf["comparable_mapping_count"] == 0
+    assert "us-ks:programs/tanf/fy-2026#ks_tanf" in kansas_tanf["legal_ids"]
+    assert "Kansas TANF FY 2026 program wrapper" in kansas_tanf["rationale"]
+    assert "countable income" in kansas_tanf["rationale"]
 
 
 def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():
