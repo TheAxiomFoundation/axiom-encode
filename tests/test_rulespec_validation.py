@@ -3273,6 +3273,23 @@ def test_policyengine_registry_classifies_medicaid_435_120_helpers_not_comparabl
         assert mapping.candidate_priority == "P4"
 
 
+def test_policyengine_registry_classifies_medicaid_title_xix_statutory_helpers_not_comparable():
+    registry = load_policyengine_registry()
+
+    for legal_id in (
+        "us:statutes/42/1396a/e/14#magi_standard_increase_percentage_points",
+        "us:statutes/42/1396a/e/14#lottery_lump_sum_maximum_months",
+        "us:statutes/42/1396a/l#pregnancy_postpartum_period_days",
+        "us:statutes/42/1396a/l#older_child_income_level_rate",
+    ):
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping is not None
+        assert mapping.program == "medicaid"
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.match_type == "prefix"
+        assert mapping.candidate_priority == "P4"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 
