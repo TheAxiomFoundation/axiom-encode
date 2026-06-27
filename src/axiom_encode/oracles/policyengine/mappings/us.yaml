@@ -18743,6 +18743,14 @@ prefixes:
     candidate_priority: P4
     rationale: Colorado Works basic-cash-assistance composition outputs are Axiom assembly points across encoded 9 CCR 2503-6 Section 3.606.1 and 3.606.2 provisions. PolicyEngine-US does not expose this exact composed monthly TANF legal slice one-to-one; direct oracle comparison should wait for an adapter that targets the same Colorado Works source boundaries and updated grant parameters.
 
+  - legal_id_prefix: us-ga:policies/dfcs/tanf/
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ga_tanf
+    candidate_priority: P4
+    rationale: Georgia DFCS TANF manual outputs decompose source-level assistance standards, gross and net income tests, countable-income construction, work and dependent-care deductions, resource/income eligibility, and cash-assistance benefit slices. PolicyEngine-US exposes ga_tanf as a final monthly SPM-unit benefit built from PE's own eligibility graph and parameter tables, so these legal outputs are adjacent TANF coverage but not one-to-one oracle targets unless a narrower exact mapping overrides this prefix.
+
   - legal_id_prefix: us-ks:policies/dcf/keesm/keesm7410#
     country: us
     program: tanf
