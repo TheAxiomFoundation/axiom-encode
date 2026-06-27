@@ -170,6 +170,19 @@ _RULESPEC_SOURCE_ROOT_TOKENS = {
     "statute",
     "statutes",
 }
+_CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN = {
+    "form": "form",
+    "forms": "form",
+    "guidance": "guidance",
+    "manual": "manual",
+    "manuals": "manual",
+    "policies": "policy",
+    "policy": "policy",
+    "regulation": "regulation",
+    "regulations": "regulation",
+    "statute": "statute",
+    "statutes": "statute",
+}
 _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "form": "policies",
     "forms": "policies",
@@ -2379,11 +2392,29 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
         if cleaned and cleaned not in candidates:
             candidates.append(cleaned)
 
+    primary = _normalize_rulespec_source_id_to_corpus_path(primary)
     add(primary)
     parts = primary.split("/")
     for end in range(len(parts) - 1, 2, -1):
         add("/".join(parts[:end]))
     return tuple(candidates)
+
+
+def _normalize_rulespec_source_id_to_corpus_path(identifier: str) -> str:
+    """Convert ``us-ca:regulation/...`` source ids to corpus paths.
+
+    RuleSpec source ids use a jurisdiction-prefixed root to keep generated file
+    paths repository-relative, while corpus.provisions stores the same source as
+    ``jurisdiction/document_class/...`` with singular document classes.
+    """
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    if not parts or ":" not in parts[0]:
+        return identifier
+    jurisdiction, source_root = parts[0].split(":", 1)
+    document_class = _CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN.get(source_root)
+    if not jurisdiction or document_class is None:
+        return identifier
+    return "/".join((jurisdiction, document_class, *parts[1:]))
 
 
 _CFR_CITATION_RE = re.compile(

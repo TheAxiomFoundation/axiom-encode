@@ -133,6 +133,23 @@ def test_source_identifier_maps_colon_prefixed_regulation_to_repo_path():
     ) == Path("regulations/10-ccr-2506-1/4.804.1.yaml")
 
 
+def test_resolve_corpus_source_unit_normalizes_colon_prefixed_local_citation(tmp_path):
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us-ca/regulation/cdss/eas/49/49-040",
+        body="CAPI resource limits.",
+    )
+
+    source_unit = resolve_corpus_source_unit(
+        "us-ca:regulation/cdss/eas/49/49-040",
+        corpus_path,
+    )
+
+    assert source_unit.source == "local"
+    assert source_unit.citation_path == "us-ca/regulation/cdss/eas/49/49-040"
+    assert source_unit.body == "CAPI resource limits."
+
+
 def test_source_identifier_maps_state_manual_to_policies_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us-az/manual/des/faa5/na-child-support-expense/block-2"
