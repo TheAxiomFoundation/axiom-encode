@@ -35,6 +35,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     find_policy_repo_root,
     jurisdiction_content_dir,
+    jurisdiction_subdir_names,
     monorepo_alternative_path,
 )
 from axiom_encode.statute import (
@@ -350,11 +351,13 @@ _SECTION_CROSS_REFERENCE_PATTERN = re.compile(
     r"\d+(?:\.\d+)+(?:\s*(?:through|to|-|and|,)\s*\d+(?:\.\d+)+)*",
     re.IGNORECASE,
 )
+_LEADING_ZERO_MANUAL_SECTION_PATTERN = re.compile(r"\b0\d{3}\.\d{2}(?:\.\d{2})?\b")
 
 
 def _numeric_occurrence_source_text(source_text: str) -> str:
     """Drop citation-like cross-references before source numeric coverage checks."""
-    return _SECTION_CROSS_REFERENCE_PATTERN.sub("", source_text)
+    without_cross_references = _SECTION_CROSS_REFERENCE_PATTERN.sub("", source_text)
+    return _LEADING_ZERO_MANUAL_SECTION_PATTERN.sub("", without_cross_references)
 
 
 _UNREFERENCED_PROOF_IMPORT_RE = re.compile(
@@ -3145,6 +3148,7 @@ def evaluate_artifact(
             policyengine_country=policyengine_country,
             policyengine_rule_hint=policyengine_rule_hint,
             require_policy_proofs=True,
+            source_text=source_text,
         )
         compile_result = pipeline._run_compile_check(validation_file)
         ci_result = pipeline._run_ci(validation_file)
@@ -3623,22 +3627,43 @@ def _rulespec_validation_target(
         yield rulespec_file
         return
     relative = _relative_rulespec_source_path(rulespec_file)
-    if relative is None or not policy_repo_root.name.startswith("rulespec-"):
+    if relative is None:
         yield rulespec_file
         return
 
+    source_repo_root = policy_repo_root
+    if not source_repo_root.name.startswith("rulespec-"):
+        maybe_monorepo_root = source_repo_root.parent
+        if (
+            maybe_monorepo_root.name.startswith("rulespec-")
+            and source_repo_root.name in jurisdiction_subdir_names(maybe_monorepo_root)
+        ):
+            source_repo_root = maybe_monorepo_root
+        else:
+            yield rulespec_file
+            return
+
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)
-        for sibling in policy_repo_root.parent.glob("rulespec-*"):
-            if sibling.resolve() == policy_repo_root.resolve() or not sibling.is_dir():
+        for sibling in source_repo_root.parent.glob("rulespec-*"):
+            if sibling.resolve() == source_repo_root.resolve() or not sibling.is_dir():
                 continue
             sibling_target = overlay_parent / sibling.name
             try:
                 sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
             except OSError:
                 shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
-        overlay_repo = overlay_parent / policy_repo_root.name
-        shutil.copytree(policy_repo_root, overlay_repo)
+        overlay_repo_name = (
+            canonical_rulespec_repo_name(source_repo_root) or source_repo_root.name
+        )
+        overlay_repo = overlay_parent / overlay_repo_name
+        shutil.copytree(
+            source_repo_root,
+            overlay_repo,
+            ignore=shutil.ignore_patterns(
+                ".git", ".venv", "__pycache__", ".pytest_cache"
+            ),
+        )
         eval_workspaces_root = _nearby_eval_workspaces_root(rulespec_file)
         if eval_workspaces_root is not None:
             eval_overlay = overlay_parent / "_eval_workspaces"

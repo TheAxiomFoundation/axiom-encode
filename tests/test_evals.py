@@ -3391,6 +3391,121 @@ class TestEvaluateArtifact:
             assert "rulespec-us-ny" in parts
             assert parts != policy_repo.parts
 
+    def test_validation_overlay_preserves_country_monorepo_state_shape(
+        self, tmp_path
+    ):
+        monorepo = tmp_path / "repos" / "rulespec-us"
+        policy_repo = monorepo / "us-mn"
+        policy_repo.mkdir(parents=True)
+        generated = (
+            tmp_path
+            / "out"
+            / "codex-gpt-5.5"
+            / "policies"
+            / "dhs"
+            / "combined-manual"
+            / "0020-21"
+            / "msa-assistance-standards-2026.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("msa-assistance-standards-2026.test.yaml").write_text(
+            "[]\n"
+        )
+
+        with _rulespec_validation_target(generated, policy_repo) as validation_file:
+            validation_root = _validation_policy_repo_root(validation_file, policy_repo)
+
+            assert validation_file.parts[-6:] == (
+                "us-mn",
+                "policies",
+                "dhs",
+                "combined-manual",
+                "0020-21",
+                "msa-assistance-standards-2026.yaml",
+            )
+            assert validation_root.name == "us-mn"
+            assert validation_root.parent.name == "rulespec-us"
+            assert validation_file.with_name(
+                "msa-assistance-standards-2026.test.yaml"
+            ).exists()
+
+    def test_validation_overlay_uses_canonical_country_repo_name_for_worktrees(
+        self, tmp_path
+    ):
+        monorepo = tmp_path / "repos" / "rulespec-us-mn-msa-20260627"
+        policy_repo = monorepo / "us-mn"
+        policy_repo.mkdir(parents=True)
+        subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "add",
+                "origin",
+                "git@github.com:TheAxiomFoundation/rulespec-us.git",
+            ],
+            cwd=monorepo,
+            check=True,
+            capture_output=True,
+        )
+        generated = (
+            tmp_path
+            / "out"
+            / "codex-gpt-5.5"
+            / "policies"
+            / "dhs"
+            / "combined-manual"
+            / "0020-21"
+            / "msa-assistance-standards-2026.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+
+        with _rulespec_validation_target(generated, policy_repo) as validation_file:
+            validation_root = _validation_policy_repo_root(validation_file, policy_repo)
+
+            assert validation_file.parts[-7:] == (
+                "rulespec-us",
+                "us-mn",
+                "policies",
+                "dhs",
+                "combined-manual",
+                "0020-21",
+                "msa-assistance-standards-2026.yaml",
+            )
+            assert validation_root.name == "us-mn"
+            assert validation_root.parent.name == "rulespec-us"
+
+    def test_passes_resolved_source_text_to_validation_pipeline(self, tmp_path):
+        policy_repo = tmp_path / "repos" / "rulespec-us"
+        policy_repo.mkdir(parents=True)
+        generated = tmp_path / "out" / "codex-gpt-5.5" / "a.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        source_text = "The official source states the standard is $1,055.00."
+        seen_source_texts: list[str | None] = []
+
+        def fake_compile(_pipeline, _path):
+            return ValidationResult("compile", passed=True)
+
+        def fake_ci(_pipeline, _path):
+            seen_source_texts.append(_pipeline.source_text)
+            return ValidationResult("ci", passed=True)
+
+        with (
+            patch.object(ValidatorPipeline, "_run_compile_check", fake_compile),
+            patch.object(ValidatorPipeline, "_run_ci", fake_ci),
+        ):
+            evaluate_artifact(
+                rulespec_file=generated,
+                policy_repo_root=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text=source_text,
+            )
+
+        assert seen_source_texts == [source_text]
+
     def test_uses_fallback_source_text_for_grounding(self, tmp_path):
         rulespec_file = tmp_path / "24" / "a.yaml"
         rulespec_file.parent.mkdir(parents=True)
@@ -4614,6 +4729,49 @@ rules:
                     "Households shall receive an opportunity to participate within "
                     "thirty (30) calendar days. The office shall determine delay "
                     "cause as outlined in Sections 4.205.3 through 4.205.4."
+                ),
+            )
+
+        assert metrics.compile_pass
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_ignores_leading_zero_manual_sections(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Combined Manual 0020.21 sets the person living alone standard at $1,055.00.
+rules:
+  - name: mn_msa_person_living_alone_standard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1055
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "Combined Manual 0020.21 provides: Person living alone "
+                    "$1,055.00."
                 ),
             )
 
