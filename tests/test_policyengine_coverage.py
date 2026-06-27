@@ -1330,6 +1330,18 @@ def test_policyengine_program_surface_marks_georgia_ssp_known_not_comparable():
     )
 
 
+def test_policyengine_program_surface_marks_michigan_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="mi_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    michigan_ssp = items_by_variable["mi_ssp"]
+
+    assert michigan_ssp["program_id"] == "ssi_state_supplement"
+    assert michigan_ssp["state"] == "MI"
+    assert michigan_ssp["axiom_status"] == "known_not_comparable"
+    assert "SPM-unit aggregate" in michigan_ssp["rationale"]
+
+
 def test_policyengine_program_surface_marks_florida_oss_known_not_comparable():
     report = build_policyengine_program_surface_report(program="fl_oss")
 

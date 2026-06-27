@@ -2448,6 +2448,94 @@ mappings:
     candidate_priority: P4
     rationale: Georgia DFCS Policy 2578 patient-liability computation after admission is a Medicaid long-term-care budgeting rule; PolicyEngine's Georgia SSP model does not expose this liability boundary.
 
+  - legal_id: us-mi:policies/mdhhs/rft/248#independent_living_individual_state_ssi_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - INDEPENDENT_LIVING
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual State SSI Payment amount for independent living under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#household_of_another_individual_state_ssi_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - HOUSEHOLD_OF_ANOTHER
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual State SSI Payment amount for household-of-another living arrangements under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#domiciliary_care_individual_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - DOMICILIARY_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual DHS supplement amount for domiciliary-care adult foster care under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#personal_care_individual_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - PERSONAL_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual DHS supplement amount for personal-care adult foster care under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#home_for_aged_individual_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - HOME_FOR_AGED
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual DHS supplement amount for home-for-aged living arrangements under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#institution_individual_dhs_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.mi.mdhhs.ssp.payment.individual
+    parameter_key_path:
+      - INSTITUTION
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Michigan monthly individual DHS supplement amount for institutional living arrangements under RFT 248.
+
+  - legal_id: us-mi:policies/mdhhs/rft/248#mi_ssp_person
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: mi_ssp_person
+    candidate_priority: P3
+    rationale: RuleSpec's RFT 248 output selects the current-law monthly source table amount by living arrangement and couple status. PolicyEngine's `mi_ssp_person` also gates on Michigan SSP eligibility and reduces the payment by residual countable income, so this source-table selector is adjacent but not a one-to-one final person benefit.
+
+  - legal_id: us-mi:policies/mdhhs/bridges/bem/660#mi_ssp_eligible
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: mi_ssp_eligible
+    candidate_priority: P3
+    rationale: BEM 660's encoded predicate covers MDHHS-issued State SSI Payments for independent-living and household-of-another recipients with a regular first-of-month federal benefit and excludes section 1619 recipients. PolicyEngine's `mi_ssp_eligible` also covers SSA-issued care, home-for-aged, and institution categories and applies PolicyEngine's broader SSI eligibility graph.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
     country: us
     program: snap
