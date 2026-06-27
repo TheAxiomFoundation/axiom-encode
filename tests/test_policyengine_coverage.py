@@ -577,6 +577,14 @@ surfaces:
                     policyengine_variable="employee_payroll_tax",
                 )
             ],
+            "co_tanf": [
+                PolicyEngineMapping(
+                    legal_id="us-co:programs/tanf/fy-2026#co_tanf",
+                    country="us",
+                    mapping_type="not_comparable",
+                    policyengine_variable="co_tanf",
+                )
+            ],
         }
     )
 
@@ -607,7 +615,8 @@ surfaces:
     assert items_by_variable["aca_ptc"]["mapping_count"] == 1
     assert items_by_variable["aca_ptc"]["comparable_mapping_count"] == 0
     assert items_by_variable["co_tanf"]["axiom_status"] == "known_not_comparable"
-    assert items_by_variable["co_tanf"]["mapping_count"] == 0
+    assert items_by_variable["co_tanf"]["mapping_count"] == 1
+    assert items_by_variable["co_tanf"]["comparable_mapping_count"] == 0
     assert items_by_variable["employee_payroll_tax"]["axiom_status"] == "out_of_scope"
     assert items_by_variable["employee_payroll_tax"]["mapping_count"] == 1
     assert items_by_variable["employee_payroll_tax"]["comparable_mapping_count"] == 0
@@ -1579,6 +1588,22 @@ def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     assert "us-ga:policies/dfcs/tanf/" in georgia_tanf["legal_ids"]
     assert "Georgia TANF assistance-standard" in georgia_tanf["rationale"]
     assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_colorado_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    colorado_tanf = items_by_variable["co_tanf"]
+
+    assert colorado_tanf["program_id"] == "tanf"
+    assert colorado_tanf["state"] == "CO"
+    assert colorado_tanf["axiom_status"] == "known_not_comparable"
+    assert colorado_tanf["mapping_count"] >= 1
+    assert colorado_tanf["comparable_mapping_count"] == 0
+    assert "us-co:programs/tanf/fy-2026#co_tanf" in colorado_tanf["legal_ids"]
+    assert "Colorado Works FY 2026 program bridge" in colorado_tanf["rationale"]
+    assert "before pregnancy allowance" in colorado_tanf["rationale"]
 
 
 def test_policyengine_program_surface_marks_arizona_tanf_known_not_comparable():

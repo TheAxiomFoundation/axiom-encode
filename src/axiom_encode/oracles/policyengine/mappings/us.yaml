@@ -2936,6 +2936,14 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's WIC 11450 monthly aid payment is the family-level legal payment formula after state income exemptions and special-needs inputs. PolicyEngine's ca_tanf is an annual SPM-unit final benefit gated through PE's demographic, resource, vehicle-value, and immigration-proration graph, so this is an adjacent final cash-benefit surface rather than a one-to-one oracle target.
 
+  - legal_id: us-co:programs/tanf/fy-2026#co_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: co_tanf
+    candidate_priority: P4
+    rationale: Axiom's Colorado Works FY 2026 program bridge exposes the encoded basic cash assistance grant before pregnancy allowance. PolicyEngine's co_tanf is a final TANF benefit surface built from PE's own Colorado Works graph, so the bridge is adjacent PE coverage but not a one-to-one oracle until the remaining Colorado Works eligibility, allowance, and procedural gates are composed.
+
   - legal_id: us-ca:regulations/cdss/eas/49/49-055#ca_capi
     country: us
     program: ssi_state_supplement
