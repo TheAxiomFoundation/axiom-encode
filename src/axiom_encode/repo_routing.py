@@ -237,7 +237,13 @@ def iter_jurisdiction_content_dirs(workspace_root: Path) -> list[tuple[str, Path
             seen.add(resolved)
             out.append((prefix, content_dir))
 
-    for checkout in sorted(Path(workspace_root).glob("rulespec-*")):
+    root = Path(workspace_root)
+    candidate_checkouts = []
+    if root.is_dir() and root.name.startswith("rulespec-"):
+        candidate_checkouts.append(root)
+    candidate_checkouts.extend(sorted(root.glob("rulespec-*")))
+
+    for checkout in candidate_checkouts:
         if not checkout.is_dir():
             continue
         suffix = _checkout_suffix(checkout)

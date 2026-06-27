@@ -31,6 +31,15 @@ rules:
         formula: state_input
 """
 
+_KS_TANF_RULESPEC = """format: rulespec/v1
+rules:
+  - name: ks_tanf_maximum_benefit
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tanf_basic_allowance + tanf_shelter_allowance
+"""
+
 _UNMAPPED_UK_RULESPEC = """format: rulespec/v1
 rules:
   - name: brand_new_local_helper_xyz
@@ -84,6 +93,53 @@ def test_monorepo_and_legacy_layouts_derive_identical_ids(tmp_path):
     # The repo attribution is the canonical legacy repo name in both layouts.
     assert {item["repo"] for item in monorepo_report["items"]} == {"rulespec-us-al"}
     assert {item["repo"] for item in legacy_report["items"]} == {"rulespec-us-al"}
+
+
+def test_direct_monorepo_root_is_enumerated(tmp_path):
+    """``--root <rulespec-us>`` should scan that checkout, not only siblings."""
+    root = tmp_path / "rulespec-us"
+    _write(root / "us-al" / "policies" / "dhr" / "poe.yaml", _UNMAPPED_US_RULESPEC)
+
+    report = build_policyengine_coverage_report(root)
+
+    assert [item["legal_id"] for item in report["items"]] == [
+        "us-al:policies/dhr/poe#brand_new_state_helper_xyz"
+    ]
+    assert {item["repo"] for item in report["items"]} == {"rulespec-us-al"}
+
+
+def test_direct_legacy_root_is_enumerated(tmp_path):
+    """``--root <rulespec-us-al>`` should scan legacy standalone checkouts."""
+    root = tmp_path / "rulespec-us-al"
+    _write(root / "policies" / "dhr" / "poe.yaml", _UNMAPPED_US_RULESPEC)
+
+    report = build_policyengine_coverage_report(root)
+
+    assert [item["legal_id"] for item in report["items"]] == [
+        "us-al:policies/dhr/poe#brand_new_state_helper_xyz"
+    ]
+    assert {item["repo"] for item in report["items"]} == {"rulespec-us-al"}
+
+
+def test_kansas_tanf_keesm_prefix_is_classified_not_comparable(tmp_path):
+    """Kansas KEESM 7411 source helpers are explicit non-comparable TANF slices."""
+    root = tmp_path / "rulespec-us"
+    _write(
+        root / "us-ks" / "policies" / "dcf" / "keesm" / "keesm7410.yaml",
+        _KS_TANF_RULESPEC,
+    )
+
+    report = build_policyengine_coverage_report(root, program="tanf")
+
+    assert len(report["items"]) == 1
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-ks:policies/dcf/keesm/keesm7410#ks_tanf_maximum_benefit"
+    )
+    assert item["repo"] == "rulespec-us-ks"
+    assert item["status"] == "known_not_comparable"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "ks_tanf_maximum_benefit"
 
 
 def test_monorepo_country_directory_is_not_doubled(tmp_path):
