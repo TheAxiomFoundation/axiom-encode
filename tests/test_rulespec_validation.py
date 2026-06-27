@@ -3343,6 +3343,55 @@ def test_policyengine_registry_classifies_medicaid_title_xix_statutory_helpers_n
         assert mapping.candidate_priority == "P4"
 
 
+def test_policyengine_registry_includes_minnesota_msa_assistance_standard_mappings():
+    registry = load_policyengine_registry()
+
+    living_alone_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#msa_person_living_alone_standard",
+        country="us",
+    )
+    assert living_alone_mapping.mapping_type == "parameter_value"
+    assert (
+        living_alone_mapping.policyengine_parameter
+        == "gov.states.mn.dhs.msa.assistance_standard.amount"
+    )
+    assert living_alone_mapping.parameter_key == "INDIVIDUAL_LIVING_ALONE"
+
+    personal_needs_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#msa_personal_needs_allowance",
+        country="us",
+    )
+    assert personal_needs_mapping.mapping_type == "parameter_value"
+    assert (
+        personal_needs_mapping.policyengine_parameter
+        == "gov.states.mn.dhs.msa.assistance_standard.amount"
+    )
+    assert personal_needs_mapping.parameter_key == "MEDICAID_FACILITY"
+
+    pre_1994_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026"
+        "#msa_pre_1994_married_couple_living_alone_standard",
+        country="us",
+    )
+    assert pre_1994_mapping.mapping_type == "not_comparable"
+    assert pre_1994_mapping.candidate_priority == "P4"
+
+    assistance_standard_mapping = registry.mapping_for_legal_id(
+        "us-mn:policies/dhs/combined-manual/0020-21/"
+        "msa-assistance-standards-2026#mn_msa_assistance_standard",
+        country="us",
+    )
+    assert assistance_standard_mapping.mapping_type == "not_comparable"
+    assert (
+        assistance_standard_mapping.policyengine_variable
+        == "mn_msa_assistance_standard"
+    )
+    assert assistance_standard_mapping.candidate_priority == "P4"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 
@@ -13888,6 +13937,62 @@ rules:
 
     assert find_source_verification_issues(content) == []
     assert find_ungrounded_numeric_issues(content) == []
+
+
+def test_validator_pipeline_maps_in_memory_source_text_to_declared_corpus_path(
+    tmp_path,
+):
+    source_text = (
+        "Effective January 2026, the MSA assistance standard for a person living "
+        "alone is $1,055.00."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-mn/manual/dhs/combined-manual/msa-revised-sections-2026-01
+    values:
+      mn_msa_person_living_alone_standard: 1055
+rules:
+  - name: mn_msa_person_living_alone_standard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1055'
+"""
+
+    assert find_source_verification_issues(content) == [
+        "Source verification source missing: "
+        "`us-mn/manual/dhs/combined-manual/msa-revised-sections-2026-01` "
+        "was not found in corpus.provisions."
+    ]
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        source_text=source_text,
+    )
+    source_texts = pipeline._source_texts_for_rulespec_content(content)
+
+    assert source_texts == {
+        "us-mn/manual/dhs/combined-manual/msa-revised-sections-2026-01": source_text
+    }
+    assert (
+        validator_pipeline._extract_source_verification_text(
+            content,
+            source_texts=source_texts,
+        )
+        == source_text
+    )
+    assert (
+        find_source_verification_issues(
+            content,
+            source_texts=source_texts,
+        )
+        == []
+    )
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
 def test_source_verification_slices_local_parent_corpus_artifact(

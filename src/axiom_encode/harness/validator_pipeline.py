@@ -17181,7 +17181,11 @@ def _source_verification_text(
     return None
 
 
-def _extract_source_verification_text(content: str) -> str | None:
+def _extract_source_verification_text(
+    content: str,
+    *,
+    source_texts: dict[str, str] | None = None,
+) -> str | None:
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -17199,6 +17203,7 @@ def _extract_source_verification_text(content: str) -> str | None:
     return _source_verification_text(
         citation_paths=citation_paths,
         source_label=source_label,
+        source_texts=source_texts,
     )
 
 
@@ -19300,6 +19305,7 @@ class ValidatorPipeline:
         policyengine_rule_hint: str | None = None,
         require_policy_proofs: bool = False,
         enforce_repository_layout: bool = True,
+        source_text: str | None = None,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
@@ -19312,6 +19318,7 @@ class ValidatorPipeline:
         self.policyengine_rule_hint = policyengine_rule_hint
         self.require_policy_proofs = require_policy_proofs
         self.enforce_repository_layout = enforce_repository_layout
+        self.source_text = source_text
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -19336,6 +19343,31 @@ class ValidatorPipeline:
                 f"{rules_src}{os.pathsep}{existing}" if existing else str(rules_src)
             )
         return env
+
+    def _source_texts_for_rulespec_content(self, content: str) -> dict[str, str] | None:
+        """Map declared RuleSpec source paths to the in-memory source text, if any."""
+        if self.source_text is None:
+            return None
+        try:
+            payload = yaml.safe_load(content)
+        except (yaml.YAMLError, ValueError):
+            return None
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            return None
+        source_verification = _source_verification_block(payload)
+        if source_verification is None:
+            return None
+        citation_paths, source_label = _source_verification_source_fields(
+            source_verification
+        )
+        if not citation_paths:
+            return None
+        source_texts = {
+            citation_path: self.source_text for citation_path in citation_paths
+        }
+        if source_label:
+            source_texts[source_label] = self.source_text
+        return source_texts
 
     def _rulespec_compile_env(self) -> dict[str, str]:
         """Build an env that can resolve canonical RuleSpec repo imports."""
@@ -20724,7 +20756,18 @@ class ValidatorPipeline:
         except Exception as exc:
             issues.append(f"Axiom rules engine compile failed: {exc}")
 
-        issues.extend(find_ungrounded_numeric_issues(content))
+        validation_source_texts = self._source_texts_for_rulespec_content(content)
+        validation_source_text = (
+            self.source_text
+            if self.source_text is not None
+            else _extract_source_verification_text(
+                content,
+                source_texts=validation_source_texts,
+            )
+        )
+        issues.extend(
+            find_ungrounded_numeric_issues(content, source_text=validation_source_text)
+        )
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
@@ -20740,7 +20783,11 @@ class ValidatorPipeline:
         issues.extend(find_structured_scale_parameter_issues(content))
         issues.extend(find_versioned_derived_formula_issues(content))
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
-        issues.extend(find_source_verification_issues(content))
+        issues.extend(
+            find_source_verification_issues(
+                content, source_texts=validation_source_texts
+            )
+        )
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_anaphoric_scope_omission_issues(content))
         issues.extend(find_filtered_entity_dependency_issues(content))
