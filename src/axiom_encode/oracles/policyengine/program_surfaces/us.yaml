@@ -555,10 +555,13 @@ surfaces:
   variable: ks_tanf
   source_type: state_implementation
   state: KS
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include a Kansas TANF FY 2026 program wrapper that composes KEESM 7411
+    budgetary standards with KEESM 7401/7402 cash proration and rounding. The wrapper intentionally remains
+    incomplete for countable income, income/resource eligibility, demographic eligibility, and immigration
+    eligibility, while PolicyEngine-US ks_tanf applies those PE graph gates and a maximum-benefit-minus-countable-income
+    formula. The surface is therefore known and reviewed, but not a one-to-one oracle target yet.
 - country: us
   program_id: tanf
   program_name: Hawaii TANF
