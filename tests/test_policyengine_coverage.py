@@ -1554,8 +1554,9 @@ def test_policyengine_program_surface_marks_georgia_tanf_known_not_comparable():
     assert georgia_tanf["program_id"] == "tanf"
     assert georgia_tanf["state"] == "GA"
     assert georgia_tanf["axiom_status"] == "known_not_comparable"
-    assert georgia_tanf["mapping_count"] == 0
+    assert georgia_tanf["mapping_count"] >= 1
     assert georgia_tanf["comparable_mapping_count"] == 0
+    assert "us-ga:policies/dfcs/tanf/" in georgia_tanf["legal_ids"]
     assert "Georgia TANF assistance-standard" in georgia_tanf["rationale"]
     assert "final monthly TANF benefit variable" in georgia_tanf["rationale"]
 
