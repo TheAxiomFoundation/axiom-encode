@@ -15466,6 +15466,71 @@ rules:
     assert item["mapping_type"] == "not_comparable"
 
 
+def test_universal_credit_program_wrapper_outputs_are_classified(tmp_path):
+    outputs = [
+        "amount_included_under_section_10_responsibility_for_children_and_young_persons",
+        "amount_included_under_section_11_housing_costs",
+        "amount_included_under_section_12_other_particular_needs_or_circumstances",
+        "carer_element",
+        "child_element_amount",
+        "childcare_costs_element_amount",
+        "childcare_costs_element_maximum_amount",
+        "disabled_child_additional_amount",
+        "lcwra_element_amount",
+        "standard_allowance_amount",
+        "universal_credit_award_amount",
+        "universal_credit_award_deduction_from_maximum_amount",
+        "universal_credit_maximum_amount",
+    ]
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "programs/uk/universal-credit/fy-2026-27.yaml",
+        "program: uk/universal-credit\n"
+        "period: 2026-04\n"
+        "outputs:\n" + "\n".join(f"  - {output}" for output in outputs) + "\n",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="universal_credit",
+    )
+
+    assert report["total_outputs"] == len(outputs)
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": len(outputs) - 1,
+    }
+    assert report["untested_comparable"] == 1
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_award = items_by_id[
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount"
+    ]
+    assert final_award["program"] == "universal_credit"
+    assert final_award["status"] == "comparable"
+    assert final_award["mapping_type"] == "derived_expression"
+    assert final_award["tested"] is False
+    maximum_amount = items_by_id[
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_maximum_amount"
+    ]
+    assert maximum_amount["status"] == "known_not_comparable"
+    assert maximum_amount["policyengine_variable"] == "uc_maximum_amount"
+    assert maximum_amount["candidate_priority"] == "P4"
+
+    registry = load_policyengine_registry()
+    final_mapping = registry.mapping_for_legal_id(
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount",
+        country="uk",
+    )
+    assert final_mapping is not None
+    assert final_mapping.match_type == "exact"
+    assert (
+        registry.mapping_for_legal_id(
+            "uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount_extra",
+            country="uk",
+        )
+        is None
+    )
+
+
 def test_council_tax_reduction_policy_surface_is_classified(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "policies/govuk/council-tax-reduction.yaml",
