@@ -1379,6 +1379,25 @@ def test_policyengine_program_surface_marks_louisiana_fitap_known_not_comparable
     assert "under-$10 no-payment rules" in louisiana_fitap["rationale"]
 
 
+def test_policyengine_program_surface_marks_nevada_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    nevada_tanf = items_by_variable["nv_tanf"]
+
+    assert nevada_tanf["program_id"] == "tanf"
+    assert nevada_tanf["state"] == "NV"
+    assert nevada_tanf["axiom_status"] == "known_not_comparable"
+    assert nevada_tanf["mapping_count"] == 9
+    assert nevada_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-nv:policies/dwss/eligibility-payments/a-600/page-38#nv_tanf"
+        in nevada_tanf["legal_ids"]
+    )
+    assert "Nevada E&P Manual A-660.12" in nevada_tanf["rationale"]
+    assert "Employment Retention Payment" in nevada_tanf["rationale"]
+
+
 def test_policyengine_program_surface_marks_wyoming_power_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
@@ -1433,6 +1452,70 @@ rules:
     assert item["policyengine_variable"] == "la_fitap"
     assert item["candidate_priority"] == "P4"
     assert "under-$10 no-payment rules" in item["rationale"]
+
+
+def test_policyengine_coverage_classifies_nevada_tanf_and_snap_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-nv"
+        / "policies/dwss/eligibility-payments/a-600/page-38.yaml",
+        """format: rulespec/v1
+rules:
+  - name: nv_tanf
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-08-11'
+        formula: 0
+  - name: employment_retention_payment
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-08-11'
+        formula: 0
+  - name: snap_net_income_reduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-08-11'
+        formula: '0.3'
+  - name: monthly_snap_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2025-08-11'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    items_by_name = {item["rule_name"]: item for item in report["items"]}
+    assert items_by_name["nv_tanf"]["program"] == "tanf"
+    assert items_by_name["nv_tanf"]["policyengine_variable"] == "nv_tanf"
+    assert items_by_name["employment_retention_payment"]["program"] == "tanf"
+    assert items_by_name["employment_retention_payment"]["policyengine_variable"] == (
+        "nv_tanf"
+    )
+    assert items_by_name["snap_net_income_reduction_rate"]["program"] == "snap"
+    assert (
+        items_by_name["snap_net_income_reduction_rate"]["policyengine_variable"] is None
+    )
+    assert items_by_name["monthly_snap_allotment"]["program"] == "snap"
+    assert items_by_name["monthly_snap_allotment"]["policyengine_variable"] is None
 
 
 def test_policyengine_coverage_classifies_wyoming_power_payment_helpers(
