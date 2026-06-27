@@ -33697,16 +33697,25 @@ def _relative_output_to_anchor(
     """Convert a generated file's relative path to its RuleSpec anchor."""
     rel = relative_output.with_suffix("")
     parts = rel.parts
-    if (
-        len(parts) >= 2
-        and parts[1] in {"policies", "regulations", "statutes"}
-        and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
-    ):
+    jurisdiction = _relative_output_jurisdiction_prefix(relative_output)
+    if jurisdiction is not None:
         return f"{parts[0]}:{Path(*parts[1:]).as_posix()}"
-    jurisdiction = (
+    repo_jurisdiction = (
         _repo_jurisdiction_prefix(policy_repo_path) if policy_repo_path else "us"
     )
-    return f"{jurisdiction}:{rel.as_posix()}"
+    return f"{repo_jurisdiction}:{rel.as_posix()}"
+
+
+def _relative_output_jurisdiction_prefix(relative_output: Path) -> str | None:
+    """Return a leading jurisdiction directory from a generated output path."""
+    parts = Path(relative_output).parts
+    if (
+        len(parts) >= 2
+        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+    ):
+        return parts[0]
+    return None
 
 
 def _rulespec_apply_content_root(
@@ -33716,12 +33725,11 @@ def _rulespec_apply_content_root(
     """Return the jurisdiction content root for live generated writes."""
     repo_path = Path(policy_repo_path)
     if relative_output is not None:
-        parts = Path(relative_output).parts
+        output_jurisdiction = _relative_output_jurisdiction_prefix(relative_output)
         jurisdiction = _repo_jurisdiction_prefix(repo_path)
-        if (
-            parts
-            and (parts[0] == jurisdiction or parts[0].startswith(f"{jurisdiction}-"))
-            and (repo_path / parts[0]).is_dir()
+        if output_jurisdiction and (
+            output_jurisdiction == jurisdiction
+            or output_jurisdiction.startswith(f"{jurisdiction}-")
         ):
             return repo_path
     return jurisdiction_content_dir(
