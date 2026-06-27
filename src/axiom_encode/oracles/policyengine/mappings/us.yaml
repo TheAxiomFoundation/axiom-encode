@@ -18365,6 +18365,92 @@ prefixes:
     candidate_priority: P4
     rationale: Louisiana FITAP B-640 outputs decompose source-local income-limit, flat-grant, 18+ household, minimum-payment, and rounded-deficit grant rules. PolicyEngine-US exposes la_fitap as a final monthly benefit surface, but currently omits the B-640 rounded-down deficit and under-$10 no-payment rules, so these source-faithful RuleSpec outputs are not one-to-one comparable.
 
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#tanf_minimum_issuable_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes Nevada E&P Manual A-660.12's standalone $10 TANF minimum-issuance amount. PolicyEngine's nv_tanf computes a final monthly benefit from its payment-standard and countable-income graph, not this source-specific legal parameter.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#employment_retention_payment_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the source-stated $50 Nevada TANF Employment Retention Payment amount. PolicyEngine's nv_tanf final benefit does not expose the ERP amount as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#employment_retention_payment_duration_months
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the source-stated six-month Nevada TANF Employment Retention Payment duration. PolicyEngine's nv_tanf final benefit does not expose the ERP duration as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#earned_income_for_employment_retention_payment_minimum
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the source-stated earned-income threshold for Nevada TANF Employment Retention Payment eligibility. PolicyEngine's nv_tanf final benefit does not expose this ERP eligibility threshold as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#tanf_gross_income_poverty_test_rate
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the A-660.12 130 percent poverty gross-income-test rate used before Nevada TANF cash-benefit calculation. PolicyEngine's nv_tanf final benefit does not expose this source-specific eligibility-test parameter as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#tanf_cash_gross_income_test_passes
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the A-660.12 Nevada TANF gross-income-test predicate. PolicyEngine's nv_tanf final benefit does not expose this source-specific month-level predicate as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#nv_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom applies A-660.12's gross-income test, whole-dollar rounding, $10 minimum-issuance rule, and under-$10 exceptions to the Nevada TANF cash-benefit slice. PolicyEngine's nv_tanf final benefit computes payment-standard minus countable income and does not expose or fully model those source-specific legal boundaries; tracked in PolicyEngine/policyengine-us#8771.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#employment_retention_payment_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the A-660.12 Nevada TANF Employment Retention Payment eligibility predicate. PolicyEngine's nv_tanf final benefit does not expose ERP eligibility as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#employment_retention_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: nv_tanf
+    candidate_priority: P4
+    rationale: Axiom exposes the A-660.12 Nevada TANF Employment Retention Payment amount as a separate legal output. PolicyEngine's nv_tanf final benefit does not expose the ERP as a one-to-one oracle target.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#snap_net_income_reduction_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes a Nevada manual SNAP allotment helper from the mixed TANF/SNAP A-660.12 page. PolicyEngine's final SNAP surfaces are federal/state simulation aggregates rather than this source-page helper.
+
+  - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#monthly_snap_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the Nevada manual's SNAP allotment computation from the mixed TANF/SNAP A-660.12 page. PolicyEngine's snap program surface includes broader simulation behavior and is not a one-to-one target for this helper.
+
   - legal_id_prefix: us-wy:policies/dfs/snap-power-policy-manual/1101-power-payment-tests-computations#
     country: us
     program: tanf
