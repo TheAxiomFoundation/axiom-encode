@@ -219,11 +219,32 @@ def _resolve_policy_repo_for_prefix(prefix: str) -> Path:
 def _resolve_policy_repo_for_corpus_source(
     corpus_citation_path: str,
     override: Path | None = None,
+    *,
+    create_missing_monorepo_content_root: bool = False,
 ) -> Path:
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
     if override is not None:
-        return jurisdiction_content_dir(override, jurisdiction).resolve()
+        override = Path(override)
+        content_root = jurisdiction_content_dir(override, jurisdiction)
+        if (
+            create_missing_monorepo_content_root
+            and content_root == override
+            and _override_is_country_monorepo_for_jurisdiction(override, jurisdiction)
+        ):
+            content_root = override / jurisdiction
+            content_root.mkdir(parents=True, exist_ok=True)
+        return content_root.resolve()
     return _resolve_policy_repo_for_prefix(jurisdiction)
+
+
+def _override_is_country_monorepo_for_jurisdiction(
+    override: Path, jurisdiction: str
+) -> bool:
+    """Return whether ``override`` is the country monorepo for ``jurisdiction``."""
+    repo_name = canonical_rulespec_repo_name(override) or Path(override).name
+    if repo_name != monorepo_checkout_name(jurisdiction):
+        return False
+    return jurisdiction != repo_name.removeprefix("rulespec-")
 
 
 def _resolve_validation_repo_roots(rulespec_file: Path) -> tuple[Path, Path]:
@@ -19186,6 +19207,7 @@ def cmd_encode(args):
         policy_repo_path = _resolve_policy_repo_for_corpus_source(
             args.citation,
             args.policy_repo_path,
+            create_missing_monorepo_content_root=True,
         )
     else:
         policy_repo_path = args.policy_repo_path or _resolve_policy_repo_for_prefix(
@@ -38004,6 +38026,7 @@ def cmd_eval_source(args):
     policy_repo_path = _resolve_policy_repo_for_corpus_source(
         source_unit.citation_path,
         args.policy_repo_path,
+        create_missing_monorepo_content_root=True,
     )
     runtime_axiom_rules_path = args.axiom_rules_path
     runtime_axiom_rules_path = (
