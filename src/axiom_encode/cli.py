@@ -32257,34 +32257,66 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
             continue
         if not (policy_repo_path / relative_target).is_file():
             continue
-        imported_output = _single_rulespec_rule_output_name(
-            policy_repo_path / relative_target
-        )
+        target_file = policy_repo_path / relative_target
+        imported_output = _single_rulespec_rule_output_name(target_file)
         imported_target = f"{jurisdiction}:{target}"
-        import_item = (
-            f"{imported_target}#{imported_output}"
-            if imported_output is not None
-            else imported_target
-        )
         before = repaired
-        repaired = _ensure_rulespec_import(repaired, import_item)
         placeholder_repairs: list[str] = []
         if imported_output is not None:
+            import_item = f"{imported_target}#{imported_output}"
+            repaired = _ensure_rulespec_import(repaired, import_item)
             repaired, placeholder_repairs = (
                 _repair_same_section_subsection_placeholder_references(
                     repaired,
                     test_file=test_file,
                     target_base=f"{jurisdiction}:{target}",
                     target_output=imported_output,
-                    target_file=policy_repo_path / relative_target,
+                    target_file=target_file,
                     generated_target_base=(
                         f"{jurisdiction}:"
                         f"{_relative_rulespec_import_target(relative_output)}"
                     ),
                 )
             )
+        else:
+            imported_outputs = _rulespec_judgment_rule_output_names(target_file)
+            if len(imported_outputs) > 1:
+                candidate, placeholder_repairs = (
+                    _repair_same_section_subsection_multi_output_placeholder_references(
+                        repaired,
+                        test_file=test_file,
+                        target_base=f"{jurisdiction}:{target}",
+                        target_outputs=imported_outputs,
+                        target_file=target_file,
+                        generated_target_base=(
+                            f"{jurisdiction}:"
+                            f"{_relative_rulespec_import_target(relative_output)}"
+                        ),
+                    )
+                )
+                if placeholder_repairs:
+                    repaired = candidate
+                    for imported_output_name in imported_outputs:
+                        repaired = _ensure_rulespec_import(
+                            repaired,
+                            f"{imported_target}#{imported_output_name}",
+                        )
+                else:
+                    import_item = imported_target
+                    repaired = _ensure_rulespec_import(repaired, import_item)
+            else:
+                import_item = imported_target
+                repaired = _ensure_rulespec_import(repaired, import_item)
         if repaired != before:
-            added.append(import_item)
+            if imported_output is not None:
+                added.append(f"{imported_target}#{imported_output}")
+            elif placeholder_repairs:
+                added.extend(
+                    f"{imported_target}#{imported_output_name}"
+                    for imported_output_name in imported_outputs
+                )
+            else:
+                added.append(imported_target)
             added.extend(placeholder_repairs)
 
     if not added:
@@ -32309,6 +32341,28 @@ def _single_rulespec_rule_output_name(rules_file: Path) -> str | None:
     if len(names) != 1:
         return None
     return names[0]
+
+
+def _rulespec_judgment_rule_output_names(rules_file: Path) -> list[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+    names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if kind == "derived" and dtype == "judgment":
+            names.append(name)
+    return names
 
 
 def _repair_same_section_subsection_placeholder_references(
@@ -32353,6 +32407,93 @@ def _repair_same_section_subsection_placeholder_references(
             source_hash=_sha256_file(target_file),
         )
     return repaired, applied
+
+
+def _repair_same_section_subsection_multi_output_placeholder_references(
+    content: str,
+    *,
+    test_file: Path,
+    target_base: str,
+    target_outputs: list[str],
+    target_file: Path,
+    generated_target_base: str,
+) -> tuple[str, list[str]]:
+    if len(target_outputs) < 2:
+        return content, []
+    repaired = content
+    applied: list[str] = []
+    expression = " or ".join(target_outputs)
+    placeholders = _same_section_subsection_placeholder_names(target_base)
+    for placeholder in placeholders:
+        updated = _replace_formula_identifier(
+            repaired,
+            old=placeholder,
+            new=f"({expression})",
+        )
+        if updated == repaired:
+            continue
+        repaired = updated
+        applied.append(f"{placeholder}->({expression})")
+        if test_file.exists():
+            test_content = test_file.read_text()
+            repaired_test = _replace_test_input_ref_with_disjunction_refs(
+                test_content,
+                old_ref=f"{generated_target_base}#input.{placeholder}",
+                new_refs=[f"{target_base}#{output}" for output in target_outputs],
+            )
+            if repaired_test != test_content:
+                test_file.write_text(repaired_test)
+
+    if applied:
+        source_hash = _sha256_file(target_file)
+        for output in target_outputs:
+            repaired = _ensure_import_proof_atoms_for_formula_symbol(
+                repaired,
+                symbol=output,
+                target=f"{target_base}#{output}",
+                output=output,
+                source_hash=source_hash,
+            )
+    return repaired, applied
+
+
+def _replace_test_input_ref_with_disjunction_refs(
+    content: str, *, old_ref: str, new_refs: list[str]
+) -> str:
+    if not new_refs:
+        return content
+
+    def replacement_lines(indent: str, value: str) -> str:
+        truthy = _test_input_value_truthy(value)
+        rendered: list[str] = []
+        for index, new_ref in enumerate(new_refs):
+            branch_value = truthy and index == 0
+            rendered.append(
+                f"{indent}{new_ref}: {_format_yaml_scalar(branch_value)}\n"
+            )
+        return "".join(rendered)
+
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(old_ref)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        lambda match: replacement_lines(
+            match.group("indent"),
+            match.group("value").strip(),
+        ),
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(old_ref)}:\s*(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(
+        lambda match: replacement_lines(
+            match.group("indent"),
+            match.group("value").strip(),
+        ),
+        content,
+    )
 
 
 def _same_section_subsection_placeholder_names(target_base: str) -> list[str]:

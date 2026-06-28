@@ -18787,6 +18787,133 @@ rules:
         ) in test_text
         assert "conditions_of_paragraph_d_2_are_satisfied" not in test_text
 
+    def test_missing_same_section_import_repair_promotes_cfr_multi_output_placeholder(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "codex-gpt-5.5"
+            / "regulations/42-cfr/435/601/d/1.yaml"
+        )
+        test_file = rules_file.with_name("1.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: elected_methodologies_no_more_restrictive_than_ssi_methodologies
+  - name: other_group_elected_methodologies_within_restrictiveness_limit
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: elected_methodologies_no_more_restrictive_than_state_plan_methodologies
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Subject to paragraph (d)(2), the agency may apply less restrictive methodologies.
+rules:
+  - name: less_restrictive_methodology_may_be_applied
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          state_has_elected_less_restrictive_methodology_option
+          and conditions_of_paragraph_d_2_are_satisfied
+"""
+        )
+        test_file.write_text(
+            """- name: paragraph d2 condition permits application
+  input:
+    us:regulations/42-cfr/435/601/d/1#input.state_has_elected_less_restrictive_methodology_option: true
+    us:regulations/42-cfr/435/601/d/1#input.conditions_of_paragraph_d_2_are_satisfied: true
+  output:
+    us:regulations/42-cfr/435/601/d/1#less_restrictive_methodology_may_be_applied: holds
+- name: paragraph d2 condition blocks application
+  input:
+    us:regulations/42-cfr/435/601/d/1#input.state_has_elected_less_restrictive_methodology_option: true
+    us:regulations/42-cfr/435/601/d/1#input.conditions_of_paragraph_d_2_are_satisfied: false
+  output:
+    us:regulations/42-cfr/435/601/d/1#less_restrictive_methodology_may_be_applied: not_holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "regulations/42-cfr/435/601/d/1.yaml: ci: Same-section "
+                    "subsection import missing: source text cites "
+                    "`regulations/42-cfr/435/601/d/2` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == [
+            (
+                "us:regulations/42-cfr/435/601/d/2"
+                "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit"
+            ),
+            (
+                "us:regulations/42-cfr/435/601/d/2"
+                "#other_group_elected_methodologies_within_restrictiveness_limit"
+            ),
+            (
+                "conditions_of_paragraph_d_2_are_satisfied"
+                "->(aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit "
+                "or other_group_elected_methodologies_within_restrictiveness_limit)"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in rules_text
+        assert (
+            "and (aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit "
+            "or other_group_elected_methodologies_within_restrictiveness_limit)"
+        ) in rules_text
+        assert (
+            "target: us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit"
+        ) in rules_text
+        assert (
+            "target: us:regulations/42-cfr/435/601/d/2"
+            "#other_group_elected_methodologies_within_restrictiveness_limit"
+        ) in rules_text
+
+        test_text = test_file.read_text()
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit: true"
+        ) in test_text
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#other_group_elected_methodologies_within_restrictiveness_limit: false"
+        ) in test_text
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit: false"
+        ) in test_text
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in test_text
+
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
