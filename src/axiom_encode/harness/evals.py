@@ -2274,7 +2274,14 @@ def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
         return False
     if not re.search(r"\([A-Za-z0-9]+\)", segment):
         return False
-    return re.search(r"(?:,\s*|\b(?:or|and)\s+)$", segment) is not None
+    return (
+        re.search(
+            r"(?:,\s*|\b(?:or|and|through|to)\s+|[-–—]\s*)$",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
 
 
 def _sibling_parenthetical_marker_pattern(

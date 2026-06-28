@@ -501,6 +501,56 @@ def test_resolve_corpus_source_unit_parses_bare_cfr_citation(tmp_path):
     )
 
 
+def test_resolve_corpus_source_unit_ignores_cfr_through_references(tmp_path):
+    citation = "us/regulation/42/435/601"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": citation,
+                "body": (
+                    "(d) Use of less restrictive methodologies. "
+                    "(1) At State option, and subject to the conditions of "
+                    "paragraphs (d)(2) through (5) of this section, the agency "
+                    "may apply less restrictive methodologies.\n\n"
+                    "(2) The methodologies may be less restrictive but no more "
+                    "restrictive than SSI methodologies.\n\n"
+                    "(3) A methodology is no more restrictive if additional "
+                    "individuals may be eligible and none are made ineligible.\n\n"
+                    "(4) The methodology must be comparable within each category.\n\n"
+                    "(5) The methodology must be consistent with subpart K FFP "
+                    "limitations."
+                ),
+                "heading": "Financial methodologies",
+                "level": 2,
+                "ordinal": 601,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    paragraph_one = resolve_corpus_source_unit(
+        "us/regulation/42/435/601/d/1",
+        corpus_path,
+    )
+    paragraph_five = resolve_corpus_source_unit(
+        "us/regulation/42/435/601/d/5",
+        corpus_path,
+    )
+
+    assert paragraph_one.body.startswith("(1) At State option")
+    assert "paragraphs (d)(2) through (5)" in paragraph_one.body
+    assert "(2) The methodologies may be" not in paragraph_one.body
+    assert paragraph_five.body == (
+        "(5) The methodology must be consistent with subpart K FFP limitations."
+    )
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(
