@@ -32210,7 +32210,7 @@ def _try_repair_generated_import_output_inputs_for_apply(
 _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
     r"Same-section subsection import missing: source text cites "
     r"(?:subsection\s+)?"
-    r"`(?P<target>statutes/[^`]+)`"
+    r"`(?P<target>(?:statutes|regulations)/[^`]+)`"
 )
 
 
@@ -32233,6 +32233,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
     if not rules_file.exists():
         return []
 
@@ -32256,16 +32257,130 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
             continue
         if not (policy_repo_path / relative_target).is_file():
             continue
-        import_item = f"{jurisdiction}:{target}"
+        imported_output = _single_rulespec_rule_output_name(
+            policy_repo_path / relative_target
+        )
+        imported_target = f"{jurisdiction}:{target}"
+        import_item = (
+            f"{imported_target}#{imported_output}"
+            if imported_output is not None
+            else imported_target
+        )
         before = repaired
         repaired = _ensure_rulespec_import(repaired, import_item)
+        placeholder_repairs: list[str] = []
+        if imported_output is not None:
+            repaired, placeholder_repairs = (
+                _repair_same_section_subsection_placeholder_references(
+                    repaired,
+                    test_file=test_file,
+                    target_base=f"{jurisdiction}:{target}",
+                    target_output=imported_output,
+                    target_file=policy_repo_path / relative_target,
+                    generated_target_base=(
+                        f"{jurisdiction}:"
+                        f"{_relative_rulespec_import_target(relative_output)}"
+                    ),
+                )
+            )
         if repaired != before:
             added.append(import_item)
+            added.extend(placeholder_repairs)
 
     if not added:
         return []
     rules_file.write_text(repaired)
     return added
+
+
+def _single_rulespec_rule_output_name(rules_file: Path) -> str | None:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return None
+    names = [
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    ]
+    if len(names) != 1:
+        return None
+    return names[0]
+
+
+def _repair_same_section_subsection_placeholder_references(
+    content: str,
+    *,
+    test_file: Path,
+    target_base: str,
+    target_output: str,
+    target_file: Path,
+    generated_target_base: str,
+) -> tuple[str, list[str]]:
+    repaired = content
+    applied: list[str] = []
+    target_ref = f"{target_base}#{target_output}"
+    placeholders = _same_section_subsection_placeholder_names(target_base)
+    for placeholder in placeholders:
+        updated = _replace_formula_identifier(
+            repaired,
+            old=placeholder,
+            new=target_output,
+        )
+        if updated == repaired:
+            continue
+        repaired = updated
+        applied.append(f"{placeholder}->{target_output}")
+        if test_file.exists():
+            test_content = test_file.read_text()
+            repaired_test = _replace_test_input_ref(
+                test_content,
+                old_ref=f"{generated_target_base}#input.{placeholder}",
+                new_ref=target_ref,
+            )
+            if repaired_test != test_content:
+                test_file.write_text(repaired_test)
+
+    if applied:
+        repaired = _ensure_import_proof_atoms_for_formula_symbol(
+            repaired,
+            symbol=target_output,
+            target=target_ref,
+            output=target_output,
+            source_hash=_sha256_file(target_file),
+        )
+    return repaired, applied
+
+
+def _same_section_subsection_placeholder_names(target_base: str) -> list[str]:
+    _prefix, _separator, target_path = target_base.partition(":")
+    parts = Path(target_path).parts
+    if len(parts) >= 4 and parts[0] == "statutes":
+        fragment_parts = parts[3:]
+    elif len(parts) >= 5 and parts[0] == "regulations":
+        fragment_parts = parts[4:]
+    else:
+        fragment_parts = parts[-1:]
+    fragment = "_".join(
+        re.sub(r"[^a-z0-9]+", "_", part.lower()).strip("_")
+        for part in fragment_parts
+        if part
+    ).strip("_")
+    if not fragment:
+        return []
+    return [
+        f"conditions_of_paragraph_{fragment}_are_satisfied",
+        f"condition_of_paragraph_{fragment}_is_satisfied",
+        f"requirements_of_paragraph_{fragment}_are_satisfied",
+        f"requirement_of_paragraph_{fragment}_is_satisfied",
+        f"conditions_of_subsection_{fragment}_are_satisfied",
+        f"condition_of_subsection_{fragment}_is_satisfied",
+        f"requirements_of_subsection_{fragment}_are_satisfied",
+        f"requirement_of_subsection_{fragment}_is_satisfied",
+    ]
 
 
 def _try_repair_generated_unreferenced_proof_imports_for_apply(
