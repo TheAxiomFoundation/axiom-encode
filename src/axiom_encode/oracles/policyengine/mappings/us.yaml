@@ -20183,6 +20183,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: 42 CFR 435.603 MAGI household and income outputs are source-level household-composition, income-counting, state-option, disregard, budget-period, and excluded-group rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy outputs are not one-to-one PE oracle targets.
 
+  - legal_id_prefix: us:regulations/42-cfr/435/603/
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.603 subsection outputs are source-level MAGI household-composition, income-counting, state-option, disregard, budget-period, fallback-method, excluded-group, and special-enrollment rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy and procedural outputs are not one-to-one PE oracle targets.
+
   - legal_id_prefix: us:regulations/42-cfr/435/550#
     country: us
     program: medicaid
