@@ -14657,8 +14657,8 @@ def _deferred_output_targets_same_section_dependency(
     *,
     normalized_import_base: str,
 ) -> bool:
-    for field in ("blocked_by", "source_values"):
-        values = record.get(field)
+    for value_field in ("blocked_by", "source_values"):
+        values = record.get(value_field)
         if not isinstance(values, list):
             continue
         for value in values:
