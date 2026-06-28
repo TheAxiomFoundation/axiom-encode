@@ -122,6 +122,7 @@ from axiom_encode.cli import (
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_bare_snapunit_entity_for_apply,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_computed_output_test_inputs_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_day_period_test_shorthands_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
@@ -16207,6 +16208,85 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_replaces_computed_output_test_inputs_with_upstream_inputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        runner = "codex-test-model"
+        output_file = output_root / runner / "regulations/42-cfr/435/603/d.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/603/e#magi_based_income
+rules:
+  - name: household_member_counted_magi_based_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: magi_based_income
+"""
+        )
+        test_file = output_file.with_name("d.test.yaml")
+        imported_output_ref = "us:regulations/42-cfr/435/603/e#magi_based_income"
+        test_file.write_text(
+            f"""- name: imported_positive_income
+  period: 2026
+  input:
+    {imported_output_ref}: 500
+  output:
+    us:regulations/42-cfr/435/603/d#household_member_counted_magi_based_income: 500
+"""
+        )
+
+        policy_repo = tmp_path / "rulespec-us"
+        producer_file = policy_repo / "regulations/42-cfr/435/603/e.yaml"
+        producer_file.parent.mkdir(parents=True)
+        producer_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: magi_based_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if payment_is_income: payment_amount else: 0
+"""
+        )
+        producer_file.with_name("e.test.yaml").write_text(
+            """- name: ordinary_income_counts
+  period: 2026-01
+  input:
+    us:regulations/42-cfr/435/603/e#input.payment_is_income: true
+    us:regulations/42-cfr/435/603/e#input.payment_amount: 1200
+  output:
+    us:regulations/42-cfr/435/603/e#magi_based_income: 1200
+"""
+        )
+
+        repaired = _try_repair_generated_computed_output_test_inputs_for_apply(
+            SimpleNamespace(output_file=str(output_file), runner=runner),
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/42-cfr/435/603/d.yaml: ci: Test case "
+                "`imported_positive_income` assigns computed RuleSpec output(s) "
+                f"as input: `{imported_output_ref}`."
+            ],
+        )
+
+        assert repaired == [f"test:imported_positive_income:{imported_output_ref}"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        inputs = test_payload[0]["input"]
+        assert imported_output_ref not in inputs
+        assert inputs["us:regulations/42-cfr/435/603/e#input.payment_is_income"] is True
+        assert inputs["us:regulations/42-cfr/435/603/e#input.payment_amount"] == 500
 
     def test_encode_apply_removes_invalid_imported_test_inputs(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)

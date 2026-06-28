@@ -18359,6 +18359,18 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
     return refs
 
 
+def _computed_output_input_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    for issue in issues:
+        text = str(issue)
+        if "assigns computed RuleSpec output(s) as input" not in text:
+            continue
+        for ref in re.findall(r"`([^`]+#[A-Za-z_][A-Za-z0-9_]*)`", text):
+            if "#input." not in ref and "#relation." not in ref:
+                refs.add(ref.strip())
+    return refs
+
+
 def _unresolved_test_input_refs_from_issues(issues: list[str]) -> set[str]:
     refs: set[str] = set()
     pattern = (
@@ -21524,6 +21536,43 @@ def cmd_encode(args):
                 if repaired_type_values:
                     outcome["auto_repaired_wrong_typed_test_inputs"] = (
                         repaired_type_values
+                    )
+            if not can_apply:
+                repaired_computed_output_inputs: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_computed_output_test_inputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_computed_output_inputs.extend(repaired_refs)
+                    outcome["auto_repaired_computed_output_test_inputs"] = (
+                        repaired_computed_output_inputs
+                    )
+                    print(
+                        "  apply=auto_repaired_computed_output_test_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_computed_output_inputs:
+                    outcome["auto_repaired_computed_output_test_inputs"] = (
+                        repaired_computed_output_inputs
                     )
             if not can_apply:
                 repaired_invalid_input_refs: list[str] = []
@@ -32434,6 +32483,32 @@ def _try_repair_generated_import_output_inputs_for_apply(
     )
 
 
+def _try_repair_generated_computed_output_test_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Replace illegal computed-output test inputs with producer facts."""
+    output_refs = _computed_output_input_refs_from_issues(issues)
+    if not output_refs:
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _replace_computed_output_test_inputs_with_upstream_inputs(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        output_refs=output_refs,
+    )
+
+
 _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
     r"Same-section subsection import missing: source text cites "
     r"(?:subsection\s+)?"
@@ -32658,6 +32733,242 @@ def _add_imported_output_passthrough_test_overrides(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repairs
+
+
+def _replace_computed_output_test_inputs_with_upstream_inputs(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    output_refs: set[str],
+) -> list[str]:
+    if not test_file.exists() or not output_refs:
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    repairs: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        case_name = str(test_case.get("name") or "<unnamed>")
+        repairs.extend(
+            _replace_computed_output_inputs_in_value(
+                inputs,
+                case_name=case_name,
+                policy_repo_path=policy_repo_path,
+                output_refs=output_refs,
+            )
+        )
+
+    if not repairs:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
+
+
+def _replace_computed_output_inputs_in_value(
+    value: object,
+    *,
+    case_name: str,
+    policy_repo_path: Path,
+    output_refs: set[str],
+) -> list[str]:
+    repairs: list[str] = []
+    if isinstance(value, dict):
+        for key in list(value.keys()):
+            key_text = str(key)
+            if key_text in output_refs:
+                desired = value[key]
+                upstream_inputs = _producer_test_inputs_for_output_value(
+                    key_text,
+                    desired,
+                    policy_repo_path=policy_repo_path,
+                )
+                if not upstream_inputs:
+                    continue
+                value.pop(key)
+                for input_ref, input_value in upstream_inputs.items():
+                    value.setdefault(input_ref, input_value)
+                repairs.append(f"test:{case_name}:{key_text}")
+                continue
+            repairs.extend(
+                _replace_computed_output_inputs_in_value(
+                    value[key],
+                    case_name=case_name,
+                    policy_repo_path=policy_repo_path,
+                    output_refs=output_refs,
+                )
+            )
+    elif isinstance(value, list):
+        for item in value:
+            repairs.extend(
+                _replace_computed_output_inputs_in_value(
+                    item,
+                    case_name=case_name,
+                    policy_repo_path=policy_repo_path,
+                    output_refs=output_refs,
+                )
+            )
+    return repairs
+
+
+def _producer_test_inputs_for_output_value(
+    output_ref: str,
+    desired_value: object,
+    *,
+    policy_repo_path: Path,
+) -> dict[object, object]:
+    if "#" not in output_ref:
+        return {}
+    producer_base, output_name = output_ref.rsplit("#", 1)
+    producer_file = _import_base_to_repo_file(
+        producer_base,
+        repo_path=policy_repo_path,
+    )
+    if producer_file is None or not producer_file.exists():
+        return {}
+    producer_test_file = _rulespec_test_path(producer_file)
+    if not producer_test_file.exists():
+        return {}
+    try:
+        producer_tests = yaml.safe_load(producer_test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    if not isinstance(producer_tests, list):
+        return {}
+
+    amount_passthrough_case: dict[object, object] | None = None
+    for test_case in producer_tests:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+        if output_key is None:
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_name)
+        if output_key is None:
+            continue
+        produced_value = outputs[output_key]
+        if _generated_test_values_equal(produced_value, desired_value):
+            return copy.deepcopy(inputs)
+        if amount_passthrough_case is None and _numeric_test_decimal(
+            produced_value
+        ) not in (None, Decimal("0")):
+            amount_passthrough_case = inputs
+
+    if amount_passthrough_case is None or _numeric_test_decimal(desired_value) is None:
+        return {}
+    retargeted = copy.deepcopy(amount_passthrough_case)
+    if _retarget_producer_amount_inputs(
+        retargeted,
+        producer_base=producer_base,
+        output_name=output_name,
+        desired_value=desired_value,
+    ):
+        return retargeted
+    return {}
+
+
+def _retarget_producer_amount_inputs(
+    value: object,
+    *,
+    producer_base: str,
+    output_name: str,
+    desired_value: object,
+) -> bool:
+    changed = False
+    if isinstance(value, dict):
+        amount_keys = [
+            key
+            for key in value
+            if _computed_output_retarget_amount_key(
+                str(key),
+                producer_base=producer_base,
+                output_name=output_name,
+            )
+        ]
+        preferred_keys = sorted(
+            amount_keys,
+            key=lambda key: (
+                "#input.payment_amount" not in str(key),
+                "#input.amount" not in str(key),
+                str(key),
+            ),
+        )
+        if preferred_keys:
+            value[preferred_keys[0]] = desired_value
+            changed = True
+        for child in value.values():
+            if _retarget_producer_amount_inputs(
+                child,
+                producer_base=producer_base,
+                output_name=output_name,
+                desired_value=desired_value,
+            ):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _retarget_producer_amount_inputs(
+                item,
+                producer_base=producer_base,
+                output_name=output_name,
+                desired_value=desired_value,
+            ):
+                changed = True
+    return changed
+
+
+def _computed_output_retarget_amount_key(
+    key: str,
+    *,
+    producer_base: str,
+    output_name: str,
+) -> bool:
+    if "#input." not in key or not _rulespec_ref_matches_base(key, producer_base):
+        return False
+    input_name = key.rsplit("#input.", 1)[1].strip()
+    if not input_name:
+        return False
+    return input_name in {
+        "amount",
+        "payment_amount",
+        output_name,
+    } or input_name.endswith("_amount")
+
+
+def _generated_test_values_equal(left: object, right: object) -> bool:
+    left_decimal = _numeric_test_decimal(left)
+    right_decimal = _numeric_test_decimal(right)
+    if left_decimal is not None and right_decimal is not None:
+        return left_decimal == right_decimal
+    return left == right
+
+
+def _numeric_test_decimal(value: object) -> Decimal | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int | float):
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            return None
+    if isinstance(value, str):
+        try:
+            return Decimal(value.strip())
+        except InvalidOperation:
+            return None
+    return None
 
 
 def _passthrough_import_output_refs_by_rule(
