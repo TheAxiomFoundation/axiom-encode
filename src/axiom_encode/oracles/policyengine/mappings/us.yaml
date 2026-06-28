@@ -114,6 +114,53 @@ mappings:
     comparison: decision
     rationale: Same person-level Medicaid eligibility decision surface used by PolicyBench and PolicyEngine.
 
+  - legal_id: us:statutes/42/1396a/xx#monthly_activity_hours_requirement
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold
+    comparison: count
+    rationale: Both Axiom's 42 USC 1396a(xx)(2)(A)-(E) output and PolicyEngine's Medicaid work-requirement parameter represent the 80 monthly activity-hour threshold for community engagement.
+
+  - legal_id: us:regulations/42-cfr/435/552#monthly_community_engagement_hours_requirement
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.552(a) output and PolicyEngine's Medicaid work-requirement parameter represent the 80 monthly community-engagement hours threshold.
+
+  - legal_id: us:regulations/42-cfr/435/554#dependent_child_maximum_age
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.dependent_age_limit
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.554 dependent-child definition and PolicyEngine's Medicaid work-requirement parameter use age 13 as the dependent-child ceiling.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#state_plan_child_age_threshold
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.household.child_age_limit.non_student
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.603(f)(3)(iv)(A) output and PolicyEngine's Medicaid MAGI household parameter represent the non-student child age threshold of 19.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#state_plan_full_time_student_age_threshold
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.household.child_age_limit.student
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.603(f)(3)(iv)(B) output and PolicyEngine's Medicaid MAGI household parameter represent the full-time-student child age threshold of 21.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#medicaid_household_member
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the source-level pairwise Medicaid MAGI household membership relation under 42 CFR 435.603(f). PolicyEngine-US collapses household-composition rules into person-level household size and household income formulas rather than exposing a one-to-one household-member predicate.
+
   - legal_id: us:statutes/42/1396a/a/10#adult_expansion_age_ceiling_years
     country: us
     program: medicaid
@@ -20064,7 +20111,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
+    rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the federal work-requirement mandate and source-specific monthly activity, deeming, hardship, exclusion, verification, and implementation rules. PolicyEngine US exposes selected work-requirement parameters and a simplified annual eligibility helper; exact scalar mappings are listed separately, while the remaining source-specific outputs are not one-to-one PE oracle targets.
 
   - legal_id_prefix: us:statutes/42/1396a/e/14#
     country: us
@@ -20130,6 +20177,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: 42 CFR 435.119 adult-group MAGI eligibility outputs include source-level age, income-limit, parent/caretaker, and dependent-child conditions; PolicyEngine US has broader Medicaid parameters, but not this exact CFR-level output surface.
 
+  - legal_id_prefix: us:regulations/42-cfr/435/603#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.603 MAGI household and income outputs are source-level household-composition, income-counting, state-option, disregard, budget-period, and excluded-group rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy outputs are not one-to-one PE oracle targets.
+
   - legal_id_prefix: us:regulations/42-cfr/435/550#
     country: us
     program: medicaid
@@ -20146,7 +20199,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: 42 CFR 435.552 community-engagement hour and income pathways are CMS Medicaid work-requirement calculations not represented as one-to-one PolicyEngine US variables or parameters.
+    rationale: 42 CFR 435.552 community-engagement hour and income pathways are CMS Medicaid work-requirement calculations. PolicyEngine exposes the 80-hour threshold as a parameter, mapped separately, but does not expose the section's work, community-service, work-program, education, combined-activity, income-allocation, and seasonal-worker pathways as one-to-one oracle targets.
 
   - legal_id_prefix: us:regulations/42-cfr/435/553#
     country: us
@@ -20158,7 +20211,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: 42 CFR 435.554 excluded-individual predicates cover CMS Medicaid work-requirement exclusions that PolicyEngine US does not expose as one-to-one oracle variables.
+    rationale: 42 CFR 435.554 excluded-individual predicates cover CMS Medicaid work-requirement exclusions. PolicyEngine exposes the dependent-child age ceiling as a parameter, mapped separately, but does not expose this section's parent, guardian, caretaker-relative, family-caregiver, veteran, medical-frailty, treatment-program, incarceration, pregnancy, and excluded-individual predicates as one-to-one oracle targets.
 
   - legal_id_prefix: us:regulations/42-cfr/435/555#
     country: us
