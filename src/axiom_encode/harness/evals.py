@@ -4663,6 +4663,13 @@ Test file rules:
   threshold with a percentage of excess income, include the threshold amount,
   the excess amount, and the percentage amount in the calculation reflected by
   the scalar expected output.
+- For positive tests that expect a nonzero amount, `holds` Judgment, or other
+  affirmative result from a formula with source-stated age, income, resource,
+  duration, date, status, or other threshold gates, set every gate input on the
+  qualifying side of the threshold. For example, if the formula requires
+  `age >= age_threshold`, a case expecting the positive amount must set `age`
+  at least to `age_threshold`; use a separate negative case for below-threshold
+  inputs.
 - For proration, average, ratio, or percentage tests with a source-stated denominator, choose input amounts divisible by that denominator so expected outputs are exact decimals, not rounded approximations. For example, if the denominator is 365, use a base amount like 36500 so `36500 * 182 / 365 = 18200`; if an average divides by 6, use totals like 600 or 1800, not 700. Avoid exact equality boundaries for ratios or percentages; choose clearly below/above-boundary values so decimal precision cannot decide the test outcome.
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in

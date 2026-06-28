@@ -961,6 +961,13 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   threshold with a percentage of excess income, include the threshold amount,
   the excess amount, and the percentage amount in the calculation reflected by
   the scalar expected output.
+- For positive tests that expect a nonzero amount, `holds` Judgment, or other
+  affirmative result from a formula with source-stated age, income, resource,
+  duration, date, status, or other threshold gates, set every gate input on the
+  qualifying side of the threshold. For example, if the formula requires
+  `age >= age_threshold`, a case expecting the positive amount must set `age`
+  at least to `age_threshold`; use a separate negative case for below-threshold
+  inputs.
 - For proration, average, ratio, or percentage tests with a source-stated
   denominator, choose input amounts divisible by that denominator so expected
   outputs are exact decimals, not rounded approximations. For example, if the
