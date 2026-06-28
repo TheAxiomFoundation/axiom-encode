@@ -1056,6 +1056,18 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   (usually negated or used as a branch guard). Validation rejects file-level
   imports for operative sibling carve-outs when the formula never uses a cited
   output.
+- When the requested source is itself a sibling paragraph, subsection, or
+  clause that copied context cites as an operative `subject to`, `except`, or
+  `unless` condition, export a source-grounded umbrella `Judgment` for the
+  whole cited source when that source contains multiple branches or alternatives.
+  Name it for the cited source's legal condition or result, such as
+  `paragraph_d_2_methodology_limit_satisfied`, and let downstream files import
+  that exact `#rule_name`. Branch helper outputs may also be useful, but they
+  do not replace the umbrella output when the sibling citation points to the
+  whole paragraph. Do not import the downstream consuming paragraph merely to
+  build this umbrella; represent source-stated categories as local boundary
+  inputs, branch helpers, or imports from true upstream definitions so the
+  dependency graph remains acyclic.
 - If the cited sibling file is deferred, empty, unsupported, or missing a
   usable exported rule and the carve-out changes the result, defer the affected
   executable output or encode a source-grounded overriding branch that avoids

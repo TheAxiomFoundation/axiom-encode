@@ -130,6 +130,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Compute each expected `output:` value by evaluating the emitted RuleSpec",
         "flat\n  threshold with a percentage of excess income",
         "`clause_ii_provides_otherwise`",
+        "paragraph_d_2_methodology_limit_satisfied",
+        "dependency graph remains acyclic",
         "Axiom formulas have no date literal type",
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`",
         "Do not write `else if` or `elif`",
