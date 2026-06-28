@@ -32261,6 +32261,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         imported_target = f"{jurisdiction}:{target}"
         before = repaired
         placeholder_repairs: list[str] = []
+        referenced_outputs: list[str] = []
         if imported_output is not None:
             import_item = f"{imported_target}#{imported_output}"
             repaired = _ensure_rulespec_import(repaired, import_item)
@@ -32278,37 +32279,60 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                 )
             )
         else:
-            imported_outputs = _rulespec_judgment_rule_output_names(target_file)
-            if len(imported_outputs) > 1:
-                candidate, placeholder_repairs = (
-                    _repair_same_section_subsection_multi_output_placeholder_references(
+            referenced_outputs = _formula_referenced_rulespec_output_names(
+                repaired, _rulespec_rule_output_names(target_file)
+            )
+            if referenced_outputs:
+                source_hash = _sha256_file(target_file)
+                for referenced_output in referenced_outputs:
+                    repaired = _ensure_rulespec_import(
                         repaired,
-                        test_file=test_file,
-                        target_base=f"{jurisdiction}:{target}",
-                        target_outputs=imported_outputs,
-                        target_file=target_file,
-                        generated_target_base=(
-                            f"{jurisdiction}:"
-                            f"{_relative_rulespec_import_target(relative_output)}"
-                        ),
+                        f"{imported_target}#{referenced_output}",
                     )
-                )
-                if placeholder_repairs:
-                    repaired = candidate
-                    for imported_output_name in imported_outputs:
-                        repaired = _ensure_rulespec_import(
+                    repaired = _ensure_import_proof_atoms_for_formula_symbol(
+                        repaired,
+                        symbol=referenced_output,
+                        target=f"{imported_target}#{referenced_output}",
+                        output=referenced_output,
+                        source_hash=source_hash,
+                    )
+            if not referenced_outputs:
+                imported_outputs = _rulespec_judgment_rule_output_names(target_file)
+                if len(imported_outputs) > 1:
+                    candidate, placeholder_repairs = (
+                        _repair_same_section_subsection_multi_output_placeholder_references(
                             repaired,
-                            f"{imported_target}#{imported_output_name}",
+                            test_file=test_file,
+                            target_base=f"{jurisdiction}:{target}",
+                            target_outputs=imported_outputs,
+                            target_file=target_file,
+                            generated_target_base=(
+                                f"{jurisdiction}:"
+                                f"{_relative_rulespec_import_target(relative_output)}"
+                            ),
                         )
+                    )
+                    if placeholder_repairs:
+                        repaired = candidate
+                        for imported_output_name in imported_outputs:
+                            repaired = _ensure_rulespec_import(
+                                repaired,
+                                f"{imported_target}#{imported_output_name}",
+                            )
+                    else:
+                        import_item = imported_target
+                        repaired = _ensure_rulespec_import(repaired, import_item)
                 else:
                     import_item = imported_target
                     repaired = _ensure_rulespec_import(repaired, import_item)
-            else:
-                import_item = imported_target
-                repaired = _ensure_rulespec_import(repaired, import_item)
         if repaired != before:
             if imported_output is not None:
                 added.append(f"{imported_target}#{imported_output}")
+            elif referenced_outputs:
+                added.extend(
+                    f"{imported_target}#{referenced_output}"
+                    for referenced_output in referenced_outputs
+                )
             elif placeholder_repairs:
                 added.extend(
                     f"{imported_target}#{imported_output_name}"
@@ -32322,6 +32346,54 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         return []
     rules_file.write_text(repaired)
     return added
+
+
+def _rulespec_rule_output_names(rules_file: Path) -> list[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+    return [
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    ]
+
+
+def _formula_referenced_rulespec_output_names(
+    content: str, target_outputs: list[str]
+) -> list[str]:
+    if not target_outputs:
+        return []
+    try:
+        payload = yaml.safe_load(content) or {}
+    except (ValueError, yaml.YAMLError):
+        return []
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+    formulas: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, str):
+                formulas.append(formula)
+    referenced: list[str] = []
+    for output in target_outputs:
+        pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(output)}(?![A-Za-z0-9_])")
+        if any(pattern.search(formula) for formula in formulas):
+            referenced.append(output)
+    return referenced
 
 
 def _single_rulespec_rule_output_name(rules_file: Path) -> str | None:
