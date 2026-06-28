@@ -15158,6 +15158,105 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_uses_imported_companion_inputs(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "42" / "1396a" / "e.yaml"
+        test_file = rules_file.with_name("e.test.yaml")
+        imported_file = rules_file.parent / "e" / "14.yaml"
+        imported_test_file = imported_file.with_name("14.test.yaml")
+        imported_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/e/14#income_disregards_prohibited
+  - us:statutes/42/1396a/e/14#assets_test_prohibited
+rules:
+  - name: magi_income_determination_parent_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          income_disregards_prohibited
+          and assets_test_prohibited
+"""
+        )
+        test_file.write_text(
+            """- name: newborn_case
+  period: 2026-01
+  input:
+    us:statutes/42/1396a/e#input.child_born_to_woman_eligible_for_and_receiving_medical_assistance_on_birth_date: true
+  output:
+    us:statutes/42/1396a/e#newborn_deemed_medical_assistance_eligible: holds
+"""
+        )
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_disregards_prohibited
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: magi_income_determination_applies
+  - name: assets_test_prohibited
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: magi_income_determination_applies
+  - name: magi_income_determination_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_determination_required_under_state_plan_or_waiver
+"""
+        )
+        imported_test_file.write_text(
+            """- name: imported_magi_rules_hold
+  period: 2026-01
+  input:
+    us:statutes/42/1396a/e/14#input.income_determination_required_under_state_plan_or_waiver: true
+  output:
+    us:statutes/42/1396a/e/14#income_disregards_prohibited: holds
+    us:statutes/42/1396a/e/14#assets_test_prohibited: holds
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/42/1396a/e.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/42/1396a/e#magi_income_determination_parent_applies` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_magi_income_determination_parent_applies"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[1]
+        assert synthesized["input"] == {
+            "us:statutes/42/1396a/e/14#input.income_determination_required_under_state_plan_or_waiver": True
+        }
+        assert synthesized["output"] == {
+            "us:statutes/42/1396a/e#magi_income_determination_parent_applies": "holds"
+        }
+
     def test_judgment_positive_test_repair_synthesizes_string_equality_input(
         self, tmp_path
     ):

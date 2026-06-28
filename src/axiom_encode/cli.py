@@ -16734,6 +16734,7 @@ def _append_generated_judgment_positive_tests_if_missing(
             target_base=target_base,
             rule=rule,
             rules_payload=rules_payload,
+            repo_path=repo_path,
             rules_by_name=rules_by_name,
             test_payload=test_payload,
         )
@@ -16823,6 +16824,7 @@ def _build_generated_positive_judgment_case(
     target_base: str,
     rule: dict[str, object] | None,
     rules_payload: dict[str, object] | None,
+    repo_path: Path,
     rules_by_name: dict[str, dict[str, object]],
     test_payload: list[object],
 ) -> dict[str, object] | None:
@@ -16839,14 +16841,21 @@ def _build_generated_positive_judgment_case(
         rules_by_name=rules_by_name,
         imported_outputs=imported_outputs,
     )
+    imported_positive_inputs = _positive_imported_judgment_inputs_for_formula(
+        formula=formula,
+        rules_payload=rules_payload,
+        repo_path=repo_path,
+        imported_outputs=imported_outputs,
+    )
     imported_inputs = _nonlocal_input_assignments_from_existing_cases(
         test_payload,
         target_base=target_base,
     )
-    if not assignments and not imported_inputs:
+    if not assignments and not imported_inputs and not imported_positive_inputs:
         return None
 
     inputs: dict[object, object] = dict(imported_inputs)
+    inputs.update(imported_positive_inputs)
     for input_name, value in sorted(assignments.items()):
         inputs[f"{target_base}#input.{input_name}"] = value
 
@@ -16860,6 +16869,88 @@ def _build_generated_positive_judgment_case(
         "input": inputs,
         "output": {target: "holds"},
     }
+
+
+def _positive_imported_judgment_inputs_for_formula(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    repo_path: Path,
+    imported_outputs: set[str],
+) -> dict[object, object]:
+    """Copy child companion inputs for imported Judgment operands that must hold."""
+    if not imported_outputs:
+        return {}
+    imports = rules_payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+
+    negated_group_spans = _negated_parenthesized_expression_spans(formula)
+    positive_context_formula = _formula_with_spans_blank(
+        formula,
+        [(start, end) for start, end, _expression in negated_group_spans],
+    )
+    identifiers = _formula_identifiers(positive_context_formula)
+    negated_identifiers = set(
+        re.findall(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", positive_context_formula)
+    )
+    needed_imported_outputs = (identifiers - negated_identifiers) & imported_outputs
+    if not needed_imported_outputs:
+        return {}
+
+    inputs: dict[object, object] = {}
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        output_name = raw_import.rsplit("#", 1)[1].strip()
+        if output_name not in needed_imported_outputs:
+            continue
+        resolved_import = _same_repo_import_base_and_file(
+            raw_import,
+            repo_path=repo_path,
+        )
+        if resolved_import is None:
+            continue
+        _canonical_base, import_file = resolved_import
+        if import_file is None or not import_file.exists():
+            continue
+        inputs.update(
+            _positive_companion_inputs_for_output(
+                _rulespec_test_path(import_file),
+                output_name=output_name,
+            )
+        )
+    return inputs
+
+
+def _positive_companion_inputs_for_output(
+    test_file: Path,
+    *,
+    output_name: str,
+) -> dict[object, object]:
+    if not test_file.exists():
+        return {}
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    if not isinstance(test_payload, list):
+        return {}
+
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if _case_asserts_rule_value(
+            outputs,
+            rule_name=output_name,
+            normalized_value="holds",
+        ):
+            return dict(inputs)
+    return {}
 
 
 def _positive_judgment_formula_input_assignments(
