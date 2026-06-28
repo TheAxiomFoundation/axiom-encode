@@ -8908,6 +8908,49 @@ rules:
     )
 
 
+def test_same_section_exception_reference_allows_deferred_output_dependency(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "42" / "1396a" / "e.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "42" / "1396a" / "f.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/f
+  summary: |-
+    Notwithstanding any other provision, except as provided in subsection (e),
+    no 209(b) State is required to provide medical assistance unless the 1972
+    plan would have required it.
+  deferred_outputs:
+    - output: us:statutes/42/1396a/f#state_medical_assistance_required_for_aged_blind_or_disabled_individual
+      reason: The final required-medical-assistance limitation is subject to exceptions in subsection (e), which are not composed in this slice.
+rules:
+  - name: deemed_eligibility_income_not_above_1972_standard
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_after_deductions <= state_plan_medical_assistance_standard_on_january_1_1972
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us" / "us"
     cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"

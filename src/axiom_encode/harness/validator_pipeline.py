@@ -14583,6 +14583,12 @@ def find_missing_same_section_subsection_import_issues(
         import_base = "/".join([root, *section_parts, fragment])
         if not _rulespec_path_or_child_exists_static(policy_repo_path, import_base):
             continue
+        if _deferred_outputs_cover_same_section_dependency(
+            content,
+            import_base=import_base,
+            fragment=fragment,
+        ):
+            continue
         if _transitive_imports_cover_path_static(
             imports,
             import_base,
@@ -14609,6 +14615,61 @@ def find_missing_same_section_subsection_import_issues(
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
+
+
+def _deferred_outputs_cover_same_section_dependency(
+    content: str,
+    *,
+    import_base: str,
+    fragment: str,
+) -> bool:
+    """Return whether a deferred output explicitly leaves a sibling carve-out unmodeled."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return False
+        module = payload.get("module")
+        if not isinstance(module, dict):
+            return False
+        deferred_outputs = module.get("deferred_outputs")
+        if not isinstance(deferred_outputs, list):
+            return False
+
+        normalized_import_base = _normalize_rulespec_import_path_static(import_base)
+        for record in deferred_outputs:
+            if not isinstance(record, dict):
+                continue
+            if _deferred_output_targets_same_section_dependency(
+                record,
+                normalized_import_base=normalized_import_base,
+            ):
+                return True
+            reason = str(record.get("reason") or "")
+            for cited_fragment, _start in _same_section_sibling_citations(reason):
+                if cited_fragment.lower() == fragment.lower():
+                    return True
+    return False
+
+
+def _deferred_output_targets_same_section_dependency(
+    record: dict[str, object],
+    *,
+    normalized_import_base: str,
+) -> bool:
+    for field in ("blocked_by", "source_values"):
+        values = record.get(field)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            import_path, _separator, _symbol = value.partition("#")
+            if _rulespec_import_path_matches_static(
+                _normalize_rulespec_import_path_static(import_path),
+                normalized_import_base,
+            ):
+                return True
+    return False
 
 
 def _direct_same_section_sibling_import_symbol_issue(

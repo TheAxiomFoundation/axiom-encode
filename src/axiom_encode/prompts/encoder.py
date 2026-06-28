@@ -424,6 +424,13 @@ _COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishi
   child Judgments only when the requested source itself states a new named
   parent condition or result that genuinely combines those child predicates with
   source-stated local conditions.
+- For same-section exception or cross-reference clauses such as "except as
+  provided in subsection (e)" or "subject to paragraph (c)", import the cited
+  RuleSpec output only when an executable formula actually consumes that
+  exception or condition. If the exception-dependent broad output is not encoded
+  in this file, add a `module.deferred_outputs[]` entry for that output and name
+  the cited subsection or paragraph in the `reason`. Do not add a bare,
+  non-operational import just to acknowledge the citation.
 - If context contains a more specific child file under the current target path
   that exports the exact scalar needed by this source, such as a `/rate`,
   `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
