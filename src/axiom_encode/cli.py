@@ -32294,6 +32294,22 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                 target_outputs,
             )
             if referenced_outputs:
+                placeholder_repairs.extend(
+                    _add_imported_output_passthrough_test_overrides(
+                        test_file=test_file,
+                        rules_content=repaired,
+                        generated_target_base=(
+                            f"{jurisdiction}:"
+                            f"{_relative_rulespec_import_target(relative_output)}"
+                        ),
+                        imported_refs_by_output={
+                            referenced_output: (
+                                f"{imported_target}#{referenced_output}"
+                            )
+                            for referenced_output in referenced_outputs
+                        },
+                    )
+                )
                 source_hash = _sha256_file(target_file)
                 for referenced_output in referenced_outputs:
                     repaired = _ensure_rulespec_import(
@@ -32357,6 +32373,136 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         return []
     rules_file.write_text(repaired)
     return added
+
+
+def _add_imported_output_passthrough_test_overrides(
+    *,
+    test_file: Path,
+    rules_content: str,
+    generated_target_base: str,
+    imported_refs_by_output: dict[str, str],
+) -> list[str]:
+    """Add test overrides for imported outputs used as passthrough values."""
+    if not test_file.exists() or not imported_refs_by_output:
+        return []
+    output_refs_by_rule = _passthrough_import_output_refs_by_rule(
+        rules_content,
+        imported_refs_by_output=imported_refs_by_output,
+    )
+    if not output_refs_by_rule:
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    repairs: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        input_keys = {str(key) for key in _mapping_keys_recursive(inputs)}
+        for rule_name, imported_ref in output_refs_by_rule.items():
+            expected = _test_output_value_for_rule(
+                outputs,
+                generated_target_base=generated_target_base,
+                rule_name=rule_name,
+            )
+            if expected is None or isinstance(expected, bool | str | list | dict):
+                continue
+            if imported_ref in input_keys:
+                continue
+            inputs[imported_ref] = expected
+            input_keys.add(imported_ref)
+            changed = True
+            case_name = str(test_case.get("name") or "<unnamed>")
+            repairs.append(f"test:{case_name}:{imported_ref}")
+
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
+
+
+def _passthrough_import_output_refs_by_rule(
+    rules_content: str,
+    *,
+    imported_refs_by_output: dict[str, str],
+) -> dict[str, str]:
+    try:
+        payload = yaml.safe_load(rules_content) or {}
+    except (ValueError, yaml.YAMLError):
+        return {}
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return {}
+    refs_by_rule: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_refs: set[str] = set()
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            output_name = _passthrough_imported_output_name(
+                formula,
+                imported_outputs=list(imported_refs_by_output),
+            )
+            if output_name:
+                rule_refs.add(imported_refs_by_output[output_name])
+        if len(rule_refs) == 1:
+            refs_by_rule[rule_name] = next(iter(rule_refs))
+    return refs_by_rule
+
+
+def _passthrough_imported_output_name(
+    formula: str,
+    *,
+    imported_outputs: list[str],
+) -> str | None:
+    normalized = " ".join(formula.strip().split())
+    if not normalized:
+        return None
+    for output in imported_outputs:
+        token = re.escape(output)
+        if normalized == output:
+            return output
+        if re.fullmatch(rf"if\s+.+?:\s*0(?:\.0)?\s+else:\s*{token}", normalized):
+            return output
+        if re.fullmatch(rf"if\s+.+?:\s*{token}\s+else:\s*0(?:\.0)?", normalized):
+            return output
+    return None
+
+
+def _test_output_value_for_rule(
+    outputs: dict[object, object],
+    *,
+    generated_target_base: str,
+    rule_name: str,
+) -> object | None:
+    absolute_ref = f"{generated_target_base}#{rule_name}"
+    for candidate in (absolute_ref, rule_name):
+        key = _matching_mapping_key_by_rulespec_ref(outputs, candidate)
+        if key is not None:
+            return outputs[key]
+    return None
 
 
 def _rulespec_rule_output_names(rules_file: Path) -> list[str]:

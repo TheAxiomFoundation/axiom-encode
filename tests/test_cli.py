@@ -18989,6 +18989,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/603/d.yaml"
+        test_file = rules_file.with_name("d.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us" / "us"
         cited_file = policy_repo / "regulations" / "42-cfr" / "435" / "603" / "e.yaml"
@@ -19032,6 +19033,14 @@ rules:
           household_member_counted_magi_based_income
 """
         )
+        test_file.write_text(
+            """- name: filer_income_counted
+  input:
+    us:regulations/42-cfr/435/603/d#input.household_member_income_excluded: false
+  output:
+    us:regulations/42-cfr/435/603/d#household_member_counted_magi_based_income: 1500
+"""
+        )
         result = SimpleNamespace(
             runner="codex-gpt-5.5",
             output_file=str(rules_file),
@@ -19052,12 +19061,25 @@ rules:
             )
         )
 
-        assert repaired == ["us:regulations/42-cfr/435/603/e#magi_based_income"]
+        assert repaired == [
+            "us:regulations/42-cfr/435/603/e#magi_based_income",
+            (
+                "test:filer_income_counted:"
+                "us:regulations/42-cfr/435/603/e#magi_based_income"
+            ),
+        ]
         rules_text = rules_file.read_text()
         assert "  - us:regulations/42-cfr/435/603/e#magi_based_income\n" in rules_text
         assert "else: magi_based_income\n" in rules_text
         assert "individual_magi_based_income" not in rules_text
         assert "          household_member_counted_magi_based_income\n" in rules_text
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert (
+            test_payload[0]["input"][
+                "us:regulations/42-cfr/435/603/e#magi_based_income"
+            ]
+            == 1500
+        )
 
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"
