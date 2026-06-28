@@ -14631,16 +14631,25 @@ def _same_section_sibling_citations(source_text: str) -> list[tuple[str, int]]:
     pattern = re.compile(
         r"\b(?:subsections?|paragraphs?)\s+"
         r"(?P<refs>\([A-Za-z0-9]+\)"
-        r"(?:\s*(?:,|and|or)\s*\([A-Za-z0-9]+\))*)"
+        r"(?:\([A-Za-z0-9]+\))*"
+        r"(?:\s*(?:,|and|or)\s*\([A-Za-z0-9]+\)"
+        r"(?:\([A-Za-z0-9]+\))*)*)"
         r"(?:\s+of\s+this\s+section)?(?=\W|$)",
         flags=re.IGNORECASE,
     )
     for match in pattern.finditer(source_text):
         refs = match.group("refs")
-        for ref_match in re.finditer(r"\((?P<fragment>[A-Za-z0-9]+)\)", refs):
+        for ref_match in re.finditer(
+            r"(?P<ref>\([A-Za-z0-9]+\)(?:\([A-Za-z0-9]+\))*)",
+            refs,
+        ):
+            fragment = "/".join(
+                part.lower()
+                for part in re.findall(r"\(([A-Za-z0-9]+)\)", ref_match.group("ref"))
+            )
             citations.append(
                 (
-                    ref_match.group("fragment"),
+                    fragment,
                     match.start() + ref_match.start(),
                 )
             )

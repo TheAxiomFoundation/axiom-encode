@@ -8858,6 +8858,56 @@ rules:
     assert "statutes/26/3121/y" in issues[0]
 
 
+def test_same_section_nested_subsection_reference_uses_child_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "42" / "1396a" / "a" / "10.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: subsection_a_10_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: holds_under_subsection_a_10
+"""
+    )
+    rules_file = repo / "statutes" / "42" / "1396a" / "e.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/a/10#subsection_a_10_status
+module:
+  summary: |-
+    Except as provided in subsection (a)(10), eligibility continues.
+rules:
+  - name: eligibility_continues_after_subsection_a_10_check
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          ongoing_eligibility
+          and not subsection_a_10_status
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us" / "us"
     cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
