@@ -32279,8 +32279,19 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                 )
             )
         else:
+            target_outputs = _rulespec_rule_output_names(target_file)
+            alias_replacements = _formula_alias_rulespec_output_replacements(
+                repaired,
+                target_outputs,
+            )
+            if alias_replacements:
+                repaired = _replace_rulespec_symbol_references(
+                    repaired,
+                    alias_replacements,
+                )
             referenced_outputs = _formula_referenced_rulespec_output_names(
-                repaired, _rulespec_rule_output_names(target_file)
+                repaired,
+                target_outputs,
             )
             if referenced_outputs:
                 source_hash = _sha256_file(target_file)
@@ -32394,6 +32405,70 @@ def _formula_referenced_rulespec_output_names(
         if any(pattern.search(formula) for formula in formulas):
             referenced.append(output)
     return referenced
+
+
+def _formula_alias_rulespec_output_replacements(
+    content: str,
+    target_outputs: list[str],
+) -> dict[str, str]:
+    if not target_outputs:
+        return {}
+    try:
+        payload = yaml.safe_load(content) or {}
+    except (ValueError, yaml.YAMLError):
+        return {}
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return {}
+    local_outputs = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    formulas: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, str):
+                formulas.append(formula)
+    replacements: dict[str, str] = {}
+    sorted_outputs = sorted(target_outputs, key=len, reverse=True)
+    for formula in formulas:
+        for match in re.finditer(
+            r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])",
+            formula,
+        ):
+            symbol = match.group(1)
+            if symbol in local_outputs:
+                continue
+            for output in sorted_outputs:
+                if symbol != output and symbol.endswith(f"_{output}"):
+                    replacements[symbol] = output
+                    break
+    return replacements
+
+
+def _replace_rulespec_symbol_references(
+    content: str,
+    replacements: dict[str, str],
+) -> str:
+    if not replacements:
+        return content
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])("
+        + "|".join(
+            re.escape(symbol) for symbol in sorted(replacements, key=len, reverse=True)
+        )
+        + r")(?![A-Za-z0-9_])"
+    )
+    return pattern.sub(lambda match: replacements[match.group(1)], content)
 
 
 def _single_rulespec_rule_output_name(rules_file: Path) -> str | None:
