@@ -19281,6 +19281,13 @@ rules:
       - effective_from: '0001-01-01'
         formula: |-
           household_member_counted_magi_based_income
+  - name: fpl_five_percentage_point_disregard_applies
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          determining_eligibility_using_magi_based_income
 """
         )
         test_file.write_text(
@@ -19322,6 +19329,7 @@ rules:
         assert "  - us:regulations/42-cfr/435/603/e#magi_based_income\n" in rules_text
         assert "else: magi_based_income\n" in rules_text
         assert "individual_magi_based_income" not in rules_text
+        assert "determining_eligibility_using_magi_based_income\n" in rules_text
         assert "          household_member_counted_magi_based_income\n" in rules_text
         test_payload = yaml.safe_load(test_file.read_text())
         assert (
