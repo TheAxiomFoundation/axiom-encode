@@ -159,6 +159,46 @@ def test_kansas_tanf_keesm_prefix_is_classified_not_comparable(tmp_path):
     assert item["policyengine_variable"] == "ks_tanf_maximum_benefit"
 
 
+def test_medicaid_emergency_exact_mapping_overrides_source_prefix(tmp_path):
+    """42 USC 1396b(v)'s final emergency-Medicaid output is comparable while
+    neighboring source-level helpers remain explicitly non-comparable."""
+    root = tmp_path / "rulespec-us"
+    _write(
+        root / "us" / "statutes" / "42" / "1396b" / "v.yaml",
+        """format: rulespec/v1
+rules:
+  - name: is_emergency_medicaid_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: has_emergency_medical_condition
+  - name: emergency_medical_condition_exists
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sudden_onset_condition
+""",
+    )
+
+    report = build_policyengine_coverage_report(root, program="medicaid")
+    items_by_rule = {item["rule_name"]: item for item in report["items"]}
+
+    emergency = items_by_rule["is_emergency_medicaid_eligible"]
+    assert emergency["legal_id"] == (
+        "us:statutes/42/1396b/v#is_emergency_medicaid_eligible"
+    )
+    assert emergency["status"] == "comparable"
+    assert emergency["mapping_type"] == "direct_variable"
+    assert emergency["policyengine_variable"] == "is_emergency_medicaid_eligible"
+
+    helper = items_by_rule["emergency_medical_condition_exists"]
+    assert helper["legal_id"] == (
+        "us:statutes/42/1396b/v#emergency_medical_condition_exists"
+    )
+    assert helper["status"] == "known_not_comparable"
+    assert helper["mapping_type"] == "not_comparable"
+
+
 def test_monorepo_country_directory_is_not_doubled(tmp_path):
     """Country-level content in ``rulespec-us/us`` keeps the ``us:`` prefix."""
     root = tmp_path / "mono"

@@ -3528,6 +3528,11 @@ def test_policyengine_coverage_classifies_medicaid_work_requirement_prefixes(tmp
         tmp_path / "rulespec-us" / "statutes/42/1396a/xx.yaml",
         """format: rulespec/v1
 rules:
+  - name: monthly_activity_hours_requirement
+    kind: parameter
+    versions:
+      - effective_from: '2026-12-31'
+        value: 80
   - name: medicaid_community_engagement_condition_applies
     kind: derived
     versions:
@@ -3547,6 +3552,17 @@ rules:
 """,
     )
     _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/554.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dependent_child_maximum_age
+    kind: parameter
+    versions:
+      - effective_from: '2026-12-31'
+        value: 13
+""",
+    )
+    _write_rulespec_file(
         tmp_path / "rulespec-us" / "regulations/42-cfr/435/558.yaml",
         """format: rulespec/v1
 rules:
@@ -3557,26 +3573,77 @@ rules:
         formula: noncompliance_months >= 3
 """,
     )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/603/i.yaml",
+        """format: rulespec/v1
+rules:
+  - name: alternative_household_income_method_required_for_medicaid_financial_eligibility
+    kind: derived
+    versions:
+      - effective_from: '2014-01-01'
+        formula: this_section_ineligible and aca_income_below_fpl
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/42-cfr/435/603/j.yaml",
+        """format: rulespec/v1
+rules:
+  - name: magi_based_methods_do_not_apply_for_medicaid_eligibility
+    kind: derived
+    versions:
+      - effective_from: '2014-01-01'
+        formula: non_magi_group
+""",
+    )
 
     report = build_policyengine_coverage_report(tmp_path, program="medicaid")
 
-    assert report["total_outputs"] == 3
-    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert report["total_outputs"] == 7
+    assert report["status_counts"] == {
+        "comparable": 3,
+        "known_not_comparable": 4,
+    }
     items_by_id = {item["legal_id"]: item for item in report["items"]}
+    statute_hours_output = items_by_id[
+        "us:statutes/42/1396a/xx#monthly_activity_hours_requirement"
+    ]
     statute_output = items_by_id[
         "us:statutes/42/1396a/xx#medicaid_community_engagement_condition_applies"
     ]
     hours_output = items_by_id[
         "us:regulations/42-cfr/435/552#monthly_community_engagement_hours_requirement"
     ]
+    dependent_age_output = items_by_id[
+        "us:regulations/42-cfr/435/554#dependent_child_maximum_age"
+    ]
     disenrollment_output = items_by_id[
         "us:regulations/42-cfr/435/558#disenrollment_after_noncompliance_period"
     ]
+    fallback_output = items_by_id[
+        "us:regulations/42-cfr/435/603/i#alternative_household_income_method_required_for_medicaid_financial_eligibility"
+    ]
+    non_magi_output = items_by_id[
+        "us:regulations/42-cfr/435/603/j#magi_based_methods_do_not_apply_for_medicaid_eligibility"
+    ]
+    assert statute_hours_output["mapping_type"] == "parameter_value"
+    assert statute_hours_output["policyengine_parameter"] == (
+        "gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold"
+    )
     assert statute_output["mapping_type"] == "not_comparable"
-    assert hours_output["mapping_type"] == "not_comparable"
+    assert hours_output["mapping_type"] == "parameter_value"
+    assert hours_output["policyengine_parameter"] == (
+        "gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold"
+    )
+    assert dependent_age_output["mapping_type"] == "parameter_value"
+    assert dependent_age_output["policyengine_parameter"] == (
+        "gov.hhs.medicaid.eligibility.work_requirements.dependent_age_limit"
+    )
     assert disenrollment_output["mapping_type"] == "not_comparable"
+    assert fallback_output["mapping_type"] == "not_comparable"
+    assert non_magi_output["mapping_type"] == "not_comparable"
     assert "work-requirement" in str(statute_output["rationale"])
     assert "community-engagement" in str(disenrollment_output["rationale"])
+    assert "42 CFR 435.603 subsection" in str(fallback_output["rationale"])
 
 
 def test_policyengine_coverage_classifies_medicaid_building_block_outputs(tmp_path):

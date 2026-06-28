@@ -4175,6 +4175,86 @@ class TestCmdEncode:
             "statutes/26/36B.test.yaml",
         ]
 
+    def test_apply_generated_encoding_adds_empty_deferred_companion_test(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "42-cfr"
+            / "435"
+            / "601"
+            / "a.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "\n".join(
+                [
+                    "format: rulespec/v1",
+                    "module:",
+                    "  status: deferred",
+                    "  deferred_outputs:",
+                    "    - output: us:regulations/42-cfr/435/601/a#definition",
+                    "      reason: Definition only.",
+                    "rules: []",
+                    "",
+                ]
+            )
+        )
+        (policy_repo / "us").mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        target = policy_repo / "us/regulations/42-cfr/435/601/a.yaml"
+        target_test = policy_repo / "us/regulations/42-cfr/435/601/a.test.yaml"
+        manifest = (
+            policy_repo
+            / "us/.axiom/encoding-manifests/regulations/42-cfr/435/601/a.json"
+        )
+        assert applied == [target, target_test, manifest]
+        assert target_test.read_text() == "[]\n"
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "regulations/42-cfr/435/601/a.yaml",
+            "regulations/42-cfr/435/601/a.test.yaml",
+        ]
+
     def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
@@ -5857,6 +5937,63 @@ rules:
             repaired_formula
         )
         assert "child_care_assistance_fee_level_scalar_limit else" in repaired_formula
+
+    def test_embedded_scalar_literal_repair_collapses_grounded_fraction_expression(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "statutes" / "42" / "1396b" / "f.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396b/f
+rules:
+- name: applicable_income_limitation_rate
+  kind: parameter
+  dtype: Rate
+  source: 42 U.S.C. 1396b(f)(1)(B)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/42/1396b/f
+          excerpt: "133⅓ percent"
+  versions:
+  - effective_from: '1974-01-01'
+    formula: 4 / 3
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "Embedded scalar literal: applicable_income_limitation_rate line 18 "
+                "embeds 4 in `4 / 3`; extract the value to its own named numeric "
+                "concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["applicable_income_limitation_rate_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][0]
+        assert parameter["name"] == "applicable_income_limitation_rate_scalar_limit"
+        assert parameter["versions"][0]["formula"] == "1.333333"
+        assert (
+            parameter["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+            == "133⅓ percent"
+        )
+        derived = payload["rules"][1]
+        assert (
+            derived["versions"][0]["formula"]
+            == "applicable_income_limitation_rate_scalar_limit"
+        )
 
     def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
         self, tmp_path
@@ -15078,6 +15215,105 @@ rules:
             not in synthesized["input"]
         )
 
+    def test_judgment_positive_test_repair_uses_imported_companion_inputs(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "42" / "1396a" / "e.yaml"
+        test_file = rules_file.with_name("e.test.yaml")
+        imported_file = rules_file.parent / "e" / "14.yaml"
+        imported_test_file = imported_file.with_name("14.test.yaml")
+        imported_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/e/14#income_disregards_prohibited
+  - us:statutes/42/1396a/e/14#assets_test_prohibited
+rules:
+  - name: magi_income_determination_parent_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          income_disregards_prohibited
+          and assets_test_prohibited
+"""
+        )
+        test_file.write_text(
+            """- name: newborn_case
+  period: 2026-01
+  input:
+    us:statutes/42/1396a/e#input.child_born_to_woman_eligible_for_and_receiving_medical_assistance_on_birth_date: true
+  output:
+    us:statutes/42/1396a/e#newborn_deemed_medical_assistance_eligible: holds
+"""
+        )
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_disregards_prohibited
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: magi_income_determination_applies
+  - name: assets_test_prohibited
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: magi_income_determination_applies
+  - name: magi_income_determination_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_determination_required_under_state_plan_or_waiver
+"""
+        )
+        imported_test_file.write_text(
+            """- name: imported_magi_rules_hold
+  period: 2026-01
+  input:
+    us:statutes/42/1396a/e/14#input.income_determination_required_under_state_plan_or_waiver: true
+  output:
+    us:statutes/42/1396a/e/14#income_disregards_prohibited: holds
+    us:statutes/42/1396a/e/14#assets_test_prohibited: holds
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/42/1396a/e.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/42/1396a/e#magi_income_determination_parent_applies` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_magi_income_determination_parent_applies"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[1]
+        assert synthesized["input"] == {
+            "us:statutes/42/1396a/e/14#input.income_determination_required_under_state_plan_or_waiver": True
+        }
+        assert synthesized["output"] == {
+            "us:statutes/42/1396a/e#magi_income_determination_parent_applies": "holds"
+        }
+
     def test_judgment_positive_test_repair_synthesizes_string_equality_input(
         self, tmp_path
     ):
@@ -18411,6 +18647,272 @@ imports:
   - us:statutes/26/3406/a
 """
         )
+
+    def test_missing_same_section_import_repair_accepts_current_validator_wording(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/f.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "e.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396b/f#family_income_for_payment_limitation
+module:
+  summary: Section 1396a(f) 209(b) limits.
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/f.yaml: ci: Same-section subsection import "
+                    "missing: source text cites `statutes/42/1396a/e` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == ["us:statutes/42/1396a/e"]
+        assert "  - us:statutes/42/1396a/e\n" in rules_file.read_text()
+
+    def test_missing_same_section_import_repair_promotes_cfr_placeholder(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/601/d/1.yaml"
+        )
+        test_file = rules_file.with_name("1.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = (
+            policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        )
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: paragraph_d_2_methodology_limit_satisfied
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: agency_methodology_is_no_more_restrictive
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Subject to paragraphs (d)(2) through (5), the agency may apply less restrictive methodologies.
+rules:
+  - name: less_restrictive_methodology_may_be_applied
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          state_has_elected_less_restrictive_methodology_option
+          and conditions_of_paragraph_d_2_are_satisfied
+"""
+        )
+        test_file.write_text(
+            """- name: paragraph d2 condition blocks application
+  input:
+    us:regulations/42-cfr/435/601/d/1#input.state_has_elected_less_restrictive_methodology_option: true
+    us:regulations/42-cfr/435/601/d/1#input.conditions_of_paragraph_d_2_are_satisfied: false
+  output:
+    us:regulations/42-cfr/435/601/d/1#less_restrictive_methodology_may_be_applied: not_holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "regulations/42-cfr/435/601/d/1.yaml: ci: Same-section "
+                    "subsection import missing: source text cites "
+                    "`regulations/42-cfr/435/601/d/2` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == [
+            (
+                "us:regulations/42-cfr/435/601/d/2"
+                "#paragraph_d_2_methodology_limit_satisfied"
+            ),
+            (
+                "conditions_of_paragraph_d_2_are_satisfied"
+                "->paragraph_d_2_methodology_limit_satisfied"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:regulations/42-cfr/435/601/d/2"
+            "#paragraph_d_2_methodology_limit_satisfied\n"
+        ) in rules_text
+        assert "and paragraph_d_2_methodology_limit_satisfied\n" in rules_text
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in rules_text
+        assert (
+            "target: us:regulations/42-cfr/435/601/d/2"
+            "#paragraph_d_2_methodology_limit_satisfied"
+        ) in rules_text
+
+        test_text = test_file.read_text()
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#paragraph_d_2_methodology_limit_satisfied: false"
+        ) in test_text
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in test_text
+
+    def test_missing_same_section_import_repair_promotes_cfr_multi_output_placeholder(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/601/d/1.yaml"
+        )
+        test_file = rules_file.with_name("1.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = (
+            policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        )
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: elected_methodologies_no_more_restrictive_than_ssi_methodologies
+  - name: other_group_elected_methodologies_within_restrictiveness_limit
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: elected_methodologies_no_more_restrictive_than_state_plan_methodologies
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Subject to paragraph (d)(2), the agency may apply less restrictive methodologies.
+rules:
+  - name: less_restrictive_methodology_may_be_applied
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          state_has_elected_less_restrictive_methodology_option
+          and conditions_of_paragraph_d_2_are_satisfied
+"""
+        )
+        test_file.write_text(
+            """- name: paragraph d2 condition permits application
+  input:
+    us:regulations/42-cfr/435/601/d/1#input.state_has_elected_less_restrictive_methodology_option: true
+    us:regulations/42-cfr/435/601/d/1#input.conditions_of_paragraph_d_2_are_satisfied: true
+  output:
+    us:regulations/42-cfr/435/601/d/1#less_restrictive_methodology_may_be_applied: holds
+- name: paragraph d2 condition blocks application
+  input:
+    us:regulations/42-cfr/435/601/d/1#input.state_has_elected_less_restrictive_methodology_option: true
+    us:regulations/42-cfr/435/601/d/1#input.conditions_of_paragraph_d_2_are_satisfied: false
+  output:
+    us:regulations/42-cfr/435/601/d/1#less_restrictive_methodology_may_be_applied: not_holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "regulations/42-cfr/435/601/d/1.yaml: ci: Same-section "
+                    "subsection import missing: source text cites "
+                    "`regulations/42-cfr/435/601/d/2` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == [
+            (
+                "us:regulations/42-cfr/435/601/d/2"
+                "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit"
+            ),
+            (
+                "us:regulations/42-cfr/435/601/d/2"
+                "#other_group_elected_methodologies_within_restrictiveness_limit"
+            ),
+            (
+                "conditions_of_paragraph_d_2_are_satisfied"
+                "->(aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit "
+                "or other_group_elected_methodologies_within_restrictiveness_limit)"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in rules_text
+        assert (
+            "and (aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit "
+            "or other_group_elected_methodologies_within_restrictiveness_limit)"
+        ) in rules_text
+        assert (
+            "target: us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit"
+        ) in rules_text
+        assert (
+            "target: us:regulations/42-cfr/435/601/d/2"
+            "#other_group_elected_methodologies_within_restrictiveness_limit"
+        ) in rules_text
+
+        test_text = test_file.read_text()
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit: true"
+        ) in test_text
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#other_group_elected_methodologies_within_restrictiveness_limit: false"
+        ) in test_text
+        assert (
+            "us:regulations/42-cfr/435/601/d/2"
+            "#aged_blind_disabled_group_elected_methodologies_within_restrictiveness_limit: false"
+        ) in test_text
+        assert "conditions_of_paragraph_d_2_are_satisfied" not in test_text
 
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"

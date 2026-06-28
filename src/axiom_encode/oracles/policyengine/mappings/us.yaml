@@ -114,6 +114,63 @@ mappings:
     comparison: decision
     rationale: Same person-level Medicaid eligibility decision surface used by PolicyBench and PolicyEngine.
 
+  - legal_id: us:statutes/42/1396b/v#is_emergency_medicaid_eligible
+    country: us
+    program: medicaid
+    mapping_type: direct_variable
+    policyengine_variable: is_emergency_medicaid_eligible
+    entity: person
+    period: year
+    comparison: decision
+    rationale: Both Axiom's 42 USC 1396b(v)(2) output and PolicyEngine's Emergency Medicaid variable represent eligibility for limited emergency Medicaid coverage when the person otherwise meets Medicaid requirements, has an emergency medical condition, and is excluded from regular Medicaid by immigration status.
+
+  - legal_id: us:statutes/42/1396a/xx#monthly_activity_hours_requirement
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold
+    comparison: count
+    rationale: Both Axiom's 42 USC 1396a(xx)(2)(A)-(E) output and PolicyEngine's Medicaid work-requirement parameter represent the 80 monthly activity-hour threshold for community engagement.
+
+  - legal_id: us:regulations/42-cfr/435/552#monthly_community_engagement_hours_requirement
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.monthly_hours_threshold
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.552(a) output and PolicyEngine's Medicaid work-requirement parameter represent the 80 monthly community-engagement hours threshold.
+
+  - legal_id: us:regulations/42-cfr/435/554#dependent_child_maximum_age
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.eligibility.work_requirements.dependent_age_limit
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.554 dependent-child definition and PolicyEngine's Medicaid work-requirement parameter use age 13 as the dependent-child ceiling.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#state_plan_child_age_threshold
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.household.child_age_limit.non_student
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.603(f)(3)(iv)(A) output and PolicyEngine's Medicaid MAGI household parameter represent the non-student child age threshold of 19.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#state_plan_full_time_student_age_threshold
+    country: us
+    program: medicaid
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hhs.medicaid.household.child_age_limit.student
+    comparison: count
+    rationale: Both Axiom's 42 CFR 435.603(f)(3)(iv)(B) output and PolicyEngine's Medicaid MAGI household parameter represent the full-time-student child age threshold of 21.
+
+  - legal_id: us:regulations/42-cfr/435/603/f#medicaid_household_member
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is the source-level pairwise Medicaid MAGI household membership relation under 42 CFR 435.603(f). PolicyEngine-US collapses household-composition rules into person-level household size and household income formulas rather than exposing a one-to-one household-member predicate.
+
   - legal_id: us:statutes/42/1396a/a/10#adult_expansion_age_ceiling_years
     country: us
     program: medicaid
@@ -20064,7 +20121,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the H.R.1 work-requirement mandate and source-specific exceptions; PolicyEngine US does not expose this federal Medicaid work-requirement workflow as one-to-one oracle variables.
+    rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the federal work-requirement mandate and source-specific monthly activity, deeming, hardship, exclusion, verification, and implementation rules. PolicyEngine US exposes selected work-requirement parameters and a simplified annual eligibility helper; exact scalar mappings are listed separately, while the remaining source-specific outputs are not one-to-one PE oracle targets.
 
   - legal_id_prefix: us:statutes/42/1396a/e/14#
     country: us
@@ -20073,12 +20130,33 @@ prefixes:
     candidate_priority: P4
     rationale: Section 1396a(e)(14) MAGI methodology outputs are federal source-level Medicaid income-methodology, disregard, asset-test, lottery-lump-sum, hardship, and redetermination helpers. PolicyEngine US exposes final eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
 
+  - legal_id_prefix: us:statutes/42/1396a/f#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396a(f) 209(b) outputs encode federal source-level limits and deemed-eligibility mechanics for more restrictive SSI-related Medicaid States. Current PolicyEngine-US upstream exposes final Medicaid eligibility and does not expose these 209(b) federal and state-plan components as one-to-one oracle variables.
+
   - legal_id_prefix: us:statutes/42/1396a/l#
     country: us
     program: medicaid
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: Section 1396a(l) qualified pregnant woman and child outputs are federal source-level age-band, postpartum-period, income-rate, resource-option, and waiver-state helpers. PolicyEngine US exposes final Medicaid eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1396b/v#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396b(v) outputs other than the final emergency-Medicaid eligibility decision are source-level immigration-payment, emergency-condition, lawful-residing-pregnancy/child, and October 2026 status predicates. PolicyEngine exposes the final Emergency Medicaid decision, not each statutory helper as a one-to-one oracle variable.
+
+  - legal_id_prefix: us:statutes/42/1396p/f#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396p(f) home-equity outputs are long-term-care eligibility conditions and statutory helper thresholds. Current PolicyEngine-US upstream does not expose this home-equity eligibility surface as a registered Medicaid oracle variable; an exact direct mapping should override this prefix when that PE variable is available in the adapter catalog.
 
   - legal_id_prefix: us:statutes/42/1397jj/b/1#
     country: us
@@ -20130,6 +20208,137 @@ prefixes:
     mapping_type: not_comparable
     rationale: 42 CFR 435.119 adult-group MAGI eligibility outputs include source-level age, income-limit, parent/caretaker, and dependent-child conditions; PolicyEngine US has broader Medicaid parameters, but not this exact CFR-level output surface.
 
+  - legal_id_prefix: us:regulations/42-cfr/435/139#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.139 emergency-services coverage for certain noncitizens is a source-level required-services predicate. PolicyEngine exposes Emergency Medicaid eligibility through its final is_emergency_medicaid_eligible variable rather than this CFR section's coverage-obligation output.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/150#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.150 former-foster-care coverage outputs are federal source-level category predicates. PolicyEngine exposes final Medicaid eligibility and category composition, not this CFR section's required-coverage predicate as a one-to-one oracle variable.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/201#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.201 optional-group coverage outputs are source-level plan-option predicates. PolicyEngine represents optional groups through final eligibility and state/category parameters, not this general optional-group obligation as a standalone oracle target.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/210#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.210 optional aged, blind, and disabled cash-assistance group outputs are source-specific coverage options. PolicyEngine exposes final Medicaid eligibility and state-set standards, not this CFR section's option predicate as a one-to-one variable.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/211#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.211 institutional cash-assistance exception outputs are source-level optional coverage predicates outside PolicyEngine's one-to-one Medicaid oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/217#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.217 home- and community-based-services waiver outputs are source-level institutional-eligibility and waiver predicates. PolicyEngine does not expose these HCBS waiver mechanics as one-to-one Medicaid oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/219#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.219 state-plan HCBS group outputs are optional source-level coverage predicates. PolicyEngine does not expose this CFR section's paragraph-specific group predicates as one-to-one Medicaid variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/230#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.230 optional categorically needy aged, blind, or disabled outputs are source-specific option predicates. PolicyEngine collapses these pathways into final Medicaid eligibility and state/category parameters.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/232#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.232 optional State-supplement recipient coverage outputs are source-level predicates that PolicyEngine does not expose separately from final Medicaid eligibility.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/234#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.234 more-restrictive State-supplement recipient outputs are source-specific option predicates for 209(b)-style States. PolicyEngine does not expose these CFR section predicates as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/236#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.236 institutional special-income-level coverage outputs are source-level optional-group predicates outside PolicyEngine's direct Medicaid oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/301#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.301 medically needy coverage outputs are source-level required and optional medically-needy predicates. PolicyEngine exposes final Medicaid eligibility and state-set standards, not these CFR section predicates as one-to-one variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/320#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.320 SSI-State medically needy aged outputs are source-specific optional predicates that PolicyEngine does not expose separately from final Medicaid eligibility.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/322#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.322 blind medically needy outputs are source-level group predicates outside PolicyEngine's one-to-one Medicaid oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/324#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.324 disabled medically needy outputs are source-level group predicates outside PolicyEngine's one-to-one Medicaid oracle surface.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/330#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.330 medically needy aged, blind, or disabled outputs are source-specific group predicates that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/350#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.350 medically needy emergency-services outputs are source-level limited-services predicates. PolicyEngine exposes final Emergency Medicaid eligibility, not this medically-needy CFR coverage-obligation predicate as a one-to-one variable.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/603#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.603 MAGI household and income outputs are source-level household-composition, income-counting, state-option, disregard, budget-period, and excluded-group rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy outputs are not one-to-one PE oracle targets.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/603/
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    rationale: 42 CFR 435.603 subsection outputs are source-level MAGI household-composition, income-counting, state-option, disregard, budget-period, fallback-method, excluded-group, and special-enrollment rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy and procedural outputs are not one-to-one PE oracle targets.
+
   - legal_id_prefix: us:regulations/42-cfr/435/550#
     country: us
     program: medicaid
@@ -20146,7 +20355,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: 42 CFR 435.552 community-engagement hour and income pathways are CMS Medicaid work-requirement calculations not represented as one-to-one PolicyEngine US variables or parameters.
+    rationale: 42 CFR 435.552 community-engagement hour and income pathways are CMS Medicaid work-requirement calculations. PolicyEngine exposes the 80-hour threshold as a parameter, mapped separately, but does not expose the section's work, community-service, work-program, education, combined-activity, income-allocation, and seasonal-worker pathways as one-to-one oracle targets.
 
   - legal_id_prefix: us:regulations/42-cfr/435/553#
     country: us
@@ -20158,7 +20367,7 @@ prefixes:
     country: us
     program: medicaid
     mapping_type: not_comparable
-    rationale: 42 CFR 435.554 excluded-individual predicates cover CMS Medicaid work-requirement exclusions that PolicyEngine US does not expose as one-to-one oracle variables.
+    rationale: 42 CFR 435.554 excluded-individual predicates cover CMS Medicaid work-requirement exclusions. PolicyEngine exposes the dependent-child age ceiling as a parameter, mapped separately, but does not expose this section's parent, guardian, caretaker-relative, family-caregiver, veteran, medical-frailty, treatment-program, incarceration, pregnancy, and excluded-individual predicates as one-to-one oracle targets.
 
   - legal_id_prefix: us:regulations/42-cfr/435/555#
     country: us

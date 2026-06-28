@@ -562,6 +562,7 @@ Scoring rubric:
 )
 
 GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
+NUMERIC_GROUNDING_ABS_TOLERANCE = 1e-6
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
 _SOURCE_URL_PATTERN = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
@@ -1422,6 +1423,15 @@ _SOURCE_CITATION_RANGE_SUFFIX_RE = re.compile(
     r"(?<=\))\s*(?:-|through)\s*(?P<endpoint>(?:\([^)]+\))+)\s*$",
     flags=re.IGNORECASE,
 )
+_SOURCE_CITATION_TEXT_LOCATOR_SUFFIX_RE = re.compile(
+    r"\s*,\s*(?:the\s+)?"
+    r"(?:(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"\d+(?:st|nd|rd|th)?)"
+    r"(?:\s+(?:and|or)\s+(?:first|second|third|fourth|fifth|sixth|seventh|"
+    r"eighth|ninth|tenth|\d+(?:st|nd|rd|th)?))*\s+)?"
+    r"(?:sentences?|paragraphs?|clauses?|flush language)\s*$",
+    flags=re.IGNORECASE,
+)
 
 
 def _source_citation_to_normalized_targets(
@@ -1434,6 +1444,7 @@ def _source_citation_to_normalized_targets(
     Rule sources commonly cite multiple provisions in one string and omit the
     USC title after the first citation, e.g. ``26 USC 24(b)(2), 24(h)(3)``.
     """
+    source = _strip_source_citation_text_locator_suffix(source)
     context_targets = (
         _source_citation_fragment_to_normalized_targets(
             context_source,
@@ -1495,6 +1506,11 @@ def _source_citation_to_normalized_targets(
     return tuple(targets)
 
 
+def _strip_source_citation_text_locator_suffix(source: str) -> str:
+    """Drop non-citation sentence/paragraph locators after an otherwise local cite."""
+    return _SOURCE_CITATION_TEXT_LOCATOR_SUFFIX_RE.sub("", source).strip()
+
+
 def _source_citation_fragment_is_bare_relative_table_label_tail(
     fragment: str,
     previous_fragment: str | None,
@@ -1542,9 +1558,14 @@ def _source_citation_fragment_to_context_relative_target(
     if not tail or len(tail) > previous_tail_length:
         return None
     previous_relative_tail = previous_target[len(context_target) :]
-    if not _same_citation_label_class(tail[0], previous_relative_tail[0]):
+    replace_index: int | None = None
+    for index in range(len(previous_relative_tail) - 1, -1, -1):
+        if _same_citation_label_class(tail[0], previous_relative_tail[index]):
+            replace_index = index
+            break
+    if replace_index is None:
         return None
-    return context_target + tail
+    return context_target + previous_relative_tail[:replace_index] + tail
 
 
 def _same_citation_label_class(left: str, right: str) -> bool:
@@ -9248,6 +9269,7 @@ _NUMERIC_DERIVED_OUTPUT_NAME_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _NUMERIC_DERIVED_DTYPES = {
+    "count",
     "decimal",
     "integer",
     "money",
@@ -14516,81 +14538,264 @@ def find_missing_same_section_subsection_import_issues(
     rules_file: Path,
     policy_repo_path: Path,
 ) -> list[str]:
-    """Require imports for cited same-section subsections used as carve-outs."""
-    source_text = extract_embedded_source_text(content)
+    """Require imports for cited same-section siblings used as carve-outs."""
+    source_text = _extract_source_verification_text(
+        content
+    ) or extract_embedded_source_text(content)
     if not source_text or not re.search(
-        r"\b(?:except|unless)\b",
+        r"\b(?:except|unless|subject\s+to)\b",
         source_text,
         flags=re.IGNORECASE,
     ):
         return []
 
-    statute_path = _statute_path_parts_for_file(rules_file, policy_repo_path)
-    if statute_path is None:
+    same_section_path = _same_section_path_parts_for_file(
+        rules_file,
+        policy_repo_path,
+    )
+    if same_section_path is None:
         return []
-    title, section, current_fragments = statute_path
+    root, section_parts, current_fragments = same_section_path
     import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
         for import_path in import_items
     }
+    formula_texts: list[str] = []
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict):
+            formula_texts = _rulespec_formula_texts(payload)
+    formula_text = "\n".join(formula_texts)
 
     issues: list[str] = []
     seen: set[str] = set()
-    for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
-        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        if not _same_section_subsection_citation_requires_import(source_text, match):
+    for fragment, citation_start in _same_section_sibling_citations(source_text):
+        if not _same_section_sibling_citation_requires_import(
+            source_text,
+            citation_start,
+        ):
             continue
-        subsection = match.group("subsection")
-        if subsection in current_fragments or subsection in seen:
+        if (
+            fragment.lower() in {part.lower() for part in current_fragments}
+            or fragment in seen
+        ):
             continue
-        import_base = "/".join(["statutes", title, section, subsection])
+        import_base = "/".join([root, *section_parts, fragment])
         if not _rulespec_path_or_child_exists_static(policy_repo_path, import_base):
             continue
-        if _imports_cover_path_static(
-            imports,
-            import_base,
-        ) or _transitive_imports_cover_path_static(
+        if _deferred_outputs_cover_same_section_dependency(
+            content,
+            import_base=import_base,
+            fragment=fragment,
+        ):
+            continue
+        if _transitive_imports_cover_path_static(
             imports,
             import_base,
             rules_file=rules_file,
             policy_repo_path=policy_repo_path,
         ):
             continue
-        seen.add(subsection)
+        direct_symbol_issue = _direct_same_section_sibling_import_symbol_issue(
+            import_items,
+            import_base=import_base,
+            formula_text=formula_text,
+        )
+        if direct_symbol_issue is None:
+            continue
+        if direct_symbol_issue:
+            seen.add(fragment)
+            issues.append(direct_symbol_issue)
+            continue
+        seen.add(fragment)
         issues.append(
             "Same-section subsection import missing: "
-            f"source text cites subsection `{import_base}` in an exception/cross-reference "
+            f"source text cites `{import_base}` in an exception/cross-reference "
             "clause, but the file does not import it. Encode/import the cited "
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
 
 
-def _same_section_subsection_citation_requires_import(
+def _deferred_outputs_cover_same_section_dependency(
+    content: str,
+    *,
+    import_base: str,
+    fragment: str,
+) -> bool:
+    """Return whether a deferred output explicitly leaves a sibling carve-out unmodeled."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return False
+        module = payload.get("module")
+        if not isinstance(module, dict):
+            return False
+        deferred_outputs = module.get("deferred_outputs")
+        if not isinstance(deferred_outputs, list):
+            return False
+
+        normalized_import_base = _normalize_rulespec_import_path_static(import_base)
+        for record in deferred_outputs:
+            if not isinstance(record, dict):
+                continue
+            if _deferred_output_targets_same_section_dependency(
+                record,
+                normalized_import_base=normalized_import_base,
+            ):
+                return True
+            reason = str(record.get("reason") or "")
+            for cited_fragment, _start in _same_section_sibling_citations(reason):
+                if cited_fragment.lower() == fragment.lower():
+                    return True
+    return False
+
+
+def _deferred_output_targets_same_section_dependency(
+    record: dict[str, object],
+    *,
+    normalized_import_base: str,
+) -> bool:
+    for value_field in ("blocked_by", "source_values"):
+        values = record.get(value_field)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            import_path, _separator, _symbol = value.partition("#")
+            if _rulespec_import_path_matches_static(
+                _normalize_rulespec_import_path_static(import_path),
+                normalized_import_base,
+            ):
+                return True
+    return False
+
+
+def _direct_same_section_sibling_import_symbol_issue(
+    import_items: list[str],
+    *,
+    import_base: str,
+    formula_text: str,
+) -> str | None:
+    """Return an issue for a non-executable direct same-section import."""
+    matching_items: list[str] = []
+    for import_item in import_items:
+        import_path, _separator, _symbol = import_item.partition("#")
+        if _rulespec_import_path_matches_static(import_path, import_base):
+            matching_items.append(import_item)
+    if not matching_items:
+        return ""
+
+    for import_item in matching_items:
+        _import_path, separator, symbol = import_item.partition("#")
+        symbol = symbol.strip()
+        if separator and symbol and _formula_references_symbol(formula_text, symbol):
+            return None
+
+    return (
+        "Same-section subsection import not operational: "
+        f"source text cites `{import_base}` in an exception/cross-reference clause, "
+        "but the matching import does not bring a specific imported output into "
+        "the formula. Import the cited RuleSpec output with `#rule_name` and "
+        "reference that bare rule name in the formula."
+    )
+
+
+def _same_section_sibling_citations(source_text: str) -> list[tuple[str, int]]:
+    citations: list[tuple[str, int]] = []
+    pattern = re.compile(
+        r"\b(?:subsections?|paragraphs?)\s+"
+        r"(?P<refs>\([A-Za-z0-9]+\)"
+        r"(?:\([A-Za-z0-9]+\))*"
+        r"(?:\s*(?:,|and|or)\s*\([A-Za-z0-9]+\)"
+        r"(?:\([A-Za-z0-9]+\))*)*)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
+        flags=re.IGNORECASE,
+    )
+    for match in pattern.finditer(source_text):
+        refs = match.group("refs")
+        for ref_match in re.finditer(
+            r"(?P<ref>\([A-Za-z0-9]+\)(?:\([A-Za-z0-9]+\))*)",
+            refs,
+        ):
+            fragment = "/".join(
+                part.lower()
+                for part in re.findall(r"\(([A-Za-z0-9]+)\)", ref_match.group("ref"))
+            )
+            citations.append(
+                (
+                    fragment,
+                    match.start() + ref_match.start(),
+                )
+            )
+    return citations
+
+
+def _same_section_sibling_citation_requires_import(
     source_text: str,
-    match: re.Match[str],
+    citation_start: int,
 ) -> bool:
     """Return whether a same-section citation is locally an exception dependency."""
     sentence_start = max(
-        source_text.rfind(".", 0, match.start()),
-        source_text.rfind(";", 0, match.start()),
+        source_text.rfind(".", 0, citation_start),
+        source_text.rfind(";", 0, citation_start),
     )
-    prefix = source_text[sentence_start + 1 : match.start()]
+    prefix = source_text[sentence_start + 1 : citation_start]
     triggers = list(
         re.finditer(
-            r"\b(?:except|unless|notwithstanding)\b",
+            r"\b(?:except|unless|subject\s+to|notwithstanding)\b",
             prefix,
             flags=re.IGNORECASE,
         )
     )
     if not triggers:
         return False
-    return triggers[-1].group(0).lower() in {"except", "unless"}
+    return triggers[-1].group(0).lower() in {"except", "unless", "subject to"}
+
+
+def _same_section_path_parts_for_file(
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]] | None:
+    """Return source root, section path, and child fragments for same-section imports."""
+    resolved_file = rules_file.resolve()
+    resolved_root = policy_repo_path.resolve()
+    relative_parts: tuple[str, ...] | None = None
+    with contextlib.suppress(ValueError):
+        relative_parts = resolved_file.relative_to(resolved_root).parts
+    if relative_parts is None:
+        parts = resolved_file.parts
+        for source_root in ("statutes", "regulations"):
+            with contextlib.suppress(ValueError):
+                source_index = parts.index(source_root)
+                relative_parts = tuple(parts[source_index:])
+                break
+    if relative_parts is None or len(relative_parts) < 2:
+        return None
+
+    normalized_parts = tuple(Path(part).stem for part in relative_parts)
+    if normalized_parts[0] == "statutes" and len(normalized_parts) >= 3:
+        return (
+            "statutes",
+            normalized_parts[1:3],
+            normalized_parts[3:],
+        )
+    if normalized_parts[0] == "regulations":
+        if len(normalized_parts) >= 4 and normalized_parts[1].endswith("-cfr"):
+            return (
+                "regulations",
+                normalized_parts[1:4],
+                normalized_parts[4:],
+            )
+        if len(normalized_parts) >= 3:
+            return (
+                "regulations",
+                normalized_parts[1:3],
+                normalized_parts[3:],
+            )
+    return None
 
 
 def _rulespec_path_or_child_exists_static(
@@ -17464,12 +17669,172 @@ def _slice_parent_corpus_text_for_requested_path(
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
+    if _corpus_citation_path_is_us_cfr(resolved_parts):
+        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
+            text,
+            list(missing_fragments),
+        )
+        if cfr_sliced is not None:
+            return cfr_sliced.strip()
     sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
     return sliced if sliced is not None else text
 
 
 def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
     return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
+
+
+def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
+    return (
+        len(parts) >= 5
+        and parts[0] == "us"
+        and parts[1] == "regulation"
+        and parts[2].isdigit()
+    )
+
+
+def _target_source_scope_by_cfr_hierarchy(
+    source_text: str,
+    fragments: list[str],
+) -> str | None:
+    """Slice CFR-style parenthetical hierarchy by legal marker level."""
+    if any(not _cfr_marker_kind_ordinals(fragment) for fragment in fragments):
+        return None
+
+    stack: list[tuple[str, str, int]] = []
+    target = tuple(fragments)
+    target_start: int | None = None
+    target_level: int | None = None
+
+    for match in _iter_cfr_structural_markers(source_text):
+        token = match.group("token")
+        assigned = _assign_cfr_marker_level(stack, token)
+        if assigned is None:
+            continue
+        level, kind, ordinal = assigned
+        stack = stack[:level]
+        stack.append((kind, token, ordinal))
+        path = tuple(item[1] for item in stack)
+
+        if target_start is None:
+            if path == target:
+                target_start = match.start("marker")
+                target_level = level
+            continue
+
+        if target_level is not None and level <= target_level:
+            return source_text[target_start : match.start("marker")]
+
+    if target_start is not None:
+        return source_text[target_start:]
+    return None
+
+
+def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
+    """Yield parenthetical markers that appear in structural positions."""
+    marker_pattern = re.compile(
+        r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))"
+        r"(?=\s+|\([A-Za-z0-9]+\))"
+    )
+    last_yielded_marker_end: int | None = None
+    for match in marker_pattern.finditer(source_text):
+        marker_start = match.start("marker")
+        line_start = source_text.rfind("\n", 0, marker_start) + 1
+        if not source_text[line_start:marker_start].strip():
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        if last_yielded_marker_end == marker_start:
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        previous = marker_start - 1
+        while previous >= 0 and source_text[previous].isspace():
+            previous -= 1
+        follows_spaced_marker = (
+            previous >= 0
+            and source_text[previous] == ")"
+            and marker_start > 0
+            and source_text[marker_start - 1].isspace()
+        )
+        if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
+            last_yielded_marker_end = match.end("marker")
+            yield match
+
+
+def _assign_cfr_marker_level(
+    stack: list[tuple[str, str, int]],
+    token: str,
+) -> tuple[int, str, int] | None:
+    possible = _cfr_marker_kind_ordinals(token)
+    if not possible:
+        return None
+
+    child_level = len(stack)
+    expected_child_kind = _cfr_marker_kind_for_level(child_level)
+    if expected_child_kind == "lower_roman":
+        for level in range(len(stack) - 1, -1, -1):
+            expected_kind = _cfr_marker_kind_for_level(level)
+            for kind, ordinal in possible:
+                if (
+                    kind == expected_kind
+                    and expected_kind == "lower_alpha"
+                    and ordinal == stack[level][2] + 1
+                ):
+                    return (level, kind, ordinal)
+        for kind, ordinal in possible:
+            if kind == expected_child_kind:
+                return (child_level, kind, ordinal)
+
+    for level in range(len(stack) - 1, -1, -1):
+        expected_kind = _cfr_marker_kind_for_level(level)
+        for kind, ordinal in possible:
+            if kind == expected_kind and ordinal > stack[level][2]:
+                return (level, kind, ordinal)
+
+    for kind, ordinal in possible:
+        if kind == expected_child_kind:
+            return (child_level, kind, ordinal)
+    return None
+
+
+def _cfr_marker_kind_for_level(level: int) -> str:
+    if level == 0:
+        return "lower_alpha"
+    return ("numeric", "lower_roman", "upper_alpha")[(level - 1) % 3]
+
+
+def _cfr_marker_kind_ordinals(token: str) -> list[tuple[str, int]]:
+    kinds: list[tuple[str, int]] = []
+    if re.fullmatch(r"\d+", token):
+        kinds.append(("numeric", int(token)))
+    if re.fullmatch(r"[a-z]", token):
+        kinds.append(("lower_alpha", ord(token) - ord("a") + 1))
+    if re.fullmatch(r"[A-Z]", token):
+        kinds.append(("upper_alpha", ord(token) - ord("A") + 1))
+    if re.fullmatch(r"[ivxlcdm]+", token):
+        roman = _lower_roman_to_int(token)
+        if roman is not None:
+            kinds.append(("lower_roman", roman))
+    return kinds
+
+
+def _lower_roman_to_int(token: str) -> int | None:
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(token):
+        value = values.get(char)
+        if value is None:
+            return None
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+    return total or None
 
 
 def _slice_legal_text_by_parenthetical_fragments(
@@ -18710,13 +19075,18 @@ def _embedded_integer_scale_selector(formula: str) -> str | None:
 def numeric_value_is_grounded(value: float, source_numbers: set[float]) -> bool:
     """Return true when a generated number is present in extracted source numbers."""
     for source_value in source_numbers:
-        if math.isclose(value, source_value, rel_tol=0, abs_tol=1e-12):
+        if math.isclose(
+            value,
+            source_value,
+            rel_tol=0,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        ):
             return True
         if 0 < abs(value) <= 1 and math.isclose(
             value * 100,
             source_value,
             rel_tol=0,
-            abs_tol=1e-12,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
         ):
             return True
     return False

@@ -100,6 +100,7 @@ from .harness.validator_pipeline import (
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
     extract_embedded_source_text,
+    extract_numbers_from_text,
     find_delegated_policy_setting_issues,
     find_interval_table_reencoding_candidates,
     find_proof_import_reference_issues,
@@ -108,6 +109,7 @@ from .harness.validator_pipeline import (
     find_tax_status_component_local_input_issues,
     find_unused_import_issues,
     find_zero_branch_test_coverage_issues,
+    numeric_value_is_grounded,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
@@ -16734,6 +16736,7 @@ def _append_generated_judgment_positive_tests_if_missing(
             target_base=target_base,
             rule=rule,
             rules_payload=rules_payload,
+            repo_path=repo_path,
             rules_by_name=rules_by_name,
             test_payload=test_payload,
         )
@@ -16823,6 +16826,7 @@ def _build_generated_positive_judgment_case(
     target_base: str,
     rule: dict[str, object] | None,
     rules_payload: dict[str, object] | None,
+    repo_path: Path,
     rules_by_name: dict[str, dict[str, object]],
     test_payload: list[object],
 ) -> dict[str, object] | None:
@@ -16839,14 +16843,21 @@ def _build_generated_positive_judgment_case(
         rules_by_name=rules_by_name,
         imported_outputs=imported_outputs,
     )
+    imported_positive_inputs = _positive_imported_judgment_inputs_for_formula(
+        formula=formula,
+        rules_payload=rules_payload,
+        repo_path=repo_path,
+        imported_outputs=imported_outputs,
+    )
     imported_inputs = _nonlocal_input_assignments_from_existing_cases(
         test_payload,
         target_base=target_base,
     )
-    if not assignments and not imported_inputs:
+    if not assignments and not imported_inputs and not imported_positive_inputs:
         return None
 
     inputs: dict[object, object] = dict(imported_inputs)
+    inputs.update(imported_positive_inputs)
     for input_name, value in sorted(assignments.items()):
         inputs[f"{target_base}#input.{input_name}"] = value
 
@@ -16860,6 +16871,88 @@ def _build_generated_positive_judgment_case(
         "input": inputs,
         "output": {target: "holds"},
     }
+
+
+def _positive_imported_judgment_inputs_for_formula(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    repo_path: Path,
+    imported_outputs: set[str],
+) -> dict[object, object]:
+    """Copy child companion inputs for imported Judgment operands that must hold."""
+    if not imported_outputs:
+        return {}
+    imports = rules_payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+
+    negated_group_spans = _negated_parenthesized_expression_spans(formula)
+    positive_context_formula = _formula_with_spans_blank(
+        formula,
+        [(start, end) for start, end, _expression in negated_group_spans],
+    )
+    identifiers = _formula_identifiers(positive_context_formula)
+    negated_identifiers = set(
+        re.findall(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", positive_context_formula)
+    )
+    needed_imported_outputs = (identifiers - negated_identifiers) & imported_outputs
+    if not needed_imported_outputs:
+        return {}
+
+    inputs: dict[object, object] = {}
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        output_name = raw_import.rsplit("#", 1)[1].strip()
+        if output_name not in needed_imported_outputs:
+            continue
+        resolved_import = _same_repo_import_base_and_file(
+            raw_import,
+            repo_path=repo_path,
+        )
+        if resolved_import is None:
+            continue
+        _canonical_base, import_file = resolved_import
+        if import_file is None or not import_file.exists():
+            continue
+        inputs.update(
+            _positive_companion_inputs_for_output(
+                _rulespec_test_path(import_file),
+                output_name=output_name,
+            )
+        )
+    return inputs
+
+
+def _positive_companion_inputs_for_output(
+    test_file: Path,
+    *,
+    output_name: str,
+) -> dict[object, object]:
+    if not test_file.exists():
+        return {}
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    if not isinstance(test_payload, list):
+        return {}
+
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if _case_asserts_rule_value(
+            outputs,
+            rule_name=output_name,
+            normalized_value="holds",
+        ):
+            return dict(inputs)
+    return {}
 
 
 def _positive_judgment_formula_input_assignments(
@@ -22896,10 +22989,14 @@ def _extract_embedded_scalar_literal_record(
         parameter_name = _embedded_scalar_parameter_name(rule_name, expression)
         if not parameter_name:
             return None
+        parameter_formula = (
+            _grounded_formula_literal_for_scalar_expression(rule, expression) or literal
+        )
+        replace_expression = parameter_formula != literal
         existing_parameter_name = _existing_embedded_scalar_parameter_name(
             rules,
             base_name=parameter_name,
-            literal=literal,
+            literal=parameter_formula,
         )
         insert_parameter = existing_parameter_name is None
         if existing_parameter_name is not None:
@@ -22919,12 +23016,19 @@ def _extract_embedded_scalar_literal_record(
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            replacement = _replace_embedded_scalar_literal(
-                formula,
-                literal=literal,
-                expression=expression,
-                parameter_name=parameter_name,
-            )
+            if replace_expression:
+                replacement = _replace_embedded_scalar_expression(
+                    formula,
+                    expression=expression,
+                    parameter_name=parameter_name,
+                )
+            else:
+                replacement = _replace_embedded_scalar_literal(
+                    formula,
+                    literal=literal,
+                    expression=expression,
+                    parameter_name=parameter_name,
+                )
             if replacement != formula:
                 version["formula"] = replacement
                 changed = True
@@ -22939,12 +23043,66 @@ def _extract_embedded_scalar_literal_record(
             parameter_rule = _embedded_scalar_parameter_rule(
                 rule,
                 name=parameter_name,
-                literal=literal,
+                literal=parameter_formula,
                 corpus_citation_path=corpus_citation_path,
             )
             rules.insert(index, parameter_rule)
         return parameter_name
     return None
+
+
+def _grounded_formula_literal_for_scalar_expression(
+    rule: dict[str, Any],
+    expression: str,
+) -> str | None:
+    """Collapse generated fraction helpers when the source grounds the value."""
+    value = _simple_fraction_expression_value(expression)
+    if value is None:
+        return None
+    source_numbers: set[float] = set()
+    proof = rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str):
+                source_numbers.update(extract_numbers_from_text(excerpt))
+    if not source_numbers or not numeric_value_is_grounded(value, source_numbers):
+        return None
+    return _format_grounded_scalar_formula_literal(value)
+
+
+def _simple_fraction_expression_value(expression: str) -> float | None:
+    match = re.fullmatch(
+        r"\s*(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)\s*",
+        expression,
+    )
+    if match is None:
+        return None
+    try:
+        denominator = Decimal(match.group(2))
+    except InvalidOperation:
+        return None
+    if denominator == 0:
+        return None
+    try:
+        numerator = Decimal(match.group(1))
+        with localcontext() as ctx:
+            ctx.prec = 18
+            return float(numerator / denominator)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+
+
+def _format_grounded_scalar_formula_literal(value: float) -> str:
+    if math.isfinite(value) and math.isclose(value, round(value), abs_tol=1e-12):
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
 def _embedded_scalar_parameter_name(rule_name: str, expression: str) -> str | None:
@@ -23003,6 +23161,17 @@ def _replace_embedded_scalar_literal(
         parameter_name,
         formula,
     )
+
+
+def _replace_embedded_scalar_expression(
+    formula: str,
+    *,
+    expression: str,
+    parameter_name: str,
+) -> str:
+    if expression.strip() and expression in formula:
+        return formula.replace(expression, parameter_name)
+    return formula
 
 
 def _embedded_scalar_parameter_rule(
@@ -32038,8 +32207,9 @@ def _try_repair_generated_import_output_inputs_for_apply(
 
 
 _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
-    r"Same-section subsection import missing: source text cites subsection "
-    r"`(?P<target>statutes/[^`]+)`"
+    r"Same-section subsection import missing: source text cites "
+    r"(?:subsection\s+)?"
+    r"`(?P<target>(?:statutes|regulations)/[^`]+)`"
 )
 
 
@@ -32062,6 +32232,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
     if not rules_file.exists():
         return []
 
@@ -32085,16 +32256,269 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
             continue
         if not (policy_repo_path / relative_target).is_file():
             continue
-        import_item = f"{jurisdiction}:{target}"
+        target_file = policy_repo_path / relative_target
+        imported_output = _single_rulespec_rule_output_name(target_file)
+        imported_target = f"{jurisdiction}:{target}"
         before = repaired
-        repaired = _ensure_rulespec_import(repaired, import_item)
+        placeholder_repairs: list[str] = []
+        if imported_output is not None:
+            import_item = f"{imported_target}#{imported_output}"
+            repaired = _ensure_rulespec_import(repaired, import_item)
+            repaired, placeholder_repairs = (
+                _repair_same_section_subsection_placeholder_references(
+                    repaired,
+                    test_file=test_file,
+                    target_base=f"{jurisdiction}:{target}",
+                    target_output=imported_output,
+                    target_file=target_file,
+                    generated_target_base=(
+                        f"{jurisdiction}:"
+                        f"{_relative_rulespec_import_target(relative_output)}"
+                    ),
+                )
+            )
+        else:
+            imported_outputs = _rulespec_judgment_rule_output_names(target_file)
+            if len(imported_outputs) > 1:
+                candidate, placeholder_repairs = (
+                    _repair_same_section_subsection_multi_output_placeholder_references(
+                        repaired,
+                        test_file=test_file,
+                        target_base=f"{jurisdiction}:{target}",
+                        target_outputs=imported_outputs,
+                        target_file=target_file,
+                        generated_target_base=(
+                            f"{jurisdiction}:"
+                            f"{_relative_rulespec_import_target(relative_output)}"
+                        ),
+                    )
+                )
+                if placeholder_repairs:
+                    repaired = candidate
+                    for imported_output_name in imported_outputs:
+                        repaired = _ensure_rulespec_import(
+                            repaired,
+                            f"{imported_target}#{imported_output_name}",
+                        )
+                else:
+                    import_item = imported_target
+                    repaired = _ensure_rulespec_import(repaired, import_item)
+            else:
+                import_item = imported_target
+                repaired = _ensure_rulespec_import(repaired, import_item)
         if repaired != before:
-            added.append(import_item)
+            if imported_output is not None:
+                added.append(f"{imported_target}#{imported_output}")
+            elif placeholder_repairs:
+                added.extend(
+                    f"{imported_target}#{imported_output_name}"
+                    for imported_output_name in imported_outputs
+                )
+            else:
+                added.append(imported_target)
+            added.extend(placeholder_repairs)
 
     if not added:
         return []
     rules_file.write_text(repaired)
     return added
+
+
+def _single_rulespec_rule_output_name(rules_file: Path) -> str | None:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return None
+    names = [
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    ]
+    if len(names) != 1:
+        return None
+    return names[0]
+
+
+def _rulespec_judgment_rule_output_names(rules_file: Path) -> list[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+    names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if kind == "derived" and dtype == "judgment":
+            names.append(name)
+    return names
+
+
+def _repair_same_section_subsection_placeholder_references(
+    content: str,
+    *,
+    test_file: Path,
+    target_base: str,
+    target_output: str,
+    target_file: Path,
+    generated_target_base: str,
+) -> tuple[str, list[str]]:
+    repaired = content
+    applied: list[str] = []
+    target_ref = f"{target_base}#{target_output}"
+    placeholders = _same_section_subsection_placeholder_names(target_base)
+    for placeholder in placeholders:
+        updated = _replace_formula_identifier(
+            repaired,
+            old=placeholder,
+            new=target_output,
+        )
+        if updated == repaired:
+            continue
+        repaired = updated
+        applied.append(f"{placeholder}->{target_output}")
+        if test_file.exists():
+            test_content = test_file.read_text()
+            repaired_test = _replace_test_input_ref(
+                test_content,
+                old_ref=f"{generated_target_base}#input.{placeholder}",
+                new_ref=target_ref,
+            )
+            if repaired_test != test_content:
+                test_file.write_text(repaired_test)
+
+    if applied:
+        repaired = _ensure_import_proof_atoms_for_formula_symbol(
+            repaired,
+            symbol=target_output,
+            target=target_ref,
+            output=target_output,
+            source_hash=_sha256_file(target_file),
+        )
+    return repaired, applied
+
+
+def _repair_same_section_subsection_multi_output_placeholder_references(
+    content: str,
+    *,
+    test_file: Path,
+    target_base: str,
+    target_outputs: list[str],
+    target_file: Path,
+    generated_target_base: str,
+) -> tuple[str, list[str]]:
+    if len(target_outputs) < 2:
+        return content, []
+    repaired = content
+    applied: list[str] = []
+    expression = " or ".join(target_outputs)
+    placeholders = _same_section_subsection_placeholder_names(target_base)
+    for placeholder in placeholders:
+        updated = _replace_formula_identifier(
+            repaired,
+            old=placeholder,
+            new=f"({expression})",
+        )
+        if updated == repaired:
+            continue
+        repaired = updated
+        applied.append(f"{placeholder}->({expression})")
+        if test_file.exists():
+            test_content = test_file.read_text()
+            repaired_test = _replace_test_input_ref_with_disjunction_refs(
+                test_content,
+                old_ref=f"{generated_target_base}#input.{placeholder}",
+                new_refs=[f"{target_base}#{output}" for output in target_outputs],
+            )
+            if repaired_test != test_content:
+                test_file.write_text(repaired_test)
+
+    if applied:
+        source_hash = _sha256_file(target_file)
+        for output in target_outputs:
+            repaired = _ensure_import_proof_atoms_for_formula_symbol(
+                repaired,
+                symbol=output,
+                target=f"{target_base}#{output}",
+                output=output,
+                source_hash=source_hash,
+            )
+    return repaired, applied
+
+
+def _replace_test_input_ref_with_disjunction_refs(
+    content: str, *, old_ref: str, new_refs: list[str]
+) -> str:
+    if not new_refs:
+        return content
+
+    def replacement_lines(indent: str, value: str) -> str:
+        truthy = _test_input_value_truthy(value)
+        rendered: list[str] = []
+        for index, new_ref in enumerate(new_refs):
+            branch_value = truthy and index == 0
+            rendered.append(f"{indent}{new_ref}: {_format_yaml_scalar(branch_value)}\n")
+        return "".join(rendered)
+
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(old_ref)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        lambda match: replacement_lines(
+            match.group("indent"),
+            match.group("value").strip(),
+        ),
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(old_ref)}:\s*(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(
+        lambda match: replacement_lines(
+            match.group("indent"),
+            match.group("value").strip(),
+        ),
+        content,
+    )
+
+
+def _same_section_subsection_placeholder_names(target_base: str) -> list[str]:
+    _prefix, _separator, target_path = target_base.partition(":")
+    parts = Path(target_path).parts
+    if len(parts) >= 4 and parts[0] == "statutes":
+        fragment_parts = parts[3:]
+    elif len(parts) >= 5 and parts[0] == "regulations":
+        fragment_parts = parts[4:]
+    else:
+        fragment_parts = parts[-1:]
+    fragment = "_".join(
+        re.sub(r"[^a-z0-9]+", "_", part.lower()).strip("_")
+        for part in fragment_parts
+        if part
+    ).strip("_")
+    if not fragment:
+        return []
+    return [
+        f"conditions_of_paragraph_{fragment}_are_satisfied",
+        f"condition_of_paragraph_{fragment}_is_satisfied",
+        f"requirements_of_paragraph_{fragment}_are_satisfied",
+        f"requirement_of_paragraph_{fragment}_is_satisfied",
+        f"conditions_of_subsection_{fragment}_are_satisfied",
+        f"condition_of_subsection_{fragment}_is_satisfied",
+        f"requirements_of_subsection_{fragment}_are_satisfied",
+        f"requirement_of_subsection_{fragment}_is_satisfied",
+    ]
 
 
 def _try_repair_generated_unreferenced_proof_imports_for_apply(
@@ -34066,7 +34490,9 @@ def _apply_generated_encoding_result(
 
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     applied: list[Path] = []
-    for source in (output_file, _rulespec_test_path(output_file)):
+    test_source = _rulespec_test_path(output_file)
+    wrote_empty_companion_test = False
+    for source in (output_file, test_source):
         if not source.exists():
             continue
         relative_source = (
@@ -34080,6 +34506,12 @@ def _apply_generated_encoding_result(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         applied.append(target)
+    if not test_source.exists() and _needs_empty_deferred_companion_test(output_file):
+        target = content_root / _rulespec_test_path(relative_output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("[]\n")
+        applied.append(target)
+        wrote_empty_companion_test = True
     for relative_path, content in (supplemental_files or {}).items():
         target = content_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -34097,7 +34529,28 @@ def _apply_generated_encoding_result(
             axiom_encode_git=axiom_encode_git,
         )
         applied.append(manifest_path)
+    if wrote_empty_companion_test:
+        print("  apply=generated_empty_deferred_companion_test")
     return applied
+
+
+def _needs_empty_deferred_companion_test(output_file: Path) -> bool:
+    """Return whether a generated deferred module needs an empty test companion."""
+    try:
+        payload = yaml.safe_load(output_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    if module.get("status") != "deferred":
+        return False
+    if payload.get("rules") != []:
+        return False
+    deferred_outputs = module.get("deferred_outputs")
+    return isinstance(deferred_outputs, list) and bool(deferred_outputs)
 
 
 def _write_applied_encoding_manifest(

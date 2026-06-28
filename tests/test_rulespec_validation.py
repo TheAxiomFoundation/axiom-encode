@@ -8858,6 +8858,461 @@ rules:
     assert "statutes/26/3121/y" in issues[0]
 
 
+def test_same_section_nested_subsection_reference_uses_child_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "42" / "1396a" / "a" / "10.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: subsection_a_10_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: holds_under_subsection_a_10
+"""
+    )
+    rules_file = repo / "statutes" / "42" / "1396a" / "e.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/a/10#subsection_a_10_status
+module:
+  summary: |-
+    Except as provided in subsection (a)(10), eligibility continues.
+rules:
+  - name: eligibility_continues_after_subsection_a_10_check
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          ongoing_eligibility
+          and not subsection_a_10_status
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_same_section_exception_reference_allows_deferred_output_dependency(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "42" / "1396a" / "e.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "42" / "1396a" / "f.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/f
+  summary: |-
+    Notwithstanding any other provision, except as provided in subsection (e),
+    no 209(b) State is required to provide medical assistance unless the 1972
+    plan would have required it.
+  deferred_outputs:
+    - output: us:statutes/42/1396a/f#state_medical_assistance_required_for_aged_blind_or_disabled_individual
+      reason: The final required-medical-assistance limitation is subject to exceptions in subsection (e), which are not composed in this slice.
+rules:
+  - name: deemed_eligibility_income_not_above_1972_standard
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_after_deductions <= state_plan_medical_assistance_standard_on_january_1_1972
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import missing" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_rejects_bare_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_uses_source_verification_text(
+    monkeypatch,
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    _mock_corpus_source_text(
+        monkeypatch,
+        "Subject to paragraph (c) of this section, in determining financial "
+        "eligibility of aged, blind, or disabled individuals, the agency must "
+        "apply SSI relative-responsibility requirements or limited 1972-plan "
+        "requirements.",
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/b
+  summary: |-
+    In determining financial eligibility of aged, blind, or disabled individuals,
+    the agency must apply SSI relative-responsibility requirements or 1972-plan
+    requirements.
+imports:
+  - us:regulations/42-cfr/435/602/c
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_same_section_import_check_slices_compact_cfr_parent_source(
+    monkeypatch,
+    tmp_path,
+):
+    repo_parent = tmp_path / "repos"
+    corpus_repo = repo_parent / "axiom-corpus"
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+    source = (
+        "(a)(1) This section only applies to MAGI-excepted individuals.\n\n"
+        "(2) Basic requirements. Subject to the provisions of paragraphs (b) "
+        "and (c) of this section, the agency must apply these requirements:\n\n"
+        "(i) Except for a spouse or parent, the agency must not consider "
+        "relative income.\n\n"
+        "(b) Requirements for States using more restrictive requirements. "
+        "The agency must apply SSI relative responsibility rules.\n\n"
+        "(c) Use of less restrictive methodologies. The agency may apply less "
+        "restrictive methodologies."
+    )
+    _write_local_corpus_provision(
+        repo_parent,
+        "us/regulation/42/435/602",
+        source,
+    )
+    repo = repo_parent / "rulespec-us" / "us"
+    for fragment in ("b", "c"):
+        cited_file = (
+            repo / "regulations" / "42-cfr" / "435" / "602" / f"{fragment}.yaml"
+        )
+        cited_file.parent.mkdir(parents=True, exist_ok=True)
+        cited_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    paragraph_one = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/1
+rules: []
+"""
+    paragraph_one_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "1.yaml"
+    )
+    paragraph_one_file.parent.mkdir(parents=True, exist_ok=True)
+    paragraph_one_file.write_text(paragraph_one)
+
+    paragraph_one_source = validator_pipeline._extract_source_verification_text(
+        paragraph_one
+    )
+    assert paragraph_one_source == (
+        "(1) This section only applies to MAGI-excepted individuals."
+    )
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            paragraph_one,
+            rules_file=paragraph_one_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+    basic_requirements = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/2
+rules: []
+"""
+    basic_requirements_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "2.yaml"
+    )
+    basic_requirements_file.parent.mkdir(parents=True, exist_ok=True)
+    basic_requirements_file.write_text(basic_requirements)
+
+    basic_source = validator_pipeline._extract_source_verification_text(
+        basic_requirements
+    )
+    assert basic_source.startswith("(2) Basic requirements.")
+    assert "paragraphs (b) and (c)" in basic_source
+    issues = find_missing_same_section_subsection_import_issues(
+        basic_requirements,
+        rules_file=basic_requirements_file,
+        policy_repo_path=repo,
+    )
+    assert len(issues) == 2
+    assert any("regulations/42-cfr/435/602/b" in issue for issue in issues)
+    assert any("regulations/42-cfr/435/602/c" in issue for issue in issues)
+
+    clause_i = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/2/i
+rules: []
+"""
+    clause_i_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "2" / "i.yaml"
+    )
+    clause_i_file.parent.mkdir(parents=True, exist_ok=True)
+    clause_i_file.write_text(clause_i)
+
+    clause_i_source = validator_pipeline._extract_source_verification_text(clause_i)
+    assert clause_i_source.startswith("(i) Except for a spouse")
+    assert "paragraphs (b)" not in clause_i_source
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            clause_i,
+            rules_file=clause_i_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_regulation_subject_to_paragraph_reference_rejects_unused_symbol_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c#cash_assistance_less_restrictive_methodologies_may_be_applied
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_allows_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c#cash_assistance_less_restrictive_methodologies_may_be_applied
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          not cash_assistance_less_restrictive_methodologies_may_be_applied
+          and (
+            agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+            or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+          )
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_notwithstanding_override_does_not_require_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     cited_dir = repo / "statutes" / "26" / "3121" / "b"
@@ -16779,6 +17234,37 @@ rules:
     assert find_unused_modifier_parameter_issues(content) == []
 
 
+def test_unused_modifier_parameter_allows_count_modifier_use():
+    content = """format: rulespec/v1
+rules:
+  - name: section_435_214_family_size_increase_count
+    kind: parameter
+    dtype: Count
+    source: 42 CFR 435.603(k)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              excerpt: "Increase the family size of the individual ... by one"
+    versions:
+      - effective_from: '2014-01-01'
+        formula: 1
+  - name: family_size_after_section_435_214_optional_increase
+    kind: derived
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          if eligibility_being_determined_under_section_435_214: family_size + section_435_214_family_size_increase_count else: family_size
+"""
+
+    assert find_unused_modifier_parameter_issues(content) == []
+
+
 def test_unused_modifier_parameter_rejects_no_affected_numeric_output():
     content = """format: rulespec/v1
 rules:
@@ -17017,6 +17503,31 @@ rules:
     assert "`american_vessel_for_chapter` source `3306(m)`" in issues[0]
 
 
+def test_out_of_scope_rule_source_accepts_same_source_sentence_locator():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/f
+rules:
+  - name: medicaid_209b_income_deduction_rule
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(f), second and third sentences
+    versions:
+      - effective_from: '2026-01-01'
+        formula: eligible_after_spenddown
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="42 USC 1396a(f)",
+    )
+
+    assert issues == []
+
+
 def test_out_of_scope_rule_source_rejects_sibling_in_multicitation_source():
     content = """format: rulespec/v1
 rules:
@@ -17161,6 +17672,29 @@ rules:
         find_out_of_scope_rule_source_issues(
             content,
             requested_source="us/statute/42/1382a/b/4",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_relative_alpha_under_numeric_parent():
+    content = """format: rulespec/v1
+rules:
+  - name: medicaid_magi_income_constraints_apply
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(e)(14)(B), (C)
+    versions:
+      - effective_from: '2014-01-01'
+        formula: income_disregards_prohibited and assets_test_prohibited
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="us/statute/42/1396a/e",
         )
         == []
     )
@@ -22400,6 +22934,53 @@ rules:
         "Ungrounded generated numeric literal" in issue and "452" in issue
         for issue in result.issues
     )
+
+
+def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(tmp_path, monkeypatch):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    _mock_corpus_source_text(
+        monkeypatch,
+        "The applicable income limitation is equivalent to 133⅓ percent of "
+        "the highest ordinary payment amount.",
+    )
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: The applicable income limitation is 133⅓ percent.
+  source_verification:
+    corpus_citation_path: us/statute/example/fractional-percent
+rules:
+  - name: applicable_income_limitation_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          1.333333
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: fractional_percent_rate
+  period: 2024-01
+  input: {}
+  output:
+    applicable_income_limitation_rate: 1.333333
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is True
 
 
 def test_rulespec_ci_rejects_embedded_formula_numeric_concepts(tmp_path, monkeypatch):

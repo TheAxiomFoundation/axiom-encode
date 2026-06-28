@@ -501,6 +501,125 @@ def test_resolve_corpus_source_unit_parses_bare_cfr_citation(tmp_path):
     )
 
 
+def test_resolve_corpus_source_unit_ignores_cfr_through_references(tmp_path):
+    citation = "us/regulation/42/435/601"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": citation,
+                "body": (
+                    "(d) Use of less restrictive methodologies. "
+                    "(1) At State option, and subject to the conditions of "
+                    "paragraphs (d)(2) through (5) of this section, the agency "
+                    "may apply less restrictive methodologies.\n\n"
+                    "(2) The methodologies may be less restrictive but no more "
+                    "restrictive than SSI methodologies.\n\n"
+                    "(3) A methodology is no more restrictive if additional "
+                    "individuals may be eligible and none are made ineligible.\n\n"
+                    "(4) The methodology must be comparable within each category.\n\n"
+                    "(5) The methodology must be consistent with subpart K FFP "
+                    "limitations."
+                ),
+                "heading": "Financial methodologies",
+                "level": 2,
+                "ordinal": 601,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    paragraph_one = resolve_corpus_source_unit(
+        "us/regulation/42/435/601/d/1",
+        corpus_path,
+    )
+    paragraph_five = resolve_corpus_source_unit(
+        "us/regulation/42/435/601/d/5",
+        corpus_path,
+    )
+
+    assert paragraph_one.body.startswith("(1) At State option")
+    assert "paragraphs (d)(2) through (5)" in paragraph_one.body
+    assert "(2) The methodologies may be" not in paragraph_one.body
+    assert paragraph_five.body == (
+        "(5) The methodology must be consistent with subpart K FFP limitations."
+    )
+
+
+def test_resolve_corpus_source_unit_slices_cfr_top_level_with_inline_child(
+    tmp_path,
+):
+    citation = "us/regulation/42/435/602"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": citation,
+                "body": (
+                    "(a)(1) This section only applies to MAGI-excepted "
+                    "individuals.\n\n"
+                    "(2) Basic requirements. The agency must apply these "
+                    "requirements:\n\n"
+                    "(i) Except for spouses and parents, the agency must not "
+                    "consider relative income.\n\n"
+                    "(ii) For individuals under age 21, title IV-A rules apply.\n\n"
+                    "(b) Requirements for States using more restrictive "
+                    "requirements. The agency must apply SSI relative "
+                    "responsibility rules.\n\n"
+                    "(1) SSI relative responsibility rules apply; or\n\n"
+                    "(2) More extensive requirements may apply.\n\n"
+                    "(c) Use of less restrictive methodologies. The agency may "
+                    "apply less restrictive methodologies."
+                ),
+                "heading": "Financial responsibility of relatives",
+                "level": 2,
+                "ordinal": 602,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    subsection_a = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a",
+        corpus_path,
+    )
+    paragraph_one = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a/1",
+        corpus_path,
+    )
+    clause_i = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a/2/i",
+        corpus_path,
+    )
+    subsection_b = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/b",
+        corpus_path,
+    )
+
+    assert subsection_a.body.startswith("(a)(1) This section only applies")
+    assert "(b) Requirements for States" not in subsection_a.body
+    assert paragraph_one.body == (
+        "(1) This section only applies to MAGI-excepted individuals."
+    )
+    assert clause_i.body == (
+        "(i) Except for spouses and parents, the agency must not consider "
+        "relative income."
+    )
+    assert subsection_b.body.startswith("(b) Requirements for States")
+    assert "(1) SSI relative responsibility rules apply" in subsection_b.body
+    assert "(c) Use of less restrictive methodologies" not in subsection_b.body
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(
@@ -1286,6 +1405,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "not return a bare placeholder such as `claim_amount`" in prompt
     assert "evaluating the emitted RuleSpec\n  formula" in prompt
     assert "flat\n  threshold with a percentage of excess income" in prompt
+    assert "positive tests that expect a nonzero amount" in prompt
+    assert "set every gate input on the\n  qualifying side of the threshold" in prompt
+    assert "`age >= age_threshold`" in prompt
+    assert "In mixed-output test cases" in prompt
+    assert "nonqualifying side of that output's threshold gate" in prompt
+    assert "separate all-gates-positive case" in prompt
     assert (
         "Imported definitions do not override the current source's legal subject"
         in prompt
@@ -6337,9 +6462,15 @@ class TestEvalPrompt:
         assert "Never drop the jurisdiction prefix" in prompt
         assert "listed under invalid copied local inputs" in prompt
         assert "do not preserve, rename, or recreate" in prompt
-        assert "file-level import without a `#symbol` fragment" in prompt
-        assert "except for purposes of subsection (a)" in prompt
-        assert "Do not add a fragment import only for proof" in prompt
+        assert "bare file-level import is not enough" in prompt
+        assert "import the exact `#rule_name`" in prompt
+        assert (
+            "They are not acceptable for `except`, `unless`, or `subject to` formula carve-outs"
+            in prompt
+        )
+        assert "Subject to paragraph (c)" in prompt
+        assert "cash_assistance_less_restrictive_methodologies_may_be_applied" in prompt
+        assert "omitting the cited paragraph's symbol is invalid" in prompt
         assert "treated as attributable to" in prompt
         assert "amount-level" in prompt
         assert "boolean or `dtype: Judgment` predicate" in prompt
@@ -7999,6 +8130,11 @@ rules:
             " (derived, Money, TaxUnit)" in prompt
         )
         assert "Do not rebuild a child branch in the parent" in prompt
+        assert "Do not manufacture a parent-level `Judgment` output" in prompt
+        assert (
+            "pass-through, conjunction, or disjunction of imported child `Judgment`"
+            in prompt
+        )
 
     def test_build_eval_prompt_requires_child_exception_imports_for_parent_list(
         self, tmp_path

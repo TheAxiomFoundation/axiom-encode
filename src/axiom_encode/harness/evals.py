@@ -2131,12 +2131,28 @@ def _slice_parent_corpus_text_for_requested_path(
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
+    if _corpus_citation_path_is_us_cfr(resolved_parts):
+        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
+            text,
+            list(missing_fragments),
+        )
+        if cfr_sliced is not None:
+            return cfr_sliced.strip()
     sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
     return sliced if sliced is not None else text
 
 
 def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
     return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
+
+
+def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
+    return (
+        len(parts) >= 5
+        and parts[0] == "us"
+        and parts[1] == "regulation"
+        and parts[2].isdigit()
+    )
 
 
 def _slice_legal_text_by_parenthetical_fragments(
@@ -2274,7 +2290,14 @@ def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
         return False
     if not re.search(r"\([A-Za-z0-9]+\)", segment):
         return False
-    return re.search(r"(?:,\s*|\b(?:or|and)\s+)$", segment) is not None
+    return (
+        re.search(
+            r"(?:,\s*|\b(?:or|and|through|to)\s+|[-–—]\s*)$",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
 
 
 def _sibling_parenthetical_marker_pattern(
@@ -4533,6 +4556,15 @@ Import and context rules:
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
   outputs in the parent file.
+- Do not manufacture a parent-level `Judgment` output whose formula is only a
+  pass-through, conjunction, or disjunction of imported child `Judgment`
+  predicates. If a child paragraph already exports the exact predicate and the
+  parent source adds no distinct parent-level condition, keep that child text
+  documentary in `module.summary`, import the child predicate only where a real
+  parent formula consumes it, or defer the parent surface. Compose imported
+  child Judgments only when the requested source itself states a new named
+  parent condition or result that genuinely combines those child predicates with
+  source-stated local conditions.
 - If context contains a more specific child file under the current target path
   that exports the exact scalar needed by this source, such as a `/rate`,
   `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
@@ -4631,13 +4663,26 @@ Test file rules:
   threshold with a percentage of excess income, include the threshold amount,
   the excess amount, and the percentage amount in the calculation reflected by
   the scalar expected output.
+- For positive tests that expect a nonzero amount, `holds` Judgment, or other
+  affirmative result from a formula with source-stated age, income, resource,
+  duration, date, status, or other threshold gates, set every gate input on the
+  qualifying side of the threshold. For example, if the formula requires
+  `age >= age_threshold`, a case expecting the positive amount must set `age`
+  at least to `age_threshold`; use a separate negative case for below-threshold
+  inputs.
+- In mixed-output test cases, do not assert an output's affirmative or nonzero
+  result when any input in that same case intentionally falls on the
+  nonqualifying side of that output's threshold gate. Split the case instead:
+  one case for the blocked output and a separate all-gates-positive case for
+  unrelated affirmative outputs.
 - For proration, average, ratio, or percentage tests with a source-stated denominator, choose input amounts divisible by that denominator so expected outputs are exact decimals, not rounded approximations. For example, if the denominator is 365, use a base amount like 36500 so `36500 * 182 / 365 = 18200`; if an average divides by 6, use totals like 600 or 1800, not 700. Avoid exact equality boundaries for ratios or percentages; choose clearly below/above-boundary values so decimal precision cannot decide the test outcome.
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.
-- For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
-  companion tests for the positive path and the carve-out path so exclusions
-  cannot be silently dropped.
+- For every encoded `except`, `unless`, or `notwithstanding` carve-out,
+  including `subject to` carve-outs, include companion tests for the positive
+  path and the carve-out path so exclusions and override conditions cannot be
+  silently dropped.
 - When a source says a subsection, paragraph, payment, credit, benefit,
   eligibility path, or other output "shall not apply" or "does not apply",
   the exported rule that says that target applies, is allowed, is included, or
@@ -5384,11 +5429,12 @@ RuleSpec requirements:
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
 - Federal provisions that authorize state agencies to set a value create the delegated slot; encode those source graph records with `source_relation.type: delegates`. Reserve `source_relation.type: sets` or `implements` for the state or implementing authority that fills that slot, and always include `source_relation.basis.delegation` for `sets` or `implements`.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
-- When the source uses `except` or `unless` with cited sections or same-section
-  subsections, do not create local `section_...` or `subsection_...` inputs for
-  those cited sources. Import the cited RuleSpec source when it exists; if the
-  target source is needed but unavailable, stop with an explicit
-  missing-upstream/dependency request instead of encoding an opaque placeholder.
+- When the source uses `except`, `unless`, or `subject to` with cited sections
+  or same-section subsections, do not create local `section_...` or
+  `subsection_...` inputs for those cited sources. Import the cited RuleSpec
+  source when it exists; if the target source is needed but unavailable, stop
+  with an explicit missing-upstream/dependency request instead of encoding an
+  opaque placeholder.
 - For opening scope phrases such as `except as provided in clause (ii)` that
   point to a sibling clause outside the requested target and no copied context
   supplies that sibling's executable output, do not invent a local boolean like
@@ -5398,7 +5444,10 @@ RuleSpec requirements:
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.
-- If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file; do not summarize the cited subsection into a local fact like `person_meets_...requirements`. If the cited file has an exported executable rule that the formula needs, import and reference that exported rule. If the cited file is deferred or the current source only needs to preserve an exception boundary such as `except for purposes of subsection (a)`, use a file-level import without a `#symbol` fragment, such as `us:statutes/26/3401/a`, and encode the local source-stated override directly. Do not add a fragment import only for proof when the formula does not reference that symbol.
+- If the cited same-section subsection or sibling paragraph is supplied in context as a RuleSpec file, do not summarize it into a local fact like `person_meets_...requirements`. For operative `except`, `unless`, or `subject to` carve-outs that can change the requested output, a bare file-level import is not enough: import the exact `#rule_name` exported by the cited file and reference that bare symbol in the affected formula, usually negated or used as a branch guard. Validation rejects file-level imports for operative sibling carve-outs when the formula never uses a cited output.
+- If the cited sibling file is deferred, empty, unsupported, or missing a usable exported rule and the carve-out changes the result, defer the affected executable output or encode a source-grounded overriding branch that avoids the dependency. Do not emit a formula that ignores the carve-out, and do not invent a local boolean for the cited sibling source.
+- File-level imports without a `#symbol` fragment are acceptable only for non-operative provenance or boundary context, such as a pure `notwithstanding` override or a local source-stated override where the formula does not depend on the cited output. They are not acceptable for `except`, `unless`, or `subject to` formula carve-outs.
+- Example: if the requested source says `Subject to paragraph (c)` and copied context contains `regulations/.../c.yaml` exporting `cash_assistance_less_restrictive_methodologies_may_be_applied`, import `us:regulations/.../c#cash_assistance_less_restrictive_methodologies_may_be_applied` and include `cash_assistance_less_restrictive_methodologies_may_be_applied` in the affected formula and proof atoms. A formula that repeats only the positive paragraph requirements while omitting the cited paragraph's symbol is invalid.
 - Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 - Before using any imported output in arithmetic, check the copied context
@@ -6250,11 +6299,21 @@ def _target_source_scope_by_cfr_hierarchy(
 
 def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
     """Yield parenthetical markers that appear in structural positions."""
-    marker_pattern = re.compile(r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))\s+")
+    marker_pattern = re.compile(
+        r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))"
+        r"(?=\s+|\([A-Za-z0-9]+\))"
+    )
+    last_yielded_marker_end: int | None = None
     for match in marker_pattern.finditer(source_text):
         marker_start = match.start("marker")
         line_start = source_text.rfind("\n", 0, marker_start) + 1
         if not source_text[line_start:marker_start].strip():
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        if last_yielded_marker_end == marker_start:
+            last_yielded_marker_end = match.end("marker")
             yield match
             continue
 
@@ -6268,6 +6327,7 @@ def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
             and source_text[marker_start - 1].isspace()
         )
         if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
+            last_yielded_marker_end = match.end("marker")
             yield match
 
 
@@ -6282,6 +6342,15 @@ def _assign_cfr_marker_level(
     child_level = len(stack)
     expected_child_kind = _cfr_marker_kind_for_level(child_level)
     if expected_child_kind == "lower_roman":
+        for level in range(len(stack) - 1, -1, -1):
+            expected_kind = _cfr_marker_kind_for_level(level)
+            for kind, ordinal in possible:
+                if (
+                    kind == expected_kind
+                    and expected_kind == "lower_alpha"
+                    and ordinal == stack[level][2] + 1
+                ):
+                    return (level, kind, ordinal)
         for kind, ordinal in possible:
             if kind == expected_child_kind:
                 return (child_level, kind, ordinal)

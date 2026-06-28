@@ -238,7 +238,9 @@ Hard requirements:
 - Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
-  the corpus locator.
+  the corpus locator. Do not put sentence-level prose such as "first sentence"
+  or "second and third sentences" in `source:`; put that detail in proof
+  excerpts or comments instead.
 - Encode every source-stated amount, rate, threshold, cap, and limit as a named
   numeric concept. Use `kind: parameter` for source-stated scalar concepts when
   it fits the local schema, but the invariant is the named concept: consuming
@@ -413,6 +415,22 @@ _COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishi
   formula must reference the imported child output by name rather than copying
   the child literal, even when the parent source excerpt includes the child
   subsection text.
+- Do not manufacture a parent-level `Judgment` output whose formula is only a
+  pass-through, conjunction, or disjunction of imported child `Judgment`
+  predicates. If a child paragraph already exports the exact predicate and the
+  parent source adds no distinct parent-level condition, keep that child text
+  documentary in `module.summary`, import the child predicate only where a real
+  parent formula consumes it, or defer the parent surface. Compose imported
+  child Judgments only when the requested source itself states a new named
+  parent condition or result that genuinely combines those child predicates with
+  source-stated local conditions.
+- For same-section exception or cross-reference clauses such as "except as
+  provided in subsection (e)" or "subject to paragraph (c)", import the cited
+  RuleSpec output only when an executable formula actually consumes that
+  exception or condition. If the exception-dependent broad output is not encoded
+  in this file, add a `module.deferred_outputs[]` entry for that output and name
+  the cited subsection or paragraph in the `reason`. Do not add a bare,
+  non-operational import just to acknowledge the citation.
 - If context contains a more specific child file under the current target path
   that exports the exact scalar needed by this source, such as a `/rate`,
   `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
@@ -599,9 +617,9 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   are only allowed for non-exception factual interfaces when the cited source is
   not available as RuleSpec. If the citation appears in definition,
   same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
-  `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
-  source is unavailable, do not invent a local cross-reference fact for the
-  cited mechanics. If the requested source itself states the operative effect
+  `subject to`, `notwithstanding`, shall-not-apply, or not-treated-as logic and
+  the cited source is unavailable, do not invent a local cross-reference fact for
+  the cited mechanics. If the requested source itself states the operative effect
   and only uses the citation to label a category, encode a source-named boundary
   predicate for that category instead of deferring. This includes `within the
   meaning of section ...` carve-outs and `described in section ...` category
@@ -952,6 +970,18 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   threshold with a percentage of excess income, include the threshold amount,
   the excess amount, and the percentage amount in the calculation reflected by
   the scalar expected output.
+- For positive tests that expect a nonzero amount, `holds` Judgment, or other
+  affirmative result from a formula with source-stated age, income, resource,
+  duration, date, status, or other threshold gates, set every gate input on the
+  qualifying side of the threshold. For example, if the formula requires
+  `age >= age_threshold`, a case expecting the positive amount must set `age`
+  at least to `age_threshold`; use a separate negative case for below-threshold
+  inputs.
+- In mixed-output test cases, do not assert an output's affirmative or nonzero
+  result when any input in that same case intentionally falls on the
+  nonqualifying side of that output's threshold gate. Split the case instead:
+  one case for the blocked output and a separate all-gates-positive case for
+  unrelated affirmative outputs.
 - For proration, average, ratio, or percentage tests with a source-stated
   denominator, choose input amounts divisible by that denominator so expected
   outputs are exact decimals, not rounded approximations. For example, if the
@@ -963,9 +993,9 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.
-- For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
-  companion tests for the positive path and the carve-out path so exclusions
-  cannot be silently dropped.
+- For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
+  carve-out, include companion tests for the positive path and the carve-out
+  path so exclusions and override conditions cannot be silently dropped.
 - When a source says a subsection, paragraph, payment, credit, benefit,
   eligibility path, or other output "shall not apply" or "does not apply",
   the exported rule that says that target applies, is allowed, is included, or
@@ -1001,31 +1031,61 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
   import each cited exception separately, then combine them in a helper if
   useful.
-- When an exception, exclusion, or `unless` clause cites another legal section
-  or same-section subsection, do not create a local
+- When an exception, exclusion, `subject to`, or `unless` clause cites another
+  legal section or same-section subsection, do not create a local
   `section_...` or `subsection_...` placeholder input for that cited source.
   Import the cited RuleSpec source when it exists; if that upstream source is
   required but unavailable, stop with a missing-upstream/dependency request
   rather than encoding an opaque local fact.
 - For opening scope phrases such as `except as provided in clause (ii)` that
-  point to a sibling clause outside the requested target and no copied context
-  supplies that sibling's executable output, do not invent a local boolean like
-  `clause_ii_provides_otherwise`. Keep the current target scoped to the
-  source-stated positive calculation, or defer only the final affected surface
-  if the sibling exception is essential to the requested output.
+  or `subject to paragraph (c)` that point to a sibling clause outside the
+  requested target and no copied context supplies that sibling's executable
+  output, do not invent a local boolean like `clause_ii_provides_otherwise`.
+  Keep the current target scoped to the source-stated positive calculation, or
+  defer only the final affected surface if the sibling exception is essential to
+  the requested output.
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.
-- If the cited same-section subsection is supplied in context as a RuleSpec
-  file, add an `imports:` entry for that file; do not summarize the cited
-  subsection into a local fact like `person_meets_...requirements`.
-  If the cited file has an exported executable rule that the formula needs,
-  import and reference that exported rule. If the cited file is deferred or the
-  current source only needs to preserve an exception boundary such as
-  `except for purposes of subsection (a)`, use a file-level import without a
-  `#symbol` fragment, such as `us:statutes/26/3401/a`, and encode the local
-  source-stated override directly. Do not add a fragment import only for proof
-  when the formula does not reference that symbol.
+- If the cited same-section subsection or sibling paragraph is supplied in
+  context as a RuleSpec file, do not summarize it into a local fact like
+  `person_meets_...requirements`. For operative `except`, `unless`, or
+  `subject to` carve-outs that can change the requested output, a bare
+  file-level import is not enough: import the exact `#rule_name` exported by
+  the cited file and reference that bare symbol in the affected formula
+  (usually negated or used as a branch guard). Validation rejects file-level
+  imports for operative sibling carve-outs when the formula never uses a cited
+  output.
+- When the requested source is itself a sibling paragraph, subsection, or
+  clause that copied context cites as an operative `subject to`, `except`, or
+  `unless` condition, export a source-grounded umbrella `Judgment` for the
+  whole cited source when that source contains multiple branches or alternatives.
+  Name it for the cited source's legal condition or result, such as
+  `paragraph_d_2_methodology_limit_satisfied`, and let downstream files import
+  that exact `#rule_name`. Branch helper outputs may also be useful, but they
+  do not replace the umbrella output when the sibling citation points to the
+  whole paragraph. Do not import the downstream consuming paragraph merely to
+  build this umbrella; represent source-stated categories as local boundary
+  inputs, branch helpers, or imports from true upstream definitions so the
+  dependency graph remains acyclic.
+- If the cited sibling file is deferred, empty, unsupported, or missing a
+  usable exported rule and the carve-out changes the result, defer the affected
+  executable output or encode a source-grounded overriding branch that avoids
+  the dependency. Do not emit a formula that ignores the carve-out, and do not
+  invent a local boolean for the cited sibling source.
+- File-level imports without a `#symbol` fragment are acceptable only for
+  non-operative provenance or boundary context, such as a pure
+  `notwithstanding` override or a local source-stated override where the
+  formula does not depend on the cited output. They are not acceptable for
+  `except`, `unless`, or `subject to` formula carve-outs.
+- Example: if the requested source says `Subject to paragraph (c)` and copied
+  context contains `regulations/.../c.yaml` exporting
+  `cash_assistance_less_restrictive_methodologies_may_be_applied`, import
+  `us:regulations/.../c#cash_assistance_less_restrictive_methodologies_may_be_applied`
+  and include `cash_assistance_less_restrictive_methodologies_may_be_applied`
+  in the affected formula and proof atoms. A formula that repeats only the
+  positive paragraph requirements while omitting the cited paragraph's symbol
+  is invalid.
 - Do not copy the body of a cited cross-reference provision into this module's
   `summary` or re-encode that cited provision locally. Keep this module scoped
   to the requested citation and import the cited provision instead.
@@ -1044,10 +1104,11 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   surface, or encode a source-grounded overriding branch that avoids it.
 - When the requested source states its own amount, cap, threshold, or formula
   but begins with a cross-reference exception such as `except as otherwise
-  provided in section X` or `except as otherwise provided in subsection X`,
-  this local-boundary escape hatch applies only to cited external or parent
-  sources. It does not apply to uncopied sibling clauses; for sibling clause
-  exception phrases, do not invent local `clause_*` booleans.
+  provided in section X`, `except as otherwise provided in subsection X`, or
+  `subject to paragraph (c)`, this local-boundary escape hatch applies only to
+  cited external or parent sources. It does not apply to uncopied sibling
+  clauses; for sibling clause exception phrases, do not invent local `clause_*`
+  booleans.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed
