@@ -968,6 +968,11 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   `age >= age_threshold`, a case expecting the positive amount must set `age`
   at least to `age_threshold`; use a separate negative case for below-threshold
   inputs.
+- In mixed-output test cases, do not assert an output's affirmative or nonzero
+  result when any input in that same case intentionally falls on the
+  nonqualifying side of that output's threshold gate. Split the case instead:
+  one case for the blocked output and a separate all-gates-positive case for
+  unrelated affirmative outputs.
 - For proration, average, ratio, or percentage tests with a source-stated
   denominator, choose input amounts divisible by that denominator so expected
   outputs are exact decimals, not rounded approximations. For example, if the

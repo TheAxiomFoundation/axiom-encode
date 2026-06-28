@@ -1408,6 +1408,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "positive tests that expect a nonzero amount" in prompt
     assert "set every gate input on the\n  qualifying side of the threshold" in prompt
     assert "`age >= age_threshold`" in prompt
+    assert "In mixed-output test cases" in prompt
+    assert "nonqualifying side of that output's threshold gate" in prompt
+    assert "separate all-gates-positive case" in prompt
     assert (
         "Imported definitions do not override the current source's legal subject"
         in prompt
