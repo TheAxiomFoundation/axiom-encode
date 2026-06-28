@@ -18984,6 +18984,81 @@ rules:
             "target: us:regulations/42-cfr/435/603/e#magi_based_income"
         ) in rules_text
 
+    def test_missing_same_section_import_repair_promotes_alias_output_name(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/603/d.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "regulations" / "42-cfr" / "435" / "603" / "e.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: payment_excluded_from_magi_based_income
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: payment_is_excluded
+  - name: magi_based_income
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if payment_is_income: payment_amount else: 0
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Household income uses MAGI-based income except as provided in paragraph (e).
+rules:
+  - name: household_member_counted_magi_based_income
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if household_member_income_excluded: 0 else: individual_magi_based_income
+  - name: household_income_before_fpl_disregard
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          household_member_counted_magi_based_income
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "regulations/42-cfr/435/603/d.yaml: ci: Same-section "
+                    "subsection import missing: source text cites "
+                    "`regulations/42-cfr/435/603/e` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == ["us:regulations/42-cfr/435/603/e#magi_based_income"]
+        rules_text = rules_file.read_text()
+        assert "  - us:regulations/42-cfr/435/603/e#magi_based_income\n" in rules_text
+        assert "else: magi_based_income\n" in rules_text
+        assert "individual_magi_based_income" not in rules_text
+        assert "          household_member_counted_magi_based_income\n" in rules_text
+
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
