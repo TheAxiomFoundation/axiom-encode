@@ -22936,6 +22936,53 @@ rules:
     )
 
 
+def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(tmp_path, monkeypatch):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    _mock_corpus_source_text(
+        monkeypatch,
+        "The applicable income limitation is equivalent to 133⅓ percent of "
+        "the highest ordinary payment amount.",
+    )
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: The applicable income limitation is 133⅓ percent.
+  source_verification:
+    corpus_citation_path: us/statute/example/fractional-percent
+rules:
+  - name: applicable_income_limitation_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          1.333333
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+"""- name: fractional_percent_rate
+  period: 2024-01
+  input: {}
+  output:
+    applicable_income_limitation_rate: 1.333333
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is True
+
+
 def test_rulespec_ci_rejects_embedded_formula_numeric_concepts(tmp_path, monkeypatch):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(

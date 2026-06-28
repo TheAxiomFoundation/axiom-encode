@@ -562,6 +562,7 @@ Scoring rubric:
 )
 
 GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
+NUMERIC_GROUNDING_ABS_TOLERANCE = 1e-6
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
 _SOURCE_URL_PATTERN = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
@@ -19074,13 +19075,18 @@ def _embedded_integer_scale_selector(formula: str) -> str | None:
 def numeric_value_is_grounded(value: float, source_numbers: set[float]) -> bool:
     """Return true when a generated number is present in extracted source numbers."""
     for source_value in source_numbers:
-        if math.isclose(value, source_value, rel_tol=0, abs_tol=1e-12):
+        if math.isclose(
+            value,
+            source_value,
+            rel_tol=0,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        ):
             return True
         if 0 < abs(value) <= 1 and math.isclose(
             value * 100,
             source_value,
             rel_tol=0,
-            abs_tol=1e-12,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
         ):
             return True
     return False
