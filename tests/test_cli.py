@@ -5938,6 +5938,63 @@ rules:
         )
         assert "child_care_assistance_fee_level_scalar_limit else" in repaired_formula
 
+    def test_embedded_scalar_literal_repair_collapses_grounded_fraction_expression(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "statutes" / "42" / "1396b" / "f.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396b/f
+rules:
+- name: applicable_income_limitation_rate
+  kind: parameter
+  dtype: Rate
+  source: 42 U.S.C. 1396b(f)(1)(B)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/42/1396b/f
+          excerpt: "133⅓ percent"
+  versions:
+  - effective_from: '1974-01-01'
+    formula: 4 / 3
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=tmp_path / "rulespec-us",
+            issues=[
+                "Embedded scalar literal: applicable_income_limitation_rate line 18 "
+                "embeds 4 in `4 / 3`; extract the value to its own named numeric "
+                "concept or indexed table/grid value"
+            ],
+        )
+
+        assert repaired == ["applicable_income_limitation_rate_scalar_limit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter = payload["rules"][0]
+        assert parameter["name"] == "applicable_income_limitation_rate_scalar_limit"
+        assert parameter["versions"][0]["formula"] == "1.333333"
+        assert (
+            parameter["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+            == "133⅓ percent"
+        )
+        derived = payload["rules"][1]
+        assert (
+            derived["versions"][0]["formula"]
+            == "applicable_income_limitation_rate_scalar_limit"
+        )
+
     def test_embedded_scalar_literal_repair_reuses_existing_scalar_parameter(
         self, tmp_path
     ):

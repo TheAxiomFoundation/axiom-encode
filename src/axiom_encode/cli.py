@@ -99,6 +99,7 @@ from .harness.validator_pipeline import (
     _rulespec_repo_prefix,
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
+    extract_numbers_from_text,
     extract_embedded_source_text,
     find_delegated_policy_setting_issues,
     find_interval_table_reencoding_candidates,
@@ -108,6 +109,7 @@ from .harness.validator_pipeline import (
     find_tax_status_component_local_input_issues,
     find_unused_import_issues,
     find_zero_branch_test_coverage_issues,
+    numeric_value_is_grounded,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
@@ -22987,10 +22989,15 @@ def _extract_embedded_scalar_literal_record(
         parameter_name = _embedded_scalar_parameter_name(rule_name, expression)
         if not parameter_name:
             return None
+        parameter_formula = (
+            _grounded_formula_literal_for_scalar_expression(rule, expression)
+            or literal
+        )
+        replace_expression = parameter_formula != literal
         existing_parameter_name = _existing_embedded_scalar_parameter_name(
             rules,
             base_name=parameter_name,
-            literal=literal,
+            literal=parameter_formula,
         )
         insert_parameter = existing_parameter_name is None
         if existing_parameter_name is not None:
@@ -23010,12 +23017,19 @@ def _extract_embedded_scalar_literal_record(
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            replacement = _replace_embedded_scalar_literal(
-                formula,
-                literal=literal,
-                expression=expression,
-                parameter_name=parameter_name,
-            )
+            if replace_expression:
+                replacement = _replace_embedded_scalar_expression(
+                    formula,
+                    expression=expression,
+                    parameter_name=parameter_name,
+                )
+            else:
+                replacement = _replace_embedded_scalar_literal(
+                    formula,
+                    literal=literal,
+                    expression=expression,
+                    parameter_name=parameter_name,
+                )
             if replacement != formula:
                 version["formula"] = replacement
                 changed = True
@@ -23030,12 +23044,66 @@ def _extract_embedded_scalar_literal_record(
             parameter_rule = _embedded_scalar_parameter_rule(
                 rule,
                 name=parameter_name,
-                literal=literal,
+                literal=parameter_formula,
                 corpus_citation_path=corpus_citation_path,
             )
             rules.insert(index, parameter_rule)
         return parameter_name
     return None
+
+
+def _grounded_formula_literal_for_scalar_expression(
+    rule: dict[str, Any],
+    expression: str,
+) -> str | None:
+    """Collapse generated fraction helpers when the source grounds the value."""
+    value = _simple_fraction_expression_value(expression)
+    if value is None:
+        return None
+    source_numbers: set[float] = set()
+    proof = rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str):
+                source_numbers.update(extract_numbers_from_text(excerpt))
+    if not source_numbers or not numeric_value_is_grounded(value, source_numbers):
+        return None
+    return _format_grounded_scalar_formula_literal(value)
+
+
+def _simple_fraction_expression_value(expression: str) -> float | None:
+    match = re.fullmatch(
+        r"\s*(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)\s*",
+        expression,
+    )
+    if match is None:
+        return None
+    try:
+        denominator = Decimal(match.group(2))
+    except InvalidOperation:
+        return None
+    if denominator == 0:
+        return None
+    try:
+        numerator = Decimal(match.group(1))
+        with localcontext() as ctx:
+            ctx.prec = 18
+            return float(numerator / denominator)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+
+
+def _format_grounded_scalar_formula_literal(value: float) -> str:
+    if math.isfinite(value) and math.isclose(value, round(value), abs_tol=1e-12):
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
 def _embedded_scalar_parameter_name(rule_name: str, expression: str) -> str | None:
@@ -23094,6 +23162,17 @@ def _replace_embedded_scalar_literal(
         parameter_name,
         formula,
     )
+
+
+def _replace_embedded_scalar_expression(
+    formula: str,
+    *,
+    expression: str,
+    parameter_name: str,
+) -> str:
+    if expression.strip() and expression in formula:
+        return formula.replace(expression, parameter_name)
+    return formula
 
 
 def _embedded_scalar_parameter_rule(
