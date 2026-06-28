@@ -17578,12 +17578,172 @@ def _slice_parent_corpus_text_for_requested_path(
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
+    if _corpus_citation_path_is_us_cfr(resolved_parts):
+        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
+            text,
+            list(missing_fragments),
+        )
+        if cfr_sliced is not None:
+            return cfr_sliced.strip()
     sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
     return sliced if sliced is not None else text
 
 
 def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
     return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
+
+
+def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
+    return (
+        len(parts) >= 5
+        and parts[0] == "us"
+        and parts[1] == "regulation"
+        and parts[2].isdigit()
+    )
+
+
+def _target_source_scope_by_cfr_hierarchy(
+    source_text: str,
+    fragments: list[str],
+) -> str | None:
+    """Slice CFR-style parenthetical hierarchy by legal marker level."""
+    if any(not _cfr_marker_kind_ordinals(fragment) for fragment in fragments):
+        return None
+
+    stack: list[tuple[str, str, int]] = []
+    target = tuple(fragments)
+    target_start: int | None = None
+    target_level: int | None = None
+
+    for match in _iter_cfr_structural_markers(source_text):
+        token = match.group("token")
+        assigned = _assign_cfr_marker_level(stack, token)
+        if assigned is None:
+            continue
+        level, kind, ordinal = assigned
+        stack = stack[:level]
+        stack.append((kind, token, ordinal))
+        path = tuple(item[1] for item in stack)
+
+        if target_start is None:
+            if path == target:
+                target_start = match.start("marker")
+                target_level = level
+            continue
+
+        if target_level is not None and level <= target_level:
+            return source_text[target_start : match.start("marker")]
+
+    if target_start is not None:
+        return source_text[target_start:]
+    return None
+
+
+def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
+    """Yield parenthetical markers that appear in structural positions."""
+    marker_pattern = re.compile(
+        r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))"
+        r"(?=\s+|\([A-Za-z0-9]+\))"
+    )
+    last_yielded_marker_end: int | None = None
+    for match in marker_pattern.finditer(source_text):
+        marker_start = match.start("marker")
+        line_start = source_text.rfind("\n", 0, marker_start) + 1
+        if not source_text[line_start:marker_start].strip():
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        if last_yielded_marker_end == marker_start:
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        previous = marker_start - 1
+        while previous >= 0 and source_text[previous].isspace():
+            previous -= 1
+        follows_spaced_marker = (
+            previous >= 0
+            and source_text[previous] == ")"
+            and marker_start > 0
+            and source_text[marker_start - 1].isspace()
+        )
+        if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
+            last_yielded_marker_end = match.end("marker")
+            yield match
+
+
+def _assign_cfr_marker_level(
+    stack: list[tuple[str, str, int]],
+    token: str,
+) -> tuple[int, str, int] | None:
+    possible = _cfr_marker_kind_ordinals(token)
+    if not possible:
+        return None
+
+    child_level = len(stack)
+    expected_child_kind = _cfr_marker_kind_for_level(child_level)
+    if expected_child_kind == "lower_roman":
+        for level in range(len(stack) - 1, -1, -1):
+            expected_kind = _cfr_marker_kind_for_level(level)
+            for kind, ordinal in possible:
+                if (
+                    kind == expected_kind
+                    and expected_kind == "lower_alpha"
+                    and ordinal == stack[level][2] + 1
+                ):
+                    return (level, kind, ordinal)
+        for kind, ordinal in possible:
+            if kind == expected_child_kind:
+                return (child_level, kind, ordinal)
+
+    for level in range(len(stack) - 1, -1, -1):
+        expected_kind = _cfr_marker_kind_for_level(level)
+        for kind, ordinal in possible:
+            if kind == expected_kind and ordinal > stack[level][2]:
+                return (level, kind, ordinal)
+
+    for kind, ordinal in possible:
+        if kind == expected_child_kind:
+            return (child_level, kind, ordinal)
+    return None
+
+
+def _cfr_marker_kind_for_level(level: int) -> str:
+    if level == 0:
+        return "lower_alpha"
+    return ("numeric", "lower_roman", "upper_alpha")[(level - 1) % 3]
+
+
+def _cfr_marker_kind_ordinals(token: str) -> list[tuple[str, int]]:
+    kinds: list[tuple[str, int]] = []
+    if re.fullmatch(r"\d+", token):
+        kinds.append(("numeric", int(token)))
+    if re.fullmatch(r"[a-z]", token):
+        kinds.append(("lower_alpha", ord(token) - ord("a") + 1))
+    if re.fullmatch(r"[A-Z]", token):
+        kinds.append(("upper_alpha", ord(token) - ord("A") + 1))
+    if re.fullmatch(r"[ivxlcdm]+", token):
+        roman = _lower_roman_to_int(token)
+        if roman is not None:
+            kinds.append(("lower_roman", roman))
+    return kinds
+
+
+def _lower_roman_to_int(token: str) -> int | None:
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(token):
+        value = values.get(char)
+        if value is None:
+            return None
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+    return total or None
 
 
 def _slice_legal_text_by_parenthetical_fragments(

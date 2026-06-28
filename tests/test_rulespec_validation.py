@@ -9013,6 +9013,117 @@ rules:
     assert "regulations/42-cfr/435/602/c" in issues[0]
 
 
+def test_same_section_import_check_slices_compact_cfr_parent_source(
+    monkeypatch,
+    tmp_path,
+):
+    repo_parent = tmp_path / "repos"
+    corpus_repo = repo_parent / "axiom-corpus"
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+    source = (
+        "(a)(1) This section only applies to MAGI-excepted individuals.\n\n"
+        "(2) Basic requirements. Subject to the provisions of paragraphs (b) "
+        "and (c) of this section, the agency must apply these requirements:\n\n"
+        "(i) Except for a spouse or parent, the agency must not consider "
+        "relative income.\n\n"
+        "(b) Requirements for States using more restrictive requirements. "
+        "The agency must apply SSI relative responsibility rules.\n\n"
+        "(c) Use of less restrictive methodologies. The agency may apply less "
+        "restrictive methodologies."
+    )
+    _write_local_corpus_provision(
+        repo_parent,
+        "us/regulation/42/435/602",
+        source,
+    )
+    repo = repo_parent / "rulespec-us" / "us"
+    for fragment in ("b", "c"):
+        cited_file = (
+            repo / "regulations" / "42-cfr" / "435" / "602" / f"{fragment}.yaml"
+        )
+        cited_file.parent.mkdir(parents=True, exist_ok=True)
+        cited_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    paragraph_one = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/1
+rules: []
+"""
+    paragraph_one_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "1.yaml"
+    )
+    paragraph_one_file.parent.mkdir(parents=True, exist_ok=True)
+    paragraph_one_file.write_text(paragraph_one)
+
+    paragraph_one_source = validator_pipeline._extract_source_verification_text(
+        paragraph_one
+    )
+    assert paragraph_one_source == (
+        "(1) This section only applies to MAGI-excepted individuals."
+    )
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            paragraph_one,
+            rules_file=paragraph_one_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+    basic_requirements = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/2
+rules: []
+"""
+    basic_requirements_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "2.yaml"
+    )
+    basic_requirements_file.parent.mkdir(parents=True, exist_ok=True)
+    basic_requirements_file.write_text(basic_requirements)
+
+    basic_source = validator_pipeline._extract_source_verification_text(
+        basic_requirements
+    )
+    assert basic_source.startswith("(2) Basic requirements.")
+    assert "paragraphs (b) and (c)" in basic_source
+    issues = find_missing_same_section_subsection_import_issues(
+        basic_requirements,
+        rules_file=basic_requirements_file,
+        policy_repo_path=repo,
+    )
+    assert len(issues) == 2
+    assert any("regulations/42-cfr/435/602/b" in issue for issue in issues)
+    assert any("regulations/42-cfr/435/602/c" in issue for issue in issues)
+
+    clause_i = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/a/2/i
+rules: []
+"""
+    clause_i_file = (
+        repo / "regulations" / "42-cfr" / "435" / "602" / "a" / "2" / "i.yaml"
+    )
+    clause_i_file.parent.mkdir(parents=True, exist_ok=True)
+    clause_i_file.write_text(clause_i)
+
+    clause_i_source = validator_pipeline._extract_source_verification_text(clause_i)
+    assert clause_i_source.startswith("(i) Except for a spouse")
+    assert "paragraphs (b)" not in clause_i_source
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            clause_i,
+            rules_file=clause_i_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_regulation_subject_to_paragraph_reference_rejects_unused_symbol_import(
     tmp_path,
 ):
