@@ -1422,6 +1422,15 @@ _SOURCE_CITATION_RANGE_SUFFIX_RE = re.compile(
     r"(?<=\))\s*(?:-|through)\s*(?P<endpoint>(?:\([^)]+\))+)\s*$",
     flags=re.IGNORECASE,
 )
+_SOURCE_CITATION_TEXT_LOCATOR_SUFFIX_RE = re.compile(
+    r"\s*,\s*(?:the\s+)?"
+    r"(?:(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"\d+(?:st|nd|rd|th)?)"
+    r"(?:\s+(?:and|or)\s+(?:first|second|third|fourth|fifth|sixth|seventh|"
+    r"eighth|ninth|tenth|\d+(?:st|nd|rd|th)?))*\s+)?"
+    r"(?:sentences?|paragraphs?|clauses?|flush language)\s*$",
+    flags=re.IGNORECASE,
+)
 
 
 def _source_citation_to_normalized_targets(
@@ -1434,6 +1443,7 @@ def _source_citation_to_normalized_targets(
     Rule sources commonly cite multiple provisions in one string and omit the
     USC title after the first citation, e.g. ``26 USC 24(b)(2), 24(h)(3)``.
     """
+    source = _strip_source_citation_text_locator_suffix(source)
     context_targets = (
         _source_citation_fragment_to_normalized_targets(
             context_source,
@@ -1493,6 +1503,11 @@ def _source_citation_to_normalized_targets(
             seen.add(target)
             targets.append(target)
     return tuple(targets)
+
+
+def _strip_source_citation_text_locator_suffix(source: str) -> str:
+    """Drop non-citation sentence/paragraph locators after an otherwise local cite."""
+    return _SOURCE_CITATION_TEXT_LOCATOR_SUFFIX_RE.sub("", source).strip()
 
 
 def _source_citation_fragment_is_bare_relative_table_label_tail(

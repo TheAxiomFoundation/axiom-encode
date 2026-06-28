@@ -238,7 +238,9 @@ Hard requirements:
 - Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
-  the corpus locator.
+  the corpus locator. Do not put sentence-level prose such as "first sentence"
+  or "second and third sentences" in `source:`; put that detail in proof
+  excerpts or comments instead.
 - Encode every source-stated amount, rate, threshold, cap, and limit as a named
   numeric concept. Use `kind: parameter` for source-stated scalar concepts when
   it fits the local schema, but the invariant is the named concept: consuming

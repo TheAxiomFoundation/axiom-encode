@@ -17460,6 +17460,31 @@ rules:
     assert "`american_vessel_for_chapter` source `3306(m)`" in issues[0]
 
 
+def test_out_of_scope_rule_source_accepts_same_source_sentence_locator():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/f
+rules:
+  - name: medicaid_209b_income_deduction_rule
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(f), second and third sentences
+    versions:
+      - effective_from: '2026-01-01'
+        formula: eligible_after_spenddown
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="42 USC 1396a(f)",
+    )
+
+    assert issues == []
+
+
 def test_out_of_scope_rule_source_rejects_sibling_in_multicitation_source():
     content = """format: rulespec/v1
 rules:
