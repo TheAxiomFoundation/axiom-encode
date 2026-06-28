@@ -17604,16 +17604,17 @@ def _remove_generated_import_output_input_placeholders(
         f"{_repo_jurisdiction_prefix(repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    imported_outputs = _imported_output_names(rules_file)
-    if not imported_outputs:
+    imported_output_refs = _imported_output_refs_by_name(rules_file)
+    if not imported_output_refs:
         return []
     invalid_refs = _invalid_input_refs_from_issues(issues)
-    removable_refs = {
-        ref
+    replacements_by_ref = {
+        ref: imported_output_refs[output_name]
         for ref in invalid_refs
         if ref.startswith(f"{target_base}#input.")
-        and ref.split("#input.", 1)[1] in imported_outputs
+        and (output_name := ref.split("#input.", 1)[1]) in imported_output_refs
     }
+    removable_refs = set(replacements_by_ref)
     if not removable_refs:
         return []
 
@@ -17629,7 +17630,11 @@ def _remove_generated_import_output_input_placeholders(
         if not isinstance(test_case, dict):
             continue
         inputs = test_case.get("input")
-        if _remove_mapping_keys_recursive(inputs, removable_refs):
+        if _replace_import_output_placeholders_with_upstream_inputs(
+            inputs,
+            placeholder_refs=replacements_by_ref,
+            policy_repo_path=repo_path,
+        ):
             changed = True
     if not changed:
         return []
@@ -18237,6 +18242,24 @@ def _imported_output_names(rules_file: Path) -> set[str]:
     except (OSError, ValueError, yaml.YAMLError):
         return set()
     return _imported_output_names_from_payload(payload)
+
+
+def _imported_output_refs_by_name(rules_file: Path) -> dict[str, str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    imports = payload.get("imports") if isinstance(payload, dict) else None
+    if not isinstance(imports, list):
+        return {}
+    refs_by_name: dict[str, str] = {}
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", fragment):
+            refs_by_name.setdefault(fragment, raw_import)
+    return refs_by_name
 
 
 def _imported_output_names_from_payload(payload: object) -> set[str]:
@@ -32771,6 +32794,45 @@ def _replace_computed_output_test_inputs_with_upstream_inputs(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repairs
+
+
+def _replace_import_output_placeholders_with_upstream_inputs(
+    value: object,
+    *,
+    placeholder_refs: dict[str, str],
+    policy_repo_path: Path,
+) -> bool:
+    changed = False
+    if isinstance(value, dict):
+        for key in list(value.keys()):
+            key_text = str(key)
+            imported_ref = placeholder_refs.get(key_text)
+            if imported_ref is not None:
+                desired = value.pop(key)
+                upstream_inputs = _producer_test_inputs_for_output_value(
+                    imported_ref,
+                    desired,
+                    policy_repo_path=policy_repo_path,
+                )
+                for input_ref, input_value in upstream_inputs.items():
+                    value.setdefault(input_ref, input_value)
+                changed = True
+                continue
+            if _replace_import_output_placeholders_with_upstream_inputs(
+                value[key],
+                placeholder_refs=placeholder_refs,
+                policy_repo_path=policy_repo_path,
+            ):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _replace_import_output_placeholders_with_upstream_inputs(
+                item,
+                placeholder_refs=placeholder_refs,
+                policy_repo_path=policy_repo_path,
+            ):
+                changed = True
+    return changed
 
 
 def _replace_computed_output_inputs_in_value(
