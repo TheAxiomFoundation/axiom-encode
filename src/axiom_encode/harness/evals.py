@@ -4658,9 +4658,9 @@ Test file rules:
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.
-- For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
-  companion tests for the positive path and the carve-out path so exclusions
-  cannot be silently dropped.
+- For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
+  carve-out, include companion tests for the positive path and the carve-out
+  path so exclusions and override conditions cannot be silently dropped.
 - When a source says a subsection, paragraph, payment, credit, benefit,
   eligibility path, or other output "shall not apply" or "does not apply",
   the exported rule that says that target applies, is allowed, is included, or

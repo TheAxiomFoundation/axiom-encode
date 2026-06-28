@@ -123,6 +123,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "purpose-limited replacement rate",
         "not as `section_<cited>_*`",
         "predicate for the excepted category",
+        "`subject to`, or `notwithstanding`",
+        "`subject to paragraph (c)`",
         "toggle each gate at least once",
         "Validation fails if a direct local `#input.*_exception_applies`",
         "Compute each expected `output:` value by evaluating the emitted RuleSpec",
