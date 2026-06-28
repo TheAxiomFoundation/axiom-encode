@@ -16779,6 +16779,37 @@ rules:
     assert find_unused_modifier_parameter_issues(content) == []
 
 
+def test_unused_modifier_parameter_allows_count_modifier_use():
+    content = """format: rulespec/v1
+rules:
+  - name: section_435_214_family_size_increase_count
+    kind: parameter
+    dtype: Count
+    source: 42 CFR 435.603(k)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              excerpt: "Increase the family size of the individual ... by one"
+    versions:
+      - effective_from: '2014-01-01'
+        formula: 1
+  - name: family_size_after_section_435_214_optional_increase
+    kind: derived
+    entity: Person
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          if eligibility_being_determined_under_section_435_214: family_size + section_435_214_family_size_increase_count else: family_size
+"""
+
+    assert find_unused_modifier_parameter_issues(content) == []
+
+
 def test_unused_modifier_parameter_rejects_no_affected_numeric_output():
     content = """format: rulespec/v1
 rules:

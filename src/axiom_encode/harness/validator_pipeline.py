@@ -9248,6 +9248,7 @@ _NUMERIC_DERIVED_OUTPUT_NAME_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _NUMERIC_DERIVED_DTYPES = {
+    "count",
     "decimal",
     "integer",
     "money",
