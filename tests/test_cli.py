@@ -21607,6 +21607,93 @@ rules:
             is False
         )
 
+    def test_complete_missing_imported_test_inputs_adds_relation_row_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "regulations/42-cfr/435/603/e.yaml"
+        dependent = policy_repo / "regulations/42-cfr/435/603/d.yaml"
+        dependent_test = policy_repo / "regulations/42-cfr/435/603/d.test.yaml"
+        imported.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: magi_based_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if payment_is_income_under_section_36B_d_2_B_methodologies:
+            payment_amount
+          else:
+            0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/603/e#magi_based_income
+rules:
+  - name: household_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: sum(member_of_individuals_household.magi_based_income)
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:regulations/42-cfr/435/603/d#input.federal_poverty_level_for_applicable_family_size: 20000
+    us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household:
+    - us:regulations/42-cfr/435/603/d#input.expected_required_to_file_return_under_6012_a_1: true
+      us:regulations/42-cfr/435/603/d#input.included_in_household_of_natural_adopted_or_step_parent: false
+  output:
+    us:regulations/42-cfr/435/603/d#household_income: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: missing input "
+                        "`payment_is_income_under_section_36B_d_2_B_methodologies` "
+                        "for entity `case-1-us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household-1` "
+                        "over 2024-01-01..2024-12-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        payload = yaml.safe_load(dependent_test.read_text())
+        relation_rows = payload[0]["input"][
+            "us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household"
+        ]
+        assert (
+            relation_rows[0][
+                "us:regulations/42-cfr/435/603/e#input.payment_is_income_under_section_36B_d_2_B_methodologies"
+            ]
+            is False
+        )
+        assert (
+            relation_rows[0]["us:regulations/42-cfr/435/603/e#input.payment_amount"]
+            == 0
+        )
+
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"
