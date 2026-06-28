@@ -4175,6 +4175,86 @@ class TestCmdEncode:
             "statutes/26/36B.test.yaml",
         ]
 
+    def test_apply_generated_encoding_adds_empty_deferred_companion_test(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "42-cfr"
+            / "435"
+            / "601"
+            / "a.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "\n".join(
+                [
+                    "format: rulespec/v1",
+                    "module:",
+                    "  status: deferred",
+                    "  deferred_outputs:",
+                    "    - output: us:regulations/42-cfr/435/601/a#definition",
+                    "      reason: Definition only.",
+                    "rules: []",
+                    "",
+                ]
+            )
+        )
+        (policy_repo / "us").mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        target = policy_repo / "us/regulations/42-cfr/435/601/a.yaml"
+        target_test = policy_repo / "us/regulations/42-cfr/435/601/a.test.yaml"
+        manifest = (
+            policy_repo
+            / "us/.axiom/encoding-manifests/regulations/42-cfr/435/601/a.json"
+        )
+        assert applied == [target, target_test, manifest]
+        assert target_test.read_text() == "[]\n"
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "regulations/42-cfr/435/601/a.yaml",
+            "regulations/42-cfr/435/601/a.test.yaml",
+        ]
+
     def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"

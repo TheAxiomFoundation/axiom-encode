@@ -34066,7 +34066,9 @@ def _apply_generated_encoding_result(
 
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     applied: list[Path] = []
-    for source in (output_file, _rulespec_test_path(output_file)):
+    test_source = _rulespec_test_path(output_file)
+    wrote_empty_companion_test = False
+    for source in (output_file, test_source):
         if not source.exists():
             continue
         relative_source = (
@@ -34080,6 +34082,12 @@ def _apply_generated_encoding_result(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         applied.append(target)
+    if not test_source.exists() and _needs_empty_deferred_companion_test(output_file):
+        target = content_root / _rulespec_test_path(relative_output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("[]\n")
+        applied.append(target)
+        wrote_empty_companion_test = True
     for relative_path, content in (supplemental_files or {}).items():
         target = content_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -34097,7 +34105,28 @@ def _apply_generated_encoding_result(
             axiom_encode_git=axiom_encode_git,
         )
         applied.append(manifest_path)
+    if wrote_empty_companion_test:
+        print("  apply=generated_empty_deferred_companion_test")
     return applied
+
+
+def _needs_empty_deferred_companion_test(output_file: Path) -> bool:
+    """Return whether a generated deferred module needs an empty test companion."""
+    try:
+        payload = yaml.safe_load(output_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    if module.get("status") != "deferred":
+        return False
+    if payload.get("rules") != []:
+        return False
+    deferred_outputs = module.get("deferred_outputs")
+    return isinstance(deferred_outputs, list) and bool(deferred_outputs)
 
 
 def _write_applied_encoding_manifest(
