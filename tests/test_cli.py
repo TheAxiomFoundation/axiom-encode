@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_mixed_missing_deferred_outputs_for_apply,
     _try_repair_generated_negated_comparisons_for_apply,
+    _try_repair_generated_negated_sum_where_predicates_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
@@ -7527,6 +7528,90 @@ rules:
         )
         assert payload["rules"][1]["versions"][0]["formula"] == (
             "if other_status == 0: 0 else: 100"
+        )
+
+    def test_negated_sum_where_predicate_repair_adds_named_helper(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "medicaid.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/603/d
+rules:
+- name: household_member_income_excluded
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: 42 CFR 435.603(d)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us/regulation/42/435/603/d
+  versions:
+  - effective_from: '0001-01-01'
+    formula: non_filing_child
+- name: household_member_counted_magi_based_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: USD
+  versions:
+  - effective_from: '0001-01-01'
+    formula: |-
+      if household_member_income_excluded: 0 else: magi_based_income
+- name: member_of_individuals_household
+  kind: data_relation
+  data_relation:
+    predicate: member_of_individuals_household
+    arity: 2
+- name: household_income_before_fpl_disregard
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: USD
+  versions:
+  - effective_from: '0001-01-01'
+    formula: |-
+      sum_where(member_of_individuals_household, household_member_counted_magi_based_income, not household_member_income_excluded)
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_negated_sum_where_predicates_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "compile: Axiom rules engine compile failed: formula lower error: "
+                "sum_where arg 3 must be a variable name"
+            ],
+        )
+
+        assert repaired == ["household_income_before_fpl_disregard"]
+        payload = yaml.safe_load(rules_file.read_text())
+        helper = payload["rules"][1]
+        assert helper["name"] == "household_member_income_included"
+        assert helper["kind"] == "derived"
+        assert helper["entity"] == "Person"
+        assert helper["dtype"] == "Judgment"
+        assert helper["period"] == "Year"
+        assert (
+            helper["versions"][0]["formula"] == "not household_member_income_excluded"
+        )
+        aggregate_formula = payload["rules"][4]["versions"][0]["formula"]
+        assert aggregate_formula == (
+            "sum_where("
+            "member_of_individuals_household, "
+            "household_member_counted_magi_based_income, "
+            "household_member_income_included"
+            ")"
         )
 
     def test_rewrite_judgment_conditionals_updates_formula(self, tmp_path):

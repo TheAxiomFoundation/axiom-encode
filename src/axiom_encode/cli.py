@@ -20815,6 +20815,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_negated_sum_where_predicates = (
+                    _try_repair_generated_negated_sum_where_predicates_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_negated_sum_where_predicates:
+                    outcome["auto_repaired_negated_sum_where_predicates"] = (
+                        repaired_negated_sum_where_predicates
+                    )
+                    print(
+                        "  apply=auto_repaired_negated_sum_where_predicates:"
+                        + ",".join(repaired_negated_sum_where_predicates)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_unit_scoped_definitions = (
                     _try_repair_generated_unit_scoped_person_definition_for_apply(
                         result,
@@ -22190,6 +22218,24 @@ def _try_repair_generated_negated_comparisons_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     return _rewrite_negated_comparison_formulas(rules_file)
+
+
+def _try_repair_generated_negated_sum_where_predicates_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Promote inline negated sum_where predicates to named helpers."""
+    if not any(_issue_mentions_negated_sum_where_predicate(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _rewrite_negated_sum_where_predicates(rules_file)
 
 
 def _try_repair_generated_judgment_numeric_comparisons_for_apply(
@@ -25313,6 +25359,188 @@ def _rewrite_negated_comparison_formula(formula: str) -> str:
         return f"{left} {_INVERTED_COMPARISON_OPERATORS[op]} {right}"
 
     return _NEGATED_COMPARISON_PATTERN.sub(_replace, str(formula))
+
+
+_NEGATED_SUM_WHERE_PREDICATE_PATTERN = re.compile(
+    r"sum_where\(\s*"
+    r"(?P<relation>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*"
+    r"(?P<amount>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*"
+    r"not\s+(?P<predicate>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\)"
+)
+
+
+def _issue_mentions_negated_sum_where_predicate(issue: str) -> bool:
+    text = str(issue).lower()
+    return "sum_where arg 3 must be a variable name" in text
+
+
+def _rewrite_negated_sum_where_predicates(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rules_by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    existing_names = set(rules_by_name)
+    helper_by_predicate: dict[str, str] = {}
+    repaired: list[str] = []
+
+    for rule in list(rules):
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            updated = _replace_negated_sum_where_predicates_in_formula(
+                formula,
+                rules=rules,
+                rules_by_name=rules_by_name,
+                existing_names=existing_names,
+                helper_by_predicate=helper_by_predicate,
+            )
+            if updated != formula:
+                version["formula"] = updated
+                rule_changed = True
+        if rule_changed:
+            repaired.append(str(rule.get("name") or "formula_rule"))
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _replace_negated_sum_where_predicates_in_formula(
+    formula: str,
+    *,
+    rules: list[Any],
+    rules_by_name: dict[str, Any],
+    existing_names: set[str],
+    helper_by_predicate: dict[str, str],
+) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        relation = match.group("relation")
+        amount = match.group("amount")
+        predicate = match.group("predicate")
+        helper_name = helper_by_predicate.get(predicate)
+        if helper_name is None:
+            predicate_rule = rules_by_name.get(predicate)
+            if not isinstance(predicate_rule, dict):
+                return match.group(0)
+            helper_name = _negated_sum_where_helper_name(predicate, existing_names)
+            helper_rule = _negated_sum_where_predicate_rule(
+                predicate_rule,
+                name=helper_name,
+                predicate=predicate,
+            )
+            insert_at = rules.index(predicate_rule) + 1
+            rules.insert(insert_at, helper_rule)
+            rules_by_name[helper_name] = helper_rule
+            existing_names.add(helper_name)
+            helper_by_predicate[predicate] = helper_name
+        return f"sum_where({relation}, {amount}, {helper_name})"
+
+    return _NEGATED_SUM_WHERE_PREDICATE_PATTERN.sub(_replace, formula)
+
+
+def _negated_sum_where_helper_name(predicate: str, existing_names: set[str]) -> str:
+    if predicate.endswith("_excluded"):
+        base = f"{predicate.removesuffix('_excluded')}_included"
+    else:
+        base = f"not_{predicate}"
+    return _unique_generated_rule_name(base, existing_names)
+
+
+def _negated_sum_where_predicate_rule(
+    predicate_rule: dict[str, Any],
+    *,
+    name: str,
+    predicate: str,
+) -> dict[str, Any]:
+    helper: dict[str, Any] = {
+        "name": name,
+        "kind": "derived",
+        "entity": predicate_rule.get("entity"),
+        "dtype": "Judgment",
+        "period": predicate_rule.get("period"),
+        "source": predicate_rule.get("source"),
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    _source_atom_for_negated_sum_where_predicate(predicate_rule),
+                ]
+            }
+        },
+        "versions": [
+            {
+                "effective_from": _first_effective_from(predicate_rule),
+                "formula": f"not {predicate}",
+            }
+        ],
+    }
+    if not helper["entity"]:
+        helper.pop("entity", None)
+    if not helper["period"]:
+        helper.pop("period", None)
+    if not helper["source"]:
+        helper.pop("source", None)
+    return helper
+
+
+def _first_effective_from(rule: dict[str, Any]) -> str:
+    versions = rule.get("versions")
+    if isinstance(versions, list):
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            effective_from = version.get("effective_from")
+            if isinstance(effective_from, str) and effective_from.strip():
+                return effective_from.strip()
+    return "0001-01-01"
+
+
+def _source_atom_for_negated_sum_where_predicate(
+    rule: dict[str, Any],
+) -> dict[str, Any]:
+    proof = rule.get("metadata", {}).get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if isinstance(source, dict):
+                return {
+                    "path": "versions[0].formula",
+                    "kind": "formula",
+                    "source": dict(source),
+                }
+    return {
+        "path": "versions[0].formula",
+        "kind": "formula",
+    }
 
 
 def _rewrite_judgment_numeric_comparisons(
