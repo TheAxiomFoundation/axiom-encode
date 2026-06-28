@@ -1542,9 +1542,14 @@ def _source_citation_fragment_to_context_relative_target(
     if not tail or len(tail) > previous_tail_length:
         return None
     previous_relative_tail = previous_target[len(context_target) :]
-    if not _same_citation_label_class(tail[0], previous_relative_tail[0]):
+    replace_index: int | None = None
+    for index in range(len(previous_relative_tail) - 1, -1, -1):
+        if _same_citation_label_class(tail[0], previous_relative_tail[index]):
+            replace_index = index
+            break
+    if replace_index is None:
         return None
-    return context_target + tail
+    return context_target + previous_relative_tail[:replace_index] + tail
 
 
 def _same_citation_label_class(left: str, right: str) -> bool:

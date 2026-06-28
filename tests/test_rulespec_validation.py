@@ -17559,6 +17559,29 @@ rules:
     )
 
 
+def test_out_of_scope_rule_source_allows_relative_alpha_under_numeric_parent():
+    content = """format: rulespec/v1
+rules:
+  - name: medicaid_magi_income_constraints_apply
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(e)(14)(B), (C)
+    versions:
+      - effective_from: '2014-01-01'
+        formula: income_disregards_prohibited and assets_test_prohibited
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="us/statute/42/1396a/e",
+        )
+        == []
+    )
+
+
 def test_out_of_scope_rule_source_still_rejects_bare_sibling_label():
     content = """format: rulespec/v1
 rules:
