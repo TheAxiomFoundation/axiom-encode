@@ -32208,7 +32208,8 @@ def _try_repair_generated_import_output_inputs_for_apply(
 
 
 _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
-    r"Same-section subsection import missing: source text cites subsection "
+    r"Same-section subsection import missing: source text cites "
+    r"(?:subsection\s+)?"
     r"`(?P<target>statutes/[^`]+)`"
 )
 

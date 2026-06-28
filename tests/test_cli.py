@@ -18648,6 +18648,47 @@ imports:
 """
         )
 
+    def test_missing_same_section_import_repair_accepts_current_validator_wording(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/f.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "e.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396b/f#family_income_for_payment_limitation
+module:
+  summary: Section 1396a(f) 209(b) limits.
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/f.yaml: ci: Same-section subsection import "
+                    "missing: source text cites `statutes/42/1396a/e` in an "
+                    "exception/cross-reference clause, but the file does not "
+                    "import it."
+                ],
+            )
+        )
+
+        assert repaired == ["us:statutes/42/1396a/e"]
+        assert "  - us:statutes/42/1396a/e\n" in rules_file.read_text()
+
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
