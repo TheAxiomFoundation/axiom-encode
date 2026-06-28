@@ -652,6 +652,13 @@ PE_US_MEDICAID_VAR_ADAPTERS = (
         comparison="decision",
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("is_emergency_medicaid_eligible",),
+        pe_var="is_emergency_medicaid_eligible",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("medicaid_income_level",),
         pe_var="medicaid_income_level",
         entity="person",
