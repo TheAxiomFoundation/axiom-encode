@@ -8896,6 +8896,177 @@ rules:
     assert "regulations/42-cfr/435/602/c" in issues[0]
 
 
+def test_regulation_subject_to_paragraph_reference_rejects_bare_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_uses_source_verification_text(
+    monkeypatch,
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    _mock_corpus_source_text(
+        monkeypatch,
+        "Subject to paragraph (c) of this section, in determining financial "
+        "eligibility of aged, blind, or disabled individuals, the agency must "
+        "apply SSI relative-responsibility requirements or limited 1972-plan "
+        "requirements.",
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/602/b
+  summary: |-
+    In determining financial eligibility of aged, blind, or disabled individuals,
+    the agency must apply SSI relative-responsibility requirements or 1972-plan
+    requirements.
+imports:
+  - us:regulations/42-cfr/435/602/c
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_rejects_unused_symbol_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: cash_assistance_less_restrictive_methodologies_may_be_applied
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: state_plan_specifies_less_restrictive_methodologies
+"""
+    )
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c#cash_assistance_less_restrictive_methodologies_may_be_applied
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import not operational" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
 def test_regulation_subject_to_paragraph_reference_allows_import(tmp_path):
     repo = tmp_path / "rulespec-us" / "us"
     cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"

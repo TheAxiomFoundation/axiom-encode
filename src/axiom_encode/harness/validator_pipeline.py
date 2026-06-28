@@ -14518,7 +14518,9 @@ def find_missing_same_section_subsection_import_issues(
     policy_repo_path: Path,
 ) -> list[str]:
     """Require imports for cited same-section siblings used as carve-outs."""
-    source_text = extract_embedded_source_text(content)
+    source_text = _extract_source_verification_text(
+        content
+    ) or extract_embedded_source_text(content)
     if not source_text or not re.search(
         r"\b(?:except|unless|subject\s+to)\b",
         source_text,
@@ -14538,6 +14540,12 @@ def find_missing_same_section_subsection_import_issues(
         _normalize_rulespec_import_path_static(import_path)
         for import_path in import_items
     }
+    formula_texts: list[str] = []
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict):
+            formula_texts = _rulespec_formula_texts(payload)
+    formula_text = "\n".join(formula_texts)
 
     issues: list[str] = []
     seen: set[str] = set()
@@ -14555,15 +14563,23 @@ def find_missing_same_section_subsection_import_issues(
         import_base = "/".join([root, *section_parts, fragment])
         if not _rulespec_path_or_child_exists_static(policy_repo_path, import_base):
             continue
-        if _imports_cover_path_static(
-            imports,
-            import_base,
-        ) or _transitive_imports_cover_path_static(
+        if _transitive_imports_cover_path_static(
             imports,
             import_base,
             rules_file=rules_file,
             policy_repo_path=policy_repo_path,
         ):
+            continue
+        direct_symbol_issue = _direct_same_section_sibling_import_symbol_issue(
+            import_items,
+            import_base=import_base,
+            formula_text=formula_text,
+        )
+        if direct_symbol_issue is None:
+            continue
+        if direct_symbol_issue:
+            seen.add(fragment)
+            issues.append(direct_symbol_issue)
             continue
         seen.add(fragment)
         issues.append(
@@ -14573,6 +14589,36 @@ def find_missing_same_section_subsection_import_issues(
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
+
+
+def _direct_same_section_sibling_import_symbol_issue(
+    import_items: list[str],
+    *,
+    import_base: str,
+    formula_text: str,
+) -> str | None:
+    """Return an issue for a non-executable direct same-section import."""
+    matching_items: list[str] = []
+    for import_item in import_items:
+        import_path, _separator, _symbol = import_item.partition("#")
+        if _rulespec_import_path_matches_static(import_path, import_base):
+            matching_items.append(import_item)
+    if not matching_items:
+        return ""
+
+    for import_item in matching_items:
+        _import_path, separator, symbol = import_item.partition("#")
+        symbol = symbol.strip()
+        if separator and symbol and _formula_references_symbol(formula_text, symbol):
+            return None
+
+    return (
+        "Same-section subsection import not operational: "
+        f"source text cites `{import_base}` in an exception/cross-reference clause, "
+        "but the matching import does not bring a specific imported output into "
+        "the formula. Import the cited RuleSpec output with `#rule_name` and "
+        "reference that bare rule name in the formula."
+    )
 
 
 def _same_section_sibling_citations(source_text: str) -> list[tuple[str, int]]:
