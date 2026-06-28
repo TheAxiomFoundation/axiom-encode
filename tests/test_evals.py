@@ -551,6 +551,75 @@ def test_resolve_corpus_source_unit_ignores_cfr_through_references(tmp_path):
     )
 
 
+def test_resolve_corpus_source_unit_slices_cfr_top_level_with_inline_child(
+    tmp_path,
+):
+    citation = "us/regulation/42/435/602"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": citation,
+                "body": (
+                    "(a)(1) This section only applies to MAGI-excepted "
+                    "individuals.\n\n"
+                    "(2) Basic requirements. The agency must apply these "
+                    "requirements:\n\n"
+                    "(i) Except for spouses and parents, the agency must not "
+                    "consider relative income.\n\n"
+                    "(ii) For individuals under age 21, title IV-A rules apply.\n\n"
+                    "(b) Requirements for States using more restrictive "
+                    "requirements. The agency must apply SSI relative "
+                    "responsibility rules.\n\n"
+                    "(1) SSI relative responsibility rules apply; or\n\n"
+                    "(2) More extensive requirements may apply.\n\n"
+                    "(c) Use of less restrictive methodologies. The agency may "
+                    "apply less restrictive methodologies."
+                ),
+                "heading": "Financial responsibility of relatives",
+                "level": 2,
+                "ordinal": 602,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    subsection_a = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a",
+        corpus_path,
+    )
+    paragraph_one = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a/1",
+        corpus_path,
+    )
+    clause_i = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/a/2/i",
+        corpus_path,
+    )
+    subsection_b = resolve_corpus_source_unit(
+        "us/regulation/42/435/602/b",
+        corpus_path,
+    )
+
+    assert subsection_a.body.startswith("(a)(1) This section only applies")
+    assert "(b) Requirements for States" not in subsection_a.body
+    assert paragraph_one.body == (
+        "(1) This section only applies to MAGI-excepted individuals."
+    )
+    assert clause_i.body == (
+        "(i) Except for spouses and parents, the agency must not consider "
+        "relative income."
+    )
+    assert subsection_b.body.startswith("(b) Requirements for States")
+    assert "(1) SSI relative responsibility rules apply" in subsection_b.body
+    assert "(c) Use of less restrictive methodologies" not in subsection_b.body
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(

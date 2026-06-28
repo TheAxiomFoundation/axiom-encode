@@ -2131,12 +2131,28 @@ def _slice_parent_corpus_text_for_requested_path(
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
+    if _corpus_citation_path_is_us_cfr(resolved_parts):
+        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
+            text,
+            list(missing_fragments),
+        )
+        if cfr_sliced is not None:
+            return cfr_sliced.strip()
     sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
     return sliced if sliced is not None else text
 
 
 def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
     return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
+
+
+def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
+    return (
+        len(parts) >= 5
+        and parts[0] == "us"
+        and parts[1] == "regulation"
+        and parts[2].isdigit()
+    )
 
 
 def _slice_legal_text_by_parenthetical_fragments(
@@ -6257,11 +6273,21 @@ def _target_source_scope_by_cfr_hierarchy(
 
 def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
     """Yield parenthetical markers that appear in structural positions."""
-    marker_pattern = re.compile(r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))\s+")
+    marker_pattern = re.compile(
+        r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))"
+        r"(?=\s+|\([A-Za-z0-9]+\))"
+    )
+    last_yielded_marker_end: int | None = None
     for match in marker_pattern.finditer(source_text):
         marker_start = match.start("marker")
         line_start = source_text.rfind("\n", 0, marker_start) + 1
         if not source_text[line_start:marker_start].strip():
+            last_yielded_marker_end = match.end("marker")
+            yield match
+            continue
+
+        if last_yielded_marker_end == marker_start:
+            last_yielded_marker_end = match.end("marker")
             yield match
             continue
 
@@ -6275,6 +6301,7 @@ def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
             and source_text[marker_start - 1].isspace()
         )
         if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
+            last_yielded_marker_end = match.end("marker")
             yield match
 
 
@@ -6289,6 +6316,15 @@ def _assign_cfr_marker_level(
     child_level = len(stack)
     expected_child_kind = _cfr_marker_kind_for_level(child_level)
     if expected_child_kind == "lower_roman":
+        for level in range(len(stack) - 1, -1, -1):
+            expected_kind = _cfr_marker_kind_for_level(level)
+            for kind, ordinal in possible:
+                if (
+                    kind == expected_kind
+                    and expected_kind == "lower_alpha"
+                    and ordinal == stack[level][2] + 1
+                ):
+                    return (level, kind, ordinal)
         for kind, ordinal in possible:
             if kind == expected_child_kind:
                 return (child_level, kind, ordinal)
