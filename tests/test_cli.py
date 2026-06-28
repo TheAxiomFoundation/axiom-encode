@@ -128,6 +128,7 @@ from axiom_encode.cli import (
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
+    _try_repair_generated_import_output_inputs_for_apply,
     _try_repair_generated_import_target_prefix_typos_for_apply,
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
@@ -16287,6 +16288,90 @@ rules:
         assert imported_output_ref not in inputs
         assert inputs["us:regulations/42-cfr/435/603/e#input.payment_is_income"] is True
         assert inputs["us:regulations/42-cfr/435/603/e#input.payment_amount"] == 500
+
+    def test_encode_apply_replaces_local_import_output_placeholder_rows(self, tmp_path):
+        output_root = tmp_path / "out"
+        runner = "codex-test-model"
+        output_file = output_root / runner / "regulations/42-cfr/435/603/d.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/603/e#magi_based_income
+rules:
+  - name: household_income_before_fpl_disregard
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_individuals_household.magi_based_income)
+"""
+        )
+        test_file = output_file.with_name("d.test.yaml")
+        local_placeholder = "us:regulations/42-cfr/435/603/d#input.magi_based_income"
+        imported_payment_amount = "us:regulations/42-cfr/435/603/e#input.payment_amount"
+        imported_payment_is_income = (
+            "us:regulations/42-cfr/435/603/e#input.payment_is_income"
+        )
+        test_file.write_text(
+            f"""- name: household_member_income
+  period: 2026
+  input:
+    us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household:
+      - {local_placeholder}: 500
+  output:
+    us:regulations/42-cfr/435/603/d#household_income_before_fpl_disregard: 500
+"""
+        )
+
+        policy_repo = tmp_path / "rulespec-us"
+        producer_file = policy_repo / "regulations/42-cfr/435/603/e.yaml"
+        producer_file.parent.mkdir(parents=True)
+        producer_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: magi_based_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if payment_is_income: payment_amount else: 0
+"""
+        )
+        producer_file.with_name("e.test.yaml").write_text(
+            """- name: ordinary_income_counts
+  period: 2026-01
+  input:
+    us:regulations/42-cfr/435/603/e#input.payment_is_income: true
+    us:regulations/42-cfr/435/603/e#input.payment_amount: 1200
+  output:
+    us:regulations/42-cfr/435/603/e#magi_based_income: 1200
+"""
+        )
+
+        repaired = _try_repair_generated_import_output_inputs_for_apply(
+            SimpleNamespace(output_file=str(output_file), runner=runner),
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/42-cfr/435/603/d.yaml: ci: Test case "
+                "`household_member_income` execution failed: input "
+                f"`{local_placeholder}` does not resolve to an input slot"
+            ],
+        )
+
+        assert repaired == [local_placeholder]
+        test_payload = yaml.safe_load(test_file.read_text())
+        row = test_payload[0]["input"][
+            "us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household"
+        ][0]
+        assert local_placeholder not in row
+        assert row[imported_payment_is_income] is True
+        assert row[imported_payment_amount] == 500
 
     def test_encode_apply_removes_invalid_imported_test_inputs(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
