@@ -38335,12 +38335,15 @@ def _complete_missing_imported_test_inputs(
 
     content = test_file.read_text()
     updated = content
+    current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    relation_row_anchor_bases = [current_base] if current_base else None
     for input_name in sorted(missing_inputs):
         for input_ref in imported_inputs.get(input_name, []):
             updated = _insert_input_default_in_test_cases(
                 updated,
                 input_ref,
                 _infer_missing_input_default(input_name),
+                relation_row_anchor_bases=relation_row_anchor_bases,
             )
     for assignment in missing_assignments:
         entity_id = assignment.get("entity")
@@ -38354,6 +38357,12 @@ def _complete_missing_imported_test_inputs(
             input_names = sorted(imported_inputs)
         for input_name in input_names:
             for input_ref in imported_inputs.get(input_name, []):
+                updated = _insert_input_default_in_relation_rows_for_test_cases(
+                    updated,
+                    input_ref=input_ref,
+                    value=_infer_missing_input_default(input_name),
+                    relation_row_anchor_bases=relation_row_anchor_bases,
+                )
                 updated = _insert_input_default_in_table_entity_rows(
                     updated,
                     input_ref=input_ref,
@@ -38673,7 +38682,11 @@ def _infer_missing_input_default(input_name: str) -> object:
 
 
 def _insert_input_default_in_test_cases(
-    content: str, input_ref: str, value: object
+    content: str,
+    input_ref: str,
+    value: object,
+    *,
+    relation_row_anchor_bases: list[str] | None = None,
 ) -> str:
     """Insert an input default into every concrete test input block that needs it."""
     lines = content.splitlines(keepends=True)
@@ -38706,8 +38719,31 @@ def _insert_input_default_in_test_cases(
         indent = match.group("indent") + "  "
         newline = "\n" if lines[start].endswith("\n") else ""
         lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
-    lines = _insert_input_default_in_relation_rows(lines, input_ref, rendered)
+    lines = _insert_input_default_in_relation_rows(
+        lines,
+        input_ref,
+        rendered,
+        anchor_bases=relation_row_anchor_bases,
+    )
     return "".join(lines)
+
+
+def _insert_input_default_in_relation_rows_for_test_cases(
+    content: str,
+    *,
+    input_ref: str,
+    value: object,
+    relation_row_anchor_bases: list[str] | None = None,
+) -> str:
+    lines = content.splitlines(keepends=True)
+    lines = _expand_empty_inline_yaml_input_blocks(lines)
+    updated = _insert_input_default_in_relation_rows(
+        lines,
+        input_ref,
+        _format_yaml_scalar(value),
+        anchor_bases=relation_row_anchor_bases,
+    )
+    return "".join(updated)
 
 
 def _expand_empty_inline_yaml_input_blocks(lines: list[str]) -> list[str]:
@@ -38775,12 +38811,20 @@ def _insert_input_default_in_table_entity_rows(
 
 
 def _insert_input_default_in_relation_rows(
-    lines: list[str], input_ref: str, rendered_value: str
+    lines: list[str],
+    input_ref: str,
+    rendered_value: str,
+    *,
+    anchor_bases: list[str] | None = None,
 ) -> list[str]:
-    """Insert an input default into relation entity rows using the same module."""
+    """Insert an input default into relation entity rows sharing module anchors."""
     if "#input." not in input_ref:
         return lines
     input_base = input_ref.split("#input.", 1)[0]
+    row_anchor_bases = [input_base]
+    for anchor_base in anchor_bases or []:
+        if anchor_base and anchor_base not in row_anchor_bases:
+            row_anchor_bases.append(anchor_base)
 
     insertions: dict[int, list[str]] = {}
     remove_indices: set[int] = set()
@@ -38802,7 +38846,9 @@ def _insert_input_default_in_relation_rows(
                     break
                 item_end += 1
             item_text = "".join(lines[index:item_end])
-            if input_ref not in item_text and f"{input_base}#input." in item_text:
+            if input_ref not in item_text and any(
+                f"{anchor_base}#input." in item_text for anchor_base in row_anchor_bases
+            ):
                 carried_value, obsolete_line_indices = (
                     _similar_relation_row_input_value(
                         lines=lines,
