@@ -5407,11 +5407,12 @@ RuleSpec requirements:
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
 - Federal provisions that authorize state agencies to set a value create the delegated slot; encode those source graph records with `source_relation.type: delegates`. Reserve `source_relation.type: sets` or `implements` for the state or implementing authority that fills that slot, and always include `source_relation.basis.delegation` for `sets` or `implements`.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
-- When the source uses `except` or `unless` with cited sections or same-section
-  subsections, do not create local `section_...` or `subsection_...` inputs for
-  those cited sources. Import the cited RuleSpec source when it exists; if the
-  target source is needed but unavailable, stop with an explicit
-  missing-upstream/dependency request instead of encoding an opaque placeholder.
+- When the source uses `except`, `unless`, or `subject to` with cited sections
+  or same-section subsections, do not create local `section_...` or
+  `subsection_...` inputs for those cited sources. Import the cited RuleSpec
+  source when it exists; if the target source is needed but unavailable, stop
+  with an explicit missing-upstream/dependency request instead of encoding an
+  opaque placeholder.
 - For opening scope phrases such as `except as provided in clause (ii)` that
   point to a sibling clause outside the requested target and no copied context
   supplies that sibling's executable output, do not invent a local boolean like
@@ -5421,7 +5422,9 @@ RuleSpec requirements:
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.
-- If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file; do not summarize the cited subsection into a local fact like `person_meets_...requirements`. If the cited file has an exported executable rule that the formula needs, import and reference that exported rule. If the cited file is deferred or the current source only needs to preserve an exception boundary such as `except for purposes of subsection (a)`, use a file-level import without a `#symbol` fragment, such as `us:statutes/26/3401/a`, and encode the local source-stated override directly. Do not add a fragment import only for proof when the formula does not reference that symbol.
+- If the cited same-section subsection or sibling paragraph is supplied in context as a RuleSpec file, do not summarize it into a local fact like `person_meets_...requirements`. For operative `except`, `unless`, or `subject to` carve-outs that can change the requested output, a bare file-level import is not enough: import the exact `#rule_name` exported by the cited file and reference that bare symbol in the affected formula, usually negated or used as a branch guard. Validation rejects file-level imports for operative sibling carve-outs when the formula never uses a cited output.
+- If the cited sibling file is deferred, empty, unsupported, or missing a usable exported rule and the carve-out changes the result, defer the affected executable output or encode a source-grounded overriding branch that avoids the dependency. Do not emit a formula that ignores the carve-out, and do not invent a local boolean for the cited sibling source.
+- File-level imports without a `#symbol` fragment are acceptable only for non-operative provenance or boundary context, such as a pure `notwithstanding` override or a local source-stated override where the formula does not depend on the cited output. They are not acceptable for `except`, `unless`, or `subject to` formula carve-outs.
 - Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 - Before using any imported output in arithmetic, check the copied context
