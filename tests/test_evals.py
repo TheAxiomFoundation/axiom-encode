@@ -6469,10 +6469,7 @@ class TestEvalPrompt:
             in prompt
         )
         assert "Subject to paragraph (c)" in prompt
-        assert (
-            "cash_assistance_less_restrictive_methodologies_may_be_applied"
-            in prompt
-        )
+        assert "cash_assistance_less_restrictive_methodologies_may_be_applied" in prompt
         assert "omitting the cited paragraph's symbol is invalid" in prompt
         assert "treated as attributable to" in prompt
         assert "amount-level" in prompt

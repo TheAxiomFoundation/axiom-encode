@@ -22990,8 +22990,7 @@ def _extract_embedded_scalar_literal_record(
         if not parameter_name:
             return None
         parameter_formula = (
-            _grounded_formula_literal_for_scalar_expression(rule, expression)
-            or literal
+            _grounded_formula_literal_for_scalar_expression(rule, expression) or literal
         )
         replace_expression = parameter_formula != literal
         existing_parameter_name = _existing_embedded_scalar_parameter_name(
@@ -32468,9 +32467,7 @@ def _replace_test_input_ref_with_disjunction_refs(
         rendered: list[str] = []
         for index, new_ref in enumerate(new_refs):
             branch_value = truthy and index == 0
-            rendered.append(
-                f"{indent}{new_ref}: {_format_yaml_scalar(branch_value)}\n"
-            )
+            rendered.append(f"{indent}{new_ref}: {_format_yaml_scalar(branch_value)}\n")
         return "".join(rendered)
 
     question_key_pattern = re.compile(

@@ -22964,7 +22964,7 @@ rules:
 """
     )
     rules_file.with_name("rules.test.yaml").write_text(
-"""- name: fractional_percent_rate
+        """- name: fractional_percent_rate
   period: 2024-01
   input: {}
   output:

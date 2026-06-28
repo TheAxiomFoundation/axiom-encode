@@ -18694,14 +18694,14 @@ rules: []
     ):
         output_root = tmp_path / "out"
         rules_file = (
-            output_root
-            / "codex-gpt-5.5"
-            / "regulations/42-cfr/435/601/d/1.yaml"
+            output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/601/d/1.yaml"
         )
         test_file = rules_file.with_name("1.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us" / "us"
-        cited_file = policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        cited_file = (
+            policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        )
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
@@ -18792,14 +18792,14 @@ rules:
     ):
         output_root = tmp_path / "out"
         rules_file = (
-            output_root
-            / "codex-gpt-5.5"
-            / "regulations/42-cfr/435/601/d/1.yaml"
+            output_root / "codex-gpt-5.5" / "regulations/42-cfr/435/601/d/1.yaml"
         )
         test_file = rules_file.with_name("1.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us" / "us"
-        cited_file = policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        cited_file = (
+            policy_repo / "regulations" / "42-cfr" / "435" / "601" / "d" / "2.yaml"
+        )
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
