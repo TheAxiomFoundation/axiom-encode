@@ -8127,6 +8127,11 @@ rules:
             " (derived, Money, TaxUnit)" in prompt
         )
         assert "Do not rebuild a child branch in the parent" in prompt
+        assert "Do not manufacture a parent-level `Judgment` output" in prompt
+        assert (
+            "pass-through, conjunction, or disjunction of imported child `Judgment`"
+            in prompt
+        )
 
     def test_build_eval_prompt_requires_child_exception_imports_for_parent_list(
         self, tmp_path

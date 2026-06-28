@@ -4556,6 +4556,15 @@ Import and context rules:
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
   outputs in the parent file.
+- Do not manufacture a parent-level `Judgment` output whose formula is only a
+  pass-through, conjunction, or disjunction of imported child `Judgment`
+  predicates. If a child paragraph already exports the exact predicate and the
+  parent source adds no distinct parent-level condition, keep that child text
+  documentary in `module.summary`, import the child predicate only where a real
+  parent formula consumes it, or defer the parent surface. Compose imported
+  child Judgments only when the requested source itself states a new named
+  parent condition or result that genuinely combines those child predicates with
+  source-stated local conditions.
 - If context contains a more specific child file under the current target path
   that exports the exact scalar needed by this source, such as a `/rate`,
   `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
