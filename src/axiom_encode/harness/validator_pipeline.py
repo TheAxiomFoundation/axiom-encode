@@ -14517,19 +14517,22 @@ def find_missing_same_section_subsection_import_issues(
     rules_file: Path,
     policy_repo_path: Path,
 ) -> list[str]:
-    """Require imports for cited same-section subsections used as carve-outs."""
+    """Require imports for cited same-section siblings used as carve-outs."""
     source_text = extract_embedded_source_text(content)
     if not source_text or not re.search(
-        r"\b(?:except|unless)\b",
+        r"\b(?:except|unless|subject\s+to)\b",
         source_text,
         flags=re.IGNORECASE,
     ):
         return []
 
-    statute_path = _statute_path_parts_for_file(rules_file, policy_repo_path)
-    if statute_path is None:
+    same_section_path = _same_section_path_parts_for_file(
+        rules_file,
+        policy_repo_path,
+    )
+    if same_section_path is None:
         return []
-    title, section, current_fragments = statute_path
+    root, section_parts, current_fragments = same_section_path
     import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
@@ -14538,18 +14541,18 @@ def find_missing_same_section_subsection_import_issues(
 
     issues: list[str] = []
     seen: set[str] = set()
-    for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
-        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        if not _same_section_subsection_citation_requires_import(source_text, match):
+    for fragment, citation_start in _same_section_sibling_citations(source_text):
+        if not _same_section_sibling_citation_requires_import(
+            source_text,
+            citation_start,
+        ):
             continue
-        subsection = match.group("subsection")
-        if subsection in current_fragments or subsection in seen:
+        if (
+            fragment.lower() in {part.lower() for part in current_fragments}
+            or fragment in seen
+        ):
             continue
-        import_base = "/".join(["statutes", title, section, subsection])
+        import_base = "/".join([root, *section_parts, fragment])
         if not _rulespec_path_or_child_exists_static(policy_repo_path, import_base):
             continue
         if _imports_cover_path_static(
@@ -14562,36 +14565,100 @@ def find_missing_same_section_subsection_import_issues(
             policy_repo_path=policy_repo_path,
         ):
             continue
-        seen.add(subsection)
+        seen.add(fragment)
         issues.append(
             "Same-section subsection import missing: "
-            f"source text cites subsection `{import_base}` in an exception/cross-reference "
+            f"source text cites `{import_base}` in an exception/cross-reference "
             "clause, but the file does not import it. Encode/import the cited "
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
 
 
-def _same_section_subsection_citation_requires_import(
+def _same_section_sibling_citations(source_text: str) -> list[tuple[str, int]]:
+    citations: list[tuple[str, int]] = []
+    pattern = re.compile(
+        r"\b(?:subsections?|paragraphs?)\s+"
+        r"(?P<refs>\([A-Za-z0-9]+\)"
+        r"(?:\s*(?:,|and|or)\s*\([A-Za-z0-9]+\))*)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
+        flags=re.IGNORECASE,
+    )
+    for match in pattern.finditer(source_text):
+        refs = match.group("refs")
+        for ref_match in re.finditer(r"\((?P<fragment>[A-Za-z0-9]+)\)", refs):
+            citations.append(
+                (
+                    ref_match.group("fragment"),
+                    match.start() + ref_match.start(),
+                )
+            )
+    return citations
+
+
+def _same_section_sibling_citation_requires_import(
     source_text: str,
-    match: re.Match[str],
+    citation_start: int,
 ) -> bool:
     """Return whether a same-section citation is locally an exception dependency."""
     sentence_start = max(
-        source_text.rfind(".", 0, match.start()),
-        source_text.rfind(";", 0, match.start()),
+        source_text.rfind(".", 0, citation_start),
+        source_text.rfind(";", 0, citation_start),
     )
-    prefix = source_text[sentence_start + 1 : match.start()]
+    prefix = source_text[sentence_start + 1 : citation_start]
     triggers = list(
         re.finditer(
-            r"\b(?:except|unless|notwithstanding)\b",
+            r"\b(?:except|unless|subject\s+to|notwithstanding)\b",
             prefix,
             flags=re.IGNORECASE,
         )
     )
     if not triggers:
         return False
-    return triggers[-1].group(0).lower() in {"except", "unless"}
+    return triggers[-1].group(0).lower() in {"except", "unless", "subject to"}
+
+
+def _same_section_path_parts_for_file(
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]] | None:
+    """Return source root, section path, and child fragments for same-section imports."""
+    resolved_file = rules_file.resolve()
+    resolved_root = policy_repo_path.resolve()
+    relative_parts: tuple[str, ...] | None = None
+    with contextlib.suppress(ValueError):
+        relative_parts = resolved_file.relative_to(resolved_root).parts
+    if relative_parts is None:
+        parts = resolved_file.parts
+        for source_root in ("statutes", "regulations"):
+            with contextlib.suppress(ValueError):
+                source_index = parts.index(source_root)
+                relative_parts = tuple(parts[source_index:])
+                break
+    if relative_parts is None or len(relative_parts) < 2:
+        return None
+
+    normalized_parts = tuple(Path(part).stem for part in relative_parts)
+    if normalized_parts[0] == "statutes" and len(normalized_parts) >= 3:
+        return (
+            "statutes",
+            normalized_parts[1:3],
+            normalized_parts[3:],
+        )
+    if normalized_parts[0] == "regulations":
+        if len(normalized_parts) >= 4 and normalized_parts[1].endswith("-cfr"):
+            return (
+                "regulations",
+                normalized_parts[1:4],
+                normalized_parts[4:],
+            )
+        if len(normalized_parts) >= 3:
+            return (
+                "regulations",
+                normalized_parts[1:3],
+                normalized_parts[3:],
+            )
+    return None
 
 
 def _rulespec_path_or_child_exists_static(

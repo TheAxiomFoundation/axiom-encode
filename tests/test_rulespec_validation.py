@@ -8858,6 +8858,86 @@ rules:
     assert "statutes/26/3121/y" in issues[0]
 
 
+def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+          or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import missing" in issues[0]
+    assert "regulations/42-cfr/435/602/c" in issues[0]
+
+
+def test_regulation_subject_to_paragraph_reference_allows_import(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "regulations" / "42-cfr" / "435" / "602" / "b.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Subject to paragraph (c), the agency must apply SSI relative-responsibility
+    requirements or more extensive requirements within the 1972 Medicaid plan limit.
+imports:
+  - us:regulations/42-cfr/435/602/c#cash_assistance_less_restrictive_methodologies_may_be_applied
+rules:
+  - name: relative_responsibility_requirements_satisfied_for_more_restrictive_state
+    kind: derived
+    entity: StateAgency
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          not cash_assistance_less_restrictive_methodologies_may_be_applied
+          and (
+            agency_applies_financial_responsibility_of_relatives_requirements_and_methodologies_used_under_ssi
+            or agency_applies_more_extensive_relative_responsibility_requirements_than_specified_in_435_602_a
+          )
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_notwithstanding_override_does_not_require_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     cited_dir = repo / "statutes" / "26" / "3121" / "b"
