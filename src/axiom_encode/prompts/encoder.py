@@ -1036,6 +1036,14 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   `notwithstanding` override or a local source-stated override where the
   formula does not depend on the cited output. They are not acceptable for
   `except`, `unless`, or `subject to` formula carve-outs.
+- Example: if the requested source says `Subject to paragraph (c)` and copied
+  context contains `regulations/.../c.yaml` exporting
+  `cash_assistance_less_restrictive_methodologies_may_be_applied`, import
+  `us:regulations/.../c#cash_assistance_less_restrictive_methodologies_may_be_applied`
+  and include `cash_assistance_less_restrictive_methodologies_may_be_applied`
+  in the affected formula and proof atoms. A formula that repeats only the
+  positive paragraph requirements while omitting the cited paragraph's symbol
+  is invalid.
 - Do not copy the body of a cited cross-reference provision into this module's
   `summary` or re-encode that cited provision locally. Keep this module scoped
   to the requested citation and import the cited provision instead.

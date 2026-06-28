@@ -6462,6 +6462,12 @@ class TestEvalPrompt:
             "They are not acceptable for `except`, `unless`, or `subject to` formula carve-outs"
             in prompt
         )
+        assert "Subject to paragraph (c)" in prompt
+        assert (
+            "cash_assistance_less_restrictive_methodologies_may_be_applied"
+            in prompt
+        )
+        assert "omitting the cited paragraph's symbol is invalid" in prompt
         assert "treated as attributable to" in prompt
         assert "amount-level" in prompt
         assert "boolean or `dtype: Judgment` predicate" in prompt
