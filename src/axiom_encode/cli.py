@@ -33818,7 +33818,6 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                         repaired,
                         target=target,
                         target_outputs=imported_outputs,
-                        target_file=target_file,
                     )
                     if subject_to_repairs:
                         repaired = candidate
@@ -33850,6 +33849,19 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                         source_hash=source_hash,
                                     )
                                 )
+                            placeholder_repairs.extend(
+                                _add_imported_gate_test_overrides(
+                                    test_file=test_file,
+                                    generated_target_base=(
+                                        f"{jurisdiction}:"
+                                        f"{_relative_rulespec_import_target(relative_output)}"
+                                    ),
+                                    rule_name="is_medicaid_eligible",
+                                    imported_ref=(
+                                        f"{imported_target}#{subject_to_output}"
+                                    ),
+                                )
+                            )
                     else:
                         candidate, placeholder_repairs = (
                             _repair_same_section_subsection_multi_output_placeholder_references(
@@ -34492,31 +34504,6 @@ def _rulespec_judgment_rule_output_names(rules_file: Path) -> list[str]:
     return names
 
 
-def _rulespec_rule_first_effective_from(rules_file: Path, output: str) -> str | None:
-    try:
-        payload = yaml.safe_load(rules_file.read_text()) or {}
-    except (OSError, ValueError, yaml.YAMLError):
-        return None
-    rules = payload.get("rules") if isinstance(payload, dict) else None
-    if not isinstance(rules, list):
-        return None
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if str(rule.get("name") or "").strip() != output:
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list):
-            return None
-        for version in versions:
-            if not isinstance(version, dict):
-                continue
-            effective_from = str(version.get("effective_from") or "").strip()
-            if effective_from:
-                return effective_from
-    return None
-
-
 _MEDICAID_1396A_XX_COMMUNITY_ENGAGEMENT_OUTPUT = (
     "demonstrated_community_engagement_for_month"
 )
@@ -34531,7 +34518,6 @@ def _repair_same_section_subsection_subject_to_output_gate(
     *,
     target: str,
     target_outputs: list[str],
-    target_file: Path,
 ) -> tuple[str, list[str], list[str], str | None]:
     if target != "statutes/42/1396a/xx":
         return content, [], [], None
@@ -34575,16 +34561,18 @@ def _repair_same_section_subsection_subject_to_output_gate(
             inserted_gate = True
         if not inserted_gate:
             continue
-        effective_from = (
-            _rulespec_rule_first_effective_from(target_file, output) or "2026-12-31"
+        gated_formula = "\n".join(gated_lines) + "\n"
+        repaired_rule_block = (
+            rule_block[: version_match.start("formula")]
+            + gated_formula
+            + rule_block[version_match.end("formula") :]
         )
-        new_version = (
-            f"      - effective_from: '{effective_from}'\n"
-            "        formula: |-\n" + "\n".join(gated_lines) + "\n"
+        repaired = (
+            content[: rule_match.start()]
+            + repaired_rule_block
+            + content[rule_match.end() :]
         )
-        insert_at = rule_match.start() + version_match.end()
-        repaired = content[:insert_at] + new_version + content[insert_at:]
-        proof_path = f"versions[{version_index + 1}].formula"
+        proof_path = f"versions[{version_index}].formula"
         return (
             repaired,
             [output],
@@ -34592,6 +34580,55 @@ def _repair_same_section_subsection_subject_to_output_gate(
             proof_path,
         )
     return content, [], [], None
+
+
+def _add_imported_gate_test_overrides(
+    *,
+    test_file: Path,
+    generated_target_base: str,
+    rule_name: str,
+    imported_ref: str,
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    repairs: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if (
+            _test_output_value_for_rule(
+                outputs,
+                generated_target_base=generated_target_base,
+                rule_name=rule_name,
+            )
+            is None
+        ):
+            continue
+        if imported_ref in {str(key) for key in _mapping_keys_recursive(inputs)}:
+            continue
+        inputs[imported_ref] = True
+        changed = True
+        case_name = str(test_case.get("name") or "<unnamed>")
+        repairs.append(f"test:{case_name}:{imported_ref}")
+
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
 
 
 def _repair_same_section_subsection_placeholder_references(

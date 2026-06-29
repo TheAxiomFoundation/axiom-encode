@@ -19902,11 +19902,12 @@ rules:
             in rules_file.read_text()
         )
 
-    def test_missing_same_section_import_repair_adds_medicaid_xx_later_gate(
+    def test_missing_same_section_import_repair_adds_medicaid_xx_formula_gate(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us"
         cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
@@ -19963,6 +19964,22 @@ rules:
           )
 """
         )
+        test_file.write_text(
+            """- name: adult expansion eligible below income limit
+  period: 2024-01
+  input:
+    us:statutes/42/1396a/a/10#input.person_is_in_other_mandatory_category_described_in_subparagraph_A_i: false
+    us:statutes/42/1396a/a/10#input.age: 40
+    us:statutes/42/1396a/a/10#input.person_is_pregnant: false
+    us:statutes/42/1396a/a/10#input.person_is_entitled_to_or_enrolled_for_medicare_part_a: false
+    us:statutes/42/1396a/a/10#input.person_is_enrolled_for_medicare_part_b: false
+    us:statutes/42/1396a/a/10#input.person_is_described_in_previous_mandatory_subclause: false
+    us:statutes/42/1396a/a/10#input.income_determined_for_adult_expansion: 13000
+    us:statutes/42/1396a/a/10#input.poverty_line_for_family_size: 10000
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
+"""
+        )
         result = SimpleNamespace(
             runner="codex-gpt-5.5",
             output_file=str(rules_file),
@@ -19988,24 +20005,32 @@ rules:
                 "adult_expansion_subject_to_xx"
                 "->demonstrated_community_engagement_for_month"
             ),
+            (
+                "test:adult expansion eligible below income limit:"
+                "us:statutes/42/1396a/xx"
+                "#demonstrated_community_engagement_for_month"
+            ),
         ]
         rules_text = rules_file.read_text()
         assert (
             "  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month\n"
         ) in rules_text
         assert "      - effective_from: '2014-01-01'\n" in rules_text
-        assert "      - effective_from: '2026-12-31'\n" in rules_text
+        assert "      - effective_from: '2026-12-31'\n" not in rules_text
         assert (
             "and income_determined_for_adult_expansion <= "
             "adult_expansion_income_limit_poverty_line_rate * "
             "poverty_line_for_family_size\n"
             "            and demonstrated_community_engagement_for_month\n"
         ) in rules_text
-        assert "path: versions[1].formula" in rules_text
+        assert "path: versions[0].formula" in rules_text
         assert (
             "target: us:statutes/42/1396a/xx"
             "#demonstrated_community_engagement_for_month"
         ) in rules_text
+        assert (
+            "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: true"
+        ) in test_file.read_text()
 
     def test_missing_same_section_import_repair_promotes_cfr_placeholder(
         self, tmp_path
