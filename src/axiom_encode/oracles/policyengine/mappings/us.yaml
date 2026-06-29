@@ -20123,6 +20123,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 1396a(xx) Medicaid community-engagement outputs implement the federal work-requirement mandate and source-specific monthly activity, deeming, hardship, exclusion, verification, and implementation rules. PolicyEngine US exposes selected work-requirement parameters and a simplified annual eligibility helper; exact scalar mappings are listed separately, while the remaining source-specific outputs are not one-to-one PE oracle targets.
 
+  - legal_id_prefix: us:statutes/42/1396a/e#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396a(e) Medicaid eligibility, deemed-eligibility, continuous-eligibility, express-lane, QMB determination, clinical-trial compensation, and coverage-period outputs are source-level statutory thresholds and process predicates. PolicyEngine US exposes final eligibility and selected exact parameters, not this section's miscellaneous statutory helper outputs as one-to-one oracle variables.
+
   - legal_id_prefix: us:statutes/42/1396a/e/14#
     country: us
     program: medicaid
@@ -20143,6 +20150,20 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: Section 1396a(l) qualified pregnant woman and child outputs are federal source-level age-band, postpartum-period, income-rate, resource-option, and waiver-state helpers. PolicyEngine US exposes final Medicaid eligibility and effective state/category thresholds, not these statutory helper outputs as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1396a/m#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396a(m) optional senior-or-disabled income-level outputs are federal source-level eligibility, maximum-rate, state-plan, and medical-or-remedial-care methodology helpers. PolicyEngine US does not expose these optional-group statutory helpers as one-to-one Medicaid oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1396b/f#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396b(f) income-limitation, PACE SSI-rate, AFDC payment-rate, and expenditure-reduction outputs are federal Medicaid financing and payment-limit calculations. PolicyEngine US's household Medicaid oracle surface does not expose these federal financing helpers as one-to-one variables or parameters.
 
   - legal_id_prefix: us:statutes/42/1396b/v#
     country: us
@@ -20327,6 +20348,20 @@ prefixes:
     candidate_priority: P4
     rationale: 42 CFR 435.350 medically needy emergency-services outputs are source-level limited-services predicates. PolicyEngine exposes final Emergency Medicaid eligibility, not this medically-needy CFR coverage-obligation predicate as a one-to-one variable.
 
+  - legal_id_prefix: us:regulations/42-cfr/435/601/
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.601 financial-methodology and less-restrictive-methodology outputs are federal source-level Medicaid methodology and state-option constraints. PolicyEngine US exposes final eligibility and effective state/category thresholds, not these CFR methodology helper predicates as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/602/
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.602 financial-responsibility and relative-income/resource outputs are federal source-level non-MAGI methodology predicates. PolicyEngine US does not expose these relative-responsibility helper outputs separately from final Medicaid eligibility and state/category calculations.
+
   - legal_id_prefix: us:regulations/42-cfr/435/603#
     country: us
     program: medicaid
@@ -20338,6 +20373,41 @@ prefixes:
     program: medicaid
     mapping_type: not_comparable
     rationale: 42 CFR 435.603 subsection outputs are source-level MAGI household-composition, income-counting, state-option, disregard, budget-period, fallback-method, excluded-group, and special-enrollment rules. PolicyEngine-US collapses selected pieces into household size, household income, and category-threshold calculations; exact scalar parameter mappings are listed separately, while the remaining relation-heavy and procedural outputs are not one-to-one PE oracle targets.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/811#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.811 medically-needy income-standard outputs are state-plan standard and cash-assistance-floor compliance helpers. PolicyEngine US exposes final Medicaid eligibility and state-set thresholds, not this CFR section's medically-needy standard checks as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/814#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.814 income-standard specification outputs are state-plan documentation requirements for covered medically needy groups. PolicyEngine US does not expose this state-plan specification predicate as a one-to-one Medicaid oracle variable.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/831#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.831 medically-needy countable-income eligibility outputs are CFR-level methodology helpers for applying state-plan standards. PolicyEngine US does not expose this section's medically-needy income-standard application as a one-to-one oracle target.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/840#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.840 medically-needy resource-standard outputs are state-plan standard and cash-assistance-floor compliance helpers. PolicyEngine US exposes final eligibility and state-set thresholds, not this CFR section's resource-standard checks as one-to-one oracle variables.
+
+  - legal_id_prefix: us:regulations/42-cfr/435/843#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 CFR 435.843 resource-standard specification outputs are state-plan documentation requirements for covered medically needy groups. PolicyEngine US does not expose this state-plan specification predicate as a one-to-one Medicaid oracle variable.
 
   - legal_id_prefix: us:regulations/42-cfr/435/550#
     country: us
