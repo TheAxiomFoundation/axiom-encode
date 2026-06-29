@@ -14595,6 +14595,11 @@ def find_missing_same_section_subsection_import_issues(
             fragment=fragment,
         ):
             continue
+        if payload is not None and _pre_limit_outputs_cover_same_section_dependency(
+            payload,
+            fragment=fragment,
+        ):
+            continue
         if _transitive_imports_cover_path_static(
             imports,
             import_base,
@@ -14774,6 +14779,42 @@ def _deferred_output_targets_same_section_dependency(
             ):
                 return True
     return False
+
+
+def _pre_limit_outputs_cover_same_section_dependency(
+    payload: dict[str, Any],
+    *,
+    fragment: str,
+) -> bool:
+    """Return whether rule outputs explicitly defer applying a cited same-section limit."""
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    suffixes = _same_section_pre_limit_output_suffixes(fragment)
+    if not suffixes:
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip().lower()
+        if name and any(name.endswith(suffix) for suffix in suffixes):
+            return True
+    return False
+
+
+def _same_section_pre_limit_output_suffixes(fragment: str) -> set[str]:
+    parts = [
+        part.strip().lower()
+        for part in fragment.split("/")
+        if re.fullmatch(r"[a-z0-9]+", part.strip().lower())
+    ]
+    if not parts:
+        return set()
+    suffix_stem = "_".join(parts)
+    return {
+        f"_before_subsection_{suffix_stem}_limit",
+        f"_before_paragraph_{suffix_stem}_limit",
+    }
 
 
 def _direct_same_section_sibling_import_symbol_issue(
