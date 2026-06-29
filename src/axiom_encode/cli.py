@@ -10699,7 +10699,15 @@ def _write_grouped_deterministic_repair_manifests(
 
 COLORADO_TAX_VALIDATION_REPAIR_MODEL = "colorado-tax-validation-v1"
 COLORADO_TAX_SUBSECTION_2_IMPORT = "us-co:statutes/39/39-22-104/2"
+COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_IMPORT = (
+    "us-co:statutes/39/39-22-104/2"
+    "#federal_taxable_income_after_subsection_2_modifications"
+)
+COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_SYMBOL = (
+    "federal_taxable_income_after_subsection_2_modifications"
+)
 COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS = (
+    Path("statutes/39/39-22-104/1.5.yaml"),
     Path("statutes/39/39-22-104/1.7/a.yaml"),
     Path("statutes/39/39-22-104/1.7/b.yaml"),
     Path("statutes/39/39-22-104/1.7/c.yaml"),
@@ -10709,9 +10717,17 @@ COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS = (
 def cmd_repair_colorado_tax_validation(args):
     """Apply signed deterministic repairs for Colorado tax validation drift."""
     repo_path = Path(args.repo).resolve()
-    if _repo_jurisdiction_prefix(repo_path) != "us-co":
+    jurisdiction = _repo_jurisdiction_prefix(repo_path)
+    if jurisdiction == "us-co":
+        content_repo_path = repo_path
+        validation_repo_path = repo_path
+    elif jurisdiction == "us" and (repo_path / "us-co").is_dir():
+        content_repo_path = repo_path / "us-co"
+        validation_repo_path = repo_path
+    else:
         print(
-            "repair-colorado-tax-validation must run against rulespec-us-co; "
+            "repair-colorado-tax-validation must run against rulespec-us-co "
+            "or a country-level rulespec-us checkout with us-co/; "
             f"got {repo_path}"
         )
         sys.exit(1)
@@ -10722,13 +10738,24 @@ def cmd_repair_colorado_tax_validation(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
-    manifest_groups = [
-        (relative_output, [repo_path / relative_output])
+    content_manifest_groups = [
+        (relative_output, [content_repo_path / relative_output])
         for relative_output in COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS
     ]
-    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+    guard_manifest_groups = [
+        (
+            (content_repo_path / relative_output).relative_to(validation_repo_path),
+            [content_repo_path / relative_output],
+        )
+        for relative_output, _files in content_manifest_groups
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        validation_repo_path, guard_manifest_groups
+    )
 
-    touched = [path for _relative_output, files in manifest_groups for path in files]
+    touched = [
+        path for _relative_output, files in content_manifest_groups for path in files
+    ]
     originals = {path: path.read_text() if path.exists() else None for path in touched}
 
     try:
@@ -10741,7 +10768,7 @@ def cmd_repair_colorado_tax_validation(args):
             return
 
         pipeline = ValidatorPipeline(
-            policy_repo_path=repo_path,
+            policy_repo_path=validation_repo_path,
             axiom_rules_path=axiom_rules_path,
             enable_oracles=False,
             require_policy_proofs=True,
@@ -10772,10 +10799,10 @@ def cmd_repair_colorado_tax_validation(args):
         return
 
     manifest_paths = _write_grouped_deterministic_repair_manifests(
-        repo_path=repo_path,
+        repo_path=content_repo_path,
         signing_key=signing_key,
         axiom_encode_git=axiom_encode_git,
-        manifest_groups=manifest_groups,
+        manifest_groups=content_manifest_groups,
         changed_files=changed_by_command,
         model=COLORADO_TAX_VALIDATION_REPAIR_MODEL,
         tool="axiom-encode repair-colorado-tax-validation",
@@ -10789,11 +10816,39 @@ def cmd_repair_colorado_tax_validation(args):
 
 def _repair_colorado_tax_subsection_2_import(rules_file: Path) -> list[Path]:
     content = rules_file.read_text()
-    repaired = _ensure_yaml_import_text(content, COLORADO_TAX_SUBSECTION_2_IMPORT)
+    import_target = (
+        COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_IMPORT
+        if _rulespec_formula_references_symbol(
+            content, COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_SYMBOL
+        )
+        else COLORADO_TAX_SUBSECTION_2_IMPORT
+    )
+    repaired = _ensure_yaml_import_text(content, import_target)
     if repaired == content:
         return []
     rules_file.write_text(repaired)
     return [rules_file]
+
+
+def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
+    token = re.compile(rf"\b{re.escape(symbol)}\b")
+    with contextlib.suppress(yaml.YAMLError, AttributeError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                versions = rule.get("versions")
+                if not isinstance(versions, list):
+                    continue
+                for version in versions:
+                    if not isinstance(version, dict):
+                        continue
+                    formula = version.get("formula")
+                    if isinstance(formula, str) and token.search(formula):
+                        return True
+    return False
 
 
 _SECTION_911_A_1_IMPORT = (
