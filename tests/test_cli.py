@@ -19055,6 +19055,7 @@ rules:
 
         class FakePipeline:
             def __init__(self, **kwargs):
+                assert kwargs["policy_repo_path"] == policy_repo / "us"
                 assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
@@ -19131,6 +19132,7 @@ rules:
 
         class FakePipeline:
             def __init__(self, **kwargs):
+                assert kwargs["policy_repo_path"] == policy_repo / "us"
                 assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
