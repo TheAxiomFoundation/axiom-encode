@@ -11382,6 +11382,31 @@ rules:
             "individual_estate_trust_income_tax_rate_before_2020"
         )
 
+    def test_repair_colorado_tax_subsection_2_imports_formula_symbol(self, tmp_path):
+        rules_file = tmp_path / "1.5.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: subject to subsection (2) of this section
+rules:
+- name: subsection_1_5_individual_income_tax
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '1999-01-01'
+    formula: max(0, federal_taxable_income_after_subsection_2_modifications) * subsection_1_5_individual_income_tax_rate
+"""
+        )
+
+        assert _repair_colorado_tax_subsection_2_import(rules_file) == [rules_file]
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == [
+            "us-co:statutes/39/39-22-104/2#federal_taxable_income_after_subsection_2_modifications"
+        ]
+
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"
         rules_file.write_text(
