@@ -5658,6 +5658,54 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine's aca_required_contribution_percentage computes the current-law indexed ACA applicable figure for a tax unit. This RuleSpec output is the unindexed section 36B(b)(3)(A) statutory formula, so 2026 oracle cases differ from PolicyEngine after Revenue Procedure indexing.
 
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the first ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit_2
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the second ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit_3
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the third ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit_4
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the fourth ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit_5
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the fifth ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band_scalar_limit_6
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 encodes the final ACA percentage-table income breakpoint as a standalone RuleSpec scalar helper. PolicyEngine stores the threshold table as an indexed parameter rather than exposing each scalar breakpoint as a one-to-one oracle target.
+
   - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band
     country: us
     program: aca_ptc
@@ -7108,6 +7156,12 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
 
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_lower_annual_exempt_amount_scalar_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: RuleSpec exposes the statutory twelve-month multiplier used to annualize the 2026 lower retirement earnings test monthly exempt amount. PolicyEngine stores or ages the final exempt amounts and does not expose this multiplier as a standalone oracle target.
+
   - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_lower_annual_exempt_amount
     country: us
     program: tax
@@ -7119,6 +7173,12 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_higher_annual_exempt_amount_scalar_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: RuleSpec exposes the statutory twelve-month multiplier used to annualize the 2026 higher retirement earnings test monthly exempt amount. PolicyEngine stores or ages the final exempt amounts and does not expose this multiplier as a standalone oracle target.
 
   - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_higher_annual_exempt_amount
     country: us
