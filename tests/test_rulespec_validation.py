@@ -9006,6 +9006,44 @@ rules:
     )
 
 
+def test_same_section_subject_to_reference_allows_pre_limit_output(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "26" / "3121" / "a" / "1.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "26" / "3121" / "i.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3121/i
+  summary: |-
+    Uniformed-services remuneration includes only specified basic pay,
+    subject to subsection (a)(1).
+rules:
+  - name: uniformed_service_remuneration_included_before_subsection_a_1_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_pay_described_in_chapter_3_and_section_1009_of_title_37
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_reference_allows_empty_deferred_fallback(tmp_path):
     repo = tmp_path / "rulespec-us"
     cited_file = repo / "statutes" / "26" / "3121" / "j.yaml"
