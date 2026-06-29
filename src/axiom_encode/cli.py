@@ -33929,6 +33929,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                 placeholder_repairs.extend(
                     _repair_formula_alias_output_test_inputs(
                         test_file=test_file,
+                        policy_repo_path=policy_repo_path,
                         generated_target_base=generated_target_base,
                         imported_target=imported_target,
                         alias_replacements=alias_replacements,
@@ -34434,7 +34435,24 @@ def _generated_test_values_equal(left: object, right: object) -> bool:
     right_decimal = _numeric_test_decimal(right)
     if left_decimal is not None and right_decimal is not None:
         return left_decimal == right_decimal
+    left_judgment = _judgment_test_bool(left)
+    right_judgment = _judgment_test_bool(right)
+    if left_judgment is not None and right_judgment is not None:
+        return left_judgment == right_judgment
     return left == right
+
+
+def _judgment_test_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"holds", "true"}:
+        return True
+    if normalized in {"not_holds", "false"}:
+        return False
+    return None
 
 
 def _numeric_test_decimal(value: object) -> Decimal | None:
@@ -34897,6 +34915,7 @@ def _add_imported_gate_test_overrides(
 def _repair_formula_alias_output_test_inputs(
     *,
     test_file: Path,
+    policy_repo_path: Path,
     generated_target_base: str,
     imported_target: str,
     alias_replacements: dict[str, str],
@@ -34922,6 +34941,7 @@ def _repair_formula_alias_output_test_inputs(
         case_repairs = _replace_alias_output_test_inputs_in_value(
             test_case,
             ref_replacements=ref_replacements,
+            policy_repo_path=policy_repo_path,
         )
         if not case_repairs:
             continue
@@ -34941,30 +34961,46 @@ def _replace_alias_output_test_inputs_in_value(
     value: object,
     *,
     ref_replacements: dict[str, str],
+    policy_repo_path: Path,
 ) -> list[str]:
     repairs: list[str] = []
     if isinstance(value, dict):
-        pending: dict[str, object] = {}
-        for key in list(value.keys()):
+        pending_desired_values: dict[str, object] = {}
+        matched_keys: dict[str, list[object]] = {}
+        for key, old_value in list(value.items()):
             key_text = str(key)
             new_ref = ref_replacements.get(key_text)
             if new_ref is None:
                 continue
-            old_value = value.pop(key)
-            if new_ref in value:
-                old_value = _combine_alias_test_input_values(value[new_ref], old_value)
-            if new_ref in pending:
+            if new_ref in pending_desired_values:
                 old_value = _combine_alias_test_input_values(
-                    pending[new_ref], old_value
+                    pending_desired_values[new_ref],
+                    old_value,
                 )
-            pending[new_ref] = old_value
-            repairs.append(f"{key_text}->{new_ref}")
-        value.update(pending)
+            pending_desired_values[new_ref] = old_value
+            matched_keys.setdefault(new_ref, []).append(key)
+        upstream_inputs_by_ref: dict[str, dict[object, object]] = {}
+        for new_ref, desired_value in pending_desired_values.items():
+            upstream_inputs = _producer_test_inputs_for_output_value(
+                new_ref,
+                desired_value,
+                policy_repo_path=policy_repo_path,
+            )
+            if upstream_inputs:
+                upstream_inputs_by_ref[new_ref] = upstream_inputs
+        for new_ref, upstream_inputs in upstream_inputs_by_ref.items():
+            for key in matched_keys.get(new_ref, []):
+                old_key = str(key)
+                value.pop(key, None)
+                repairs.append(f"{old_key}->{new_ref}")
+            for input_ref, input_value in upstream_inputs.items():
+                value.setdefault(input_ref, input_value)
         for nested in value.values():
             repairs.extend(
                 _replace_alias_output_test_inputs_in_value(
                     nested,
                     ref_replacements=ref_replacements,
+                    policy_repo_path=policy_repo_path,
                 )
             )
     elif isinstance(value, list):
@@ -34973,6 +35009,7 @@ def _replace_alias_output_test_inputs_in_value(
                 _replace_alias_output_test_inputs_in_value(
                     item,
                     ref_replacements=ref_replacements,
+                    policy_repo_path=policy_repo_path,
                 )
             )
     return repairs
