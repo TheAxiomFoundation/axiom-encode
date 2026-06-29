@@ -12662,6 +12662,7 @@ def _ensure_rule_import_proof_atom(
     target: str,
     output: str,
     source_hash: str,
+    proof_path: str = "versions[0].formula",
 ) -> str:
     rule_start = content.find(f"  - name: {rule_name}\n")
     if rule_start == -1:
@@ -12683,7 +12684,7 @@ def _ensure_rule_import_proof_atom(
     versions_marker = "    versions:\n"
     if versions_marker not in rule_block:
         return content
-    proof_atom = f"""          - path: versions[0].formula
+    proof_atom = f"""          - path: {proof_path}
             kind: import
             import:
               target: {target}
@@ -33742,6 +33743,8 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         before = repaired
         placeholder_repairs: list[str] = []
         referenced_outputs: list[str] = []
+        subject_to_outputs: list[str] = []
+        subject_to_proof_path: str | None = None
         if imported_output is not None:
             import_item = f"{imported_target}#{imported_output}"
             repaired = _ensure_rulespec_import(repaired, import_item)
@@ -33806,29 +33809,71 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
             if not referenced_outputs:
                 imported_outputs = _rulespec_judgment_rule_output_names(target_file)
                 if len(imported_outputs) > 1:
-                    candidate, placeholder_repairs = (
-                        _repair_same_section_subsection_multi_output_placeholder_references(
-                            repaired,
-                            test_file=test_file,
-                            target_base=f"{jurisdiction}:{target}",
-                            target_outputs=imported_outputs,
-                            target_file=target_file,
-                            generated_target_base=(
-                                f"{jurisdiction}:"
-                                f"{_relative_rulespec_import_target(relative_output)}"
-                            ),
-                        )
+                    (
+                        candidate,
+                        subject_to_outputs,
+                        subject_to_repairs,
+                        subject_to_proof_path,
+                    ) = _repair_same_section_subsection_subject_to_output_gate(
+                        repaired,
+                        target=target,
+                        target_outputs=imported_outputs,
+                        target_file=target_file,
                     )
-                    if placeholder_repairs:
+                    if subject_to_repairs:
                         repaired = candidate
-                        for imported_output_name in imported_outputs:
+                        placeholder_repairs.extend(subject_to_repairs)
+                        source_hash = _sha256_file(target_file)
+                        for subject_to_output in subject_to_outputs:
                             repaired = _ensure_rulespec_import(
                                 repaired,
-                                f"{imported_target}#{imported_output_name}",
+                                f"{imported_target}#{subject_to_output}",
                             )
+                            if subject_to_proof_path is not None:
+                                repaired = _ensure_rule_import_proof_atom(
+                                    repaired,
+                                    rule_name="is_medicaid_eligible",
+                                    target=f"{imported_target}#{subject_to_output}",
+                                    output=subject_to_output,
+                                    source_hash=source_hash,
+                                    proof_path=subject_to_proof_path,
+                                )
+                            else:
+                                repaired = (
+                                    _ensure_import_proof_atoms_for_formula_symbol(
+                                        repaired,
+                                        symbol=subject_to_output,
+                                        target=(
+                                            f"{imported_target}#{subject_to_output}"
+                                        ),
+                                        output=subject_to_output,
+                                        source_hash=source_hash,
+                                    )
+                                )
                     else:
-                        import_item = imported_target
-                        repaired = _ensure_rulespec_import(repaired, import_item)
+                        candidate, placeholder_repairs = (
+                            _repair_same_section_subsection_multi_output_placeholder_references(
+                                repaired,
+                                test_file=test_file,
+                                target_base=f"{jurisdiction}:{target}",
+                                target_outputs=imported_outputs,
+                                target_file=target_file,
+                                generated_target_base=(
+                                    f"{jurisdiction}:"
+                                    f"{_relative_rulespec_import_target(relative_output)}"
+                                ),
+                            )
+                        )
+                        if placeholder_repairs:
+                            repaired = candidate
+                            for imported_output_name in imported_outputs:
+                                repaired = _ensure_rulespec_import(
+                                    repaired,
+                                    f"{imported_target}#{imported_output_name}",
+                                )
+                        else:
+                            import_item = imported_target
+                            repaired = _ensure_rulespec_import(repaired, import_item)
                 else:
                     import_item = imported_target
                     repaired = _ensure_rulespec_import(repaired, import_item)
@@ -33841,10 +33886,16 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                     for referenced_output in referenced_outputs
                 )
             elif placeholder_repairs:
-                added.extend(
-                    f"{imported_target}#{imported_output_name}"
-                    for imported_output_name in imported_outputs
-                )
+                if subject_to_outputs:
+                    added.extend(
+                        f"{imported_target}#{subject_to_output}"
+                        for subject_to_output in subject_to_outputs
+                    )
+                else:
+                    added.extend(
+                        f"{imported_target}#{imported_output_name}"
+                        for imported_output_name in imported_outputs
+                    )
             else:
                 added.append(imported_target)
             added.extend(placeholder_repairs)
@@ -34439,6 +34490,108 @@ def _rulespec_judgment_rule_output_names(rules_file: Path) -> list[str]:
         if kind == "derived" and dtype == "judgment":
             names.append(name)
     return names
+
+
+def _rulespec_rule_first_effective_from(rules_file: Path, output: str) -> str | None:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != output:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            return None
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            effective_from = str(version.get("effective_from") or "").strip()
+            if effective_from:
+                return effective_from
+    return None
+
+
+_MEDICAID_1396A_XX_COMMUNITY_ENGAGEMENT_OUTPUT = (
+    "demonstrated_community_engagement_for_month"
+)
+_MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE = (
+    "and income_determined_for_adult_expansion <= "
+    "adult_expansion_income_limit_poverty_line_rate * poverty_line_for_family_size"
+)
+
+
+def _repair_same_section_subsection_subject_to_output_gate(
+    content: str,
+    *,
+    target: str,
+    target_outputs: list[str],
+    target_file: Path,
+) -> tuple[str, list[str], list[str], str | None]:
+    if target != "statutes/42/1396a/xx":
+        return content, [], [], None
+    output = _MEDICAID_1396A_XX_COMMUNITY_ENGAGEMENT_OUTPUT
+    if output not in target_outputs:
+        return content, [], [], None
+
+    rule_match = re.search(
+        r"(?ms)^  - name: is_medicaid_eligible\n.*?(?=^  - name: |\Z)",
+        content,
+    )
+    if rule_match is None:
+        return content, [], [], None
+    rule_block = rule_match.group(0)
+    version_pattern = re.compile(
+        r"(?ms)"
+        r"(?P<version>"
+        r"^      - effective_from: '(?P<effective_from>[^']+)'\n"
+        r"        formula: \|-\n"
+        r"(?P<formula>(?:^          .*(?:\n|$))+)"
+        r")"
+    )
+    for version_index, version_match in enumerate(version_pattern.finditer(rule_block)):
+        formula_text = version_match.group("formula")
+        formula_lines = formula_text.splitlines()
+        if output in formula_text:
+            continue
+        if not any(
+            line.strip() == _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE
+            for line in formula_lines
+        ):
+            continue
+        gated_lines: list[str] = []
+        inserted_gate = False
+        for line in formula_lines:
+            gated_lines.append(line)
+            if line.strip() != _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE:
+                continue
+            indentation = line[: len(line) - len(line.lstrip())]
+            gated_lines.append(f"{indentation}and {output}")
+            inserted_gate = True
+        if not inserted_gate:
+            continue
+        effective_from = (
+            _rulespec_rule_first_effective_from(target_file, output) or "2026-12-31"
+        )
+        new_version = (
+            f"      - effective_from: '{effective_from}'\n"
+            "        formula: |-\n" + "\n".join(gated_lines) + "\n"
+        )
+        insert_at = rule_match.start() + version_match.end()
+        repaired = content[:insert_at] + new_version + content[insert_at:]
+        proof_path = f"versions[{version_index + 1}].formula"
+        return (
+            repaired,
+            [output],
+            [f"adult_expansion_subject_to_xx->{output}"],
+            proof_path,
+        )
+    return content, [], [], None
 
 
 def _repair_same_section_subsection_placeholder_references(
