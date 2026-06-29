@@ -10802,7 +10802,7 @@ def cmd_repair_colorado_tax_validation(args):
             require_policy_proofs=True,
         )
         validation_issues: list[str] = []
-        for rules_file in touched:
+        for rules_file in rules_files:
             validation = pipeline.validate(rules_file, skip_reviewers=True)
             if validation.all_passed:
                 continue

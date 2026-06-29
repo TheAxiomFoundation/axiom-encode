@@ -171,6 +171,7 @@ from axiom_encode.cli import (
     cmd_oracle_coverage,
     cmd_repair_arizona_snap_composition,
     cmd_repair_bare_snapunit_entities,
+    cmd_repair_colorado_tax_validation,
     cmd_repair_current_year_final_amounts,
     cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
@@ -11440,6 +11441,86 @@ rules:
             "#input.federal_taxable_income_after_subsection_2_modifications"
             not in content
         )
+
+    def test_repair_colorado_tax_validation_validates_only_rulespec_artifacts(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us"
+        content_root = repo_path / "us-co"
+        target_dir = content_root / "statutes/39/39-22-104"
+        target_dir.mkdir(parents=True)
+        for relative_output in (
+            "1.5.yaml",
+            "1.7/a.yaml",
+            "1.7/b.yaml",
+            "1.7/c.yaml",
+        ):
+            rules_file = target_dir / relative_output
+            rules_file.parent.mkdir(parents=True, exist_ok=True)
+            rules_file.write_text(
+                """format: rulespec/v1
+module:
+  summary: Colorado income tax
+rules:
+- name: subsection_1_5_individual_income_tax
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '1999-01-01'
+    formula: max(0, federal_taxable_income_after_subsection_2_modifications)
+"""
+            )
+        companion = target_dir / "1.5.test.yaml"
+        companion.write_text(
+            """- name: subsection_1_5_rate_applies_to_positive_modified_income
+  input:
+    us-co:statutes/39/39-22-104/1.5#input.federal_taxable_income_after_subsection_2_modifications: 100000
+  output:
+    us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax: 100000
+"""
+        )
+        validated_paths: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                pass
+
+            def validate(self, rules_file, skip_reviewers=False):
+                validated_paths.append(Path(rules_file))
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch(
+                "axiom_encode.cli._require_applied_encoding_manifest_signing_key",
+                return_value=TEST_APPLY_SIGNING_KEY,
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123"},
+            ),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._write_grouped_deterministic_repair_manifests",
+                return_value=[],
+            ),
+        ):
+            cmd_repair_colorado_tax_validation(
+                SimpleNamespace(repo=repo_path, axiom_rules_path=tmp_path)
+            )
+
+        assert companion not in validated_paths
+        assert set(validated_paths) == {
+            content_root / "statutes/39/39-22-104/1.5.yaml",
+            content_root / "statutes/39/39-22-104/1.7/a.yaml",
+            content_root / "statutes/39/39-22-104/1.7/b.yaml",
+            content_root / "statutes/39/39-22-104/1.7/c.yaml",
+        }
+        assert "#input.federal_taxable_income: 100000" in companion.read_text()
 
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"
