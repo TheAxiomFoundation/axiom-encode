@@ -4356,6 +4356,50 @@ def test_policyengine_ma_tafdc_payment_standard_projects_household_rent_status(
     )
 
 
+def test_policyengine_ma_tafdc_infant_benefit_targets_child_subset(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "ma_tafdc_infant_benefit",
+        {
+            "period": "2024-01",
+            "infant_equipment_not_available_from_any_other_source": True,
+            "payment_requested_within_six_months_following_birth_of_eligible_infant": True,
+            "crib_or_mattress_requested_for_newborn_infant": True,
+            "layette_requested_for_newborn_infant": True,
+            "department_set_crib_or_mattress_rate": 200,
+            "department_set_layette_rate": 100,
+        },
+        "2024",
+    )
+
+    assert "'state_code_str': {'2024': 'MA'}" in script
+    assert "'ma_tafdc_eligible_infant': {'2024': True}" in script
+    assert "result_index = 1" in script
+    assert ValidatorPipeline._is_projectable_pe_us_input_alias(
+        "infant_equipment_not_available_from_any_other_source",
+        "ma_tafdc_infant_benefit",
+    )
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "ma_tafdc_infant_benefit",
+        {
+            "infant_equipment_not_available_from_any_other_source": False,
+            "payment_requested_within_six_months_following_birth_of_eligible_infant": True,
+            "crib_or_mattress_requested_for_newborn_infant": True,
+            "layette_requested_for_newborn_infant": True,
+        },
+        pe_var="ma_tafdc_infant_benefit",
+    )
+    assert mappable is False
+    assert "equipment-source or component-request conditions" in (reason or "")
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
