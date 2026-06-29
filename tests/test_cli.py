@@ -151,6 +151,7 @@ from axiom_encode.cli import (
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_scalar_relation_rows_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
+    _try_repair_generated_source_child_corpus_paths_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
@@ -19660,6 +19661,136 @@ rules: []
 imports:
   - us:statutes/26/3406/a
 """
+        )
+
+    def test_source_child_corpus_path_repair_repoints_parent_source_path(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_repo = tmp_path / "rulespec-us"
+        corpus_file = (
+            tmp_path
+            / "axiom-corpus"
+            / "data"
+            / "corpus"
+            / "provisions"
+            / "us"
+            / "statute"
+            / "2026-06-29-medicaid.jsonl"
+        )
+        corpus_file.parent.mkdir(parents=True)
+        corpus_file.write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/statute/42/1396a/xx",
+                    "body": (
+                        "Beginning in 2027, a State shall verify that an "
+                        "individual has completed not less than 80 hours of "
+                        "community engagement activities."
+                    ),
+                }
+            )
+            + "\n"
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a
+rules:
+  - name: adult_expansion_community_engagement_hours_standard
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '2027-01-01'
+        formula: 80
+    metadata:
+      proof:
+        steps:
+          - source:
+              corpus_citation_path: us/statute/42/1396a
+              excerpt: not less than 80 hours
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_source_child_corpus_paths_for_apply(
+            result,
+            output_root=output_root,
+            rules_repo_path=rules_repo,
+            issues=[
+                "Ungrounded generated numeric literal: 80 does not appear as "
+                "a substantive numeric value in the source text."
+            ],
+        )
+
+        assert repaired == ["us/statute/42/1396a->us/statute/42/1396a/xx"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["module"]["source_verification"]["corpus_citation_path"]
+            == "us/statute/42/1396a/xx"
+        )
+        proof_source = payload["rules"][0]["metadata"]["proof"]["steps"][0]["source"]
+        assert proof_source["corpus_citation_path"] == "us/statute/42/1396a/xx"
+
+    def test_source_child_corpus_path_repair_requires_grounded_literal(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_repo = tmp_path / "rulespec-us"
+        corpus_file = (
+            tmp_path
+            / "axiom-corpus"
+            / "data"
+            / "corpus"
+            / "provisions"
+            / "us"
+            / "statute"
+            / "2026-06-29-medicaid.jsonl"
+        )
+        corpus_file.parent.mkdir(parents=True)
+        corpus_file.write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/statute/42/1396a/xx",
+                    "body": "A State shall verify community engagement.",
+                }
+            )
+            + "\n"
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_source_child_corpus_paths_for_apply(
+            result,
+            output_root=output_root,
+            rules_repo_path=rules_repo,
+            issues=[
+                "Ungrounded generated numeric literal: 80 does not appear as "
+                "a substantive numeric value in the source text."
+            ],
+        )
+
+        assert repaired == []
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["module"]["source_verification"]["corpus_citation_path"]
+            == "us/statute/42/1396a"
         )
 
     def test_missing_same_section_import_repair_accepts_current_validator_wording(
