@@ -63,6 +63,7 @@ from .harness.evals import (
     _canonical_target_ref_prefix,
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
+    _fetch_local_corpus_source_text_from_repo,
     _looks_like_corpus_citation_path,
     _prompt_corpus_citation_path,
     _source_identifier_to_relative_rulespec_path,
@@ -1313,6 +1314,31 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_source_child_corpus_parser = subparsers.add_parser(
+        "repair-source-child-corpus-paths",
+        help=(
+            "Apply signed deterministic repairs for source verification paths "
+            "that point at a parent corpus provision"
+        ),
+    )
+    repair_source_child_corpus_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_source_child_corpus_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_source_child_corpus_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_child_fragment_parser = subparsers.add_parser(
         "repair-child-fragment-reencoding",
         help=(
@@ -2400,6 +2426,8 @@ def main():
         cmd_repair_unreferenced_proof_imports(args)
     elif args.command == "repair-same-section-subsection-imports":
         cmd_repair_same_section_subsection_imports(args)
+    elif args.command == "repair-source-child-corpus-paths":
+        cmd_repair_source_child_corpus_paths(args)
     elif args.command == "repair-child-fragment-reencoding":
         cmd_repair_child_fragment_reencoding(args)
     elif args.command == "repair-upstream-placement-duplicates":
@@ -10267,6 +10295,27 @@ def cmd_repair_same_section_subsection_imports(args):
         tool="axiom-encode repair-same-section-subsection-imports",
         no_repair_message="No same-section subsection import repairs found.",
         success_label="same-section subsection import",
+        repair=repair,
+    )
+
+
+def cmd_repair_source_child_corpus_paths(args):
+    """Apply signed repairs for parent source-verification corpus paths."""
+
+    def repair(context: argparse.Namespace) -> list[str]:
+        return _try_repair_generated_source_child_corpus_paths_for_apply(
+            context.result,
+            output_root=context.output_root,
+            rules_repo_path=context.rules_repo_path,
+            issues=context.issues,
+        )
+
+    _cmd_repair_generated_validation_issues(
+        args,
+        model="source-child-corpus-path-v1",
+        tool="axiom-encode repair-source-child-corpus-paths",
+        no_repair_message="No source child corpus path repairs found.",
+        success_label="source child corpus path",
         repair=repair,
     )
 
@@ -23720,6 +23769,206 @@ def _try_repair_generated_predecessor_scalar_limits_for_apply(
         ungrounded_literals=literals,
         target_anchor=target_anchor,
     )
+
+
+def _try_repair_generated_source_child_corpus_paths_for_apply(
+    result,
+    *,
+    output_root: Path,
+    rules_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Point generated source verification at the matching child corpus row."""
+    literals = _ungrounded_numeric_literal_issue_values(issues)
+    if not literals:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    child_corpus_path = _relative_output_to_child_corpus_citation_path(
+        relative_output,
+        rules_repo_path=rules_repo_path,
+    )
+    if child_corpus_path is None:
+        return []
+    child_source_text = _local_source_text_for_corpus_path(
+        child_corpus_path,
+        rules_repo_path=rules_repo_path,
+    )
+    if not child_source_text:
+        return []
+    source_numbers = extract_numbers_from_text(child_source_text)
+    if not all(
+        numeric_value_is_grounded(float(value), source_numbers) for value in literals
+    ):
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    existing_source_paths = _rulespec_module_source_paths(payload)
+    parent_paths = [
+        path
+        for path in existing_source_paths
+        if _corpus_citation_path_is_parent_of(path, child_corpus_path)
+    ]
+    if not parent_paths:
+        return []
+
+    changed = _replace_corpus_citation_paths(
+        payload,
+        old_paths=set(parent_paths),
+        new_path=child_corpus_path,
+    )
+    if not changed:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return [f"{path}->{child_corpus_path}" for path in parent_paths]
+
+
+def _relative_output_to_child_corpus_citation_path(
+    relative_output: Path,
+    *,
+    rules_repo_path: Path,
+) -> str | None:
+    """Convert a RuleSpec output path to its expected corpus citation path."""
+    rel = Path(relative_output).with_suffix("")
+    parts = rel.parts
+    if len(parts) < 2:
+        return None
+    if parts[0] in RULESPEC_SOURCE_ROOTS:
+        jurisdiction = _repo_jurisdiction_prefix(rules_repo_path)
+        source_root = parts[0]
+        tail = parts[1:]
+    elif len(parts) >= 3 and parts[1] in RULESPEC_SOURCE_ROOTS:
+        jurisdiction = parts[0]
+        source_root = parts[1]
+        tail = parts[2:]
+    else:
+        return None
+    corpus_source_root = {
+        "policies": "policy",
+        "regulations": "regulation",
+        "statutes": "statute",
+    }.get(source_root)
+    if corpus_source_root is None or not tail:
+        return None
+    return f"{jurisdiction}/{corpus_source_root}/{Path(*tail).as_posix()}"
+
+
+def _local_source_text_for_corpus_path(
+    corpus_citation_path: str,
+    *,
+    rules_repo_path: Path,
+) -> str | None:
+    for corpus_path in _candidate_local_axiom_corpus_paths(rules_repo_path):
+        source_text = _fetch_local_corpus_source_text_from_repo(
+            corpus_citation_path,
+            corpus_path,
+        )
+        if source_text:
+            return source_text
+    return None
+
+
+def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
+    candidates: list[Path] = []
+    env_path = os.environ.get("AXIOM_CORPUS_REPO")
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    rules_repo = Path(rules_repo_path).resolve()
+    candidates.extend(
+        [
+            rules_repo.parent / "axiom-corpus",
+            rules_repo.parent.parent / "axiom-corpus",
+            _resolve_repo_checkout("axiom-corpus"),
+        ]
+    )
+    seen: set[Path] = set()
+    resolved: list[Path] = []
+    for candidate in candidates:
+        with contextlib.suppress(OSError):
+            candidate = candidate.resolve()
+        if candidate in seen or not candidate.exists():
+            continue
+        seen.add(candidate)
+        resolved.append(candidate)
+    return resolved
+
+
+def _corpus_citation_path_is_parent_of(parent: str, child: str) -> bool:
+    normalized_parent = parent.strip().strip("/")
+    normalized_child = child.strip().strip("/")
+    return bool(
+        normalized_parent
+        and normalized_child.startswith(f"{normalized_parent}/")
+        and normalized_parent != normalized_child
+    )
+
+
+def _replace_corpus_citation_paths(
+    value: object,
+    *,
+    old_paths: set[str],
+    new_path: str,
+) -> bool:
+    normalized_old = {path.strip().strip("/") for path in old_paths if path.strip()}
+
+    def normalize_path(path: object) -> str:
+        return str(path or "").strip().strip("/")
+
+    changed = False
+    if isinstance(value, dict):
+        for key, item in list(value.items()):
+            if key == "corpus_citation_path" and isinstance(item, str):
+                if normalize_path(item) in normalized_old:
+                    value[key] = new_path
+                    changed = True
+                continue
+            if key == "corpus_citation_paths" and isinstance(item, list):
+                next_items: list[object] = []
+                seen_paths: set[str] = set()
+                for entry in item:
+                    next_entry = (
+                        new_path
+                        if isinstance(entry, str)
+                        and normalize_path(entry) in normalized_old
+                        else entry
+                    )
+                    if isinstance(next_entry, str):
+                        normalized = normalize_path(next_entry)
+                        if normalized in seen_paths:
+                            changed = True
+                            continue
+                        seen_paths.add(normalized)
+                    if next_entry != entry:
+                        changed = True
+                    next_items.append(next_entry)
+                if next_items != item:
+                    value[key] = next_items
+                continue
+            if _replace_corpus_citation_paths(
+                item, old_paths=old_paths, new_path=new_path
+            ):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _replace_corpus_citation_paths(
+                item, old_paths=old_paths, new_path=new_path
+            ):
+                changed = True
+    return changed
 
 
 def _ungrounded_numeric_literal_issue_values(issues: list[str]) -> set[int]:
