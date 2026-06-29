@@ -73,6 +73,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_policy_composition,
     _repair_colorado_snap_program_tests,
     _repair_colorado_tax_subsection_2_import,
+    _repair_colorado_tax_subsection_2_test_inputs,
     _repair_embedded_scalar_literals,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
@@ -11406,6 +11407,30 @@ rules:
         assert payload["imports"] == [
             "us-co:statutes/39/39-22-104/2#federal_taxable_income_after_subsection_2_modifications"
         ]
+
+    def test_repair_colorado_tax_subsection_2_rewrites_test_inputs(self, tmp_path):
+        test_file = tmp_path / "1.5.test.yaml"
+        test_file.write_text(
+            """- name: subsection_1_5_rate_applies_to_positive_modified_income
+  input:
+    us-co:statutes/39/39-22-104/1.5#input.federal_taxable_income_after_subsection_2_modifications: 100000
+  output:
+    us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax: 4750
+"""
+        )
+
+        assert _repair_colorado_tax_subsection_2_test_inputs(test_file) == [test_file]
+
+        content = test_file.read_text()
+        assert (
+            "us-co:statutes/39/39-22-104/2"
+            "#federal_taxable_income_after_subsection_2_modifications: 100000"
+            in content
+        )
+        assert (
+            "#input.federal_taxable_income_after_subsection_2_modifications"
+            not in content
+        )
 
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"
