@@ -8017,14 +8017,10 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
     payload = _rulespec_payload(content)
     if payload is None:
         return []
+    if _rulespec_module_is_empty_fallback(payload):
+        return []
     rules = payload.get("rules")
     if not isinstance(rules, list) or rules:
-        return []
-    module = payload.get("module")
-    status = ""
-    if isinstance(module, dict):
-        status = str(module.get("status") or "").strip().lower()
-    if status in {"deferred", "entity_not_supported"}:
         return []
     return [
         "Empty RuleSpec module invalid: `rules: []` requires explicit "
@@ -14539,16 +14535,6 @@ def find_missing_same_section_subsection_import_issues(
     policy_repo_path: Path,
 ) -> list[str]:
     """Require imports for cited same-section siblings used as carve-outs."""
-    source_text = _extract_source_verification_text(
-        content
-    ) or extract_embedded_source_text(content)
-    if not source_text or not re.search(
-        r"\b(?:except|unless|subject\s+to)\b",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        return []
-
     same_section_path = _same_section_path_parts_for_file(
         rules_file,
         policy_repo_path,
@@ -14556,16 +14542,28 @@ def find_missing_same_section_subsection_import_issues(
     if same_section_path is None:
         return []
     root, section_parts, current_fragments = same_section_path
+    payload = _rulespec_payload(content)
+    if payload is not None and _rulespec_module_is_empty_fallback(payload):
+        return []
+    source_text = _same_section_dependency_source_text(
+        content,
+        payload=payload,
+        same_section_path=same_section_path,
+    )
+    if not source_text or not re.search(
+        r"\b(?:except|unless|subject\s+to)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return []
     import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
         for import_path in import_items
     }
     formula_texts: list[str] = []
-    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
-        payload = yaml.safe_load(content)
-        if isinstance(payload, dict):
-            formula_texts = _rulespec_formula_texts(payload)
+    if payload is not None:
+        formula_texts = _rulespec_formula_texts(payload)
     formula_text = "\n".join(formula_texts)
 
     issues: list[str] = []
@@ -14577,7 +14575,7 @@ def find_missing_same_section_subsection_import_issues(
         ):
             continue
         if (
-            fragment.lower() in {part.lower() for part in current_fragments}
+            _same_section_citation_is_current_path(fragment, current_fragments)
             or fragment in seen
         ):
             continue
@@ -14616,6 +14614,104 @@ def find_missing_same_section_subsection_import_issues(
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
+
+
+def _same_section_dependency_source_text(
+    content: str,
+    *,
+    payload: dict[str, Any] | None,
+    same_section_path: tuple[str, tuple[str, ...], tuple[str, ...]],
+) -> str:
+    root, section_parts, current_fragments = same_section_path
+    if payload is not None:
+        source_verification = _source_verification_block(payload)
+        if source_verification is not None:
+            citation_paths, _source_label = _source_verification_source_fields(
+                source_verification
+            )
+            scoped_paths = tuple(
+                citation_path
+                for citation_path in citation_paths
+                if _corpus_citation_path_covers_rules_file_scope(
+                    citation_path,
+                    root=root,
+                    section_parts=section_parts,
+                    current_fragments=current_fragments,
+                )
+            )
+            if scoped_paths:
+                source_text = _source_verification_text(
+                    citation_paths=scoped_paths,
+                    source_label=", ".join(scoped_paths),
+                )
+                if source_text:
+                    return source_text
+    return extract_embedded_source_text(content)
+
+
+def _corpus_citation_path_covers_rules_file_scope(
+    citation_path: str,
+    *,
+    root: str,
+    section_parts: tuple[str, ...],
+    current_fragments: tuple[str, ...],
+) -> bool:
+    parts = tuple(
+        part.strip().lower()
+        for part in citation_path.strip().strip("/").split("/")
+        if part.strip()
+    )
+    source_kind = "statute" if root == "statutes" else "regulation"
+    if source_kind not in parts:
+        return False
+    source_index = parts.index(source_kind)
+    source_parts = parts[source_index + 1 :]
+    normalized_section_parts = _corpus_section_parts_for_rulespec_path(
+        root,
+        section_parts,
+    )
+    if source_parts[: len(normalized_section_parts)] != normalized_section_parts:
+        return False
+    source_fragments = source_parts[len(normalized_section_parts) :]
+    normalized_current_fragments = tuple(part.lower() for part in current_fragments)
+    return (
+        len(source_fragments) >= len(normalized_current_fragments)
+        and source_fragments[: len(normalized_current_fragments)]
+        == normalized_current_fragments
+    )
+
+
+def _corpus_section_parts_for_rulespec_path(
+    root: str,
+    section_parts: tuple[str, ...],
+) -> tuple[str, ...]:
+    if root == "regulations" and section_parts and section_parts[0].endswith("-cfr"):
+        return (section_parts[0].removesuffix("-cfr").lower(),) + tuple(
+            part.lower() for part in section_parts[1:]
+        )
+    return tuple(part.lower() for part in section_parts)
+
+
+def _rulespec_module_is_empty_fallback(payload: dict[str, Any]) -> bool:
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or rules:
+        return False
+    module = payload.get("module")
+    status = ""
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+    return status in {"deferred", "entity_not_supported"}
+
+
+def _same_section_citation_is_current_path(
+    fragment: str,
+    current_fragments: tuple[str, ...],
+) -> bool:
+    cited_parts = tuple(part.lower() for part in fragment.split("/") if part)
+    current_parts = tuple(part.lower() for part in current_fragments)
+    if cited_parts == current_parts:
+        return True
+    return len(cited_parts) == 1 and cited_parts[0] in current_parts
 
 
 def _deferred_outputs_cover_same_section_dependency(

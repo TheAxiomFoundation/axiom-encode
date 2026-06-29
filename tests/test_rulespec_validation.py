@@ -8951,6 +8951,150 @@ rules:
     )
 
 
+def test_same_section_reference_allows_empty_deferred_fallback(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "26" / "3121" / "j.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "26" / "3121" / "a.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  status: deferred
+  summary: |-
+    Wages means all remuneration for employment, except that the term shall not
+    include remuneration for covered transportation service under subsection (j).
+  deferred_outputs:
+    - output: us:statutes/26/3121/a#wages
+      reason: The complete wages definition depends on enumerated exclusions.
+rules: []
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_same_section_reference_allows_empty_entity_not_supported_fallback(tmp_path):
+    repo = tmp_path / "rulespec-us" / "us"
+    cited_file = repo / "regulations" / "7-cfr" / "275" / "11" / "b" / "1" / "iii.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "regulations" / "7-cfr" / "275" / "11.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  status: entity_not_supported
+  summary: |-
+    The agency must complete quality control review activity, except that the
+    sample frame in paragraph (b)(1)(iii) is separately specified.
+rules: []
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_same_section_reference_allows_nested_self_citation(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "104" / "a" / "4.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Gross income does not include amounts received under subsection (a)(4),
+    except in the case of amounts attributable to contributions by the employer.
+rules:
+  - name: service_injury_pension_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_received_under_subsection_a_4
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_same_section_import_check_ignores_broad_parent_source_for_child_file(
+    monkeypatch,
+    tmp_path,
+):
+    repo_parent = tmp_path / "repos"
+    corpus_repo = repo_parent / "axiom-corpus"
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+    _write_local_corpus_provision(
+        repo_parent,
+        "us-co/statute/39/39-22-104",
+        "(1.5) Subject to subsection (2), income is taxed.\n\n"
+        "(4)(y) A qualified individual's military retirement benefits may be "
+        "subtracted up to the stated cap.",
+    )
+    repo = repo_parent / "rulespec-us" / "us-co"
+    cited_file = repo / "statutes" / "39" / "39-22-104" / "2.yaml"
+    cited_file.parent.mkdir(parents=True, exist_ok=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "39" / "39-22-104" / "4" / "y.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-104
+  summary: |-
+    Section 39-22-104(4)(y) subtracts qualified military retirement benefits
+    included in federal adjusted gross income, subject to stated dollar caps.
+rules:
+  - name: military_retirement_benefits_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2019-01-01'
+        formula: military_retirement_benefits_included_in_federal_adjusted_gross_income
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us" / "us"
     cited_file = repo / "regulations" / "42-cfr" / "435" / "602" / "c.yaml"
