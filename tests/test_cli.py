@@ -19703,6 +19703,74 @@ rules: []
         assert repaired == ["us:statutes/42/1396a/e"]
         assert "  - us:statutes/42/1396a/e\n" in rules_file.read_text()
 
+    def test_same_section_import_repair_promotes_non_operational_file_import(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/7/2015/d/2/C.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: student_exception_applies
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2008-10-01'
+        formula: student_age_exception_applies
+  - name: student_ineligible_for_snap_participation
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2008-10-01'
+        formula: not student_exception_applies
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2015/e
+rules:
+  - name: higher_education_student_ineligible_for_snap_participation
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2008-10-01'
+        formula: |-
+          person_is_bona_fide_student_enrolled_at_least_half_time_in_institution_of_higher_education
+          and student_ineligible_for_snap_participation
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/7/2015/d/2/C.yaml: ci: Same-section subsection "
+                    "import not operational: source text cites `statutes/7/2015/e` "
+                    "in an exception/cross-reference clause, but the matching import "
+                    "does not bring a specific imported output into the formula."
+                ],
+            )
+        )
+
+        assert repaired == [
+            "us:statutes/7/2015/e#student_ineligible_for_snap_participation"
+        ]
+        assert (
+            "  - us:statutes/7/2015/e#student_ineligible_for_snap_participation\n"
+            in rules_file.read_text()
+        )
+
     def test_missing_same_section_import_repair_promotes_cfr_placeholder(
         self, tmp_path
     ):
