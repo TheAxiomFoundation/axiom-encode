@@ -157,6 +157,8 @@ from axiom_encode.cli import (
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
     _try_repair_generated_unsupported_entity_outputs_for_apply,
+    _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply,
+    _try_repair_generated_upstream_placement_duplicates_for_apply,
     _unit_scoped_person_definition_issue_names,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
@@ -18632,6 +18634,160 @@ rules:
         assert test_cases[0]["output"] == {
             "us:policies/hhs/medicaid/eligibility#is_medicaid_eligible": "holds"
         }
+
+    def test_generated_upstream_placement_duplicate_repair_uses_real_content_target(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        output_root = tmp_path / "generated"
+        upstream_file = policy_repo / "us/statutes/7/2014/e/2/B.yaml"
+        generated_file = output_root / "us/statutes/7/2014/e/2.yaml"
+        generated_test_file = output_root / "us/statutes/7/2014/e/2.test.yaml"
+        upstream_file.parent.mkdir(parents=True)
+        generated_file.parent.mkdir(parents=True)
+        upstream_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0.20
+"""
+        )
+        generated_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0.20
+  - name: snap_earned_income_deduction
+    kind: derived
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '1990-01-01'
+        formula: snap_countable_earned_income * snap_earned_income_deduction_rate
+"""
+        )
+        generated_test_file.write_text(
+            """- name: earned_income_case
+  period: 2026-01
+  input:
+    us:statutes/7/2014/e/2#input.snap_countable_earned_income: 100
+  output:
+    us:statutes/7/2014/e/2#snap_earned_income_deduction_rate: 0.20
+    us:statutes/7/2014/e/2#snap_earned_income_deduction: 20
+"""
+        )
+
+        repaired = _try_repair_generated_upstream_placement_duplicates_for_apply(
+            SimpleNamespace(output_file=str(generated_file)),
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        rules_payload = yaml.safe_load(generated_file.read_text())
+        test_cases = yaml.safe_load(generated_test_file.read_text())
+        assert repaired == ["snap_earned_income_deduction_rate"]
+        assert rules_payload["imports"] == [
+            "us:statutes/7/2014/e/2/B#snap_earned_income_deduction_rate"
+        ]
+        assert [rule["name"] for rule in rules_payload["rules"]] == [
+            "snap_earned_income_deduction"
+        ]
+        assert test_cases[0]["output"] == {
+            "us:statutes/7/2014/e/2#snap_earned_income_deduction": 20
+        }
+
+    def test_generated_upstream_placement_duplicate_repair_adds_remaining_proofs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        output_root = tmp_path / "generated"
+        upstream_file = policy_repo / "us/statutes/7/2014/e/2/B.yaml"
+        generated_file = output_root / "us/statutes/7/2014/e/2.yaml"
+        generated_test_file = output_root / "us/statutes/7/2014/e/2.test.yaml"
+        upstream_file.parent.mkdir(parents=True)
+        generated_file.parent.mkdir(parents=True)
+        upstream_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    source: 7 USC 2014(e)(2)(B)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/7/2014
+              excerpt: "20 percent of all earned income"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0.20
+"""
+        )
+        generated_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    source: 7 USC 2014(e)(2)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0.20
+  - name: snap_earned_income_deduction
+    kind: derived
+    dtype: Money
+    period: Month
+    source: 7 USC 2014(e)(2)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: snap_countable_earned_income * snap_earned_income_deduction_rate
+"""
+        )
+        generated_test_file.write_text(
+            """- name: earned_income_case
+  period: 2026-01
+  input:
+    us:statutes/7/2014/e/2#input.snap_countable_earned_income: 100
+  output:
+    us:statutes/7/2014/e/2#snap_earned_income_deduction_rate: 0.20
+    us:statutes/7/2014/e/2#snap_earned_income_deduction: 20
+"""
+        )
+
+        repaired = (
+            _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply(
+                SimpleNamespace(output_file=str(generated_file)),
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+        )
+
+        rules_payload = yaml.safe_load(generated_file.read_text())
+        assert repaired == [
+            "snap_earned_income_deduction_rate",
+            "proof:snap_earned_income_deduction",
+        ]
+        assert rules_payload["module"]["proof_validation"]["required"] is True
+        assert rules_payload["rules"][0]["name"] == "snap_earned_income_deduction"
+        assert rules_payload["rules"][0]["metadata"]["proof"]["atoms"]
 
     def test_upstream_placement_duplicate_repair_restates_duplicate_only_module(
         self, tmp_path
