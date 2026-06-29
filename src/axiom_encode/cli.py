@@ -33926,6 +33926,14 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                     repaired,
                     alias_replacements,
                 )
+                placeholder_repairs.extend(
+                    _repair_formula_alias_output_test_inputs(
+                        test_file=test_file,
+                        generated_target_base=generated_target_base,
+                        imported_target=imported_target,
+                        alias_replacements=alias_replacements,
+                    )
+                )
             referenced_outputs = _formula_referenced_rulespec_output_names(
                 repaired,
                 target_outputs,
@@ -34884,6 +34892,100 @@ def _add_imported_gate_test_overrides(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repairs
+
+
+def _repair_formula_alias_output_test_inputs(
+    *,
+    test_file: Path,
+    generated_target_base: str,
+    imported_target: str,
+    alias_replacements: dict[str, str],
+) -> list[str]:
+    if not test_file.exists() or not alias_replacements:
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    repairs: list[str] = []
+    ref_replacements = {
+        f"{generated_target_base}#input.{alias}": f"{imported_target}#{output}"
+        for alias, output in alias_replacements.items()
+    }
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_repairs = _replace_alias_output_test_inputs_in_value(
+            test_case,
+            ref_replacements=ref_replacements,
+        )
+        if not case_repairs:
+            continue
+        changed = True
+        case_name = str(test_case.get("name") or "<unnamed>")
+        repairs.extend(f"test:{case_name}:{repair}" for repair in case_repairs)
+
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
+
+
+def _replace_alias_output_test_inputs_in_value(
+    value: object,
+    *,
+    ref_replacements: dict[str, str],
+) -> list[str]:
+    repairs: list[str] = []
+    if isinstance(value, dict):
+        pending: dict[str, object] = {}
+        for key in list(value.keys()):
+            key_text = str(key)
+            new_ref = ref_replacements.get(key_text)
+            if new_ref is None:
+                continue
+            old_value = value.pop(key)
+            if new_ref in value:
+                old_value = _combine_alias_test_input_values(value[new_ref], old_value)
+            if new_ref in pending:
+                old_value = _combine_alias_test_input_values(
+                    pending[new_ref], old_value
+                )
+            pending[new_ref] = old_value
+            repairs.append(f"{key_text}->{new_ref}")
+        value.update(pending)
+        for nested in value.values():
+            repairs.extend(
+                _replace_alias_output_test_inputs_in_value(
+                    nested,
+                    ref_replacements=ref_replacements,
+                )
+            )
+    elif isinstance(value, list):
+        for item in value:
+            repairs.extend(
+                _replace_alias_output_test_inputs_in_value(
+                    item,
+                    ref_replacements=ref_replacements,
+                )
+            )
+    return repairs
+
+
+def _combine_alias_test_input_values(existing: object, incoming: object) -> bool:
+    return _test_input_object_truthy(existing) or _test_input_object_truthy(incoming)
+
+
+def _test_input_object_truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return _test_input_value_truthy(str(value))
 
 
 def _repair_same_section_subsection_placeholder_references(
