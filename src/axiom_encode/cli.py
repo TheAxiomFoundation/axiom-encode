@@ -34,7 +34,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
@@ -1291,6 +1291,50 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_same_section_parser = subparsers.add_parser(
+        "repair-same-section-subsection-imports",
+        help="Apply signed deterministic repairs for same-section subsection imports",
+    )
+    repair_same_section_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_same_section_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_same_section_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_missing_deferred_parser = subparsers.add_parser(
+        "repair-missing-deferred-outputs",
+        help="Apply signed deterministic repairs for source coverage gaps",
+    )
+    repair_missing_deferred_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_missing_deferred_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_missing_deferred_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_section_172_c_parser = subparsers.add_parser(
         "repair-section-172-c-capacity",
         help="Apply signed deterministic repairs for the 1212(a)(1) section 172(c) cross-reference",
@@ -2304,6 +2348,10 @@ def main():
         cmd_repair_proof_import_hashes(args)
     elif args.command == "repair-unreferenced-proof-imports":
         cmd_repair_unreferenced_proof_imports(args)
+    elif args.command == "repair-same-section-subsection-imports":
+        cmd_repair_same_section_subsection_imports(args)
+    elif args.command == "repair-missing-deferred-outputs":
+        cmd_repair_missing_deferred_outputs(args)
     elif args.command == "repair-section-172-c-capacity":
         cmd_repair_section_172_c_capacity(args)
     elif args.command == "repair-section-911-a-1-exclusion":
@@ -9952,6 +10000,226 @@ def cmd_repair_unreferenced_proof_imports(args):
         f"{relative_output}: {', '.join(removed_refs)}"
     )
     print(f"manifest={manifest_path}")
+
+
+GeneratedValidationRepairFunc = Callable[
+    [argparse.Namespace],
+    list[str],
+]
+
+
+def _validation_issue_repair_args(
+    *,
+    output_root: Path,
+    relative_output: Path,
+    model: str,
+    tool: str,
+) -> argparse.Namespace:
+    runner = "deterministic-repair"
+    generated_output = output_root / runner / relative_output
+    return argparse.Namespace(
+        output_file=str(generated_output),
+        runner=runner,
+        backend="deterministic",
+        model=model,
+        tool=tool,
+        citation=None,
+        generation_prompt_sha256=None,
+        trace_file=None,
+        context_manifest_file=None,
+    )
+
+
+def _generated_validation_repair_policy_repo_path(
+    repo_path: Path,
+    relative_output: Path,
+) -> Path:
+    """Return the content root expected by generated apply-time repair helpers."""
+    parts = relative_output.parts
+    if (
+        len(parts) >= 2
+        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+        and (repo_path / parts[0]).is_dir()
+    ):
+        return repo_path / parts[0]
+    return _rulespec_apply_content_root(repo_path, relative_output)
+
+
+def _cmd_repair_generated_validation_issues(
+    args,
+    *,
+    model: str,
+    tool: str,
+    no_repair_message: str,
+    success_label: str,
+    repair: GeneratedValidationRepairFunc,
+) -> None:
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    )
+    before_validation = pipeline.validate(rules_file, skip_reviewers=True)
+    before_issues = [
+        result.error for result in before_validation.results.values() if result.error
+    ]
+    if not before_issues:
+        print(no_repair_message)
+        return
+
+    repair_repo_path = _generated_validation_repair_policy_repo_path(
+        repo_path, relative_output
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        repair_args = _validation_issue_repair_args(
+            output_root=output_root,
+            relative_output=relative_output,
+            model=model,
+            tool=tool,
+        )
+        generated_output = Path(repair_args.output_file)
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(original_content)
+        if original_test_content is not None:
+            generated_test = _rulespec_test_path(generated_output)
+            generated_test.write_text(original_test_content)
+
+        repaired_items = repair(
+            argparse.Namespace(
+                result=repair_args,
+                output_root=output_root,
+                repo_path=repair_repo_path,
+                issues=before_issues,
+            )
+        )
+        if not repaired_items:
+            print(no_repair_message)
+            return
+
+        repaired_content = generated_output.read_text()
+        repaired_test_content = (
+            _rulespec_test_path(generated_output).read_text()
+            if original_test_content is not None
+            else None
+        )
+
+        signing_key = _require_applied_encoding_manifest_signing_key()
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+        rules_file.write_text(repaired_content)
+        if repaired_test_content is not None:
+            test_file.write_text(repaired_test_content)
+
+        after_validation = pipeline.validate(rules_file, skip_reviewers=True)
+        if not after_validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            issues = [
+                result.error
+                for result in after_validation.results.values()
+                if result.error
+            ]
+            print("Repair failed validation; restored original file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        repair_args.citation = _rulespec_anchor_base_for_output(
+            repo_path, relative_output
+        )
+        generated_output.write_text(repaired_content)
+        applied_files = [rules_file]
+        if repaired_test_content is not None:
+            applied_files.append(test_file)
+        manifest_path = _write_applied_encoding_manifest(
+            repair_args,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        f"Applied {success_label} repair to "
+        f"{relative_output}: {', '.join(repaired_items)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_same_section_subsection_imports(args):
+    """Apply signed deterministic repairs for same-section subsection imports."""
+
+    def repair(context: argparse.Namespace) -> list[str]:
+        return _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+            context.result,
+            output_root=context.output_root,
+            policy_repo_path=context.repo_path,
+            issues=context.issues,
+        )
+
+    _cmd_repair_generated_validation_issues(
+        args,
+        model="same-section-subsection-import-v1",
+        tool="axiom-encode repair-same-section-subsection-imports",
+        no_repair_message="No same-section subsection import repairs found.",
+        success_label="same-section subsection import",
+        repair=repair,
+    )
+
+
+def cmd_repair_missing_deferred_outputs(args):
+    """Apply signed deterministic repairs for missing source-gap deferred outputs."""
+
+    def repair(context: argparse.Namespace) -> list[str]:
+        repaired = _try_repair_generated_missing_deferred_outputs_for_apply(
+            context.result,
+            output_root=context.output_root,
+            policy_repo_path=context.repo_path,
+            issues=context.issues,
+        )
+        if repaired:
+            return repaired
+        return _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
+            context.result,
+            output_root=context.output_root,
+            policy_repo_path=context.repo_path,
+            issues=context.issues,
+        )
+
+    _cmd_repair_generated_validation_issues(
+        args,
+        model="missing-deferred-output-v1",
+        tool="axiom-encode repair-missing-deferred-outputs",
+        no_repair_message="No missing deferred output repairs found.",
+        success_label="missing deferred output",
+        repair=repair,
+    )
 
 
 def cmd_repair_imported_test_inputs(args):

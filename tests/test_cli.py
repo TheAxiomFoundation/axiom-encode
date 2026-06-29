@@ -183,11 +183,13 @@ from axiom_encode.cli import (
     cmd_repair_imported_test_inputs,
     cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
+    cmd_repair_missing_deferred_outputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_mixed_derived_entity_output_tests,
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
+    cmd_repair_same_section_subsection_imports,
     cmd_repair_section_63_f_stale_test_inputs,
     cmd_repair_section_172_c_capacity,
     cmd_repair_section_911_a_1_exclusion,
@@ -19017,6 +19019,162 @@ rules:
         assert [rule["name"] for rule in payload["rules"]] == [
             "cash_assistance_income_requirement_satisfied"
         ]
+
+    def test_repair_same_section_subsection_imports_writes_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us" / "statutes" / "42" / "426" / "c.yaml"
+        imported = policy_repo / "us" / "statutes" / "42" / "426" / "b.yaml"
+        target.parent.mkdir(parents=True)
+        imported.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules: []
+"""
+        )
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: disability_insurance_beneficiary_entitled_to_hospital_insurance
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: beneficiary_is_entitled
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us/statutes/42/426/c.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                if "us:statutes/42/426/b#" in target.read_text():
+                    return SimpleNamespace(all_passed=True, results={})
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            error=(
+                                "Same-section subsection import missing: source "
+                                "text cites `statutes/42/426/b` in an "
+                                "exception/cross-reference clause, but the file "
+                                "does not import it."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_same_section_subsection_imports(args)
+
+        content = target.read_text()
+        assert (
+            "  - us:statutes/42/426/b"
+            "#disability_insurance_beneficiary_entitled_to_hospital_insurance\n"
+        ) in content
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/42/426/c.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "same-section-subsection-import-v1"
+        assert payload["tool"] == "axiom-encode repair-same-section-subsection-imports"
+        assert payload["citation"] == "us:statutes/42/426/c"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "us/statutes/42/426/c.yaml"
+        ]
+
+    def test_repair_missing_deferred_outputs_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us" / "statutes" / "26" / "26.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 26 nonrefundable credit limit.
+rules:
+  - name: income_tax_before_refundable_credits
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_tax_before_credits
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us/statutes/26/26.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                if "deferred_outputs:" in target.read_text():
+                    return SimpleNamespace(all_passed=True, results={})
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            error=(
+                                "Source sub-paragraph coverage missing: "
+                                "26 USC 26(b) ('Regular tax liability For "
+                                "purposes of this part') has no rule citing it "
+                                "and no entry in `module.deferred_outputs`."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_missing_deferred_outputs(args)
+
+        payload = yaml.safe_load(target.read_text())
+        deferred_outputs = payload["module"]["deferred_outputs"]
+        assert deferred_outputs[0]["output"].startswith("us:statutes/26/26/b#")
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/26.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "missing-deferred-output-v1"
+        assert (
+            manifest_payload["tool"] == "axiom-encode repair-missing-deferred-outputs"
+        )
+        assert manifest_payload["citation"] == "us:statutes/26/26"
 
     def test_import_target_prefix_typo_repair_uses_declared_import(self, tmp_path):
         output_root = tmp_path / "out"
