@@ -19910,6 +19910,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3121/b/8.yaml"
+        test_file = rules_file.with_name("8.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us"
         cited_file = policy_repo / "statutes" / "26" / "3121" / "r.yaml"
@@ -19947,6 +19948,20 @@ rules:
           and not election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision
 """
         )
+        test_file.write_text(
+            """- name: subsection_r_autonomous_subdivision_election_blocks_religious_order_member_branch
+  period: 2026
+  input: {}
+  tables:
+    Payment:
+      - us:statutes/26/3121/b/8#input.service_performed_by_member_of_religious_order_in_exercise_of_duties_required_by_order: true
+        us:statutes/26/3121/b/8#input.election_of_coverage_under_subsection_r_in_effect_with_respect_to_order: false
+        us:statutes/26/3121/b/8#input.election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision: true
+  output:
+    us:statutes/26/3121/b/8#minister_or_religious_order_service_excluded_from_employment:
+      - not_holds
+"""
+        )
         result = SimpleNamespace(
             runner="codex-gpt-5.5",
             output_file=str(rules_file),
@@ -19966,7 +19981,20 @@ rules:
             )
         )
 
-        assert repaired == ["us:statutes/26/3121/r#election_of_coverage_in_effect"]
+        assert repaired[0] == "us:statutes/26/3121/r#election_of_coverage_in_effect"
+        assert len(repaired) == 3
+        assert any(
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_order"
+            in item
+            and item.endswith("->us:statutes/26/3121/r#election_of_coverage_in_effect")
+            for item in repaired
+        )
+        assert any(
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision"
+            in item
+            and item.endswith("->us:statutes/26/3121/r#election_of_coverage_in_effect")
+            for item in repaired
+        )
         rules_text = rules_file.read_text()
         assert (
             "  - us:statutes/26/3121/r#election_of_coverage_in_effect\n" in rules_text
@@ -19979,6 +20007,21 @@ rules:
         assert (
             "election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision"
             not in rules_text
+        )
+        test_payload = yaml.safe_load(test_file.read_text())
+        table_inputs = test_payload[0]["tables"]["Payment"][0]
+        assert (
+            table_inputs["us:statutes/26/3121/r#election_of_coverage_in_effect"] is True
+        )
+        assert (
+            "us:statutes/26/3121/b/8#input."
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_order"
+            not in table_inputs
+        )
+        assert (
+            "us:statutes/26/3121/b/8#input."
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision"
+            not in table_inputs
         )
 
     def test_missing_same_section_import_repair_adds_medicaid_xx_formula_gate(
