@@ -13596,6 +13596,8 @@ def find_imported_deferred_branch_composition_issues(
             imported_tokens = _purpose_surface_tokens(imported_symbol)
             if len(imported_tokens) < 2:
                 continue
+            if _is_scalar_modifier_import_symbol(imported_symbol):
+                continue
             for record in deferred_outputs:
                 output = (
                     str(record.get("output") or "").strip()
@@ -13658,6 +13660,11 @@ def find_imported_deferred_branch_composition_issues(
                 continue
             break
     return issues
+
+
+def _is_scalar_modifier_import_symbol(symbol: str) -> bool:
+    normalized = _normalize_identifier(symbol)
+    return normalized.endswith(("_rate", "_percentage", "_percent", "_ratio"))
 
 
 def _purpose_specific_prefix(symbol: str) -> str:

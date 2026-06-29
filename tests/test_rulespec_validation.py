@@ -24244,3 +24244,45 @@ rules:
         )
         == []
     )
+
+
+def test_imported_deferred_branch_composition_allows_rate_modifier_import(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    child = policy_repo / "us/statutes/7/2014/e/2/B.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/7/2014/e/2/B#snap_earned_income_deduction
+      reason: Subparagraph (B) deduction amount is deferred because paragraph (C) states an exception.
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-10-01'
+        formula: 0.20
+"""
+    )
+    rules_file = policy_repo / "us/statutes/7/2014/e/2.yaml"
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/7/2014/e/2/B#snap_earned_income_deduction_rate
+rules:
+  - name: snap_earned_income_deduction
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2008-10-01'
+        formula: snap_earned_income_subject_to_deduction * snap_earned_income_deduction_rate
+"""
+
+    assert (
+        find_imported_deferred_branch_composition_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo,
+        )
+        == []
+    )

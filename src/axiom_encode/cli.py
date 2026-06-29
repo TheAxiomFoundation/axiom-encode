@@ -1338,6 +1338,31 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_upstream_duplicates_parser = subparsers.add_parser(
+        "repair-upstream-placement-duplicates",
+        help=(
+            "Apply signed deterministic repairs for executable rules that "
+            "duplicate upstream RuleSpec targets"
+        ),
+    )
+    repair_upstream_duplicates_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_upstream_duplicates_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_upstream_duplicates_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_missing_deferred_parser = subparsers.add_parser(
         "repair-missing-deferred-outputs",
         help="Apply signed deterministic repairs for source coverage gaps",
@@ -2377,6 +2402,8 @@ def main():
         cmd_repair_same_section_subsection_imports(args)
     elif args.command == "repair-child-fragment-reencoding":
         cmd_repair_child_fragment_reencoding(args)
+    elif args.command == "repair-upstream-placement-duplicates":
+        cmd_repair_upstream_placement_duplicates(args)
     elif args.command == "repair-missing-deferred-outputs":
         cmd_repair_missing_deferred_outputs(args)
     elif args.command == "repair-section-172-c-capacity":
@@ -10145,6 +10172,7 @@ def _cmd_repair_generated_validation_issues(
                     result=repair_args,
                     output_root=output_root,
                     repo_path=repair_repo_path,
+                    rules_repo_path=repo_path,
                     issues=pending_issues,
                 )
             )
@@ -10271,6 +10299,85 @@ def cmd_repair_child_fragment_reencoding(args):
         success_label="child-fragment re-encoding",
         repair=repair,
     )
+
+
+def cmd_repair_upstream_placement_duplicates(args):
+    """Apply signed deterministic repairs for copied upstream executable rules."""
+
+    def repair(context: argparse.Namespace) -> list[str]:
+        return _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply(
+            context.result,
+            output_root=context.output_root,
+            policy_repo_path=context.rules_repo_path,
+        )
+
+    _cmd_repair_generated_validation_issues(
+        args,
+        model="upstream-placement-duplicate-v1",
+        tool="axiom-encode repair-upstream-placement-duplicates",
+        no_repair_message="No upstream placement duplicate repairs found.",
+        success_label="upstream placement duplicate",
+        repair=repair,
+    )
+
+
+def _try_repair_generated_upstream_placement_duplicates_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    try:
+        real_rules_file = Path(policy_repo_path) / relative_output
+        content_repo_path = find_policy_repo_root(
+            real_rules_file
+        ) or _generated_validation_repair_policy_repo_path(
+            Path(policy_repo_path), relative_output
+        )
+        content_relative_output = real_rules_file.relative_to(content_repo_path)
+    except ValueError:
+        content_repo_path = _generated_validation_repair_policy_repo_path(
+            Path(policy_repo_path), relative_output
+        )
+        content_relative_output = relative_output
+    return _repair_upstream_placement_duplicate_imports(
+        rules_file=rules_file,
+        test_file=_rulespec_test_path(rules_file),
+        repo_path=content_repo_path,
+        relative_output=content_relative_output,
+    )
+
+
+def _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    repaired = _try_repair_generated_upstream_placement_duplicates_for_apply(
+        result,
+        output_root=output_root,
+        policy_repo_path=policy_repo_path,
+    )
+    if not repaired:
+        return []
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    try:
+        content = rules_file.read_text()
+    except OSError:
+        return repaired
+    repaired_content, repaired_rules = _repair_missing_source_proof_atoms(content)
+    if repaired_content != content:
+        rules_file.write_text(repaired_content)
+        repaired.extend(f"proof:{name}" for name in repaired_rules)
+    return repaired
 
 
 _CHILD_FRAGMENT_REENCODING_ISSUE_PATTERN = re.compile(
@@ -37492,11 +37599,21 @@ def _repair_upstream_placement_duplicate_imports(
     if not isinstance(rules, list):
         return []
 
-    content_repo_path = _rulespec_apply_content_root(repo_path, relative_output)
+    content_repo_path = _generated_validation_repair_policy_repo_path(
+        repo_path, relative_output
+    )
+    relative_parts = relative_output.parts
+    if (
+        len(relative_parts) >= 2
+        and relative_parts[1] in RULESPEC_SOURCE_ROOTS
+        and relative_parts[0] == _repo_jurisdiction_prefix(content_repo_path)
+    ):
+        relative_output = Path(*relative_parts[1:])
+    target_rules_file = content_repo_path / relative_output
     duplicate_targets_by_name, duplicate_indexes = (
         _upstream_placement_duplicate_targets(
             rules=rules,
-            rules_file=rules_file,
+            rules_file=target_rules_file,
             repo_path=content_repo_path,
         )
     )
