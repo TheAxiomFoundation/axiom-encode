@@ -10706,6 +10706,14 @@ COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_IMPORT = (
 COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_SYMBOL = (
     "federal_taxable_income_after_subsection_2_modifications"
 )
+COLORADO_TAX_SUBSECTION_2_LOCAL_TEST_INPUT = (
+    "us-co:statutes/39/39-22-104/1.5"
+    "#input.federal_taxable_income_after_subsection_2_modifications"
+)
+COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_TARGET = (
+    "us-co:statutes/39/39-22-104/2"
+    "#federal_taxable_income_after_subsection_2_modifications"
+)
 COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS = (
     Path("statutes/39/39-22-104/1.5.yaml"),
     Path("statutes/39/39-22-104/1.7/a.yaml"),
@@ -10738,10 +10746,14 @@ def cmd_repair_colorado_tax_validation(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
-    content_manifest_groups = [
-        (relative_output, [content_repo_path / relative_output])
-        for relative_output in COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS
-    ]
+    content_manifest_groups = []
+    for relative_output in COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS:
+        rules_file = content_repo_path / relative_output
+        group_files = [rules_file]
+        companion = rules_file.with_name(f"{rules_file.stem}.test.yaml")
+        if companion.exists():
+            group_files.append(companion)
+        content_manifest_groups.append((relative_output, group_files))
     guard_manifest_groups = [
         (
             (content_repo_path / relative_output).relative_to(validation_repo_path),
@@ -10760,8 +10772,17 @@ def cmd_repair_colorado_tax_validation(args):
 
     try:
         changed: list[Path] = []
-        for rules_file in touched:
+        rules_files = [
+            content_repo_path / relative_output
+            for relative_output in COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS
+        ]
+        for rules_file in rules_files:
             changed.extend(_repair_colorado_tax_subsection_2_import(rules_file))
+            changed.extend(
+                _repair_colorado_tax_subsection_2_test_inputs(
+                    rules_file.with_name(f"{rules_file.stem}.test.yaml")
+                )
+            )
         changed = _unique_paths(changed)
         if not changed:
             print("No Colorado tax validation repairs found.")
@@ -10828,6 +10849,20 @@ def _repair_colorado_tax_subsection_2_import(rules_file: Path) -> list[Path]:
         return []
     rules_file.write_text(repaired)
     return [rules_file]
+
+
+def _repair_colorado_tax_subsection_2_test_inputs(test_file: Path) -> list[Path]:
+    if not test_file.exists():
+        return []
+    content = test_file.read_text()
+    repaired = content.replace(
+        COLORADO_TAX_SUBSECTION_2_LOCAL_TEST_INPUT,
+        COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_TARGET,
+    )
+    if repaired == content:
+        return []
+    test_file.write_text(repaired)
+    return [test_file]
 
 
 def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
