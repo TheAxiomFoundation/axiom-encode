@@ -9911,6 +9911,10 @@ def cmd_repair_proof_import_hashes(args):
                 test_file=test_file,
                 issues=issues,
             )
+            removed_unknown_outputs = _remove_unknown_test_output_refs(
+                test_file=test_file,
+                issues=issues,
+            )
             completed_missing_inputs = _complete_missing_imported_test_inputs(
                 rules_file=rules_file,
                 test_file=test_file,
@@ -9928,6 +9932,7 @@ def cmd_repair_proof_import_hashes(args):
                 and not removed_refs
                 and not repaired_exclusion_refs
                 and not removed_invalid_refs
+                and not removed_unknown_outputs
                 and not completed_missing_inputs
                 and not repaired_output_cases
             ):

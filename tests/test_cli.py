@@ -28342,6 +28342,112 @@ rules:
             "statutes/26/32/c/2.test.yaml",
         ]
 
+    def test_repair_proof_import_hashes_removes_unknown_test_outputs(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/32/c/2.yaml"
+        target = policy_repo / "statutes/26/24/d.yaml"
+        test_file = policy_repo / "statutes/26/24/d.test.yaml"
+        imported.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/26/32/c/2#earned_income
+      reason: deferred
+rules: []
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/32/c/2
+rules:
+  - name: ctc_phase_in_earned_income_base
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/32/c/2#earned_income
+              output: earned_income
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income
+"""
+        )
+        test_file.write_text(
+            """- name: copied_companion_case
+  input:
+    us:statutes/26/24/d#input.earned_income: 1000
+  output:
+    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 1000
+    us:statutes/26/32/c/2#self_employment_earned_income_component: 0
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/24/d.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `copied_companion_case` output "
+                                    "`us:statutes/26/32/c/2#self_employment_earned_income_component` "
+                                    "does not resolve to a derived rule, or parameter "
+                                    "in statutes/26/32/c/2.yaml."
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_proof_import_hashes(args)
+
+        assert "sha256:old" not in target.read_text()
+        updated = test_file.read_text()
+        assert "self_employment_earned_income_component" not in updated
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "proof-import-hash-v1"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/24/d.yaml",
+            "statutes/26/24/d.test.yaml",
+        ]
+
     def test_missing_input_default_treats_base_as_numeric(self):
         assert (
             _infer_missing_input_default(
