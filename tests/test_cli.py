@@ -22755,9 +22755,9 @@ rules:
                 results={
                     "ci": SimpleNamespace(
                         error=(
-                            "Test case `phase_in_case` execution failed: "
-                            "missing input "
-                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction`"
+                            "phase_in_case: missing input "
+                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction` "
+                            "for entity `case` over 2026-01-01..2026-12-31"
                         )
                     )
                 }

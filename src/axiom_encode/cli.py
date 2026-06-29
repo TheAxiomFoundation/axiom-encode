@@ -39368,7 +39368,7 @@ def _repair_dependent_proof_import_hashes(
 
 
 _MISSING_INPUT_RE = re.compile(
-    r"Test case `(?P<case>[^`]+)` execution failed: "
+    r"(?:Test case `)?(?P<case>[^`:]+)`?(?: execution failed)?: "
     r"missing input `(?P<input>[^`]+)`"
     r"(?: for entity `(?P<entity>[^`]+)`)?"
 )
