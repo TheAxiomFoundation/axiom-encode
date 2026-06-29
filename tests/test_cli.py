@@ -15529,7 +15529,11 @@ rules:
         assert repaired == ["auto_positive_treated_as_not_married_under_section_21"]
         auto_case = yaml.safe_load(test_file.read_text())[-1]
         assert auto_case["input"] == {
-            "us:statutes/26/21#input.legally_separated_under_decree": True
+            "us:statutes/26/21#input.filing_status": 0,
+            "us:statutes/26/21#input.furnishes_over_half_cost_of_household": False,
+            "us:statutes/26/21#input.legally_separated_under_decree": True,
+            "us:statutes/26/21#input.maintains_household_principal_abode_of_qualifying_individual_more_than_half_year": False,
+            "us:statutes/26/21#input.spouse_not_member_of_household_during_last_six_months": False,
         }
         assert auto_case["output"] == {
             "us:statutes/26/21#treated_as_not_married_under_section_21": "holds"

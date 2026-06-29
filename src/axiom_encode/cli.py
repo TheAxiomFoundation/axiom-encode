@@ -17136,7 +17136,7 @@ def _positive_judgment_formula_input_assignments_for_formula(
 ) -> tuple[dict[str, object], set[str]]:
     disjuncts = _split_top_level_boolean_disjunction(formula)
     if len(disjuncts) > 1:
-        branch_results: list[tuple[dict[str, object], set[str]]] = []
+        branch_results: list[tuple[str, dict[str, object], set[str]]] = []
         for disjunct in disjuncts:
             branch_assignments, branch_protected_inputs = (
                 _positive_judgment_formula_input_assignments_for_formula(
@@ -17148,14 +17148,28 @@ def _positive_judgment_formula_input_assignments_for_formula(
                 )
             )
             if branch_assignments or branch_protected_inputs:
-                branch_results.append((branch_assignments, branch_protected_inputs))
+                branch_results.append(
+                    (disjunct, branch_assignments, branch_protected_inputs)
+                )
         legal_branch_results = [
             result
             for result in branch_results
-            if not _positive_judgment_assignments_use_forbidden_inputs(result[0])
+            if not _positive_judgment_assignments_use_forbidden_inputs(result[1])
         ]
         if legal_branch_results:
-            return min(legal_branch_results, key=lambda result: len(result[0]))
+            _chosen_disjunct, branch_assignments, branch_protected_inputs = min(
+                legal_branch_results,
+                key=lambda result: len(result[1]),
+            )
+            assignments = _neutral_unassigned_formula_input_assignments(
+                formula=formula,
+                rules_payload=rules_payload,
+                rules_by_name=rules_by_name,
+                imported_outputs=imported_outputs,
+                assigned_inputs=set(branch_assignments),
+            )
+            assignments.update(branch_assignments)
+            return assignments, branch_protected_inputs
 
     negated_group_spans = _negated_parenthesized_expression_spans(formula)
     positive_context_formula = _formula_with_spans_blank(
@@ -17250,6 +17264,26 @@ def _positive_judgment_formula_input_assignments_for_formula(
         )
 
     return assignments, protected_positive_inputs
+
+
+def _neutral_unassigned_formula_input_assignments(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+    assigned_inputs: set[str],
+) -> dict[str, object]:
+    defined_symbols = set(rules_by_name) | imported_outputs
+    assignments: dict[str, object] = {}
+    for identifier in sorted(_formula_identifiers(formula)):
+        if identifier in defined_symbols or identifier in assigned_inputs:
+            continue
+        assignments[identifier] = _default_generated_test_input_value(
+            identifier,
+            rules_payload=rules_payload,
+        )
+    return assignments
 
 
 def _positive_count_helper_input_assignments(
