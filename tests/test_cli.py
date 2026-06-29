@@ -108,6 +108,7 @@ from axiom_encode.cli import (
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
+    _rulespec_anchor_base_for_output,
     _rulespec_apply_content_root,
     _rulespec_scalar_matches,
     _scoped_source_text_for_encode_source_id,
@@ -15440,6 +15441,69 @@ rules:
         assert (
             "us:statutes/26/3303#input.account_maintained_for_employer"
             not in synthesized["input"]
+        )
+
+    def test_judgment_positive_test_repair_strips_country_repo_root(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "us" / "statutes" / "5" / "5566.yaml"
+        test_file = repo_path / "us" / "statutes" / "5" / "5566.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: agency_determination_conclusive_as_to_dependency
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          head_or_designee_made_determination_necessary_to_administer_subchapter
+          and determination_is_as_to_fact_of_dependency_under_subchapter
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("us/statutes/5/5566.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/5/5566#agency_determination_conclusive_as_to_dependency` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_agency_determination_conclusive_as_to_dependency"
+        ]
+        auto_case = yaml.safe_load(test_file.read_text())[-1]
+        assert auto_case["input"] == {
+            "us:statutes/5/5566#input.determination_is_as_to_fact_of_dependency_under_subchapter": True,
+            "us:statutes/5/5566#input.head_or_designee_made_determination_necessary_to_administer_subchapter": True,
+        }
+        assert auto_case["output"] == {
+            "us:statutes/5/5566#agency_determination_conclusive_as_to_dependency": "holds"
+        }
+
+    def test_rulespec_anchor_base_for_output_uses_country_relative_root(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+
+        assert (
+            _rulespec_anchor_base_for_output(repo_path, Path("us/statutes/5/5566.yaml"))
+            == "us:statutes/5/5566"
+        )
+        assert (
+            _rulespec_anchor_base_for_output(
+                repo_path, Path("us-co/statutes/39/39-22-104/1.5.yaml")
+            )
+            == "us-co:statutes/39/39-22-104/1.5"
+        )
+        assert (
+            _rulespec_anchor_base_for_output(repo_path, Path("statutes/5/5566.yaml"))
+            == "us:statutes/5/5566"
         )
 
     def test_judgment_positive_test_repair_uses_imported_companion_inputs(
