@@ -113,6 +113,7 @@ from axiom_encode.cli import (
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
+    _rewrite_stale_imported_test_input_refs,
     _rulespec_anchor_base_for_output,
     _rulespec_apply_content_root,
     _rulespec_base_for_file,
@@ -22680,6 +22681,106 @@ rules:
         assert (
             "us:statutes/26/24/d#input.earned_income_before_section_112_election: 0"
             in target_test.read_text()
+        )
+
+    def test_companion_reference_cleanup_can_add_new_import_defaults(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/32/c/2.yaml"
+        dependent = policy_repo / "statutes/26/24/d.yaml"
+        dependent_test = policy_repo / "statutes/26/24/d.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employee_compensation_includible_in_gross_income
+          + net_earnings_from_self_employment_after_self_employment_tax_deduction
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/32/c/2#earned_income_before_section_112_election
+rules:
+  - name: ctc_phase_in_earned_income_base
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          earned_income_before_section_112_election
+"""
+        )
+        dependent_test.write_text(
+            """- name: phase_in_case
+  input:
+    us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 20000
+  output:
+    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 0
+    us:statutes/26/32/c/2#self_employment_earned_income_component: 0
+"""
+        )
+
+        rewritten = _rewrite_stale_imported_test_input_refs(
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            issues=[
+                "phase_in_case: input "
+                "`us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income` "
+                "does not resolve to an input slot"
+            ],
+        )
+        removed = _remove_unknown_test_output_refs(
+            test_file=dependent_test,
+            issues=[
+                "phase_in_case: unknown executable output "
+                "us:statutes/26/32/c/2#self_employment_earned_income_component"
+            ],
+        )
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=SimpleNamespace(
+                results={
+                    "ci": SimpleNamespace(
+                        error=(
+                            "Test case `phase_in_case` execution failed: "
+                            "missing input "
+                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction`"
+                        )
+                    )
+                }
+            ),
+        )
+
+        assert rewritten == [
+            "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income -> us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income"
+        ]
+        assert removed == [
+            "us:statutes/26/32/c/2#self_employment_earned_income_component"
+        ]
+        assert changed is True
+        repaired = dependent_test.read_text()
+        assert "self_employment_earned_income_component" not in repaired
+        assert "wages_salaries_tips" not in repaired
+        assert (
+            "us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income: 20000"
+            in repaired
+        )
+        assert (
+            "us:statutes/26/32/c/2#input.net_earnings_from_self_employment_after_self_employment_tax_deduction: 0"
+            in repaired
         )
 
     def test_rulespec_base_for_file_uses_country_content_root(self, tmp_path):

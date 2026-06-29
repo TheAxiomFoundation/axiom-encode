@@ -34,6 +34,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, NamedTuple
 
 import yaml
@@ -10890,6 +10891,11 @@ def cmd_repair_companion_test_references(args):
         if not failures:
             break
         issues = [str(failure.get("message") or "") for failure in failures]
+        rewritten_inputs = _rewrite_stale_imported_test_input_refs(
+            test_file=test_file,
+            repo_path=repo_path,
+            issues=issues,
+        )
         removed_inputs = _remove_invalid_test_input_refs(
             test_file=test_file,
             issues=issues,
@@ -10898,10 +10904,39 @@ def cmd_repair_companion_test_references(args):
             test_file=test_file,
             issues=issues,
         )
-        if not removed_inputs and not removed_outputs:
+        completed_missing_inputs = False
+        if rewritten_inputs or removed_inputs or removed_outputs:
+            followup_failures = _rulespec_companion_test_failures(
+                test_file,
+                root=repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+            if followup_failures:
+                completed_missing_inputs = _complete_missing_imported_test_inputs(
+                    rules_file=rules_file,
+                    test_file=test_file,
+                    repo_path=repo_path,
+                    validation=SimpleNamespace(
+                        results={
+                            f"companion_{index}": SimpleNamespace(
+                                error=str(failure.get("message") or "")
+                            )
+                            for index, failure in enumerate(followup_failures)
+                        }
+                    ),
+                )
+        if (
+            not rewritten_inputs
+            and not removed_inputs
+            and not removed_outputs
+            and not completed_missing_inputs
+        ):
             break
+        repaired_refs.extend([f"input-rewrite:{ref}" for ref in rewritten_inputs])
         repaired_refs.extend([f"input:{ref}" for ref in removed_inputs])
         repaired_refs.extend([f"output:{ref}" for ref in removed_outputs])
+        if completed_missing_inputs:
+            repaired_refs.append("input:missing-imported-defaults")
 
     if not repaired_refs:
         print("No companion test reference repairs found.")
@@ -19071,6 +19106,103 @@ def _repair_stale_exclusion_dependency_test_input_refs(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return sorted(replacements)
+
+
+def _rewrite_stale_imported_test_input_refs(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite stale producer input refs to the producer's current input surface."""
+    if not test_file.exists():
+        return []
+    invalid_refs = {
+        ref for ref in _invalid_input_refs_from_issues(issues) if "#input." in ref
+    }
+    if not invalid_refs:
+        return []
+
+    replacements: dict[str, str] = {}
+    for input_ref in sorted(invalid_refs):
+        replacement = _stale_imported_test_input_replacement(
+            input_ref,
+            repo_path=repo_path,
+        )
+        if replacement:
+            replacements[input_ref] = replacement
+    if not replacements:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _replace_mapping_keys_recursive(inputs, replacements):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(f"{old} -> {new}" for old, new in replacements.items())
+
+
+def _stale_imported_test_input_replacement(
+    input_ref: str,
+    *,
+    repo_path: Path,
+) -> str | None:
+    if "#input." not in input_ref:
+        return None
+    import_base, input_name = input_ref.split("#input.", 1)
+    import_base = import_base.strip()
+    input_name = input_name.strip()
+    if not import_base or not input_name:
+        return None
+    import_file = _import_base_to_repo_file(import_base, repo_path=repo_path)
+    if import_file is None or not import_file.exists():
+        return None
+    with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+        target_inputs = _local_factual_input_names_from_rules_content(
+            import_file.read_text()
+        )
+        replacement_name = _unique_stale_input_name_replacement(
+            input_name,
+            target_inputs,
+        )
+        if replacement_name:
+            return f"{import_base}#input.{replacement_name}"
+    return None
+
+
+def _unique_stale_input_name_replacement(
+    input_name: str,
+    target_input_names: set[str],
+) -> str | None:
+    if input_name in target_input_names:
+        return None
+    candidates: list[tuple[float, str]] = []
+    for target_input_name in sorted(target_input_names):
+        score = _input_name_similarity(input_name, target_input_name)
+        if score < 0.5:
+            continue
+        candidates.append((score, target_input_name))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    best_score, best_name = candidates[0]
+    if len(candidates) > 1 and candidates[1][0] == best_score:
+        return None
+    return best_name
 
 
 def _stale_exclusion_dependency_input_replacement(input_ref: str) -> str | None:
@@ -40408,10 +40540,18 @@ def _input_name_similarity(left: str, right: str) -> float:
 
 def _input_name_tokens(name: str) -> set[str]:
     return {
-        token
+        _singular_input_name_token(token)
         for token in re.split(r"[^a-z0-9]+", name.lower())
         if token and not token.isdigit() and token not in _INPUT_NAME_STOPWORDS
     }
+
+
+def _singular_input_name_token(token: str) -> str:
+    if len(token) > 4 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
 
 
 def _find_yaml_input_blocks(lines: list[str]) -> list[tuple[int, int]]:
