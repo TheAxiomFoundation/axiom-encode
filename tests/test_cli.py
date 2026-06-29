@@ -19915,6 +19915,7 @@ rules:
         policy_repo = tmp_path / "rulespec-us"
         cited_file = policy_repo / "statutes" / "26" / "3121" / "r.yaml"
         cited_file.parent.mkdir(parents=True)
+        cited_test_file = cited_file.with_name("r.test.yaml")
         cited_file.write_text(
             """format: rulespec/v1
 rules:
@@ -19930,6 +19931,21 @@ rules:
     versions:
       - effective_from: '1990-01-01'
         formula: certificate_of_election_by_religious_order_valid
+"""
+        )
+        cited_test_file.write_text(
+            """- name: election_in_effect_when_certificate_filed
+  period: 2026
+  input:
+    us:statutes/26/3121/r#input.certificate_filed: true
+  output:
+    us:statutes/26/3121/r#election_of_coverage_in_effect: holds
+- name: election_not_in_effect_when_certificate_not_filed
+  period: 2026
+  input:
+    us:statutes/26/3121/r#input.certificate_filed: false
+  output:
+    us:statutes/26/3121/r#election_of_coverage_in_effect: not_holds
 """
         )
         rules_file.write_text(
@@ -20010,8 +20026,9 @@ rules:
         )
         test_payload = yaml.safe_load(test_file.read_text())
         table_inputs = test_payload[0]["tables"]["Payment"][0]
+        assert table_inputs["us:statutes/26/3121/r#input.certificate_filed"] is True
         assert (
-            table_inputs["us:statutes/26/3121/r#election_of_coverage_in_effect"] is True
+            "us:statutes/26/3121/r#election_of_coverage_in_effect" not in table_inputs
         )
         assert (
             "us:statutes/26/3121/b/8#input."
