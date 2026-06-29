@@ -111,6 +111,81 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_aca_ptc_rev_proc_scalar_helpers(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us/policies/irs/rev-proc-2025-25/aca-ptc.yaml",
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_band_scalar_limit
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.33'
+  - name: applicable_percentage_band_scalar_limit_2
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.50'
+  - name: applicable_percentage_band_scalar_limit_3
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '2.00'
+  - name: applicable_percentage_band_scalar_limit_4
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '2.50'
+  - name: applicable_percentage_band_scalar_limit_5
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '3.00'
+  - name: applicable_percentage_band_scalar_limit_6
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '4.00'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="aca_ptc")
+
+    assert report["total_outputs"] == 6
+    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["policyengine_parameter"] for item in report["items"]} == {
+        "gov.aca.required_contribution_percentage.threshold"
+    }
+
+
+def test_policyengine_coverage_classifies_retirement_earnings_annual_scalars(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us/us/policies/ssa/retirement-earnings-test/2026.yaml",
+        """format: rulespec/v1
+rules:
+  - name: retirement_earnings_test_lower_annual_exempt_amount_scalar_limit
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '12'
+  - name: retirement_earnings_test_higher_annual_exempt_amount_scalar_limit
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '12'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+
+
 def test_policyengine_coverage_classifies_head_start_45_cfr_1302_12(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us/us/regulations/45-cfr/1302/12.yaml",
