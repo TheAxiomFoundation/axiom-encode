@@ -10905,26 +10905,27 @@ def cmd_repair_companion_test_references(args):
             issues=issues,
         )
         completed_missing_inputs = False
+        missing_input_failures = failures
         if rewritten_inputs or removed_inputs or removed_outputs:
-            followup_failures = _rulespec_companion_test_failures(
+            missing_input_failures = _rulespec_companion_test_failures(
                 test_file,
                 root=repo_path,
                 axiom_rules_path=axiom_rules_path,
             )
-            if followup_failures:
-                completed_missing_inputs = _complete_missing_imported_test_inputs(
-                    rules_file=rules_file,
-                    test_file=test_file,
-                    repo_path=repo_path,
-                    validation=SimpleNamespace(
-                        results={
-                            f"companion_{index}": SimpleNamespace(
-                                error=str(failure.get("message") or "")
-                            )
-                            for index, failure in enumerate(followup_failures)
-                        }
-                    ),
-                )
+        if missing_input_failures:
+            completed_missing_inputs = _complete_missing_imported_test_inputs(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=repo_path,
+                validation=SimpleNamespace(
+                    results={
+                        f"companion_{index}": SimpleNamespace(
+                            error=_companion_failure_validation_error(failure)
+                        )
+                        for index, failure in enumerate(missing_input_failures)
+                    }
+                ),
+            )
         if (
             not rewritten_inputs
             and not removed_inputs
@@ -10987,6 +10988,16 @@ def cmd_repair_companion_test_references(args):
     print(f"Applied companion test reference repair to {relative_output}")
     print(f"repaired={', '.join(sorted(set(repaired_refs)))}")
     print(f"manifest={manifest_path}")
+
+
+def _companion_failure_validation_error(failure: dict[str, object]) -> str:
+    message = str(failure.get("message") or "")
+    case_name = str(failure.get("case") or "").strip()
+    if not case_name or not message:
+        return message
+    if message.startswith(f"{case_name}:") or message.startswith("Test case `"):
+        return message
+    return f"{case_name}: {message}"
 
 
 _SECTION_172_C_IMPORT = (
@@ -40244,6 +40255,7 @@ def _infer_missing_input_default(input_name: str) -> object:
     numeric_markers = (
         "amount",
         "base",
+        "compensation",
         "count",
         "cost",
         "costs",
