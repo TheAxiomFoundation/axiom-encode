@@ -25784,6 +25784,10 @@ print("BENCHMARK:" + json.dumps(result))
                 *adapter.monthly_person_inputs,
                 *adapter.boolean_person_inputs,
                 *adapter.monthly_boolean_person_inputs,
+                *adapter.direct_household_overrides,
+                *adapter.inverted_boolean_household_overrides,
+                *adapter.annual_direct_household_overrides,
+                *adapter.annual_inverted_boolean_household_overrides,
             ):
                 aliases.add(source_key)
             for _target_key, _operation, source_keys in (
@@ -27063,6 +27067,38 @@ print(f'RESULT:{{float(value)}}')
             household_extra_parts.append(
                 f"'state_group_str': {{'{year}': {repr(inputs['state_group'])}}}"
             )
+        if adapter is not None:
+            household_override_period = period if is_monthly else year
+            for rule_key, pe_key in adapter.direct_household_overrides:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                household_extra_parts.append(
+                    f"'{pe_key}': "
+                    f"{{'{household_override_period}': {pe_literal(value)}}}"
+                )
+            for rule_key, pe_key in adapter.inverted_boolean_household_overrides:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                household_extra_parts.append(
+                    f"'{pe_key}': "
+                    f"{{'{household_override_period}': {pe_literal(not bool(value))}}}"
+                )
+            for rule_key, pe_key in adapter.annual_direct_household_overrides:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                household_extra_parts.append(
+                    f"'{pe_key}': {{'{year}': {pe_literal(value)}}}"
+                )
+            for rule_key, pe_key in adapter.annual_inverted_boolean_household_overrides:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is None:
+                    continue
+                household_extra_parts.append(
+                    f"'{pe_key}': {{'{year}': {pe_literal(not bool(value))}}}"
+                )
         household_extra = ", ".join(household_extra_parts)
 
         if adapter is not None and adapter.parameter_path is not None:

@@ -29,6 +29,10 @@ class PolicyEngineUSVarAdapter:
     derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     annual_direct_spm_overrides: tuple[tuple[str, str], ...] = ()
     annual_derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    direct_household_overrides: tuple[tuple[str, str], ...] = ()
+    inverted_boolean_household_overrides: tuple[tuple[str, str], ...] = ()
+    annual_direct_household_overrides: tuple[tuple[str, str], ...] = ()
+    annual_inverted_boolean_household_overrides: tuple[tuple[str, str], ...] = ()
     unsupported_input_keys: tuple[str, ...] = ()
     unsupported_input_patterns: tuple[str, ...] = ()
     unsupported_truthy_input_keys: tuple[str, ...] = ()
@@ -397,6 +401,17 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
         annual_direct_spm_overrides=(("family_size", "spm_unit_size"),),
         default_state_code="CO",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("ma_tafdc_payment_standard",),
+        pe_var="ma_tafdc_payment_standard",
+        monthly=True,
+        spm=True,
+        annual_direct_spm_overrides=(("assistance_unit_size", "spm_unit_size"),),
+        annual_inverted_boolean_household_overrides=(
+            ("assistance_unit_has_rent_allowance", "is_in_public_housing"),
+        ),
+        default_state_code="MA",
     ),
     PolicyEngineUSVarAdapter(
         rule_names=("oap_authorized_grant_payment_for_month",),
