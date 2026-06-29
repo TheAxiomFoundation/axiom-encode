@@ -39765,13 +39765,27 @@ def _complete_missing_imported_test_inputs(
     missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
-    imported_inputs = _imported_input_refs_by_name(rules_file, repo_path=repo_path)
+    current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    local_input_refs: dict[str, list[str]] = {}
+    if current_base:
+        with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+            for input_name in sorted(
+                _local_factual_input_names_from_rules_content(rules_file.read_text())
+            ):
+                _append_unique_input_ref(
+                    local_input_refs,
+                    input_name,
+                    f"{current_base}#input.{input_name}",
+                )
+    imported_inputs = _merge_imported_input_refs_by_name(
+        local_input_refs,
+        _imported_input_refs_by_name(rules_file, repo_path=repo_path),
+    )
     if not imported_inputs:
         return False
 
     content = test_file.read_text()
     updated = content
-    current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     relation_row_anchor_bases = [current_base] if current_base else None
     for input_name in sorted(missing_inputs):
         for input_ref in imported_inputs.get(input_name, []):
@@ -39935,7 +39949,7 @@ def _collect_imported_input_refs_by_name(
 
 def _rulespec_base_for_file(rules_file: Path, *, repo_path: Path) -> str:
     try:
-        relative = rules_file.relative_to(repo_path)
+        relative = _relative_to_rulespec_apply_content_root(rules_file, repo_path)
     except ValueError:
         return ""
     return (

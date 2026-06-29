@@ -115,6 +115,7 @@ from axiom_encode.cli import (
     _rewrite_judgment_numeric_comparisons,
     _rulespec_anchor_base_for_output,
     _rulespec_apply_content_root,
+    _rulespec_base_for_file,
     _rulespec_scalar_matches,
     _scoped_source_text_for_encode_source_id,
     _sha256_file,
@@ -22629,6 +22630,67 @@ rules: []
         assert (
             "us:statutes/26/1402/b#input.net_earnings_from_self_employment: 0"
             in dependent_test.read_text()
+        )
+
+    def test_complete_missing_imported_test_inputs_adds_local_defaults(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/24/d.yaml"
+        target_test = policy_repo / "statutes/26/24/d.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: ctc_phase_in_earned_income_base
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          earned_income_before_section_112_election
+"""
+        )
+        target_test.write_text(
+            """- name: phase_in_case
+  input: {}
+  output:
+    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `phase_in_case` execution failed: "
+                        "missing input `earned_income_before_section_112_election`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=target,
+            test_file=target_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        assert (
+            "us:statutes/26/24/d#input.earned_income_before_section_112_election: 0"
+            in target_test.read_text()
+        )
+
+    def test_rulespec_base_for_file_uses_country_content_root(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us/statutes/26/24/d.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+
+        assert (
+            _rulespec_base_for_file(target, repo_path=policy_repo)
+            == "us:statutes/26/24/d"
         )
 
     def test_complete_missing_imported_test_inputs_adds_table_entity_defaults(
