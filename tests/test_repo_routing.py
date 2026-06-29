@@ -97,6 +97,28 @@ def test_canonical_compile_path_keeps_monorepo_jurisdiction_under_country_alias(
     assert compile_path.resolve() == rules_file.resolve()
 
 
+def test_canonical_compile_path_keeps_canonical_country_content_root_segment(
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    rules_file = policy_root / "statutes" / "26" / "3121" / "i.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    compile_path = _canonical_rulespec_compile_path(rules_file, policy_root)
+
+    assert compile_path == rules_file
+    assert compile_path.parts[-5:] == (
+        "us",
+        "statutes",
+        "26",
+        "3121",
+        "i.yaml",
+    )
+
+
 def test_compile_env_exposes_monorepo_for_jurisdiction_subdir(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")

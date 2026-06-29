@@ -10843,7 +10843,15 @@ def _ensure_rulespec_import(content: str, import_item: str) -> str:
     lines = content.splitlines(keepends=True)
     for index, line in enumerate(lines):
         if re.match(r"^imports:\s*$", line):
-            lines.insert(index + 1, f"  - {import_item}\n")
+            item_indent = "  "
+            for following in lines[index + 1 :]:
+                if not following.strip():
+                    continue
+                item_match = re.match(r"^(\s*)-\s+", following)
+                if item_match:
+                    item_indent = item_match.group(1)
+                break
+            lines.insert(index + 1, f"{item_indent}- {import_item}\n")
             return "".join(lines)
     insert_at = 1 if lines and re.match(r"^format:\s*", lines[0]) else 0
     lines.insert(insert_at, f"imports:\n  - {import_item}\n")
