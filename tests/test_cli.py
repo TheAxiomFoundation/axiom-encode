@@ -11424,7 +11424,16 @@ rules:
         content = test_file.read_text()
         assert (
             "us-co:statutes/39/39-22-104/2"
-            "#federal_taxable_income_after_subsection_2_modifications: 100000"
+            "#input.federal_taxable_income: 100000" in content
+        )
+        assert (
+            "us-co:statutes/39/39-22-104/2"
+            "#input.additions_to_federal_taxable_income_provided_in_subsection_3: 0"
+            in content
+        )
+        assert (
+            "us-co:statutes/39/39-22-104/2"
+            "#input.subtractions_from_federal_taxable_income_provided_in_subsection_4: 0"
             in content
         )
         assert (

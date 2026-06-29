@@ -10710,9 +10710,16 @@ COLORADO_TAX_SUBSECTION_2_LOCAL_TEST_INPUT = (
     "us-co:statutes/39/39-22-104/1.5"
     "#input.federal_taxable_income_after_subsection_2_modifications"
 )
-COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_TARGET = (
+COLORADO_TAX_SUBSECTION_2_FEDERAL_TAXABLE_INCOME_INPUT = (
+    "us-co:statutes/39/39-22-104/2#input.federal_taxable_income"
+)
+COLORADO_TAX_SUBSECTION_2_ADDITIONS_INPUT = (
     "us-co:statutes/39/39-22-104/2"
-    "#federal_taxable_income_after_subsection_2_modifications"
+    "#input.additions_to_federal_taxable_income_provided_in_subsection_3"
+)
+COLORADO_TAX_SUBSECTION_2_SUBTRACTIONS_INPUT = (
+    "us-co:statutes/39/39-22-104/2"
+    "#input.subtractions_from_federal_taxable_income_provided_in_subsection_4"
 )
 COLORADO_TAX_VALIDATION_REPAIR_RELATIVE_OUTPUTS = (
     Path("statutes/39/39-22-104/1.5.yaml"),
@@ -10855,14 +10862,27 @@ def _repair_colorado_tax_subsection_2_test_inputs(test_file: Path) -> list[Path]
     if not test_file.exists():
         return []
     content = test_file.read_text()
-    repaired = content.replace(
-        COLORADO_TAX_SUBSECTION_2_LOCAL_TEST_INPUT,
-        COLORADO_TAX_SUBSECTION_2_MODIFIED_INCOME_TARGET,
+    repaired = re.sub(
+        rf"(?m)^(?P<indent>\s*){re.escape(COLORADO_TAX_SUBSECTION_2_LOCAL_TEST_INPUT)}:\s*(?P<value>[^\n]+)$",
+        _colorado_tax_subsection_2_input_replacement,
+        content,
     )
     if repaired == content:
         return []
     test_file.write_text(repaired)
     return [test_file]
+
+
+def _colorado_tax_subsection_2_input_replacement(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = match.group("value").strip()
+    return "\n".join(
+        (
+            f"{indent}{COLORADO_TAX_SUBSECTION_2_FEDERAL_TAXABLE_INCOME_INPUT}: {value}",
+            f"{indent}{COLORADO_TAX_SUBSECTION_2_ADDITIONS_INPUT}: 0",
+            f"{indent}{COLORADO_TAX_SUBSECTION_2_SUBTRACTIONS_INPUT}: 0",
+        )
+    )
 
 
 def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
