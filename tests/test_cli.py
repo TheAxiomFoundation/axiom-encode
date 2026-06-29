@@ -15488,6 +15488,53 @@ rules:
             "us:statutes/5/5566#agency_determination_conclusive_as_to_dependency": "holds"
         }
 
+    def test_judgment_positive_test_repair_prefers_legal_or_branch(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "21.yaml"
+        test_file = repo_path / "statutes" / "26" / "21.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: treated_as_not_married_under_section_21
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          legally_separated_under_decree
+          or (
+              filing_status == 2
+              and maintains_household_principal_abode_of_qualifying_individual_more_than_half_year
+              and furnishes_over_half_cost_of_household
+              and spouse_not_member_of_household_during_last_six_months
+          )
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/26/21.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/26/21#treated_as_not_married_under_section_21` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_treated_as_not_married_under_section_21"]
+        auto_case = yaml.safe_load(test_file.read_text())[-1]
+        assert auto_case["input"] == {
+            "us:statutes/26/21#input.legally_separated_under_decree": True
+        }
+        assert auto_case["output"] == {
+            "us:statutes/26/21#treated_as_not_married_under_section_21": "holds"
+        }
+
     def test_rulespec_anchor_base_for_output_uses_country_relative_root(self, tmp_path):
         repo_path = tmp_path / "rulespec-us"
 

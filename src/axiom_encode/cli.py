@@ -12797,10 +12797,7 @@ def cmd_repair_tax_filing_status_branches(args):
             backend="deterministic",
             model="tax-filing-status-branch-v1",
             tool="axiom-encode repair-tax-filing-status-branches",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -13076,10 +13073,7 @@ def cmd_repair_tax_status_components(args):
             backend="deterministic",
             model="tax-status-component-v1",
             tool="axiom-encode repair-tax-status-components",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -17067,6 +17061,71 @@ def _positive_judgment_formula_input_assignments(
     return assignments
 
 
+_FORBIDDEN_GENERATED_JUDGMENT_INPUTS = {"filing_status", "tax_filing_status"}
+
+
+def _positive_judgment_assignments_use_forbidden_inputs(
+    assignments: dict[str, object],
+) -> bool:
+    return any(
+        input_name in _FORBIDDEN_GENERATED_JUDGMENT_INPUTS for input_name in assignments
+    )
+
+
+def _split_top_level_boolean_disjunction(formula: str) -> list[str]:
+    stripped_formula = _strip_balanced_outer_parentheses(formula.strip())
+    branches: list[str] = []
+    depth = 0
+    quote: str | None = None
+    branch_start = 0
+    index = 0
+    while index < len(stripped_formula):
+        char = stripped_formula[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if (
+            depth == 0
+            and stripped_formula.startswith("or", index)
+            and _is_word_operator_at(stripped_formula, index, len("or"))
+        ):
+            branch = stripped_formula[branch_start:index].strip()
+            if branch:
+                branches.append(_strip_balanced_outer_parentheses(branch))
+            index += len("or")
+            branch_start = index
+            continue
+        index += 1
+    final_branch = stripped_formula[branch_start:].strip()
+    if final_branch:
+        branches.append(_strip_balanced_outer_parentheses(final_branch))
+    return [branch for branch in branches if branch]
+
+
+def _is_word_operator_at(text: str, start: int, length: int) -> bool:
+    before = text[start - 1] if start > 0 else " "
+    after_index = start + length
+    after = text[after_index] if after_index < len(text) else " "
+    return not (before.isalnum() or before == "_") and not (
+        after.isalnum() or after == "_"
+    )
+
+
 def _positive_judgment_formula_input_assignments_for_formula(
     *,
     formula: str,
@@ -17075,6 +17134,29 @@ def _positive_judgment_formula_input_assignments_for_formula(
     imported_outputs: set[str],
     seen_rules: set[str],
 ) -> tuple[dict[str, object], set[str]]:
+    disjuncts = _split_top_level_boolean_disjunction(formula)
+    if len(disjuncts) > 1:
+        branch_results: list[tuple[dict[str, object], set[str]]] = []
+        for disjunct in disjuncts:
+            branch_assignments, branch_protected_inputs = (
+                _positive_judgment_formula_input_assignments_for_formula(
+                    formula=disjunct,
+                    rules_payload=rules_payload,
+                    rules_by_name=rules_by_name,
+                    imported_outputs=imported_outputs,
+                    seen_rules=seen_rules,
+                )
+            )
+            if branch_assignments or branch_protected_inputs:
+                branch_results.append((branch_assignments, branch_protected_inputs))
+        legal_branch_results = [
+            result
+            for result in branch_results
+            if not _positive_judgment_assignments_use_forbidden_inputs(result[0])
+        ]
+        if legal_branch_results:
+            return min(legal_branch_results, key=lambda result: len(result[0]))
+
     negated_group_spans = _negated_parenthesized_expression_spans(formula)
     positive_context_formula = _formula_with_spans_blank(
         formula,
