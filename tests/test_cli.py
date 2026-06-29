@@ -41,9 +41,11 @@ from axiom_encode.cli import (
     _ensure_generated_dependency_files_safe,
     _ensure_no_california_snap_sua_layout_collision,
     _ensure_no_unmanifested_preexisting_rulespec_changes,
+    _expected_proof_import_hash,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _hoist_nested_test_tables,
+    _import_base_to_repo_file,
     _infer_missing_input_default,
     _inline_medicaid_magi_income_helpers,
     _insert_false_input_default,
@@ -15555,6 +15557,39 @@ rules:
         assert (
             _rulespec_anchor_base_for_output(repo_path, Path("statutes/5/5566.yaml"))
             == "us:statutes/5/5566"
+        )
+
+    def test_import_base_to_repo_file_resolves_country_content_root(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        imported = repo_path / "us" / "statutes" / "26" / "3306" / "c" / "9.yaml"
+        imported.parent.mkdir(parents=True)
+        imported.write_text("format: rulespec/v1\nrules: []\n")
+
+        assert (
+            _import_base_to_repo_file(
+                "us:statutes/26/3306/c/9",
+                repo_path=repo_path,
+            )
+            == imported
+        )
+
+    def test_expected_proof_import_hash_resolves_country_content_root(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        imported = repo_path / "us" / "statutes" / "26" / "3306" / "c" / "9.yaml"
+        target = repo_path / "us" / "statutes" / "26" / "3306" / "d.yaml"
+        imported.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text("format: rulespec/v1\nrules: []\n")
+        target.write_text("format: rulespec/v1\nrules: []\n")
+
+        assert (
+            _expected_proof_import_hash(
+                "us:statutes/26/3306/c/9#railroad_employee_or_employee_representative_service_excepted_from_employment",
+                target_base="us:statutes/26/3306/d",
+                rules_file=target,
+                repo_path=repo_path,
+            )
+            == f"sha256:{_sha256_file(imported)}"
         )
 
     def test_judgment_positive_test_repair_uses_imported_companion_inputs(
