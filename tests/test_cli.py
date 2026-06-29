@@ -183,6 +183,7 @@ from axiom_encode.cli import (
     cmd_repair_arizona_snap_composition,
     cmd_repair_bare_snapunit_entities,
     cmd_repair_colorado_tax_validation,
+    cmd_repair_companion_test_references,
     cmd_repair_current_year_final_amounts,
     cmd_repair_delegated_policy_settings,
     cmd_repair_embedded_scalar_literals,
@@ -22783,6 +22784,110 @@ rules:
             in repaired
         )
 
+    def test_repair_companion_test_references_adds_missing_defaults_with_case(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "us/statutes/26/32/c/2.yaml"
+        dependent = policy_repo / "us/statutes/26/24/d.yaml"
+        dependent_test = policy_repo / "us/statutes/26/24/d.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employee_compensation_includible_in_gross_income
+          + net_earnings_from_self_employment_after_self_employment_tax_deduction
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/32/c/2#earned_income_before_section_112_election
+rules:
+  - name: ctc_phase_in_earned_income_base
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          earned_income_before_section_112_election
+"""
+        )
+        dependent_test.write_text(
+            """- name: phase_in_case
+  input:
+    us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income: 20000
+  output:
+    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 0
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("us/statutes/26/24/d.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        failure_sequence = iter(
+            [
+                [
+                    {
+                        "case": "phase_in_case",
+                        "message": (
+                            "missing input "
+                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction` "
+                            "for entity `case` over 2026-01-01..2026-12-31"
+                        ),
+                    }
+                ],
+                [],
+                [],
+            ]
+        )
+
+        def fake_companion_failures(test_file, *, root, axiom_rules_path):
+            assert test_file == dependent_test.resolve()
+            assert root == policy_repo.resolve()
+            assert axiom_rules_path == tmp_path / "axiom-rules-engine"
+            return next(failure_sequence)
+
+        with (
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                side_effect=fake_companion_failures,
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_companion_test_references(args)
+
+        assert (
+            "us:statutes/26/32/c/2#input.net_earnings_from_self_employment_after_self_employment_tax_deduction: 0"
+            in dependent_test.read_text()
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/24/d.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["tool"] == "axiom-encode repair-companion-test-references"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "us/statutes/26/24/d.yaml",
+            "us/statutes/26/24/d.test.yaml",
+        ]
+
     def test_rulespec_base_for_file_uses_country_content_root(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "us/statutes/26/24/d.yaml"
@@ -28626,6 +28731,7 @@ rules:
             "incapacitated_adult_care_expenses",
             "above_the_line_deductions",
             "income_tax_refundable_credits",
+            "penal_institution_service_compensation",
         ],
     )
     def test_missing_input_default_treats_plural_numeric_markers_as_numeric(
