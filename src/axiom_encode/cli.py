@@ -10107,45 +10107,69 @@ def _cmd_repair_generated_validation_issues(
             generated_test = _rulespec_test_path(generated_output)
             generated_test.write_text(original_test_content)
 
-        repaired_items = repair(
-            argparse.Namespace(
-                result=repair_args,
-                output_root=output_root,
-                repo_path=repair_repo_path,
-                issues=before_issues,
+        pending_issues = before_issues
+        repaired_items: list[str] = []
+        after_validation = before_validation
+        for _ in range(20):
+            pass_items = repair(
+                argparse.Namespace(
+                    result=repair_args,
+                    output_root=output_root,
+                    repo_path=repair_repo_path,
+                    issues=pending_issues,
+                )
             )
-        )
-        if not repaired_items:
-            print(no_repair_message)
-            return
+            if not pass_items:
+                if not repaired_items:
+                    print(no_repair_message)
+                    return
+                rules_file.write_text(original_content)
+                if original_test_content is not None:
+                    test_file.write_text(original_test_content)
+                print("Repair failed validation; restored original file.")
+                for issue in pending_issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+            repaired_items.extend(pass_items)
 
-        repaired_content = generated_output.read_text()
-        repaired_test_content = (
-            _rulespec_test_path(generated_output).read_text()
-            if original_test_content is not None
-            else None
-        )
+            repaired_content = generated_output.read_text()
+            repaired_test_content = (
+                _rulespec_test_path(generated_output).read_text()
+                if original_test_content is not None
+                else None
+            )
+            rules_file.write_text(repaired_content)
+            if repaired_test_content is not None:
+                test_file.write_text(repaired_test_content)
 
-        signing_key = _require_applied_encoding_manifest_signing_key()
-        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-        rules_file.write_text(repaired_content)
-        if repaired_test_content is not None:
-            test_file.write_text(repaired_test_content)
-
-        after_validation = pipeline.validate(rules_file, skip_reviewers=True)
-        if not after_validation.all_passed:
-            rules_file.write_text(original_content)
-            if original_test_content is not None:
-                test_file.write_text(original_test_content)
-            issues = [
+            after_validation = pipeline.validate(rules_file, skip_reviewers=True)
+            if after_validation.all_passed:
+                break
+            pending_issues = [
                 result.error
                 for result in after_validation.results.values()
                 if result.error
             ]
-            print("Repair failed validation; restored original file.")
-            for issue in issues:
+        else:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation after 20 passes; restored original file.")
+            for issue in pending_issues:
                 print(f"- {issue}")
             sys.exit(1)
+
+        if not after_validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original file.")
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        signing_key = _require_applied_encoding_manifest_signing_key()
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
         repair_args.citation = _rulespec_anchor_base_for_output(
             repo_path, relative_output

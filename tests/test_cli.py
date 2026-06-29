@@ -19136,21 +19136,38 @@ rules:
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
                 assert skip_reviewers is True
-                if "deferred_outputs:" in target.read_text():
-                    return SimpleNamespace(all_passed=True, results={})
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "ci": SimpleNamespace(
-                            error=(
-                                "Source sub-paragraph coverage missing: "
-                                "26 USC 26(b) ('Regular tax liability For "
-                                "purposes of this part') has no rule citing it "
-                                "and no entry in `module.deferred_outputs`."
+                target_text = target.read_text()
+                if "us:statutes/26/26/b#" not in target_text:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Source sub-paragraph coverage missing: "
+                                    "26 USC 26(b) ('Regular tax liability For "
+                                    "purposes of this part') has no rule citing it "
+                                    "and no entry in `module.deferred_outputs`."
+                                )
                             )
-                        )
-                    },
-                )
+                        },
+                    )
+                if "us:statutes/26/26/c#" not in target_text:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Source sub-paragraph coverage missing: "
+                                    "26 USC 26(c) ('Tentative minimum tax For "
+                                    "purposes of this part') has no rule citing it "
+                                    "and no entry in `module.deferred_outputs`."
+                                )
+                            )
+                        },
+                    )
+                if "deferred_outputs:" in target_text:
+                    return SimpleNamespace(all_passed=True, results={})
+                raise AssertionError("expected deferred outputs to be added")
 
         with (
             patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
@@ -19168,6 +19185,7 @@ rules:
         payload = yaml.safe_load(target.read_text())
         deferred_outputs = payload["module"]["deferred_outputs"]
         assert deferred_outputs[0]["output"].startswith("us:statutes/26/26/b#")
+        assert deferred_outputs[1]["output"].startswith("us:statutes/26/26/c#")
         manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/26.json"
         manifest_payload = json.loads(manifest.read_text())
         assert manifest_payload["model"] == "missing-deferred-output-v1"
