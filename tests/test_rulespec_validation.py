@@ -9106,6 +9106,70 @@ rules:
     assert "regulations/42-cfr/435/602/c" in issues[0]
 
 
+def test_regulation_exception_clause_allows_defined_in_paragraph_reference(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us" / "us"
+    base = repo / "regulations" / "42-cfr" / "435" / "603"
+    for fragment, rule_name in (
+        ("d", "magi_based_household_income"),
+        ("i", "paragraph_i_exception_applies"),
+        ("j", "paragraph_j_exception_applies"),
+        ("k", "paragraph_k_exception_applies"),
+    ):
+        cited_file = base / f"{fragment}.yaml"
+        cited_file.parent.mkdir(parents=True, exist_ok=True)
+        cited_file.write_text(
+            f"""format: rulespec/v1
+rules:
+  - name: {rule_name}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: {rule_name}_input
+"""
+        )
+    rules_file = base / "c.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Except as specified in paragraphs (i), (j), and (k), the agency must determine
+    financial eligibility for Medicaid based on "household income" as defined in
+    paragraph (d).
+imports:
+  - us:regulations/42-cfr/435/603/i#paragraph_i_exception_applies
+  - us:regulations/42-cfr/435/603/j#paragraph_j_exception_applies
+  - us:regulations/42-cfr/435/603/k#paragraph_k_exception_applies
+rules:
+  - name: household_income_basis_required_for_medicaid_financial_eligibility
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          not paragraph_i_exception_applies
+          and not paragraph_j_exception_applies
+          and not paragraph_k_exception_applies
+          and agency_determines_financial_eligibility_using_household_income
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_import_check_slices_compact_cfr_parent_source(
     monkeypatch,
     tmp_path,
