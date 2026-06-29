@@ -54,6 +54,7 @@ from axiom_encode.cli import (
     _looks_like_absolute_rulespec_output_target,
     _medicaid_magi_income_helper_issue_names,
     _normalize_top_level_parameter_values_to_versions,
+    _parse_child_fragment_reencoding_issue,
     _parse_child_numeric_reencoding_issue,
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
@@ -66,6 +67,7 @@ from axiom_encode.cli import (
     _repair_bare_indexed_parameter_references,
     _repair_california_snap_policy_composition,
     _repair_california_snap_program_tests,
+    _repair_child_fragment_reencoding_aliases,
     _repair_child_numeric_reencoding_parent_aliases,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
@@ -2479,6 +2481,116 @@ rules:
         assert payload["module"]["deferred_outputs"][0]["source_values"] == [
             "us:statutes/26/36B/b#required_contribution_monthly_fraction"
         ]
+
+    def test_repairs_child_fragment_reencoding_parent_aliases(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        rules_file = tmp_path / "out" / "codex-test-model" / "statutes/42/426.yaml"
+        child_a2 = repo / "statutes/42/426/a/2.yaml"
+        child_d = repo / "statutes/42/426/d.yaml"
+        rules_file.parent.mkdir(parents=True)
+        child_a2.parent.mkdir(parents=True)
+        child_d.parent.mkdir(parents=True, exist_ok=True)
+        child_a2.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/426/d#qualified_railroad_retirement_beneficiary
+rules:
+  - name: railroad_retirement_beneficiary_alternative_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          qualified_railroad_retirement_beneficiary
+"""
+        )
+        child_d.write_text(
+            """format: rulespec/v1
+rules:
+  - name: qualified_railroad_retirement_beneficiary
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          certified_by_railroad_retirement_board
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/426/d#qualified_railroad_retirement_beneficiary
+rules:
+  - name: qualified_railroad_retirement_beneficiary_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/426/d#qualified_railroad_retirement_beneficiary
+              output: qualified_railroad_retirement_beneficiary
+              hash: sha256:old
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          qualified_railroad_retirement_beneficiary
+"""
+        )
+        issue = (
+            "Child fragment re-encoded: `426.yaml` uses child-local input(s) "
+            "`qualified_railroad_retirement_beneficiary` also used by "
+            "`statutes/42/426/a/2.yaml` without importing a terminal child output. "
+            "Import and compose the child output "
+            "`us:us/statutes/42/426/a/2#railroad_retirement_beneficiary_alternative_satisfied` "
+            "instead of copying the child formula or factual inputs."
+        )
+        parsed_issue = _parse_child_fragment_reencoding_issue(issue)
+
+        assert parsed_issue == (
+            ("qualified_railroad_retirement_beneficiary",),
+            "us:statutes/42/426/a/2#railroad_retirement_beneficiary_alternative_satisfied",
+        )
+
+        repaired = _repair_child_fragment_reencoding_aliases(
+            rules_file=rules_file,
+            policy_repo_path=repo,
+            relative_output=Path("statutes/42/426.yaml"),
+            parsed_issues=[parsed_issue],
+        )
+
+        assert repaired == [
+            "import:us:statutes/42/426/a/2#railroad_retirement_beneficiary_alternative_satisfied",
+            "qualified_railroad_retirement_beneficiary_status->railroad_retirement_beneficiary_alternative_satisfied",
+            "remove_unused_import:us:statutes/42/426/d#qualified_railroad_retirement_beneficiary",
+            "hash[0]",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["imports"] == [
+            "us:statutes/42/426/a/2#railroad_retirement_beneficiary_alternative_satisfied"
+        ]
+        rule = payload["rules"][0]
+        assert (
+            rule["versions"][0]["formula"]
+            == "railroad_retirement_beneficiary_alternative_satisfied"
+        )
+        proof_import = rule["metadata"]["proof"]["atoms"][0]["import"]
+        assert (
+            proof_import["target"]
+            == "us:statutes/42/426/a/2#railroad_retirement_beneficiary_alternative_satisfied"
+        )
+        assert proof_import["output"] == (
+            "railroad_retirement_beneficiary_alternative_satisfied"
+        )
+        assert proof_import["hash"] == f"sha256:{_sha256_file(child_a2)}"
 
     def test_executes_companion_tests_success_json(self, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
