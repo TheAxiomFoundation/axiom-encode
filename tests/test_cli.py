@@ -41,6 +41,7 @@ from axiom_encode.cli import (
     _ensure_generated_dependency_files_safe,
     _ensure_no_california_snap_sua_layout_collision,
     _ensure_no_unmanifested_preexisting_rulespec_changes,
+    _ensure_rulespec_import,
     _expected_proof_import_hash,
     _find_rulespec_dependents,
     _has_zero_output_test,
@@ -249,6 +250,33 @@ def test_package_version_metadata_matches_pyproject():
 
     assert pyproject["project"]["version"] == AXIOM_ENCODE_TEST_VERSION
     assert lock_version == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_ensure_rulespec_import_preserves_unindented_import_list():
+    content = """format: rulespec/v1
+imports:
+- us:statutes/26/3121/n#member_of_uniformed_service
+module:
+  proof_validation:
+    required: true
+rules: []
+"""
+
+    repaired = _ensure_rulespec_import(
+        content,
+        "us:statutes/26/3121/a/1",
+    )
+
+    assert (
+        "imports:\n"
+        "- us:statutes/26/3121/a/1\n"
+        "- us:statutes/26/3121/n#member_of_uniformed_service\n"
+    ) in repaired
+    payload = yaml.safe_load(repaired)
+    assert payload["imports"] == [
+        "us:statutes/26/3121/a/1",
+        "us:statutes/26/3121/n#member_of_uniformed_service",
+    ]
 
 
 def test_current_encoder_affecting_changes_are_behind_version_bump():

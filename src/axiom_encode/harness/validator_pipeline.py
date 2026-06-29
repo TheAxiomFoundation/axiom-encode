@@ -18995,6 +18995,17 @@ def _monorepo_rulespec_repo_alias(
     return alias_parent, canonical_name
 
 
+def _is_canonical_monorepo_content_root(policy_repo_path: Path) -> bool:
+    """Return true for a country content root inside its canonical checkout."""
+    policy_root = Path(policy_repo_path).resolve()
+    monorepo_root = policy_root.parent
+    if not monorepo_root.name.startswith("rulespec-"):
+        return False
+    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
+        return False
+    return canonical_rulespec_repo_name(monorepo_root) == monorepo_root.name
+
+
 def _rulespec_repo_alias_parent_for_root(
     rulespec_root: Path,
     canonical_name: str | None,
@@ -19035,6 +19046,8 @@ def _canonical_rulespec_compile_path(
         except ValueError:
             return rules_file
         return monorepo_alias_parent / monorepo_canonical_name / relative
+    if _is_canonical_monorepo_content_root(policy_repo_path):
+        return rules_file
 
     alias_parent = _rulespec_repo_alias_parent(policy_repo_path)
     canonical_name = canonical_rulespec_repo_name(policy_repo_path)
@@ -19858,9 +19871,10 @@ class ValidatorPipeline:
         if monorepo_alias is not None:
             monorepo_alias_parent, _monorepo_canonical_name = monorepo_alias
             roots.append(monorepo_alias_parent)
-        alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
-        if alias_parent is not None:
-            roots.append(alias_parent)
+        if not _is_canonical_monorepo_content_root(self.policy_repo_path):
+            alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
+            if alias_parent is not None:
+                roots.append(alias_parent)
         roots.append(self.policy_repo_path)
         existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
         if existing_roots:
