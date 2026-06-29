@@ -15566,27 +15566,16 @@ def _expected_proof_import_hash(
         return "sha256:local"
 
     normalized = target.strip().strip("'\"")
-    match = re.match(r"^(?P<prefix>[a-z][a-z0-9_-]*):(?P<path>[^#]+)", normalized)
-    if match is None:
+    target_ref = _parse_rulespec_target(normalized)
+    if target_ref is None:
         return None
-    if match.group("prefix") != _repo_jurisdiction_prefix(repo_path):
+    if target_ref.prefix != _repo_jurisdiction_prefix(repo_path):
         return None
 
-    target_path = match.group("path").strip().strip("/")
-    if not target_path:
+    target_file = _resolve_rulespec_target_file(target_ref, repo_path)
+    if target_file is None or not target_file.exists():
         return None
-    target_relative = Path(target_path)
-    if target_relative.is_absolute() or any(
-        part in {"", ".", ".."} for part in target_relative.parts
-    ):
-        return None
-    if not target_path.endswith((".yaml", ".yml")):
-        target_relative = Path(f"{target_path}.yaml")
-
-    target_file = (repo_path / target_relative).resolve()
-    if not target_file.exists():
-        return None
-    if target_file == rules_file.resolve():
+    if target_file.resolve() == rules_file.resolve():
         return "sha256:local"
     return f"sha256:{hashlib.sha256(target_file.read_bytes()).hexdigest()}"
 
@@ -38797,12 +38786,24 @@ def _import_base_to_repo_file(import_base: str, *, repo_path: Path) -> Path | No
     if not normalized:
         return None
     if ":" in normalized:
+        target_ref = _parse_rulespec_target(normalized)
+        if target_ref is not None:
+            target_file = _resolve_rulespec_target_file(target_ref, repo_path)
+            if target_file is not None:
+                return target_file
         _, normalized = normalized.split(":", 1)
     if normalized.endswith((".yaml", ".yml")):
         relative = Path(normalized)
     else:
         relative = Path(f"{normalized}.yaml")
-    return repo_path / relative
+    candidates = [repo_path / relative]
+    prefix = _repo_jurisdiction_prefix(repo_path)
+    if relative.parts and relative.parts[0] in RULESPEC_SOURCE_ROOTS:
+        candidates.append(repo_path / prefix / relative)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
