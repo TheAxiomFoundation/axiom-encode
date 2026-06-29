@@ -19929,6 +19929,18 @@ rules:
         formula: person_has_exclusion
 """
         )
+        cited_file.with_suffix(".test.yaml").write_text(
+            """- name: work hours satisfy monthly engagement
+  period: 2027-01
+  input:
+    us:statutes/42/1396a/xx#input.monthly_work_hours: 80
+    us:statutes/42/1396a/xx#input.monthly_community_service_hours: 0
+    us:statutes/42/1396a/xx#input.monthly_work_program_hours: 0
+    us:statutes/42/1396a/xx#input.enrolled_in_educational_program_at_least_half_time: false
+  output:
+    us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: holds
+"""
+        )
         rules_file.write_text(
             """format: rulespec/v1
 imports:
@@ -20029,8 +20041,12 @@ rules:
             "#demonstrated_community_engagement_for_month"
         ) in rules_text
         assert (
-            "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: true"
+            "us:statutes/42/1396a/xx#input.monthly_work_hours: 80"
         ) in test_file.read_text()
+        assert (
+            "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: true"
+            not in test_file.read_text()
+        )
 
     def test_missing_same_section_import_repair_promotes_cfr_placeholder(
         self, tmp_path

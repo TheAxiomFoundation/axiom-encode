@@ -33852,6 +33852,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                             placeholder_repairs.extend(
                                 _add_imported_gate_test_overrides(
                                     test_file=test_file,
+                                    policy_repo_path=policy_repo_path,
                                     generated_target_base=(
                                         f"{jurisdiction}:"
                                         f"{_relative_rulespec_import_target(relative_output)}"
@@ -34585,6 +34586,7 @@ def _repair_same_section_subsection_subject_to_output_gate(
 def _add_imported_gate_test_overrides(
     *,
     test_file: Path,
+    policy_repo_path: Path,
     generated_target_base: str,
     rule_name: str,
     imported_ref: str,
@@ -34616,9 +34618,25 @@ def _add_imported_gate_test_overrides(
             is None
         ):
             continue
-        if imported_ref in {str(key) for key in _mapping_keys_recursive(inputs)}:
+        upstream_inputs = _producer_test_inputs_for_output_value(
+            imported_ref,
+            "holds",
+            policy_repo_path=policy_repo_path,
+        )
+        if not upstream_inputs:
             continue
-        inputs[imported_ref] = True
+
+        input_keys = {str(key) for key in _mapping_keys_recursive(inputs)}
+        missing_inputs = [
+            (input_ref, input_value)
+            for input_ref, input_value in upstream_inputs.items()
+            if str(input_ref) not in input_keys
+        ]
+        if not missing_inputs:
+            continue
+        for input_ref, input_value in missing_inputs:
+            inputs[input_ref] = input_value
+            input_keys.add(str(input_ref))
         changed = True
         case_name = str(test_case.get("name") or "<unnamed>")
         repairs.append(f"test:{case_name}:{imported_ref}")
