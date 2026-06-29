@@ -20043,6 +20043,8 @@ rules:
         assert (
             "us:statutes/42/1396a/xx#input.monthly_work_hours: 80"
         ) in test_file.read_text()
+        assert "period: 2027-01" in test_file.read_text()
+        assert "period: 2024-01" not in test_file.read_text()
         assert (
             "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: true"
             not in test_file.read_text()

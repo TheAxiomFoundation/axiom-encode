@@ -34155,6 +34155,57 @@ def _producer_test_inputs_for_output_value(
     return {}
 
 
+def _producer_test_inputs_and_period_for_output_value(
+    output_ref: str,
+    desired_value: object,
+    *,
+    policy_repo_path: Path,
+) -> tuple[dict[object, object], object | None]:
+    if "#" not in output_ref:
+        return {}, None
+    producer_base, output_name = output_ref.rsplit("#", 1)
+    producer_file = _import_base_to_repo_file(
+        producer_base,
+        repo_path=policy_repo_path,
+    )
+    if producer_file is None or not producer_file.exists():
+        return {}, None
+    producer_test_file = _rulespec_test_path(producer_file)
+    if not producer_test_file.exists():
+        return {}, None
+    try:
+        producer_tests = yaml.safe_load(producer_test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}, None
+    if not isinstance(producer_tests, list):
+        return {}, None
+
+    for test_case in producer_tests:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+        if output_key is None:
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_name)
+        if output_key is None:
+            continue
+        produced_value = outputs[output_key]
+        if _generated_test_values_equal(produced_value, desired_value):
+            return copy.deepcopy(inputs), copy.deepcopy(test_case.get("period"))
+
+    return (
+        _producer_test_inputs_for_output_value(
+            output_ref,
+            desired_value,
+            policy_repo_path=policy_repo_path,
+        ),
+        None,
+    )
+
+
 def _retarget_producer_amount_inputs(
     value: object,
     *,
@@ -34615,13 +34666,24 @@ def _add_imported_gate_test_overrides(
             is None
         ):
             continue
-        upstream_inputs = _producer_test_inputs_for_output_value(
-            imported_ref,
-            "holds",
-            policy_repo_path=policy_repo_path,
+        upstream_inputs, upstream_period = (
+            _producer_test_inputs_and_period_for_output_value(
+                imported_ref,
+                "holds",
+                policy_repo_path=policy_repo_path,
+            )
         )
         if not upstream_inputs:
             continue
+
+        current_period_start = _test_period_start_date(test_case.get("period"))
+        upstream_period_start = _test_period_start_date(upstream_period)
+        period_changed = False
+        if upstream_period_start is not None and (
+            current_period_start is None or current_period_start < upstream_period_start
+        ):
+            test_case["period"] = copy.deepcopy(upstream_period)
+            period_changed = True
 
         input_keys = {str(key) for key in _mapping_keys_recursive(inputs)}
         missing_inputs = [
@@ -34629,7 +34691,7 @@ def _add_imported_gate_test_overrides(
             for input_ref, input_value in upstream_inputs.items()
             if str(input_ref) not in input_keys
         ]
-        if not missing_inputs:
+        if not missing_inputs and not period_changed:
             continue
         for input_ref, input_value in missing_inputs:
             inputs[input_ref] = input_value
