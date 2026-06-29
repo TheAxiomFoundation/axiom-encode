@@ -10072,11 +10072,14 @@ def _cmd_repair_generated_validation_issues(
     test_file = _rulespec_test_path(rules_file)
     original_content = rules_file.read_text()
     original_test_content = test_file.read_text() if test_file.exists() else None
+    repair_repo_path = _generated_validation_repair_policy_repo_path(
+        repo_path, relative_output
+    )
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
     pipeline = ValidatorPipeline(
-        policy_repo_path=repo_path,
+        policy_repo_path=repair_repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
         require_policy_proofs=True,
@@ -10089,9 +10092,6 @@ def _cmd_repair_generated_validation_issues(
         print(no_repair_message)
         return
 
-    repair_repo_path = _generated_validation_repair_policy_repo_path(
-        repo_path, relative_output
-    )
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
         repair_args = _validation_issue_repair_args(
