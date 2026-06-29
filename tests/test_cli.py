@@ -19902,6 +19902,111 @@ rules:
             in rules_file.read_text()
         )
 
+    def test_missing_same_section_import_repair_adds_medicaid_xx_later_gate(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: demonstrated_community_engagement_for_month
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: community_engagement_met_by_activity_or_income
+  - name: specified_excluded_individual
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: person_has_exclusion
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396d/n#qualified_pregnant_woman_or_child
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    dtype: Judgment
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/1396d/n#qualified_pregnant_woman_or_child
+              output: qualified_pregnant_woman_or_child
+              hash: sha256:f765cf0c34cb9bf601564fbe16a05ea00c332d96dc5fd46cb528472e29c0f1bf
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          person_is_in_other_mandatory_category_described_in_subparagraph_A_i
+          or qualified_pregnant_woman_or_child
+          or (
+            age < adult_expansion_age_ceiling_years
+            and not person_is_pregnant
+            and not person_is_entitled_to_or_enrolled_for_medicare_part_a
+            and not person_is_enrolled_for_medicare_part_b
+            and not person_is_described_in_previous_mandatory_subclause
+            and income_determined_for_adult_expansion <= adult_expansion_income_limit_poverty_line_rate * poverty_line_for_family_size
+          )
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/a/10.yaml: ci: Same-section subsection "
+                    "import missing: source text cites `statutes/42/1396a/xx` "
+                    "in an exception/cross-reference clause, but the file does "
+                    "not import it."
+                ],
+            )
+        )
+
+        assert repaired == [
+            ("us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"),
+            (
+                "adult_expansion_subject_to_xx"
+                "->demonstrated_community_engagement_for_month"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month\n"
+        ) in rules_text
+        assert "      - effective_from: '2014-01-01'\n" in rules_text
+        assert "      - effective_from: '2026-12-31'\n" in rules_text
+        assert (
+            "and income_determined_for_adult_expansion <= "
+            "adult_expansion_income_limit_poverty_line_rate * "
+            "poverty_line_for_family_size\n"
+            "            and demonstrated_community_engagement_for_month\n"
+        ) in rules_text
+        assert "path: versions[1].formula" in rules_text
+        assert (
+            "target: us:statutes/42/1396a/xx"
+            "#demonstrated_community_engagement_for_month"
+        ) in rules_text
+
     def test_missing_same_section_import_repair_promotes_cfr_placeholder(
         self, tmp_path
     ):
