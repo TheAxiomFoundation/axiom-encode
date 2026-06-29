@@ -9479,10 +9479,7 @@ def cmd_repair_judgment_positive_tests(args):
             backend="deterministic",
             model="judgment-positive-test-v1",
             tool="axiom-encode repair-judgment-positive-tests",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -9727,10 +9724,7 @@ def cmd_repair_proof_import_hashes(args):
         print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
         sys.exit(1)
 
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
+    target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     test_file = _rulespec_test_path(rules_file)
     original_test_content = test_file.read_text() if test_file.exists() else None
     original_content = rules_file.read_text()
@@ -12850,10 +12844,7 @@ def cmd_repair_tax_status_components(args):
     except ValueError:
         print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
         sys.exit(1)
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
+    target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     is_section_151_target = relative_output == Path("statutes/26/151.yaml")
 
     test_file = _rulespec_test_path(rules_file)
@@ -16034,10 +16025,7 @@ def _append_exception_positive_companion_tests_if_missing(
     if not isinstance(test_payload, list):
         return []
 
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
+    target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     repaired: list[str] = []
     existing_case_names = {
         str(test_case.get("name") or "").strip()
@@ -16808,10 +16796,7 @@ def _append_generated_judgment_positive_tests_if_missing(
     if not isinstance(test_payload, list):
         return []
 
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
+    target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     existing_case_names = {
         str(test_case.get("name") or "").strip()
         for test_case in test_payload
@@ -39135,6 +39120,18 @@ def _find_rulespec_dependents(
 
 def _relative_rulespec_import_target(relative_output: Path) -> str:
     return relative_output.with_suffix("").as_posix()
+
+
+def _rulespec_anchor_base_for_output(repo_path: Path, relative_output: Path) -> str:
+    target_path = relative_output.with_suffix("")
+    parts = target_path.parts
+    if len(parts) > 1 and parts[0] not in RULESPEC_SOURCE_ROOTS:
+        jurisdiction = parts[0]
+        target = Path(*parts[1:]).as_posix()
+    else:
+        jurisdiction = _repo_jurisdiction_prefix(repo_path)
+        target = target_path.as_posix()
+    return f"{jurisdiction}:{target}"
 
 
 def _rulespec_file_imports_target(
