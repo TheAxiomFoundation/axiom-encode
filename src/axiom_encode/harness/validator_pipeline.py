@@ -25804,6 +25804,7 @@ print("BENCHMARK:" + json.dumps(result))
             ):
                 aliases.update(source_keys)
             aliases.update(adapter.unsupported_truthy_input_keys)
+            aliases.update(adapter.unsupported_falsy_input_keys)
             if adapter.state_code_from_boolean_input is not None:
                 aliases.add(adapter.state_code_from_boolean_input[0])
         return {alias.lower() for alias in aliases if alias}
@@ -25993,6 +25994,23 @@ print("BENCHMARK:" + json.dumps(result))
                     return (
                         False,
                         f"{reason}: {', '.join(sorted(unsupported_truthy_keys))}",
+                    )
+            if adapter is not None and adapter.unsupported_falsy_input_keys:
+                unsupported_falsy_keys = []
+                for key in adapter.unsupported_falsy_input_keys:
+                    value = self._rulespec_test_input_value(inputs, key)
+                    if value is None:
+                        continue
+                    if not bool(value):
+                        unsupported_falsy_keys.append(key)
+                if unsupported_falsy_keys:
+                    reason = adapter.unsupported_input_reason or (
+                        "RuleSpec test supplies inactive required facts that "
+                        "PolicyEngine US does not model"
+                    )
+                    return (
+                        False,
+                        f"{reason}: {', '.join(sorted(unsupported_falsy_keys))}",
                     )
         if country == "uk" and isinstance(expected, dict):
             return (

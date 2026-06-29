@@ -35,6 +35,7 @@ class PolicyEngineUSVarAdapter:
     annual_inverted_boolean_household_overrides: tuple[tuple[str, str], ...] = ()
     unsupported_input_keys: tuple[str, ...] = ()
     unsupported_input_patterns: tuple[str, ...] = ()
+    unsupported_falsy_input_keys: tuple[str, ...] = ()
     unsupported_truthy_input_keys: tuple[str, ...] = ()
     unsupported_input_reason: str | None = None
     default_state_code: str | None = None
@@ -412,6 +413,28 @@ PE_US_VAR_ADAPTERS = (
             ("assistance_unit_has_rent_allowance", "is_in_public_housing"),
         ),
         default_state_code="MA",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("ma_tafdc_infant_benefit",),
+        pe_var="ma_tafdc_infant_benefit",
+        boolean_person_inputs=(
+            (
+                "payment_requested_within_six_months_following_birth_of_eligible_infant",
+                "ma_tafdc_eligible_infant",
+            ),
+        ),
+        unsupported_falsy_input_keys=(
+            "infant_equipment_not_available_from_any_other_source",
+            "crib_or_mattress_requested_for_newborn_infant",
+            "layette_requested_for_newborn_infant",
+        ),
+        unsupported_input_reason=(
+            "PolicyEngine Massachusetts TAFDC infant benefit models a flat "
+            "per-infant payment and does not expose the 106 CMR 705.600 "
+            "equipment-source or component-request conditions"
+        ),
+        default_state_code="MA",
+        target_person_role="child",
     ),
     PolicyEngineUSVarAdapter(
         rule_names=("oap_authorized_grant_payment_for_month",),
