@@ -33720,6 +33720,11 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
     content = rules_file.read_text()
     repaired = content
     jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
+    content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
+    generated_target_base = _rulespec_anchor_base_for_output(
+        policy_repo_path,
+        relative_output,
+    )
     added: list[str] = []
     for issue in issues:
         match = _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE.search(str(issue))
@@ -33735,9 +33740,13 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
             or relative_target == relative_output
         ):
             continue
-        if not (policy_repo_path / relative_target).is_file():
+        target_file = content_root / relative_target
+        if not target_file.is_file():
+            output_jurisdiction = _relative_output_jurisdiction_prefix(relative_output)
+            if output_jurisdiction is not None:
+                target_file = content_root / output_jurisdiction / relative_target
+        if not target_file.is_file():
             continue
-        target_file = policy_repo_path / relative_target
         imported_output = _single_rulespec_rule_output_name(target_file)
         imported_target = f"{jurisdiction}:{target}"
         before = repaired
@@ -33755,10 +33764,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                     target_base=f"{jurisdiction}:{target}",
                     target_output=imported_output,
                     target_file=target_file,
-                    generated_target_base=(
-                        f"{jurisdiction}:"
-                        f"{_relative_rulespec_import_target(relative_output)}"
-                    ),
+                    generated_target_base=generated_target_base,
                 )
             )
         else:
@@ -33781,10 +33787,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                     _add_imported_output_passthrough_test_overrides(
                         test_file=test_file,
                         rules_content=repaired,
-                        generated_target_base=(
-                            f"{jurisdiction}:"
-                            f"{_relative_rulespec_import_target(relative_output)}"
-                        ),
+                        generated_target_base=generated_target_base,
                         imported_refs_by_output={
                             referenced_output: (
                                 f"{imported_target}#{referenced_output}"
@@ -33853,10 +33856,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                 _add_imported_gate_test_overrides(
                                     test_file=test_file,
                                     policy_repo_path=policy_repo_path,
-                                    generated_target_base=(
-                                        f"{jurisdiction}:"
-                                        f"{_relative_rulespec_import_target(relative_output)}"
-                                    ),
+                                    generated_target_base=generated_target_base,
                                     rule_name="is_medicaid_eligible",
                                     imported_ref=(
                                         f"{imported_target}#{subject_to_output}"
@@ -33871,10 +33871,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                 target_base=f"{jurisdiction}:{target}",
                                 target_outputs=imported_outputs,
                                 target_file=target_file,
-                                generated_target_base=(
-                                    f"{jurisdiction}:"
-                                    f"{_relative_rulespec_import_target(relative_output)}"
-                                ),
+                                generated_target_base=generated_target_base,
                             )
                         )
                         if placeholder_repairs:
