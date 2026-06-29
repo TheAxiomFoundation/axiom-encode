@@ -8858,6 +8858,61 @@ rules:
     assert "statutes/26/3121/y" in issues[0]
 
 
+def test_same_section_outside_subsection_scope_does_not_require_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "26" / "3401" / "a.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text(
+        """format: rulespec/v1
+module:
+  status: deferred
+rules: []
+"""
+    )
+    rules_file = repo / "statutes" / "26" / "3401" / "d.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Employer means the person for whom an individual performs services as an
+    employee, except that, outside subsection (a), if that person lacks control
+    of wage payment, employer means the person having control of payment.
+rules:
+  - name: employer_for_subsection_a
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '0001-01-01'
+        formula: person_for_whom_individual_performs_services_as_employee
+  - name: employer
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          (
+            person_for_whom_individual_performs_services_as_employee
+            and person_has_control_of_payment_of_wages
+          )
+          or person_having_control_of_payment_of_wages
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_nested_subsection_reference_uses_child_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     cited_file = repo / "statutes" / "42" / "1396a" / "a" / "10.yaml"

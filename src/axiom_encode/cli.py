@@ -34638,11 +34638,41 @@ _SAFE_IMPORT_OUTPUT_ALIAS_PREFIXES = {
 
 def _is_safe_import_output_alias(symbol: str, output: str) -> bool:
     if symbol == output or not symbol.endswith(f"_{output}"):
-        return False
+        return _is_safe_legal_cross_reference_output_alias(symbol, output)
     prefix = symbol[: -(len(output) + 1)].strip("_")
     if not prefix:
         return False
     return prefix in _SAFE_IMPORT_OUTPUT_ALIAS_PREFIXES
+
+
+def _is_safe_legal_cross_reference_output_alias(symbol: str, output: str) -> bool:
+    """Return whether a local cross-reference fact names a cited output plus qualifiers."""
+    symbol_tokens = _identifier_tokens(symbol)
+    output_tokens = _identifier_tokens(output)
+    if len(output_tokens) < 3 or len(symbol_tokens) <= len(output_tokens):
+        return False
+    if not any(
+        token in symbol_tokens
+        for token in ("clause", "paragraph", "section", "subparagraph", "subsection")
+    ):
+        return False
+    if symbol_tokens[0] != output_tokens[0]:
+        return False
+    return _ordered_subsequence(output_tokens, symbol_tokens)
+
+
+def _identifier_tokens(value: str) -> list[str]:
+    return [
+        token for token in re.sub(r"[^a-z0-9]+", "_", value.lower()).split("_") if token
+    ]
+
+
+def _ordered_subsequence(needles: list[str], haystack: list[str]) -> bool:
+    cursor = 0
+    for token in haystack:
+        if cursor < len(needles) and token == needles[cursor]:
+            cursor += 1
+    return cursor == len(needles)
 
 
 def _replace_rulespec_symbol_references(
