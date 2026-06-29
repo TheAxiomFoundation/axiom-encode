@@ -19910,7 +19910,7 @@ rules:
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us"
-        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
+        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
