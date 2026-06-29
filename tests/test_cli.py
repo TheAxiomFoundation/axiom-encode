@@ -19905,6 +19905,82 @@ rules:
             in rules_file.read_text()
         )
 
+    def test_same_section_import_repair_replaces_qualified_cross_reference_alias(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3121/b/8.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "statutes" / "26" / "3121" / "r.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: certificate_of_election_by_religious_order_valid
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: certificate_filed
+  - name: election_of_coverage_in_effect
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: certificate_of_election_by_religious_order_valid
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/r
+rules:
+  - name: minister_or_religious_order_service_excluded_from_employment
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_by_member_of_religious_order_in_exercise_of_duties_required_by_order
+          and not election_of_coverage_under_subsection_r_in_effect_with_respect_to_order
+          and not election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/26/3121/b/8.yaml: ci: Same-section subsection "
+                    "import not operational: source text cites `statutes/26/3121/r` "
+                    "in an exception/cross-reference clause, but the matching import "
+                    "does not bring a specific imported output into the formula."
+                ],
+            )
+        )
+
+        assert repaired == ["us:statutes/26/3121/r#election_of_coverage_in_effect"]
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:statutes/26/3121/r#election_of_coverage_in_effect\n" in rules_text
+        )
+        assert "and not election_of_coverage_in_effect\n" in rules_text
+        assert (
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_order"
+            not in rules_text
+        )
+        assert (
+            "election_of_coverage_under_subsection_r_in_effect_with_respect_to_autonomous_subdivision"
+            not in rules_text
+        )
+
     def test_missing_same_section_import_repair_adds_medicaid_xx_formula_gate(
         self, tmp_path
     ):

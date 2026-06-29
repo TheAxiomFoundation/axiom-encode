@@ -14852,6 +14852,12 @@ def _same_section_sibling_citation_requires_import(
         flags=re.IGNORECASE,
     ):
         return False
+    if re.search(
+        r"\b(?:for\s+purposes?\s+of|outside)\s*$",
+        prefix,
+        flags=re.IGNORECASE,
+    ):
+        return False
     triggers = list(
         re.finditer(
             r"\b(?:except|unless|subject\s+to|notwithstanding)\b",
