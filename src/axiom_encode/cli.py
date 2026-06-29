@@ -1313,6 +1313,31 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_child_fragment_parser = subparsers.add_parser(
+        "repair-child-fragment-reencoding",
+        help=(
+            "Apply signed deterministic repairs for parent files that re-encode "
+            "child fragment outputs"
+        ),
+    )
+    repair_child_fragment_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_child_fragment_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_child_fragment_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_missing_deferred_parser = subparsers.add_parser(
         "repair-missing-deferred-outputs",
         help="Apply signed deterministic repairs for source coverage gaps",
@@ -2350,6 +2375,8 @@ def main():
         cmd_repair_unreferenced_proof_imports(args)
     elif args.command == "repair-same-section-subsection-imports":
         cmd_repair_same_section_subsection_imports(args)
+    elif args.command == "repair-child-fragment-reencoding":
+        cmd_repair_child_fragment_reencoding(args)
     elif args.command == "repair-missing-deferred-outputs":
         cmd_repair_missing_deferred_outputs(args)
     elif args.command == "repair-section-172-c-capacity":
@@ -10091,6 +10118,8 @@ def _cmd_repair_generated_validation_issues(
     if not before_issues:
         print(no_repair_message)
         return
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
@@ -10168,9 +10197,6 @@ def _cmd_repair_generated_validation_issues(
                 print(f"- {issue}")
             sys.exit(1)
 
-        signing_key = _require_applied_encoding_manifest_signing_key()
-        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-
         repair_args.citation = _rulespec_anchor_base_for_output(
             repo_path, relative_output
         )
@@ -10215,6 +10241,278 @@ def cmd_repair_same_section_subsection_imports(args):
         success_label="same-section subsection import",
         repair=repair,
     )
+
+
+def cmd_repair_child_fragment_reencoding(args):
+    """Apply signed deterministic repairs for parent child-fragment aliases."""
+
+    def repair(context: argparse.Namespace) -> list[str]:
+        repaired = _try_repair_generated_proof_import_hashes_for_apply(
+            context.result,
+            output_root=context.output_root,
+            policy_repo_path=context.repo_path,
+            issues=context.issues,
+        )
+        repaired.extend(
+            _try_repair_generated_child_fragment_reencoding_for_apply(
+                context.result,
+                output_root=context.output_root,
+                policy_repo_path=context.repo_path,
+                issues=context.issues,
+            )
+        )
+        return repaired
+
+    _cmd_repair_generated_validation_issues(
+        args,
+        model="child-fragment-reencoding-v1",
+        tool="axiom-encode repair-child-fragment-reencoding",
+        no_repair_message="No child-fragment re-encoding repairs found.",
+        success_label="child-fragment re-encoding",
+        repair=repair,
+    )
+
+
+_CHILD_FRAGMENT_REENCODING_ISSUE_PATTERN = re.compile(
+    r"Child fragment re-encoded: .*? uses child-local input\(s\) "
+    r"(?P<inputs>.+?) also used by `(?P<child_path>[^`]+)` without importing "
+    r"a terminal child output\. Import and compose the child (?P<child_hint>.+?) "
+    r"instead of copying the child formula or factual inputs"
+)
+
+
+def _try_repair_generated_child_fragment_reencoding_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    parsed_issues = [
+        parsed
+        for issue in issues
+        if (parsed := _parse_child_fragment_reencoding_issue(str(issue))) is not None
+    ]
+    if not parsed_issues:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_child_fragment_reencoding_aliases(
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        parsed_issues=parsed_issues,
+    )
+
+
+def _parse_child_fragment_reencoding_issue(
+    issue: str,
+) -> tuple[tuple[str, ...], str] | None:
+    match = _CHILD_FRAGMENT_REENCODING_ISSUE_PATTERN.search(issue)
+    if match is None:
+        return None
+    shared_inputs = tuple(re.findall(r"`([^`]+)`", match.group("inputs")))
+    child_refs = tuple(
+        _normalize_rulespec_child_hint_ref(ref)
+        for ref in re.findall(r"`([^`]+)`", match.group("child_hint"))
+        if "#" in ref
+    )
+    if not shared_inputs or len(child_refs) != 1:
+        return None
+    return shared_inputs, child_refs[0]
+
+
+def _normalize_rulespec_child_hint_ref(ref: str) -> str:
+    normalized = ref.strip().strip("'\"")
+    match = re.match(
+        r"^(?P<prefix>[a-z]{2}(?:-[a-z0-9_]+)*):(?P=prefix)/(?P<rest>.+)$",
+        normalized,
+    )
+    if match is not None:
+        return f"{match.group('prefix')}:{match.group('rest')}"
+    return normalized
+
+
+def _repair_child_fragment_reencoding_aliases(
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    parsed_issues: list[tuple[tuple[str, ...], str]],
+) -> list[str]:
+    """Rewrite parent aliases that copy child-local symbols to terminal imports."""
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    imports = payload.get("imports")
+    if imports is None:
+        imports = []
+        payload["imports"] = imports
+    if not isinstance(imports, list):
+        return []
+
+    repaired: list[str] = []
+    for shared_inputs, child_ref in parsed_issues:
+        child_name = child_ref.rsplit("#", 1)[1].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", child_name):
+            continue
+
+        shared = set(shared_inputs)
+        pending_repaired: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            rule_name = str(rule.get("name") or "")
+            if not rule_name:
+                continue
+            rewrote = _rewrite_exact_rule_formula_and_proof_alias(
+                rule,
+                aliases=shared,
+                child_ref=child_ref,
+                child_name=child_name,
+                replacement=child_name,
+            )
+            if not rewrote:
+                continue
+            pending_repaired.append(f"{rule_name}->{child_name}")
+        if not pending_repaired:
+            continue
+        if child_ref not in imports:
+            imports.append(child_ref)
+            repaired.append(f"import:{child_ref}")
+        repaired.extend(pending_repaired)
+
+    if not repaired:
+        return []
+
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    content, removed_imports = _prune_unused_imports(content)
+    for removed in removed_imports:
+        repaired.append(f"remove_unused_import:{removed}")
+    target_base = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    content, hash_repairs = _repair_proof_import_hashes(
+        content,
+        target_base=target_base,
+        rules_file=rules_file,
+        repo_path=policy_repo_path,
+    )
+    for index in range(hash_repairs):
+        repaired.append(f"hash[{index}]")
+    rules_file.write_text(content)
+    return repaired
+
+
+def _rewrite_exact_rule_formula_alias(
+    rule: dict[str, object],
+    *,
+    aliases: set[str],
+    replacement: str,
+) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    changed = False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        if formula.strip() not in aliases:
+            continue
+        version["formula"] = replacement
+        changed = True
+    return changed
+
+
+def _rewrite_exact_rule_formula_and_proof_alias(
+    rule: dict[str, object],
+    *,
+    aliases: set[str],
+    child_ref: str,
+    child_name: str,
+    replacement: str,
+) -> bool:
+    """Rewrite a generated direct alias only when its proof can be rewired."""
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    alias_versions: list[dict[str, object]] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        if formula.strip() in aliases:
+            alias_versions.append(version)
+    if not alias_versions:
+        return False
+    if not _rewrite_rule_proof_import_alias(
+        rule,
+        aliases=aliases,
+        child_ref=child_ref,
+        child_name=child_name,
+    ):
+        return False
+    for version in alias_versions:
+        version["formula"] = replacement
+    return True
+
+
+def _rewrite_rule_proof_import_alias(
+    rule: dict[str, object],
+    *,
+    aliases: set[str],
+    child_ref: str,
+    child_name: str,
+) -> bool:
+    metadata = rule.get("metadata")
+    proof = (
+        metadata.get("proof")
+        if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict)
+        else rule.get("proof")
+    )
+    if not isinstance(proof, dict):
+        return False
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return False
+    changed = False
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        imported = atom.get("import")
+        if not isinstance(imported, dict):
+            continue
+        output = str(imported.get("output") or "").strip()
+        target = str(imported.get("target") or "").strip()
+        target_name = target.rsplit("#", 1)[1] if "#" in target else ""
+        if output not in aliases and target_name not in aliases:
+            continue
+        imported["target"] = child_ref
+        imported["output"] = child_name
+        imported["hash"] = "sha256:local"
+        changed = True
+    return changed
 
 
 def cmd_repair_missing_deferred_outputs(args):
