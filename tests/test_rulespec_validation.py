@@ -22598,6 +22598,69 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
+def test_rulespec_ci_verifies_source_relation_values_from_target_imports(tmp_path):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    us_root = tmp_path / "rulespec-us"
+    child_file = us_root / "statutes/7/2014/e/2/B.yaml"
+    child_file.parent.mkdir(parents=True)
+    child_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-10-01'
+        formula: '0.20'
+"""
+    )
+    target_file = us_root / "statutes/7/2014/e/2.yaml"
+    target_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/7/2014/e/2/B#snap_earned_income_deduction_rate
+rules:
+  - name: snap_earned_income_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2008-10-01'
+        formula: snap_earned_income_subject_to_deduction * snap_earned_income_deduction_rate
+"""
+    )
+
+    co_root = tmp_path / "rulespec-us-co"
+    rules_file = co_root / "regulations/10-ccr-2506-1/4.407.2.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: restates_earned_income_deduction
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:statutes/7/2014/e/2#snap_earned_income_deduction
+      authority: federal
+    verification:
+      values:
+        snap_earned_income_deduction_rate: 0.20
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=co_root,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._run_ci(rules_file).passed is True
+
+
 def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")

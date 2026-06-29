@@ -18825,7 +18825,8 @@ def _find_source_relation_value_verification_issues(
         ]
 
     target_values, target_symbols, load_issue = _extract_source_relation_target_values(
-        target_file
+        target_file,
+        policy_repo_path=policy_repo_path,
     )
     if load_issue is not None:
         return [
@@ -19069,15 +19070,64 @@ def _canonical_rulespec_compile_path(
 
 def _extract_source_relation_target_values(
     target_file: Path,
+    *,
+    policy_repo_path: Path | None = None,
+    seen: set[Path] | None = None,
 ) -> tuple[dict[str, Any], set[str], str | None]:
     """Extract scalar/table parameter values from a canonical RuleSpec file."""
+    resolved_target = target_file.resolve() if target_file.exists() else target_file
+    if seen is None:
+        seen = set()
+    if resolved_target in seen:
+        return {}, set(), None
+    seen.add(resolved_target)
     try:
         payload = yaml.safe_load(target_file.read_text())
     except (OSError, yaml.YAMLError, ValueError) as exc:
         return {}, set(), f"{target_file} could not be read as RuleSpec YAML: {exc}"
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return {}, set(), f"{target_file} is not a RuleSpec v1 file"
-    return _extract_rulespec_parameter_values(payload, source_label=str(target_file))
+    values, symbols, load_issue = _extract_rulespec_parameter_values(
+        payload,
+        source_label=str(target_file),
+    )
+    if load_issue is not None:
+        return values, symbols, load_issue
+
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return values, symbols, None
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        import_ref = _parse_rulespec_target(raw_import)
+        if import_ref is None:
+            continue
+        import_file = _resolve_rulespec_target_file(
+            import_ref,
+            policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        imported_values, imported_symbols, import_issue = (
+            _extract_source_relation_target_values(
+                import_file,
+                policy_repo_path=policy_repo_path,
+                seen=seen,
+            )
+        )
+        if import_issue is not None:
+            return values, symbols, import_issue
+        if import_ref.symbol:
+            symbols.add(import_ref.symbol)
+            if import_ref.symbol in imported_values:
+                values.setdefault(import_ref.symbol, imported_values[import_ref.symbol])
+            continue
+        for imported_symbol in imported_symbols:
+            symbols.add(imported_symbol)
+        for imported_name, imported_value in imported_values.items():
+            values.setdefault(imported_name, imported_value)
+    return values, symbols, None
 
 
 def _extract_rulespec_parameter_values(
