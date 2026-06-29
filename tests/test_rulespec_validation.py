@@ -4328,6 +4328,34 @@ def test_policyengine_snap_net_income_annualizes_housing_cost(tmp_path):
     assert "'housing_cost': {'2026-01':" not in script
 
 
+def test_policyengine_ma_tafdc_payment_standard_projects_household_rent_status(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "ma_tafdc_payment_standard",
+        {
+            "period": "2024-09",
+            "assistance_unit_size": 3,
+            "assistance_unit_has_rent_allowance": False,
+        },
+        "2024",
+    )
+
+    assert "'state_code_str': {'2024': 'MA'}" in script
+    assert "'spm_unit_size': {'2024': 3}" in script
+    assert "'is_in_public_housing': {'2024': True}" in script
+    assert ValidatorPipeline._is_projectable_pe_us_input_alias(
+        "assistance_unit_has_rent_allowance",
+        "ma_tafdc_payment_standard",
+    )
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

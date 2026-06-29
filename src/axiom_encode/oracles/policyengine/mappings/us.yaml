@@ -3529,6 +3529,17 @@ mappings:
     comparison: rate
     rationale: Same Arizona TANF base income-limit rate for parent or non-parent caretaker relative self-and-child cases.
 
+  - legal_id: us-ma:regulations/106-cmr/704/410-420-table/block-1#ma_tafdc_payment_standard
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ma_tafdc_payment_standard
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Massachusetts TAFDC monthly payment-standard table, selecting the no-rent or with-rent column by assistance-unit rent-allowance status and applying the listed incremental amount for assistance units above size 10.
+
   - legal_id: us-az:programs/tanf/fy-2026#az_tanf
     country: us
     program: tanf
