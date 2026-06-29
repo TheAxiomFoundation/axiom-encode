@@ -14743,6 +14743,12 @@ def _same_section_sibling_citation_requires_import(
         source_text.rfind(";", 0, citation_start),
     )
     prefix = source_text[sentence_start + 1 : citation_start]
+    if re.search(
+        r"\bas\s+defined\s+in\s*$",
+        prefix,
+        flags=re.IGNORECASE,
+    ):
+        return False
     triggers = list(
         re.finditer(
             r"\b(?:except|unless|subject\s+to|notwithstanding)\b",
