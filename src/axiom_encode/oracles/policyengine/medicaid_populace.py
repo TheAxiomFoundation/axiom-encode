@@ -13,6 +13,7 @@ import csv
 import json
 import subprocess
 import tempfile
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -907,6 +908,66 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def summarize_by_pe_category(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "category": "",
+            "compared": 0,
+            "pe_eligible": 0,
+            "axiom_eligible": 0,
+            "mismatches": 0,
+            "pe_true_axiom_false": 0,
+            "pe_false_axiom_true": 0,
+        }
+    )
+    for row in rows:
+        category = str(row["pe_medicaid_category"])
+        item = summary[category]
+        item["category"] = category
+        item["compared"] += 1
+        if row["pe_is_medicaid_eligible"]:
+            item["pe_eligible"] += 1
+        if row["axiom_is_medicaid_eligible"]:
+            item["axiom_eligible"] += 1
+        if not row["match"]:
+            item["mismatches"] += 1
+            if row["pe_is_medicaid_eligible"]:
+                item["pe_true_axiom_false"] += 1
+            else:
+                item["pe_false_axiom_true"] += 1
+    return sorted(
+        summary.values(),
+        key=lambda item: (
+            -int(item["mismatches"]),
+            -int(item["pe_eligible"]),
+            str(item["category"]),
+        ),
+    )
+
+
+def print_category_summary(rows: list[dict[str, Any]]) -> None:
+    category_rows = summarize_by_pe_category(rows)
+    if not category_rows:
+        return
+    print("PE Medicaid category summary:", flush=True)
+    for item in category_rows:
+        compared = int(item["compared"])
+        mismatches = int(item["mismatches"])
+        match_rate = (compared - mismatches) / compared if compared else 1.0
+        print(
+            "  "
+            f"{item['category']}: compared={compared:,}; "
+            f"pe_eligible={int(item['pe_eligible']):,}; "
+            f"axiom_eligible={int(item['axiom_eligible']):,}; "
+            f"mismatches={mismatches:,}; match_rate={match_rate:.2%}; "
+            "pe_true_axiom_false="
+            f"{int(item['pe_true_axiom_false']):,}; "
+            "pe_false_axiom_true="
+            f"{int(item['pe_false_axiom_true']):,}",
+            flush=True,
+        )
+
+
 def main(args: argparse.Namespace | None = None) -> None:
     if args is None:
         args = parse_args()
@@ -969,6 +1030,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         f"Compared {len(rows):,} people; matches={matches:,}; "
         f"mismatches={mismatches:,}; match_rate={match_rate:.2%}."
     )
+    print_category_summary(rows)
     for row in [row for row in rows if not row["match"]][: args.max_differences]:
         print(
             "DIFF "

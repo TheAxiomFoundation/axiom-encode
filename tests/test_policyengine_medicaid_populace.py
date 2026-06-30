@@ -132,3 +132,49 @@ def test_project_case_inputs_uses_shared_income_projection_for_medicaid_imports(
         ]
         == 1.0
     )
+
+
+def test_summarize_by_pe_category_counts_directional_mismatches():
+    rows = [
+        {
+            "pe_medicaid_category": "SENIOR_OR_DISABLED",
+            "pe_is_medicaid_eligible": True,
+            "axiom_is_medicaid_eligible": False,
+            "match": False,
+        },
+        {
+            "pe_medicaid_category": "SENIOR_OR_DISABLED",
+            "pe_is_medicaid_eligible": True,
+            "axiom_is_medicaid_eligible": True,
+            "match": True,
+        },
+        {
+            "pe_medicaid_category": "ADULT",
+            "pe_is_medicaid_eligible": False,
+            "axiom_is_medicaid_eligible": True,
+            "match": False,
+        },
+    ]
+
+    summary = medicaid_populace.summarize_by_pe_category(rows)
+
+    assert summary == [
+        {
+            "category": "SENIOR_OR_DISABLED",
+            "compared": 2,
+            "pe_eligible": 2,
+            "axiom_eligible": 1,
+            "mismatches": 1,
+            "pe_true_axiom_false": 1,
+            "pe_false_axiom_true": 0,
+        },
+        {
+            "category": "ADULT",
+            "compared": 1,
+            "pe_eligible": 0,
+            "axiom_eligible": 1,
+            "mismatches": 1,
+            "pe_true_axiom_false": 0,
+            "pe_false_axiom_true": 1,
+        },
+    ]
