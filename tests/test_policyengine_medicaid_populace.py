@@ -252,7 +252,10 @@ def test_project_case_inputs_maps_young_adult_category_to_statutory_inputs():
         medicare_eligible=False,
     )
 
-    assert inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] == 20
+    assert (
+        inputs["us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance"]
+        == "holds"
+    )
     assert (
         inputs[
             "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
