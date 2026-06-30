@@ -151,6 +151,12 @@ from .oracles.policyengine.efrs_uk import (
 from .oracles.policyengine.efrs_uk import (
     main_hbai_coverage as run_uk_populace_hbai_coverage,
 )
+from .oracles.policyengine.medicaid_populace import (
+    configure_parser as configure_medicaid_populace_compare_parser,
+)
+from .oracles.policyengine.medicaid_populace import (
+    main as run_medicaid_populace_compare,
+)
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .repo_routing import (
@@ -877,6 +883,12 @@ def main():
         help="Compare federal tax RuleSpec output against PolicyEngine over Populace",
     )
     configure_tax_populace_compare_parser(tax_populace_compare_parser)
+
+    medicaid_populace_compare_parser = subparsers.add_parser(
+        "medicaid-populace-compare",
+        help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Populace",
+    )
+    configure_medicaid_populace_compare_parser(medicaid_populace_compare_parser)
 
     uk_populace_compare_parser = subparsers.add_parser(
         "uk-populace-compare",
@@ -2396,6 +2408,8 @@ def main():
         sys.exit(run_snap_populace_compare(args))
     elif args.command in {"tax-populace-compare", "tax-ecps-compare"}:
         sys.exit(run_tax_populace_compare(args))
+    elif args.command == "medicaid-populace-compare":
+        sys.exit(run_medicaid_populace_compare(args))
     elif args.command in {"uk-populace-compare", "uk-efrs-compare"}:
         sys.exit(run_uk_populace_compare(args))
     elif args.command in {"uk-populace-coverage", "uk-efrs-coverage"}:
@@ -10000,6 +10014,7 @@ def cmd_repair_proof_import_hashes(args):
                 validation=validation,
             )
             repaired_output_cases = _repair_imported_output_test_mismatches(
+                rules_file=rules_file,
                 test_file=test_file,
                 policy_repo_path=repo_path,
                 relative_output=relative_output,
@@ -10863,6 +10878,7 @@ def cmd_repair_imported_test_inputs(args):
             validation=validation,
         )
         repaired_output_cases = _repair_imported_output_test_mismatches(
+            rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=repo_path,
             relative_output=relative_output,
@@ -11438,6 +11454,32 @@ def _ensure_rulespec_import(content: str, import_item: str) -> str:
     insert_at = 1 if lines and re.match(r"^format:\s*", lines[0]) else 0
     lines.insert(insert_at, f"imports:\n  - {import_item}\n")
     return "".join(lines)
+
+
+def _remove_rulespec_import(content: str, import_item: str) -> str:
+    repaired_lines: list[str] = []
+    in_imports = False
+    imports_indent = 0
+    for line in content.splitlines(keepends=True):
+        imports_match = re.match(r"^(\s*)imports:\s*$", line)
+        if imports_match:
+            in_imports = True
+            imports_indent = len(imports_match.group(1))
+            repaired_lines.append(line)
+            continue
+        if in_imports:
+            stripped = line.strip()
+            if stripped:
+                indent = len(line) - len(line.lstrip())
+                item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
+                if item_match and indent >= imports_indent:
+                    item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
+                    if item == import_item:
+                        continue
+                elif indent <= imports_indent:
+                    in_imports = False
+        repaired_lines.append(line)
+    return "".join(repaired_lines)
 
 
 def _replace_section_172_c_placeholder_test_inputs(content: str) -> str:
@@ -30225,6 +30267,14 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "")
     }
+    for rule_name in list(seed_rules):
+        reasons = set(issue_reasons.get(rule_name, []))
+        rule = rules_by_name.get(rule_name)
+        if reasons != {"flattened_thresholded_rate"} or not isinstance(rule, dict):
+            continue
+        if _generated_rule_is_imported_judgment_composition(rule, payload=payload):
+            seed_rules.discard(rule_name)
+            issue_reasons.pop(rule_name, None)
     unresolved_import_symbols = _unexported_import_symbols_for_missing_inputs(
         rules_file=rules_file,
         policy_repo_path=policy_repo_path,
@@ -30620,6 +30670,50 @@ def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
         if isinstance(formula, str):
             identifiers.update(_formula_identifiers(formula))
     return identifiers - _RULESPEC_FORMULA_BUILTINS
+
+
+def _generated_rule_is_imported_judgment_composition(
+    rule: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+) -> bool:
+    if str(rule.get("dtype") or "").strip().lower() != "judgment":
+        return False
+    imported_symbols = _rulespec_import_fragments_from_payload(payload)
+    if not imported_symbols:
+        return False
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    saw_formula = False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str) or not formula.strip():
+            continue
+        saw_formula = True
+        formula_without_literals = _formula_without_string_literals(formula)
+        if re.search(r"[<>=*/+\-:,\[\]{}]", formula_without_literals):
+            return False
+        identifiers = _formula_identifiers(formula)
+        if not identifiers or identifiers - imported_symbols:
+            return False
+    return saw_formula
+
+
+def _rulespec_import_fragments_from_payload(payload: dict[str, Any]) -> set[str]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+    fragments: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if fragment:
+            fragments.add(fragment)
+    return fragments
 
 
 def _deferred_output_target_for_generated_rule(
@@ -34092,7 +34186,8 @@ def _try_repair_generated_computed_output_test_inputs_for_apply(
 
 _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
     r"Same-section subsection import "
-    r"(?:missing: source text cites (?:subsection\s+)?|not operational: source text cites )"
+    r"(?P<issue_kind>missing|not operational): source text cites "
+    r"(?:subsection\s+)?"
     r"`(?P<target>(?:statutes|regulations)/[^`]+)`"
 )
 
@@ -34133,6 +34228,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         match = _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE.search(str(issue))
         if match is None:
             continue
+        issue_kind = match.group("issue_kind")
         target = match.group("target").strip().strip("/")
         if target.endswith((".yaml", ".yml")):
             target = Path(target).with_suffix("").as_posix()
@@ -34156,10 +34252,12 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
         placeholder_repairs: list[str] = []
         referenced_outputs: list[str] = []
         subject_to_outputs: list[str] = []
+        subject_to_proof_rule_name: str | None = None
         subject_to_proof_path: str | None = None
         if imported_output is not None:
             import_item = f"{imported_target}#{imported_output}"
             repaired = _ensure_rulespec_import(repaired, import_item)
+            repaired = _remove_rulespec_import(repaired, imported_target)
             repaired, placeholder_repairs = (
                 _repair_same_section_subsection_placeholder_references(
                     repaired,
@@ -34214,6 +34312,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                         repaired,
                         f"{imported_target}#{referenced_output}",
                     )
+                    repaired = _remove_rulespec_import(repaired, imported_target)
                     repaired = _ensure_import_proof_atoms_for_formula_symbol(
                         repaired,
                         symbol=referenced_output,
@@ -34228,6 +34327,7 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                         candidate,
                         subject_to_outputs,
                         subject_to_repairs,
+                        subject_to_proof_rule_name,
                         subject_to_proof_path,
                     ) = _repair_same_section_subsection_subject_to_output_gate(
                         repaired,
@@ -34243,10 +34343,17 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                 repaired,
                                 f"{imported_target}#{subject_to_output}",
                             )
-                            if subject_to_proof_path is not None:
+                            repaired = _remove_rulespec_import(
+                                repaired,
+                                imported_target,
+                            )
+                            if (
+                                subject_to_proof_rule_name is not None
+                                and subject_to_proof_path is not None
+                            ):
                                 repaired = _ensure_rule_import_proof_atom(
                                     repaired,
-                                    rule_name="is_medicaid_eligible",
+                                    rule_name=subject_to_proof_rule_name,
                                     target=f"{imported_target}#{subject_to_output}",
                                     output=subject_to_output,
                                     source_hash=source_hash,
@@ -34269,10 +34376,16 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                     test_file=test_file,
                                     policy_repo_path=policy_repo_path,
                                     generated_target_base=generated_target_base,
-                                    rule_name="is_medicaid_eligible",
+                                    rule_name=subject_to_proof_rule_name
+                                    or "is_medicaid_eligible",
                                     imported_ref=(
                                         f"{imported_target}#{subject_to_output}"
                                     ),
+                                    stale_input_names=[
+                                        repair.split("->", 1)[0]
+                                        for repair in subject_to_repairs
+                                        if "->" in repair
+                                    ],
                                 )
                             )
                     else:
@@ -34293,12 +34406,20 @@ def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
                                     repaired,
                                     f"{imported_target}#{imported_output_name}",
                                 )
+                                repaired = _remove_rulespec_import(
+                                    repaired,
+                                    imported_target,
+                                )
                         else:
-                            import_item = imported_target
-                            repaired = _ensure_rulespec_import(repaired, import_item)
+                            if issue_kind != "not operational":
+                                import_item = imported_target
+                                repaired = _ensure_rulespec_import(
+                                    repaired, import_item
+                                )
                 else:
-                    import_item = imported_target
-                    repaired = _ensure_rulespec_import(repaired, import_item)
+                    if issue_kind != "not operational":
+                        import_item = imported_target
+                        repaired = _ensure_rulespec_import(repaired, import_item)
         if repaired != before:
             if imported_output is not None:
                 added.append(f"{imported_target}#{imported_output}")
@@ -35015,6 +35136,11 @@ def _rulespec_judgment_rule_output_names(rules_file: Path) -> list[str]:
 _MEDICAID_1396A_XX_COMMUNITY_ENGAGEMENT_OUTPUT = (
     "demonstrated_community_engagement_for_month"
 )
+_MEDICAID_1396A_XX_SUBJECT_TO_PLACEHOLDERS = (
+    "adult_expansion_subject_to_xx",
+    "adult_expansion_subject_to_subsection_xx_satisfied",
+    "adult_expansion_subject_to_subsections_k_and_xx_satisfied",
+)
 _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE = (
     "and income_determined_for_adult_expansion <= "
     "adult_expansion_income_limit_poverty_line_rate * poverty_line_for_family_size"
@@ -35026,20 +35152,16 @@ def _repair_same_section_subsection_subject_to_output_gate(
     *,
     target: str,
     target_outputs: list[str],
-) -> tuple[str, list[str], list[str], str | None]:
+) -> tuple[str, list[str], list[str], str | None, str | None]:
     if target != "statutes/42/1396a/xx":
-        return content, [], [], None
+        return content, [], [], None, None
     output = _MEDICAID_1396A_XX_COMMUNITY_ENGAGEMENT_OUTPUT
     if output not in target_outputs:
-        return content, [], [], None
+        return content, [], [], None, None
 
-    rule_match = re.search(
-        r"(?ms)^  - name: is_medicaid_eligible\n.*?(?=^  - name: |\Z)",
-        content,
+    rule_pattern = re.compile(
+        r"(?ms)^  - name: (?P<rule_name>[A-Za-z_][A-Za-z0-9_]*)\n.*?(?=^  - name: |\Z)"
     )
-    if rule_match is None:
-        return content, [], [], None
-    rule_block = rule_match.group(0)
     version_pattern = re.compile(
         r"(?ms)"
         r"(?P<version>"
@@ -35048,46 +35170,116 @@ def _repair_same_section_subsection_subject_to_output_gate(
         r"(?P<formula>(?:^          .*(?:\n|$))+)"
         r")"
     )
-    for version_index, version_match in enumerate(version_pattern.finditer(rule_block)):
-        formula_text = version_match.group("formula")
-        formula_lines = formula_text.splitlines()
-        if output in formula_text:
-            continue
-        if not any(
-            line.strip() == _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE
-            for line in formula_lines
+    for rule_match in rule_pattern.finditer(content):
+        rule_name = rule_match.group("rule_name")
+        rule_block = rule_match.group(0)
+        for version_index, version_match in enumerate(
+            version_pattern.finditer(rule_block)
         ):
-            continue
-        gated_lines: list[str] = []
-        inserted_gate = False
-        for line in formula_lines:
-            gated_lines.append(line)
-            if line.strip() != _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE:
+            formula_text = version_match.group("formula")
+            formula_lines = formula_text.splitlines()
+            if output in formula_text:
                 continue
-            indentation = line[: len(line) - len(line.lstrip())]
-            gated_lines.append(f"{indentation}and {output}")
-            inserted_gate = True
-        if not inserted_gate:
-            continue
-        gated_formula = "\n".join(gated_lines) + "\n"
-        repaired_rule_block = (
-            rule_block[: version_match.start("formula")]
-            + gated_formula
-            + rule_block[version_match.end("formula") :]
-        )
-        repaired = (
-            content[: rule_match.start()]
-            + repaired_rule_block
-            + content[rule_match.end() :]
-        )
-        proof_path = f"versions[{version_index}].formula"
-        return (
-            repaired,
-            [output],
-            [f"adult_expansion_subject_to_xx->{output}"],
-            proof_path,
-        )
-    return content, [], [], None
+            replaced_formula = formula_text
+            placeholder_repairs: list[str] = []
+            for placeholder in _MEDICAID_1396A_XX_SUBJECT_TO_PLACEHOLDERS:
+                updated_formula = re.sub(
+                    rf"\b{re.escape(placeholder)}\b",
+                    output,
+                    replaced_formula,
+                )
+                if updated_formula == replaced_formula:
+                    continue
+                replaced_formula = updated_formula
+                placeholder_repairs.append(f"{placeholder}->{output}")
+            if placeholder_repairs:
+                repaired_rule_block = (
+                    rule_block[: version_match.start("formula")]
+                    + replaced_formula
+                    + rule_block[version_match.end("formula") :]
+                )
+                repaired = (
+                    content[: rule_match.start()]
+                    + repaired_rule_block
+                    + content[rule_match.end() :]
+                )
+                proof_path = f"versions[{version_index}].formula"
+                return repaired, [output], placeholder_repairs, rule_name, proof_path
+
+            gated_lines: list[str] = []
+            inserted_imported_adult_group_gate = False
+            for line in formula_lines:
+                stripped = line.strip()
+                indentation = line[: len(line) - len(line.lstrip())]
+                if stripped == "adult_group_eligible":
+                    gated_lines.append(
+                        f"{indentation}(adult_group_eligible and {output})"
+                    )
+                    inserted_imported_adult_group_gate = True
+                    continue
+                if stripped == "or adult_group_eligible":
+                    gated_lines.append(
+                        f"{indentation}or (adult_group_eligible and {output})"
+                    )
+                    inserted_imported_adult_group_gate = True
+                    continue
+                gated_lines.append(line)
+            if inserted_imported_adult_group_gate:
+                gated_formula = "\n".join(gated_lines) + "\n"
+                repaired_rule_block = (
+                    rule_block[: version_match.start("formula")]
+                    + gated_formula
+                    + rule_block[version_match.end("formula") :]
+                )
+                repaired = (
+                    content[: rule_match.start()]
+                    + repaired_rule_block
+                    + content[rule_match.end() :]
+                )
+                proof_path = f"versions[{version_index}].formula"
+                return (
+                    repaired,
+                    [output],
+                    [f"adult_expansion_subject_to_xx->{output}"],
+                    rule_name,
+                    proof_path,
+                )
+            if not any(
+                line.strip() == _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE
+                for line in formula_lines
+            ):
+                continue
+            gated_lines = []
+            inserted_gate = False
+            for line in formula_lines:
+                gated_lines.append(line)
+                if line.strip() != _MEDICAID_ADULT_EXPANSION_INCOME_LIMIT_LINE:
+                    continue
+                indentation = line[: len(line) - len(line.lstrip())]
+                gated_lines.append(f"{indentation}and {output}")
+                inserted_gate = True
+            if not inserted_gate:
+                continue
+            gated_formula = "\n".join(gated_lines) + "\n"
+            repaired_rule_block = (
+                rule_block[: version_match.start("formula")]
+                + gated_formula
+                + rule_block[version_match.end("formula") :]
+            )
+            repaired = (
+                content[: rule_match.start()]
+                + repaired_rule_block
+                + content[rule_match.end() :]
+            )
+            proof_path = f"versions[{version_index}].formula"
+            return (
+                repaired,
+                [output],
+                [f"adult_expansion_subject_to_xx->{output}"],
+                rule_name,
+                proof_path,
+            )
+    return content, [], [], None, None
 
 
 def _add_imported_gate_test_overrides(
@@ -35097,6 +35289,7 @@ def _add_imported_gate_test_overrides(
     generated_target_base: str,
     rule_name: str,
     imported_ref: str,
+    stale_input_names: list[str] | None = None,
 ) -> list[str]:
     if not test_file.exists():
         return []
@@ -35109,6 +35302,11 @@ def _add_imported_gate_test_overrides(
 
     changed = False
     repairs: list[str] = []
+    stale_input_refs = {
+        f"{generated_target_base}#input.{input_name}"
+        for input_name in (stale_input_names or [])
+        if input_name
+    }
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
@@ -35134,6 +35332,12 @@ def _add_imported_gate_test_overrides(
         )
         if not upstream_inputs:
             continue
+        removed_stale_inputs = False
+        if stale_input_refs:
+            removed_stale_inputs = _remove_mapping_keys_recursive(
+                inputs,
+                stale_input_refs,
+            )
 
         current_period_start = _test_period_start_date(test_case.get("period"))
         upstream_period_start = _test_period_start_date(upstream_period)
@@ -35150,7 +35354,7 @@ def _add_imported_gate_test_overrides(
             for input_ref, input_value in upstream_inputs.items()
             if str(input_ref) not in input_keys
         ]
-        if not missing_inputs and not period_changed:
+        if not missing_inputs and not period_changed and not removed_stale_inputs:
             continue
         for input_ref, input_value in missing_inputs:
             inputs[input_ref] = input_value
@@ -36526,7 +36730,17 @@ def _try_repair_generated_imported_output_test_mismatches_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
+    repaired_positive_imports = _repair_positive_imported_judgment_composition_tests(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+    if repaired_positive_imports:
+        return repaired_positive_imports
     return _repair_imported_output_test_mismatches(
+        rules_file=rules_file,
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         relative_output=relative_output,
@@ -36591,8 +36805,320 @@ def _try_repair_generated_conditional_vacuity_tests_for_apply(
     )
 
 
+def _repair_positive_imported_judgment_composition_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not rules_file.exists() or not test_file.exists() or not issues:
+        return []
+
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    rules_by_name = _rules_by_name_from_payload(rules_payload)
+    imported_refs_by_name = _imported_output_refs_by_name(rules_file)
+    if not imported_refs_by_name:
+        return []
+
+    positive_mismatches: dict[str, set[str]] = defaultdict(set)
+    for issue in issues:
+        parsed = _parse_generated_test_output_mismatch(str(issue))
+        if parsed is None:
+            continue
+        case_name, output_ref, actual_value = parsed
+        if actual_value != "not_holds":
+            continue
+        if not _rulespec_ref_matches_base(output_ref, anchor):
+            continue
+        output_name = output_ref.rsplit("#", 1)[-1]
+        rule = rules_by_name.get(output_name)
+        if not isinstance(rule, dict):
+            continue
+        if not _generated_rule_is_imported_judgment_composition(
+            rule,
+            payload=rules_payload,
+        ):
+            continue
+        positive_mismatches[case_name].add(output_ref)
+    if not positive_mismatches:
+        return []
+
+    changed = False
+    repairs: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        output_refs = positive_mismatches.get(case_name)
+        if not output_refs:
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        for output_ref in sorted(output_refs):
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+            if output_key is None:
+                continue
+            if _normalized_generated_test_scalar(outputs[output_key]) != "holds":
+                continue
+            output_name = output_ref.rsplit("#", 1)[-1]
+            rule = rules_by_name.get(output_name)
+            if not isinstance(rule, dict):
+                continue
+            branch = _best_imported_judgment_branch_for_test_case(
+                rule=rule,
+                imported_refs_by_name=imported_refs_by_name,
+                inputs=inputs,
+                policy_repo_path=policy_repo_path,
+            )
+            if not branch:
+                continue
+            branch_repairs = _harmonize_imported_judgment_branch_inputs(
+                inputs,
+                branch=branch,
+                case_name=case_name,
+                policy_repo_path=policy_repo_path,
+            )
+            if branch_repairs is None:
+                return []
+            if not branch_repairs:
+                continue
+            repairs.extend(branch_repairs)
+            changed = True
+
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repairs
+
+
+def _harmonize_imported_judgment_branch_inputs(
+    inputs: dict[object, object],
+    *,
+    branch: tuple[str, ...],
+    case_name: str,
+    policy_repo_path: Path,
+) -> list[str] | None:
+    """Make a generated positive test satisfy an imported Judgment branch.
+
+    Imported Judgment outputs are computed by the producer RuleSpec file. A
+    generated consumer test therefore has to set the producer's factual inputs,
+    not assign the imported output directly.
+    """
+    desired_by_fragment: dict[str, tuple[str, object]] = {}
+    direct_imported_keys: list[object] = []
+
+    for imported_ref in branch:
+        direct_key = _matching_mapping_key_by_rulespec_ref(inputs, imported_ref)
+        if direct_key is not None:
+            if _normalized_generated_test_scalar(inputs[direct_key]) != "holds":
+                return None
+            direct_imported_keys.append(direct_key)
+
+        producer_inputs = _producer_test_inputs_for_output_value(
+            imported_ref,
+            "holds",
+            policy_repo_path=policy_repo_path,
+        )
+        if not producer_inputs:
+            return None
+        for producer_ref, producer_value in producer_inputs.items():
+            producer_ref_text = str(producer_ref)
+            fragment = _rulespec_test_key_fragment(producer_ref_text)
+            existing = desired_by_fragment.get(fragment)
+            if existing is not None and not _generated_test_values_equal(
+                existing[1],
+                producer_value,
+            ):
+                return None
+            desired_by_fragment[fragment] = (
+                producer_ref_text,
+                copy.deepcopy(producer_value),
+            )
+
+    repairs: list[str] = []
+    for direct_key in direct_imported_keys:
+        if direct_key in inputs:
+            del inputs[direct_key]
+            repairs.append(f"test:{case_name}:remove:{direct_key}")
+
+    for fragment, (producer_ref, desired_value) in sorted(desired_by_fragment.items()):
+        matching_keys = [
+            key for key in list(inputs) if _rulespec_test_key_fragment(key) == fragment
+        ]
+        exact_key = _matching_mapping_key_by_rulespec_ref(inputs, producer_ref)
+        if exact_key is None:
+            inputs[producer_ref] = copy.deepcopy(desired_value)
+            repairs.append(f"test:{case_name}:{producer_ref}")
+            matching_keys.append(producer_ref)
+            exact_key = producer_ref
+        for key in matching_keys:
+            if not _generated_test_values_equal(inputs[key], desired_value):
+                inputs[key] = copy.deepcopy(desired_value)
+                repairs.append(f"test:{case_name}:{key}={fragment}")
+
+    return repairs
+
+
+def _best_imported_judgment_branch_for_test_case(
+    *,
+    rule: dict[str, object],
+    imported_refs_by_name: dict[str, str],
+    inputs: dict[object, object],
+    policy_repo_path: Path,
+) -> tuple[str, ...]:
+    branches = _imported_judgment_positive_branches_for_rule(
+        rule,
+        imported_refs_by_name=imported_refs_by_name,
+    )
+    best_branch: tuple[str, ...] = ()
+    best_score = 0
+    for branch in branches:
+        score = _imported_judgment_branch_test_score(
+            branch,
+            inputs=inputs,
+            policy_repo_path=policy_repo_path,
+        )
+        if score > best_score:
+            best_score = score
+            best_branch = branch
+    return best_branch
+
+
+def _imported_judgment_positive_branches_for_rule(
+    rule: dict[str, object],
+    *,
+    imported_refs_by_name: dict[str, str],
+) -> list[tuple[str, ...]]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    imported_names = set(imported_refs_by_name)
+    branches: list[tuple[str, ...]] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str) or not formula.strip():
+            continue
+        for raw_branch in _split_top_level_boolean_operator(formula, "or"):
+            branch = _strip_balanced_outer_parentheses(raw_branch)
+            if re.search(r"\bnot\b", branch):
+                continue
+            branch_names: list[str] = []
+            for raw_part in _split_top_level_boolean_operator(branch, "and"):
+                part = _strip_balanced_outer_parentheses(raw_part)
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part):
+                    branch_names = []
+                    break
+                if part not in imported_names:
+                    branch_names = []
+                    break
+                branch_names.append(part)
+            if not branch_names:
+                continue
+            branches.append(tuple(imported_refs_by_name[name] for name in branch_names))
+    return branches
+
+
+def _split_top_level_boolean_operator(expression: str, operator: str) -> list[str]:
+    normalized_operator = operator.strip().lower()
+    if normalized_operator not in {"and", "or"}:
+        return [expression.strip()]
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for match in re.finditer(r"\b(?:and|or)\b|[()]", expression):
+        token = match.group(0)
+        if token == "(":
+            depth += 1
+            continue
+        if token == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth == 0 and token.lower() == normalized_operator:
+            parts.append(expression[start : match.start()].strip())
+            start = match.end()
+    parts.append(expression[start:].strip())
+    return [part for part in parts if part]
+
+
+def _strip_balanced_outer_parentheses(expression: str) -> str:
+    stripped = expression.strip()
+    while stripped.startswith("(") and stripped.endswith(")"):
+        depth = 0
+        wraps = True
+        for index, char in enumerate(stripped):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0 and index != len(stripped) - 1:
+                    wraps = False
+                    break
+            if depth < 0:
+                wraps = False
+                break
+        if not wraps or depth != 0:
+            break
+        stripped = stripped[1:-1].strip()
+    return stripped
+
+
+def _imported_judgment_branch_test_score(
+    branch: tuple[str, ...],
+    *,
+    inputs: dict[object, object],
+    policy_repo_path: Path,
+) -> int:
+    score = 0
+    for imported_ref in branch:
+        direct_key = _matching_mapping_key_by_rulespec_ref(inputs, imported_ref)
+        if direct_key is not None:
+            if _normalized_generated_test_scalar(inputs[direct_key]) != "holds":
+                return -1
+            score += 100
+            continue
+        producer_inputs = _producer_test_inputs_for_output_value(
+            imported_ref,
+            "holds",
+            policy_repo_path=policy_repo_path,
+        )
+        if not producer_inputs:
+            continue
+        matched = 0
+        for producer_ref, producer_value in producer_inputs.items():
+            input_key = _matching_mapping_key_by_rulespec_ref(
+                inputs,
+                str(producer_ref),
+            )
+            if input_key is None:
+                continue
+            if not _generated_test_values_equal(inputs[input_key], producer_value):
+                return -1
+            matched += 1
+        score += matched
+    return score
+
+
 def _repair_imported_output_test_mismatches(
     *,
+    rules_file: Path | None = None,
     test_file: Path,
     policy_repo_path: Path,
     relative_output: Path,
@@ -36607,6 +37133,20 @@ def _repair_imported_output_test_mismatches(
         return []
     if not isinstance(test_payload, list):
         return []
+
+    imported_composition_rules: set[str] = set()
+    if rules_file is not None and rules_file.exists():
+        try:
+            rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        except (OSError, ValueError, yaml.YAMLError):
+            rules_payload = {}
+        if isinstance(rules_payload, dict):
+            for name, rule in _rules_by_name_from_payload(rules_payload).items():
+                if _generated_rule_is_imported_judgment_composition(
+                    rule,
+                    payload=rules_payload,
+                ):
+                    imported_composition_rules.add(name)
 
     anchor = _relative_output_to_anchor(
         relative_output, policy_repo_path=policy_repo_path
@@ -36645,6 +37185,13 @@ def _repair_imported_output_test_mismatches(
         for output_ref, actual_value in replacements.items():
             output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
             if output_key is None:
+                return []
+            output_name = output_ref.rsplit("#", 1)[-1]
+            if (
+                output_name in imported_composition_rules
+                and actual_value == "not_holds"
+                and _normalized_generated_test_scalar(outputs[output_key]) == "holds"
+            ):
                 return []
             if outputs[output_key] != actual_value:
                 outputs[output_key] = actual_value
@@ -36874,7 +37421,7 @@ def _parse_generated_test_output_mismatch(
     issue: str,
 ) -> tuple[str, str, object] | None:
     match = re.search(
-        r"Test case\s+`?(?P<case>[^\s`]+)`?\s+"
+        r"Test case\s+(?:`(?P<case_quoted>[^`]+)`|(?P<case>[^\s`]+))\s+"
         r"output\s+`?(?P<output>[^\s`]+)`?\s+"
         r"expected\s+\w+\s+.+?,\s+got\s+"
         r"(?P<kind>\w+)\s+(?P<value>-?(?:\d+(?:\.\d+)?|true|false))\.?$",
@@ -36886,18 +37433,20 @@ def _parse_generated_test_output_mismatch(
             value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
         except (InvalidOperation, ValueError):
             return None
-        return match["case"].strip(), match["output"].strip(), value
+        case = (match["case_quoted"] or match["case"]).strip()
+        return case, match["output"].strip(), value
 
     judgment_match = re.search(
-        r"Test case\s+`?(?P<case>[^\s`]+)`?\s+"
+        r"Test case\s+(?:`(?P<case_quoted>[^`]+)`|(?P<case>[^\s`]+))\s+"
         r"output\s+`?(?P<output>[^\s`]+)`?\s+"
         r"expected\s+\w+,\s+got\s+(?P<value>holds|not_holds)\.?$",
         issue,
         flags=re.IGNORECASE,
     )
     if judgment_match:
+        case = (judgment_match["case_quoted"] or judgment_match["case"]).strip()
         return (
-            judgment_match["case"].strip(),
+            case,
             judgment_match["output"].strip(),
             judgment_match["value"].strip().lower(),
         )

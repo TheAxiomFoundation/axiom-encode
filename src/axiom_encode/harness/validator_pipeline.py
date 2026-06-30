@@ -16307,6 +16307,12 @@ def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
     )
 
 
+def _identifier_has_rate_token(identifier: str) -> bool:
+    """Return whether an identifier names a rate as a token, not a substring."""
+    tokens = {token for token in _normalize_identifier(identifier).split("_") if token}
+    return bool(tokens.intersection({"rate", "rates"}))
+
+
 _SOURCE_STATED_COMPOSITE_RATE_PATTERN = re.compile(
     r"\b(?:one-half|half|sum)\b[\s\S]{0,160}\b"
     r"rates?\s+imposed\s+by\b"
@@ -22366,7 +22372,7 @@ class ValidatorPipeline:
         imported_rate_sources: dict[str, str] = {}
         for import_item in self._extract_import_items(content):
             fragment = self._import_item_fragment(import_item)
-            if not fragment or "rate" not in fragment.lower():
+            if not fragment or not _identifier_has_rate_token(fragment):
                 continue
             import_file = _resolve_rulespec_import_file_static(
                 import_item,

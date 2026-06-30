@@ -11154,6 +11154,53 @@ rules:
     assert "additional_medicare_tax_rate" in issues[0]
 
 
+def test_flattened_thresholded_imported_rate_ignores_rate_substring(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "42" / "1396a" / "xx.yaml"
+    rules_file = repo / "statutes" / "42" / "1396a" / "a" / "10.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: demonstrated_community_engagement_for_month
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: monthly_work_hours >= community_engagement_hours_threshold
+  - name: community_engagement_hours_threshold
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-12-31'
+        formula: 80
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: adult_group_eligible and demonstrated_community_engagement_for_month
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert issues == []
+
+
 def test_thresholded_imported_rate_allows_excess_amount_formula(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"

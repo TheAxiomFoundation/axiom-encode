@@ -204,6 +204,38 @@ _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
 _CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
 _CODEX_LONG_SOURCE_TIMEOUT_SECONDS = 1800
 _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS = 900
+_POLICYENGINE_HINT_BROAD_PLACEHOLDER_RE = re.compile(
+    r"\b(?:"
+    r"person_is_described_in_[A-Za-z0-9_]*"
+    r"|person_is_not_described_in_or_enrolled_under_[A-Za-z0-9_]*"
+    r"|person_is_in_[A-Za-z0-9_]*category[A-Za-z0-9_]*"
+    r"|person_[A-Za-z0-9_]*listed_state_plan[A-Za-z0-9_]*"
+    r"|person_[A-Za-z0-9_]*(?:mandatory|optional|cost_sharing|ssi_related)"
+    r"[A-Za-z0-9_]*group[A-Za-z0-9_]*"
+    r"|person_[A-Za-z0-9_]*(?:subparagraph|subclause|subsection|section)"
+    r"[A-Za-z0-9_]*"
+    r"|person_[A-Za-z0-9_]*as_defined_in_[A-Za-z0-9_]*"
+    r"|person_covered_by_[A-Za-z0-9_]*(?:category|subparagraph)[A-Za-z0-9_]*"
+    r"|person_is_qualified_[A-Za-z0-9_]*group[A-Za-z0-9_]*"
+    r"|income_(?:as_)?determined_(?:under|for)_[A-Za-z0-9_]*"
+    r"|[A-Za-z0-9_]*subsection_[A-Za-z0-9_]*requirements"
+    r"(?:_[A-Za-z0-9_]+)?_satisfied"
+    r"|[A-Za-z0-9_]*subject_to_subsections?_[A-Za-z0-9_]*_satisfied"
+    r")\b"
+)
+_RULESPEC_FORMULA_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_RULESPEC_FORMULA_KEYWORDS = frozenset(
+    {
+        "and",
+        "else",
+        "false",
+        "if",
+        "in",
+        "not",
+        "or",
+        "true",
+    }
+)
 
 
 def _matching_numeric_occurrence_count(
@@ -3336,6 +3368,10 @@ def evaluate_artifact(
         content,
         source_text,
     )
+    policyengine_hint_upstream_issues = _policyengine_hint_upstream_composition_issues(
+        content,
+        policyengine_rule_hint,
+    )
     ci_issues = []
     seen_ci_issues: set[str] = set()
     for issue in (
@@ -3343,6 +3379,7 @@ def evaluate_artifact(
         + ungrounded_numeric_issues
         + numeric_occurrence_issues
         + admin_agency_aggregate_issues
+        + policyengine_hint_upstream_issues
     ):
         if issue in seen_ci_issues:
             continue
@@ -3353,6 +3390,7 @@ def evaluate_artifact(
         and not ungrounded_numeric_issues
         and not numeric_occurrence_issues
         and not admin_agency_aggregate_issues
+        and not policyengine_hint_upstream_issues
     )
 
     return EvalArtifactMetrics(
@@ -4734,9 +4772,41 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
 
     target_hint = ""
     if policyengine_rule_hint:
+        policyengine_context_exports_section = (
+            _format_policyengine_hint_context_exports(
+                context_files,
+            )
+        )
         target_hint = f"""
 Preferred principal output:
 - Name the main derived rule `{policyengine_rule_hint}` unless the source clearly defines a different canonical concept.
+- Treat `{policyengine_rule_hint}` as a required oracle-facing surface. Do not
+  put `{policyengine_rule_hint}` under `module.deferred_outputs[]` merely
+  because the source is broad or cites many sibling provisions when an
+  executable formula can be composed from source-stated facts, scalar
+  parameters, or imported primary-source RuleSpec exports supplied in context.
+- If the hinted output would otherwise depend on broad placeholders such as
+  `person_is_described_in_*`, `person_is_in_*_category`, `*_determined_for_*`,
+  `*_mandatory_subclauses*`, or `person_is_qualified_*_group`, first look for
+  the primary statute/regulation export in copied context and import that
+  concrete output instead of leaving the broad phrase as a local boundary
+  input. Defer only the specific unavailable branch, not the whole hinted
+  output, when the remaining branches are executable and source-grounded.
+- For an aggregate/composite hinted output, first enumerate the executable
+  `dtype: Judgment` exports already visible in copied context that match the
+  source's listed categories or branches. Compose `{policyengine_rule_hint}` as
+  a disjunction/conjunction of those imported exports plus only the local
+  conditions the current source itself newly states. Do not create broad local
+  inputs such as `person_covered_by_*category`,
+  `person_covered_by_*subparagraph`, `person_is_described_in_previous_*`,
+  `person_is_not_described_in_or_enrolled_under_*`, or
+  `income_determined_under_*` when a copied primary-source RuleSpec file
+  exports the corresponding concrete category, income methodology, or branch.
+- If a listed branch has no executable primary-source export in copied context,
+  split that branch out: either encode the upstream source first, or omit/defer
+  only that branch with exact provenance. Do not let the oracle-facing hinted
+  rule depend on an aggregate leaf input merely to make the formula executable.
+{policyengine_context_exports_section.rstrip()}
 - Keep oracle-comparable tests at that named semantic level; do not assert only helper parameters or documentary scalars.
 - Keep `.test.yaml` inputs oracle-comparable: prefer the oracle's direct component facts over inverted household proxy inputs, preserve direct component surfaces when available, and assert the canonical RuleSpec output whose local name is `{policyengine_rule_hint}` in every non-empty `output:` mapping.
 - When PolicyEngine can compare the output but cannot consume the source-level
@@ -5793,6 +5863,48 @@ def _format_context_file_listing(
         f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
         f"{hash_detail}{export_detail}{details}{kind}"
     )
+
+
+def _format_policyengine_hint_context_exports(
+    context_files: list[EvalContextFile],
+    *,
+    max_exports: int = 40,
+) -> str:
+    """Return PE-hint scoped executable context exports for prompt guidance."""
+    export_lines: list[str] = []
+    for item in context_files:
+        if item.kind.endswith("_test_context"):
+            continue
+        surfaces = _context_file_executable_surfaces(item.source_path)
+        for name, surface in sorted(surfaces.items()):
+            dtype = str(surface.get("dtype") or "").strip()
+            if dtype != "Judgment":
+                continue
+            kind = str(surface.get("kind") or "").strip()
+            entity = str(surface.get("entity") or "").strip()
+            details = ", ".join(
+                part
+                for part in [
+                    f"kind={kind}" if kind else "",
+                    f"entity={entity}" if entity else "",
+                    f"dtype={dtype}",
+                ]
+                if part
+            )
+            export_lines.append(f"- `{item.import_path}#{name}` ({details})")
+    if not export_lines:
+        return ""
+    rendered = export_lines[:max_exports]
+    if len(export_lines) > max_exports:
+        rendered.append(
+            f"- ... {len(export_lines) - max_exports} additional Judgment exports omitted"
+        )
+    return """
+Executable Judgment exports visible in copied context for the hinted output.
+Prefer these exact imports before creating any local branch/category/status
+placeholder for the oracle-facing output:
+{lines}
+""".format(lines="\n".join(rendered))
 
 
 _CANONICAL_CONCEPT_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]*")
@@ -9738,6 +9850,94 @@ def _canonical_rulespec_target_for_path(rulespec_path: Path | None) -> str | Non
     if relative.suffix in {".yaml", ".yml"}:
         relative = relative.with_suffix("")
     return f"{prefix}:{relative.as_posix()}"
+
+
+def _policyengine_hint_upstream_composition_issues(
+    rulespec_content: str,
+    policyengine_rule_hint: str | None,
+) -> list[str]:
+    """Flag PE-hinted surfaces that still rely on broad upstream placeholders."""
+    if not policyengine_rule_hint:
+        return []
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(rulespec_content)
+        if not isinstance(payload, dict):
+            return []
+        issues: list[str] = []
+        module = payload.get("module")
+        deferred_outputs = (
+            module.get("deferred_outputs") if isinstance(module, dict) else None
+        )
+        if isinstance(deferred_outputs, list):
+            for deferred_output in deferred_outputs:
+                if not isinstance(deferred_output, dict):
+                    continue
+                output = str(deferred_output.get("output", "")).strip()
+                if output == policyengine_rule_hint or output.endswith(
+                    f"#{policyengine_rule_hint}"
+                ):
+                    issues.append(
+                        "PolicyEngine hinted output "
+                        f"`{policyengine_rule_hint}` is deferred; compose it from "
+                        "available primary-source RuleSpec exports, or defer only "
+                        "specific unavailable branches."
+                    )
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return issues
+        rules_by_name = {
+            rule.get("name"): rule
+            for rule in rules
+            if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+        }
+        rule = rules_by_name.get(policyengine_rule_hint)
+        if not isinstance(rule, dict):
+            return issues
+
+        placeholders: set[str] = set()
+        visited: set[str] = set()
+        pending = [policyengine_rule_hint]
+        while pending:
+            rule_name = pending.pop()
+            if rule_name in visited:
+                continue
+            visited.add(rule_name)
+            rule = rules_by_name.get(rule_name)
+            if not isinstance(rule, dict):
+                continue
+            versions = rule.get("versions")
+            if not isinstance(versions, list):
+                continue
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                formula = version.get("formula")
+                if not isinstance(formula, str):
+                    continue
+                placeholders.update(
+                    match.group(0)
+                    for match in _POLICYENGINE_HINT_BROAD_PLACEHOLDER_RE.finditer(
+                        formula
+                    )
+                )
+                for identifier in _RULESPEC_FORMULA_IDENTIFIER_RE.findall(formula):
+                    if identifier in _RULESPEC_FORMULA_KEYWORDS:
+                        continue
+                    if identifier not in rules_by_name or identifier in visited:
+                        continue
+                    pending.append(identifier)
+        if placeholders:
+            issues.append(
+                "PolicyEngine hinted output "
+                f"`{policyengine_rule_hint}` uses broad upstream placeholder(s) "
+                f"{', '.join(f'`{item}`' for item in sorted(placeholders))}. "
+                "Import concrete primary-source RuleSpec outputs already present "
+                "in context, encode the upstream source first, or defer only the "
+                "specific unavailable branch instead of making the PE surface "
+                "depend on aggregate leaf inputs."
+            )
+        return issues
+    return []
 
 
 def _policyengine_hint_test_output_key(
