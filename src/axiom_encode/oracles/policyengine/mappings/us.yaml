@@ -1846,6 +1846,129 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes a source-local monthly selector over Alaska DPA household type codes. PolicyEngine's final `ak_ssp` surface also composes eligibility, living-arrangement and claim-type projections, countable-income reduction, annualization, and person-level aggregation, so compare the encoded monthly row cells separately.
 
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#fcmp_nursing_care_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: FCMP_NURSING_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the FCMP Nursing Care row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#nursing_care_supplement_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: NURSING_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the Nursing Care Supplement row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_a_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: IHC_LEVEL_A
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the Personal Care Supplement Level A row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_b_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: IHC_LEVEL_B
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the Personal Care Supplement Level B row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#foster_care_personal_or_nursing_care_supplement_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: FOSTER_CARE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the Personal Care or Nursing Care Supplement in Foster Care row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#cerebral_palsy_treatment_center_care_payment_monthly_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.dhr.ssp.amount
+    parameter_key: CEREBRAL_PALSY
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alabama monthly supplement amount for the Care in a Cerebral Palsy Treatment Center row in Ala. Admin. Code attachment 660-2-4-.19a.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#fcmp_nursing_care_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for FCMP Nursing Care. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#nursing_care_supplement_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for Nursing Care Supplement. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_a_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for Personal Care Level A. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_b_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for Personal Care Level B. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#foster_care_personal_or_nursing_care_supplement_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for Foster Care supplement. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#cerebral_palsy_treatment_center_care_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the attachment 660-2-4-.19a Maximum Budgeted column for Cerebral Palsy Treatment Center care. PolicyEngine's Alabama SSP parameter stores payment monthly amounts and does not expose the separate maximum-budgeted column.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#al_ssp
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: al_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local monthly selector over attachment 660-2-4-.19a row predicates. PolicyEngine's final `al_ssp` surface also composes SSI eligibility, payment category, grandfathering, waiver, and skilled-nursing-facility predicates, so compare the encoded row amount cells separately until those eligibility and category rules are encoded.
+
+  - legal_id: us-al:policies/dhr/ssp/state-supplement-payment-standard#al_ssp_maximum_budgeted
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over attachment 660-2-4-.19a Maximum Budgeted amounts. PolicyEngine's Alabama SSP surface does not expose that separate maximum-budgeted column.
+
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
     program: ssi_state_supplement
