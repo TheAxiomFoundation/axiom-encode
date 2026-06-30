@@ -625,9 +625,16 @@ def _project_case_inputs(
     ] = False
 
     young_adult = bool(young_adult_eligible)
-    inputs["us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance"] = (
-        "holds" if young_adult else "not_holds"
-    )
+    inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] = numeric_age
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"
+    ] = False
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option"
+    ] = False
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option"
+    ] = False
     inputs[
         "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
     ] = young_adult

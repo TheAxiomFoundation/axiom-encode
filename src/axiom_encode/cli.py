@@ -7497,12 +7497,14 @@ MEDICAID_OPTIONAL_SENIOR_TARGET = (
 )
 MEDICAID_OPTIONAL_SENIOR_RULE = "is_optional_senior_or_disabled_for_medicaid"
 MEDICAID_YOUTH_RELATIVE = Path("statutes/42/1396d/a/i.yaml")
+MEDICAID_YOUTH_MODULE_TARGET = "us:statutes/42/1396d/a/i"
 MEDICAID_YOUTH_TARGET = (
     "us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance"
 )
 MEDICAID_YOUTH_RULE = "youth_age_category_for_medical_assistance"
 MEDICAID_OPTIONAL_YOUTH_RULE = "optional_youth_medicaid_category_eligible"
 MEDICAID_MEDICALLY_NEEDY_RELATIVE = Path("regulations/42-cfr/435/301.yaml")
+MEDICAID_MEDICALLY_NEEDY_MODULE_TARGET = "us:regulations/42-cfr/435/301"
 MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET = (
     "us:regulations/42-cfr/435/301#mandatory_medically_needy_medicaid_required"
 )
@@ -8155,9 +8157,8 @@ def _repair_medicaid_primary_category_composition_rules(
     changed: list[str] = []
 
     imports_to_add = [
-        MEDICAID_YOUTH_TARGET,
-        MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET,
-        MEDICAID_MEDICALLY_NEEDY_OPTIONAL_TARGET,
+        MEDICAID_YOUTH_MODULE_TARGET,
+        MEDICAID_MEDICALLY_NEEDY_MODULE_TARGET,
     ]
     module_marker = "\nmodule:\n"
     if module_marker not in repaired:
@@ -8279,7 +8280,10 @@ def _repair_medicaid_primary_category_composition_rules(
 
 
 _MEDICAID_PRIMARY_FALSE_INPUTS = {
-    "us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance": "not_holds",
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 30,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option": False,
     "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i": False,
     "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
     "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category": False,
@@ -8301,7 +8305,10 @@ _MEDICAID_PRIMARY_FALSE_INPUTS = {
 }
 
 _MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS = {
-    "us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance": "holds",
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 20,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option": False,
     "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i": True,
     "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
     "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category": True,
