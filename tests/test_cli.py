@@ -91,6 +91,7 @@ from axiom_encode.cli import (
     _repair_input_field_accesses_in_formulas,
     _repair_medicaid_optional_senior_composition_rules,
     _repair_medicaid_optional_senior_composition_tests,
+    _repair_medicaid_primary_category_composition_tests,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
@@ -25739,6 +25740,36 @@ rules:
             "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
         }
         assert "optional senior disabled category eligible" in changed_tests
+
+    def test_repair_medicaid_primary_category_tests_keep_youth_age_inputs_consistent(
+        self,
+    ):
+        tests = """- name: no composed mandatory category eligible
+  period: 2027-01
+  input:
+    us:statutes/42/1396a/m#input.individual_age_years: 30
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: not_holds
+"""
+
+        repaired_tests, changed_tests = (
+            _repair_medicaid_primary_category_composition_tests(tests)
+        )
+
+        parsed_tests = yaml.safe_load(repaired_tests)
+        youth_case = next(
+            case
+            for case in parsed_tests
+            if case["name"] == "optional youth category eligible"
+        )
+        youth_inputs = youth_case["input"]
+        assert youth_inputs["us:statutes/42/1396a/m#input.individual_age_years"] == 20
+        assert youth_inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] == 20
+        assert youth_case["output"] == {
+            "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        assert "optional youth category eligible" in changed_tests
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path

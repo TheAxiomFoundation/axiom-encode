@@ -8306,6 +8306,7 @@ _MEDICAID_PRIMARY_FALSE_INPUTS = {
 }
 
 _MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 20,
     "us:statutes/42/1396d/a/i#input.individual_age_years": 20,
     "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
     "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
