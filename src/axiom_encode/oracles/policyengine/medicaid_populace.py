@@ -62,6 +62,9 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
     "former_foster": (
         "us:regulations/42-cfr/435/150#former_foster_care_child_medicaid_required"
     ),
+    "optional_senior_disabled": (
+        "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+    ),
     "community_engagement": (
         "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
     ),
@@ -449,6 +452,7 @@ def _project_case_inputs(
     adult_nfc: bool,
     adult_fc: bool,
     ssi_recipient: bool,
+    senior_or_disabled_eligible: bool,
     mandatory_subpart_b: bool,
     work_requirement_eligible: bool,
     medicare_eligible: bool,
@@ -556,6 +560,39 @@ def _project_case_inputs(
     inputs[
         "us:regulations/42-cfr/435/120/ssi-mandatory-group#input.person_is_receiving_or_deemed_receiving_ssi"
     ] = bool(ssi_recipient)
+
+    optional_senior_disabled = bool(senior_or_disabled_eligible)
+    inputs["us:statutes/42/1396a/m#input.individual_age_years"] = numeric_age
+    inputs[
+        "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3"
+    ] = bool(optional_senior_disabled and numeric_age < 65)
+    inputs[
+        "us:statutes/42/1396a/m#input.income_determined_for_this_subsection"
+    ] = 0.5 if optional_senior_disabled else 2.0
+    inputs[
+        "us:statutes/42/1396a/m#input.state_established_income_level_amount"
+    ] = 1.0
+    inputs[
+        "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate"
+    ] = 1.0
+    inputs[
+        "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program"
+    ] = 1.0 if optional_senior_disabled else 3.0
+    inputs[
+        "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program"
+    ] = 2.0
+    inputs[
+        "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals"
+    ] = 0.0
 
     inputs[
         "us:regulations/42-cfr/435/150#input.person_eligible_and_enrolled_for_mandatory_coverage_under_435_110_through_435_118_or_435_120_through_435_145"
@@ -709,6 +746,8 @@ def load_policyengine_cases(
             adult_nfc=bool(values["adult_nfc"][index]),
             adult_fc=bool(values["adult_fc"][index]),
             ssi_recipient=bool(values["ssi"][index]),
+            senior_or_disabled_eligible=str(values["medicaid_category"][index])
+            == "SENIOR_OR_DISABLED",
             mandatory_subpart_b=mandatory_subpart_b,
             work_requirement_eligible=bool(values["work"][index]),
             medicare_eligible=bool(values["medicare"][index]),
@@ -1041,7 +1080,8 @@ def main(args: argparse.Namespace | None = None) -> None:
             f"adult_fc={row['pe_adult_fc']} work={row['pe_work']} "
             f"axiom_child={row.get('axiom_child')} "
             f"axiom_adult={row.get('axiom_adult')} "
-            f"axiom_ssi={row.get('axiom_ssi')}"
+            f"axiom_ssi={row.get('axiom_ssi')} "
+            f"axiom_optional_senior_disabled={row.get('axiom_optional_senior_disabled')}"
         )
 
     if args.write_csv is not None:
