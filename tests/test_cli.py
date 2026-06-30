@@ -139,6 +139,7 @@ from axiom_encode.cli import (
     _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_import_output_inputs_for_apply,
     _try_repair_generated_import_target_prefix_typos_for_apply,
+    _try_repair_generated_imported_output_test_mismatches_for_apply,
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
@@ -14938,6 +14939,147 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_imported_output_repair_satisfies_positive_judgment_composition(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        test_file = rules_file.with_name("10.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        parent_file = policy_repo / "us" / "regulations/42-cfr/435/110.yaml"
+        adult_file = policy_repo / "us" / "regulations/42-cfr/435/119.yaml"
+        engagement_file = policy_repo / "us" / "statutes/42/1396a/xx.yaml"
+        for path, output_name, formula in [
+            (
+                parent_file,
+                "parent_or_caretaker_relative_eligible",
+                "person_is_parent_or_caretaker_relative",
+            ),
+            (
+                adult_file,
+                "adult_group_eligible",
+                "household_income_as_fraction_of_fpl <= 1.38",
+            ),
+            (
+                engagement_file,
+                "demonstrated_community_engagement_for_month",
+                "monthly_work_hours >= 80",
+            ),
+        ]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"""format: rulespec/v1
+rules:
+  - name: {output_name}
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: {formula}
+"""
+            )
+        parent_file.with_suffix(".test.yaml").write_text(
+            """- name: parent eligible
+  input:
+    us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative: true
+  output:
+    us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible: holds
+"""
+        )
+        adult_file.with_suffix(".test.yaml").write_text(
+            """- name: adult group eligible
+  input:
+    us:regulations/42-cfr/435/119#input.household_income_as_fraction_of_fpl: 1.0
+  output:
+    us:regulations/42-cfr/435/119#adult_group_eligible: holds
+"""
+        )
+        engagement_file.with_suffix(".test.yaml").write_text(
+            """- name: work hours satisfy monthly engagement
+  input:
+    us:statutes/42/1396a/xx#input.monthly_work_hours: 80
+  output:
+    us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: holds
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
+  - us:regulations/42-cfr/435/119#adult_group_eligible
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          parent_or_caretaker_relative_eligible
+          or (adult_group_eligible and demonstrated_community_engagement_for_month)
+"""
+        )
+        test_file.write_text(
+            """- name: adult expansion group eligible
+  input:
+    us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative: false
+    us:regulations/42-cfr/435/110#input.household_income_as_fraction_of_fpl: 2.0
+    us:regulations/42-cfr/435/119#input.household_income_as_fraction_of_fpl: 1.0
+    us:statutes/42/1396a/xx#input.monthly_work_hours: 80
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_imported_output_test_mismatches_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/42/1396a/a/10.yaml: ci: Test case "
+                "`adult expansion group eligible` output "
+                "us:statutes/42/1396a/a/10#is_medicaid_eligible "
+                "expected holds, got not_holds."
+            ],
+        )
+
+        assert repaired == [
+            "test:adult expansion group eligible:"
+            "us:regulations/42-cfr/435/110"
+            "#input.household_income_as_fraction_of_fpl="
+            "input.household_income_as_fraction_of_fpl"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        inputs = test_payload[0]["input"]
+        assert (
+            inputs[
+                "us:regulations/42-cfr/435/110"
+                "#input.household_income_as_fraction_of_fpl"
+            ]
+            == 1.0
+        )
+        assert (
+            "us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible"
+            not in inputs
+        )
+        assert "us:regulations/42-cfr/435/119#adult_group_eligible" not in inputs
+        assert (
+            "us:statutes/42/1396a/xx"
+            "#demonstrated_community_engagement_for_month"
+            not in inputs
+        )
+        assert (
+            test_payload[0]["output"][
+                "us:statutes/42/1396a/a/10#is_medicaid_eligible"
+            ]
+            == "holds"
+        )
+
     def test_encode_apply_retries_unsafe_deferral_after_positive_repair(
         self, capsys, tmp_path
     ):
@@ -20385,6 +20527,335 @@ rules:
             not in test_file.read_text()
         )
 
+    def test_missing_same_section_import_repair_gates_imported_adult_group(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        test_file = rules_file.with_name("10.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: demonstrated_community_engagement_for_month
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: community_engagement_met_by_activity_or_income
+  - name: specified_excluded_individual
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: person_has_exclusion
+"""
+        )
+        cited_file.with_suffix(".test.yaml").write_text(
+            """- name: work hours satisfy monthly engagement
+  period: 2027-01
+  input:
+    us:statutes/42/1396a/xx#input.monthly_work_hours: 80
+  output:
+    us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: holds
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx
+  - us:regulations/42-cfr/435/119#adult_group_eligible
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    dtype: Judgment
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:regulations/42-cfr/435/119#adult_group_eligible
+              output: adult_group_eligible
+              hash: sha256:local
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          parent_or_caretaker_relative_eligible
+          or adult_group_eligible
+          or former_foster_care_child_medicaid_required
+"""
+        )
+        test_file.write_text(
+            """- name: adult group eligibility makes medical assistance available
+  period: 2024-01
+  input:
+    us:regulations/42-cfr/435/119#input.person_age: 40
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/a/10.yaml: ci: Same-section subsection "
+                    "import not operational: source text cites `statutes/42/1396a/xx` "
+                    "in an exception/cross-reference clause, but the matching import "
+                    "does not bring a specific imported output into the formula."
+                ],
+            )
+        )
+
+        assert repaired == [
+            ("us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"),
+            (
+                "adult_expansion_subject_to_xx"
+                "->demonstrated_community_engagement_for_month"
+            ),
+            (
+                "test:adult group eligibility makes medical assistance available:"
+                "us:statutes/42/1396a/xx"
+                "#demonstrated_community_engagement_for_month"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month\n"
+        ) in rules_text
+        assert "  - us:statutes/42/1396a/xx\n" not in rules_text
+        assert (
+            "          or (adult_group_eligible "
+            "and demonstrated_community_engagement_for_month)\n"
+        ) in rules_text
+        assert "path: versions[0].formula" in rules_text
+        assert (
+            "target: us:statutes/42/1396a/xx"
+            "#demonstrated_community_engagement_for_month"
+        ) in rules_text
+        test_text = test_file.read_text()
+        assert "period: 2027-01" in test_text
+        assert "us:statutes/42/1396a/xx#input.monthly_work_hours: 80" in test_text
+
+    def test_not_operational_same_section_import_repair_replaces_medicaid_xx_placeholder_in_adult_group(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        test_file = rules_file.with_name("10.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: demonstrated_community_engagement_for_month
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: community_engagement_met_by_activity_or_income
+  - name: specified_excluded_individual
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: person_has_exclusion
+"""
+        )
+        cited_file.with_suffix(".test.yaml").write_text(
+            """- name: work hours satisfy monthly engagement
+  period: 2027-01
+  input:
+    us:statutes/42/1396a/xx#input.monthly_work_hours: 80
+  output:
+    us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month: holds
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: adult_expansion_group
+    kind: derived
+    dtype: Judgment
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          age < adult_expansion_age_ceiling_years
+          and adult_expansion_subject_to_subsections_k_and_xx_satisfied
+  - name: is_medicaid_eligible
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          adult_expansion_group
+"""
+        )
+        test_file.write_text(
+            """- name: adult expansion eligible below income limit
+  period: 2024-01
+  input:
+    us:statutes/42/1396a/a/10#input.age: 40
+    us:statutes/42/1396a/a/10#input.adult_expansion_subject_to_subsections_k_and_xx_satisfied: true
+  output:
+    us:statutes/42/1396a/a/10#adult_expansion_group: holds
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/a/10.yaml: ci: Same-section subsection "
+                    "import not operational: source text cites `statutes/42/1396a/xx` "
+                    "in an exception/cross-reference clause, but the matching import "
+                    "does not bring a specific imported output into the formula."
+                ],
+            )
+        )
+
+        assert repaired == [
+            "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month",
+            (
+                "adult_expansion_subject_to_subsections_k_and_xx_satisfied"
+                "->demonstrated_community_engagement_for_month"
+            ),
+            (
+                "test:adult expansion eligible below income limit:"
+                "us:statutes/42/1396a/xx"
+                "#demonstrated_community_engagement_for_month"
+            ),
+        ]
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month\n"
+            in rules_text
+        )
+        assert "  - us:statutes/42/1396a/xx\n" not in rules_text
+        assert (
+            "and adult_expansion_subject_to_subsections_k_and_xx_satisfied"
+            not in rules_text
+        )
+        assert "and demonstrated_community_engagement_for_month\n" in rules_text
+        assert (
+            "target: us:statutes/42/1396a/xx"
+            "#demonstrated_community_engagement_for_month"
+        ) in rules_text
+        test_text = test_file.read_text()
+        assert "period: 2027-01" in test_text
+        assert "us:statutes/42/1396a/xx#input.monthly_work_hours: 80" in test_text
+        assert (
+            "us:statutes/42/1396a/a/10#input."
+            "adult_expansion_subject_to_subsections_k_and_xx_satisfied"
+            not in test_text
+        )
+
+    def test_not_operational_same_section_import_repair_does_not_add_broad_import(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: demonstrated_community_engagement_for_month
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: community_engagement_met_by_activity_or_income
+  - name: specified_excluded_individual
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-12-31'
+        formula: person_has_exclusion
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+module:
+  proof_validation:
+    required: true
+  deferred_outputs:
+    - output: us:statutes/42/1396a/a/10/a#is_medicaid_eligible
+      reason: Deferred after validation.
+rules:
+  - name: adult_expansion_income_limit_poverty_line_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2014-01-01'
+        formula: '1.33'
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/42/1396a/a/10.yaml: ci: Same-section subsection "
+                    "import not operational: source text cites `statutes/42/1396a/xx` "
+                    "in an exception/cross-reference clause, but the matching import "
+                    "does not bring a specific imported output into the formula."
+                ],
+            )
+        )
+
+        assert repaired == []
+        rules_text = rules_file.read_text()
+        assert (
+            "  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month\n"
+            in rules_text
+        )
+        assert "  - us:statutes/42/1396a/xx\n" not in rules_text
+
     def test_missing_same_section_import_repair_promotes_cfr_placeholder(
         self, tmp_path
     ):
@@ -20884,6 +21355,71 @@ rules:
             record["output"] for record in payload["module"]["deferred_outputs"]
         ] == repaired
         assert test_cases == []
+
+    def test_unsafe_formula_output_repair_keeps_imported_judgment_composition(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
+        )
+        test_file = rules_file.with_name("10.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
+  - us:regulations/42-cfr/435/119#adult_group_eligible
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    source: 42 USC 1396a(a)(10)(A)
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          parent_or_caretaker_relative_eligible
+          or (adult_group_eligible and demonstrated_community_engagement_for_month)
+"""
+        )
+        test_file.write_text(
+            """- name: adult group with community engagement
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: holds
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/42/1396a/a/10.yaml: ci: Flattened thresholded "
+                "imported rate: `is_medicaid_eligible` uses imported "
+                "`adult_group_eligible`."
+            ],
+        )
+
+        assert repaired == []
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["module"].get("deferred_outputs") is None
+        assert [
+            rule["name"]
+            for rule in payload["rules"]
+            if isinstance(rule, dict)
+        ] == ["is_medicaid_eligible"]
+        assert "is_medicaid_eligible" in test_file.read_text()
 
     def test_unsafe_formula_output_repair_defers_cross_reference_placeholders(
         self, tmp_path

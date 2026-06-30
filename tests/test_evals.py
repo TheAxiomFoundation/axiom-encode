@@ -39,6 +39,7 @@ from axiom_encode.harness.evals import (
     _normalize_nonannual_test_period_value,
     _normalize_test_case_value,
     _normalize_test_periods_to_effective_dates,
+    _policyengine_hint_upstream_composition_issues,
     _post_openai_eval_request,
     _prepare_codex_eval_home,
     _prompt_corpus_citation_path,
@@ -11438,12 +11439,36 @@ class TestSourceEval:
             mode="cold",
             extra_context_paths=[],
         )
+        context_source = tmp_path / "adult-group.yaml"
+        context_source.write_text(
+            """format: rulespec/v1
+rules:
+  - name: adult_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: age >= 19
+""",
+            encoding="utf-8",
+        )
+        workspace_context = workspace.root / "context" / "adult-group.yaml"
+        workspace_context.parent.mkdir(parents=True)
+        workspace_context.write_text(context_source.read_text(), encoding="utf-8")
+        context_file = EvalContextFile(
+            source_path=str(context_source),
+            workspace_path="context/adult-group.yaml",
+            import_path="us:regulations/42-cfr/435/119",
+            kind="allowed_context",
+        )
 
         prompt = _build_eval_prompt(
             "uksi/2013/376/regulation/36/3",
             "cold",
             workspace,
-            [],
+            [context_file],
             target_file_name="example.yaml",
             include_tests=True,
             runner_backend="openai",
@@ -11451,6 +11476,12 @@ class TestSourceEval:
         )
 
         assert "uc_standard_allowance_single_claimant_aged_under_25" in prompt
+        assert "Treat `uc_standard_allowance_single_claimant_aged_under_25` as a required oracle-facing surface" in prompt
+        assert "Do not" in prompt
+        assert "module.deferred_outputs[]" in prompt
+        assert "import that" in prompt
+        assert "concrete output instead of leaving the broad phrase" in prompt
+        assert "person_is_in_*_category" in prompt
         assert "Keep `.test.yaml` inputs oracle-comparable" in prompt
         assert (
             "Prefer a contemporary monthly `.test.yaml` period like `2022-01` or `2024-01`"
@@ -11470,10 +11501,110 @@ class TestSourceEval:
         assert "assert that canonical copied output" in prompt
         assert "key the test by that id rather than the friendly local name" in prompt
         assert "Key inputs by their resolving legal RuleSpec target too" in prompt
+        assert "For an aggregate/composite hinted output" in prompt
+        assert "first enumerate the executable" in prompt
+        assert "Executable Judgment exports visible in copied context" in prompt
+        assert "us:regulations/42-cfr/435/119#adult_group_eligible" in prompt
+        assert "person_covered_by_*category" in prompt
+        assert "Do not let the oracle-facing hinted" in prompt
         assert (
             "avoid pre-2015 historical periods that PolicyEngine US cannot evaluate"
             in prompt
         )
+
+    def test_policyengine_hint_upstream_composition_flags_broad_placeholders(self):
+        content = """
+format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/42/1396a/a/10#other_surface
+      reason: not relevant
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          adult_group_eligible
+          or person_covered_by_other_mandatory_subparagraph_A_i_category
+          or person_is_described_in_previous_mandatory_subclause
+          or income_as_determined_under_subsection_e_14 <= income_limit
+"""
+
+        issues = _policyengine_hint_upstream_composition_issues(
+            content,
+            "is_medicaid_eligible",
+        )
+
+        assert len(issues) == 1
+        assert "broad upstream placeholder" in issues[0]
+        assert "person_covered_by_other_mandatory_subparagraph_A_i_category" in issues[0]
+        assert "person_is_described_in_previous_mandatory_subclause" in issues[0]
+        assert "income_as_determined_under_subsection_e_14" in issues[0]
+
+    def test_policyengine_hint_upstream_composition_flags_transitive_placeholders(self):
+        content = """
+format: rulespec/v1
+rules:
+  - name: adult_expansion_mandatory_group_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(i)(VIII)
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          not person_is_described_in_previous_mandatory_subclause
+          and income_determined_for_adult_expansion <= income_limit
+          and adult_expansion_subject_to_subsections_k_and_xx_satisfied
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          person_receives_aid_or_assistance_under_listed_state_plan
+          or person_meets_ssi_related_mandatory_group
+          or adult_expansion_mandatory_group_eligible
+"""
+
+        issues = _policyengine_hint_upstream_composition_issues(
+            content,
+            "is_medicaid_eligible",
+        )
+
+        assert len(issues) == 1
+        assert "person_receives_aid_or_assistance_under_listed_state_plan" in issues[0]
+        assert "person_meets_ssi_related_mandatory_group" in issues[0]
+        assert "person_is_described_in_previous_mandatory_subclause" in issues[0]
+        assert "income_determined_for_adult_expansion" in issues[0]
+        assert "adult_expansion_subject_to_subsections_k_and_xx_satisfied" in issues[0]
+
+    def test_policyengine_hint_upstream_composition_flags_deferred_hint(self):
+        content = """
+format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/42/1396a/a/10#is_medicaid_eligible
+      reason: broad source
+rules: []
+"""
+
+        issues = _policyengine_hint_upstream_composition_issues(
+            content,
+            "is_medicaid_eligible",
+        )
+
+        assert len(issues) == 1
+        assert "is deferred" in issues[0]
 
     def test_build_eval_prompt_includes_sets_source_metadata_guidance(self, tmp_path):
         runner = parse_runner_spec("openai:gpt-5.4")
