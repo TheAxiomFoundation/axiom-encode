@@ -1903,10 +1903,12 @@ surfaces:
   variable: wa_ssp
   source_type: state_implementation
   state: WA
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes current WAC 388-478-0055 SSP rate-standard components, including a comparable July 2023
+    medical-institution base amount and an explicit deferred output for post-2024 medical-institution COLA. PolicyEngine's
+    `wa_ssp` is a final person-level wrapper over WAC 388-474 eligibility/category facts and a historical amount schedule,
+    so compare source components separately until WAC 388-474 and the WSR rate history are encoded.
 - country: us
   program_id: social_security
   program_name: Social Security

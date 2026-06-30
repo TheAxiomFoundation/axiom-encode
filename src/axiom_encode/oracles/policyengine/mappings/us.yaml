@@ -1697,6 +1697,69 @@ mappings:
     candidate_priority: P4
     rationale: The generated RuleSpec output composes a household-level assistance-standard branch from Combined Manual 0020.21. PolicyEngine's mn_msa_assistance_standard is a person-level payment-category surface that also includes categories not represented in this generated household output, so it should not be compared one-to-one.
 
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#fixed_monthly_ssp_rate_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.wa.dshs.ssp.amount
+    candidate_priority: P4
+    rationale: RuleSpec encodes the current WAC 388-478-0055 fixed monthly standard from the active source slice. PolicyEngine stores a historical Washington SSP STANDARD amount schedule, and the current-source encoding does not yet include the prior WSR rate history needed for a one-to-one parameter oracle.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#grandfathered_monthly_ssp_minimum
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the current WAC 388-478-0055 grandfathered-client lower bound. PolicyEngine's Washington SSP model does not expose separate grandfathered-client min/max cells.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#grandfathered_monthly_ssp_maximum
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the current WAC 388-478-0055 grandfathered-client upper bound. PolicyEngine's Washington SSP model does not expose separate grandfathered-client min/max cells.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.wa.dshs.ssp.amount
+    parameter_key: MEDICAL_INSTITUTION
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Washington SSP monthly medical-institution amount before the later annual PNA/COLA updates; both RuleSpec and PolicyEngine expose the July 2023 $70 base.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#federal_ssi_personal_needs_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the federal SSI personal-needs allowance referenced by WAC 388-478-0055(2)(c); PolicyEngine's Washington SSP surface stores the resulting state supplement amounts rather than this federal base allowance as a Washington parameter.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#fixed_monthly_ssp_rate_standard_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp_payment_category
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level branch predicate for WAC 388-478-0055(2)(a). PolicyEngine materializes this through its WA SSP category enum combined with SSI eligibility, living arrangement, age, blindness, disability, and marital-unit facts, so the predicate is not a one-to-one PE output.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#grandfathered_monthly_ssp_rate_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec computes the source-level grandfathered-client bounded payment from WAC 388-478-0055(2)(b). PolicyEngine's Washington SSP model does not expose a separate grandfathered-client final rate calculation.
+
+  - legal_id: us-wa:regulations/388/388-478/388-478-0055#wa_ssp
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp
+    candidate_priority: P4
+    rationale: RuleSpec encodes the current WAC 388-478-0055 source slice with local WAC 388-474 eligibility/category facts and an explicit deferred output for post-2024 medical-institution COLA. PolicyEngine's wa_ssp is a final person-level category wrapper over SSI eligibility, federal living arrangement, disabled-category timing, and a historical amount parameter schedule, so compare the encoded source components separately until the WAC 388-474 eligibility rules and historical WSR rate table are encoded.
+
   - legal_id: us:statutes/7/2014/e/6/A#snap_net_income_pre_shelter
     country: us
     program: snap
