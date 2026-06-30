@@ -3988,6 +3988,24 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's 106 CMR 704.270 rule applies the statutory employment, applicant/client, deemed-income, 100% earned-income-disregard, EAEDC restriction, and filing-unit membership conditions. PolicyEngine's ma_tafdc_work_related_expense_deduction exposes the flat amount parameter without these legal eligibility restrictions, so the conditional legal output is not a one-to-one oracle target.
 
+  - legal_id: us-ma:regulations/106-cmr/704/230/block-1#ma_tafdc_monthly_absent_parent_income_disregard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ma.dta.tcap.deductions.child_support_received
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Massachusetts TAFDC monthly absent-parent income disregard amount, represented in PolicyEngine as the child-support-received deduction parameter.
+
+  - legal_id: us-ma:regulations/106-cmr/704/230/block-1#ma_tafdc_child_support_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ma_tafdc_child_support_deduction
+    candidate_priority: P4
+    rationale: Axiom's 106 CMR 704.230 rule applies only to income from an absent parent for a child included in the TAFDC assistance unit and distinguishes income received directly or paid to DOR. PolicyEngine's ma_tafdc_child_support_deduction uses a generic alimony-income proxy and the flat child-support parameter, so the conditional legal output is not a one-to-one oracle target.
+
   - legal_id: us-az:programs/tanf/fy-2026#az_tanf
     country: us
     program: tanf
