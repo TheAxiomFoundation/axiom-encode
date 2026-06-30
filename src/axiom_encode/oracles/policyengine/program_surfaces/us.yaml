@@ -14,10 +14,10 @@ surfaces:
   coverage: US
   variable: income_tax
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: wired
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes federal income tax liability surfaces and the PolicyEngine registry wires the final income-tax
+    comparison target; Populace validation is still required before claiming population-level parity.
 - country: us
   program_id: state_income_tax
   program_name: State income taxes
@@ -1605,7 +1605,7 @@ surfaces:
   variable: co_state_supplement
   source_type: state_implementation
   state: CO
-  axiom_status: pending_rulespec_encoding
+  axiom_status: wired
   priority: P1
   rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
     before claiming parity.
@@ -2009,7 +2009,7 @@ surfaces:
   coverage: US
   variable: american_opportunity_credit
   source_type: program
-  axiom_status: pending_oracle_mapping
+  axiom_status: wired
   priority: P1
   rationale: RuleSpec encodes current-law section 25A education credit surfaces and the PolicyEngine registry maps the American
     Opportunity Credit, refundable and nonrefundable AOTC components, Lifetime Learning Credit components, and education tax
@@ -2102,10 +2102,10 @@ surfaces:
   coverage: CO
   variable: co_oap
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: wired
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Colorado OAP grant payment rules are encoded and wired to PolicyEngine's CO OAP surface; Populace validation
+    is still required before claiming population-level parity.
 - country: us
   program_id: co_chp
   program_name: Colorado CHP
@@ -2183,7 +2183,7 @@ surfaces:
   state: CA
   variable: ca_capi
   source_type: program
-  axiom_status: pending_oracle_mapping
+  axiom_status: wired
   priority: P2
   rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through an
     exact final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in the

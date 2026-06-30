@@ -586,9 +586,9 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: income_tax
-    axiom_status: pending_rulespec_encoding
+    axiom_status: wired
     priority: P1
-    rationale: Should be overridden by the legal-ID registry.
+    rationale: Manifest explicitly claims the legal-ID registry wiring.
   - country: us
     program_id: wic
     program_name: WIC
@@ -606,7 +606,7 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: aca_ptc
-    axiom_status: pending_rulespec_encoding
+    axiom_status: known_not_comparable
     priority: P1
     rationale: Encoded but not comparable to PE's aggregate legal boundary.
   - country: us
@@ -746,9 +746,9 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: income_tax
-    axiom_status: pending_rulespec_encoding
+    axiom_status: wired
     priority: P1
-    rationale: Should be overridden by the legal-ID registry.
+    rationale: Manifest explicitly claims the legal-ID registry wiring.
     populace_validation:
       status: validated
       command: axiom-encode tax-populace-compare --variable income_tax --year 2024
@@ -928,7 +928,7 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
 
     assert medicaid["program_id"] == "medicaid"
     assert medicaid["source_type"] == "eligibility"
-    assert medicaid["axiom_status"] == "wired"
+    assert medicaid["axiom_status"] == "pending_rulespec_encoding"
     assert medicaid["mapping_count"] == 1
     assert medicaid["comparable_mapping_count"] == 1
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
@@ -968,9 +968,11 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["total_surfaces"] == 2
     assert report["status_counts"] == {
         "out_of_scope": 1,
-        "wired": 1,
+        "pending_rulespec_encoding": 1,
     }
-    assert report["actionable_surfaces"] == []
+    assert [item["variable"] for item in report["actionable_surfaces"]] == [
+        "is_medicaid_eligible"
+    ]
 
 
 def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():

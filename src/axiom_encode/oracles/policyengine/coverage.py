@@ -35,6 +35,12 @@ PROGRAM_SURFACE_STATUSES = {
     "pending_source_ingestion",
     "wired",
 }
+PENDING_PROGRAM_SURFACE_STATUSES = {
+    "deferred_jurisdiction",
+    "pending_oracle_mapping",
+    "pending_rulespec_encoding",
+    "pending_source_ingestion",
+}
 PROGRAM_SURFACE_LIFECYCLES = {"active", "inactive", "sunset", "historical"}
 POPULACE_VALIDATION_STATUSES = {
     "validated",
@@ -572,14 +578,10 @@ def build_policyengine_program_surface_report(
         for surface in surfaces
         if surface.lifecycle == "active" and surface.priority
     )
-    unwired_statuses = {
-        "deferred_jurisdiction",
-        "pending_oracle_mapping",
-        "pending_rulespec_encoding",
-        "pending_source_ingestion",
-    }
     pending_surfaces = [
-        surface for surface in surfaces if surface.axiom_status in unwired_statuses
+        surface
+        for surface in surfaces
+        if surface.axiom_status in PENDING_PROGRAM_SURFACE_STATUSES
     ]
     active_pending_surfaces = [
         surface for surface in pending_surfaces if surface.lifecycle == "active"
@@ -1343,7 +1345,7 @@ def _load_policyengine_program_surface_manifest(
                 f"{', '.join(missing)}: {path}"
             )
         status = str(raw_surface.get("axiom_status"))
-        if status not in PROGRAM_SURFACE_STATUSES - {"wired"}:
+        if status not in PROGRAM_SURFACE_STATUSES:
             raise ValueError(
                 f"Unsupported PolicyEngine surface status for "
                 f"{raw_surface.get('variable')}: {status}"
@@ -1423,7 +1425,9 @@ def _program_surface_item_from_payload(
         if not mapping.comparable and mapping.candidate_priority != "P4"
     )
     manifest_status = str(payload["axiom_status"])
-    if comparable_mapping_count:
+    if manifest_status in PENDING_PROGRAM_SURFACE_STATUSES:
+        axiom_status = manifest_status
+    elif comparable_mapping_count:
         axiom_status = "wired"
     elif final_non_comparable_mapping_count and manifest_status in {
         "pending_oracle_mapping",
