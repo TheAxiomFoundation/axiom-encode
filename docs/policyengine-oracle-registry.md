@@ -196,6 +196,12 @@ date. Use `pending_validator`, `blocked`, or `not_applicable` only with a
 concrete rationale. CI jobs that want to forbid unvalidated wired program
 surfaces can use:
 
+Populace comparison commands load a local engine-native H5 artifact first when
+one is available, including cached `policyengine/populace-*` snapshots. Set
+`AXIOM_POPULACE_US_2024_H5`, `AXIOM_POPULACE_US_H5`, `AXIOM_POPULACE_H5`,
+`AXIOM_POPULACE_DATASET`, or `AXIOM_POPULACE_DATA_PATH` to pin validation to a
+specific local artifact.
+
 ```bash
 axiom-encode oracle-coverage \
   --root /path/to/workspace \

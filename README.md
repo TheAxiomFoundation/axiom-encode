@@ -187,6 +187,13 @@ add `--fail-on-mismatch` in CI when exact parity is expected, or
 `--min-match-rate` when a documented upstream oracle gap makes a population
 threshold more appropriate.
 
+Populace oracle commands prefer a local engine-native H5 artifact before using
+the `populace-data` package loader. To force a local dataset, set the most
+specific available environment variable, for example
+`AXIOM_POPULACE_US_2024_H5=/path/to/populace_us_2024.h5`. The loader also
+checks `AXIOM_POPULACE_US_H5`, `AXIOM_POPULACE_H5`,
+`AXIOM_POPULACE_DATASET`, and `AXIOM_POPULACE_DATA_PATH`.
+
 Add `--external-oracle snapscreener` for a diagnostic comparison against the
 public SnapScreener browser calculator. The command fetches or uses a local
 `api.js`, records its SHA256 in stdout, and adds SnapScreener result columns to
