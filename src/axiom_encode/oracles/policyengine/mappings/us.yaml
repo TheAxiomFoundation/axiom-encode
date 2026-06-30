@@ -4314,6 +4314,16 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec applies the WAG 25-06-01 certification gate before returning a case-level grant-adjustment amount. PolicyEngine's `il_aabd_grant_amount` exposes the monthly grant parameter without this source-specific certification branch, so the ungated table output is the comparable oracle target.
 
+  - legal_id: us-il:policies/dhs/csmm/11-01-01/personal-allowance#il_aabd_personal_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: il_aabd_personal_allowance
+    period: month
+    unit: USD
+    comparison: money
+    rationale: RuleSpec and PolicyEngine both expose the Illinois AABD monthly personal allowance selected by active/bedfast status and persons eating together. Source cases using the long-term-care row or the below-table zero branch are excluded by the PE adapter because PolicyEngine's variable does not model those branches.
+
   - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_final_family_size_floor
     country: us
     program: tanf
