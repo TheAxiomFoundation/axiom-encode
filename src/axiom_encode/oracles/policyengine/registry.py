@@ -53,6 +53,7 @@ class PolicyEngineMapping:
     rationale: str | None = None
     candidate_priority: str | None = None
     aliases: tuple[str, ...] = ()
+    tested_by_legal_ids: tuple[str, ...] = ()
 
     @property
     def comparable(self) -> bool:
@@ -235,6 +236,12 @@ class PolicyEngineOracleRegistry:
                     "Unsupported PolicyEngine candidate_priority for "
                     f"{legal_id}: {mapping.candidate_priority}"
                 )
+            for evidence_legal_id in mapping.tested_by_legal_ids:
+                if ":" not in evidence_legal_id or "#" not in evidence_legal_id:
+                    issues.append(
+                        "PolicyEngine tested_by_legal_ids entries must be "
+                        f"canonical legal IDs: {legal_id} -> {evidence_legal_id}"
+                    )
         return issues
 
 
@@ -292,6 +299,11 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         aliases = ()
     if isinstance(aliases, str):
         aliases = (aliases,)
+    tested_by_legal_ids = payload.get("tested_by_legal_ids", ())
+    if tested_by_legal_ids is None:
+        tested_by_legal_ids = ()
+    if isinstance(tested_by_legal_ids, str):
+        tested_by_legal_ids = (tested_by_legal_ids,)
     parameter_keys = payload.get("parameter_keys", ())
     if parameter_keys is None:
         parameter_keys = ()
@@ -340,4 +352,5 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         rationale=payload.get("rationale"),
         candidate_priority=payload.get("candidate_priority"),
         aliases=tuple(str(alias) for alias in aliases),
+        tested_by_legal_ids=tuple(str(legal_id) for legal_id in tested_by_legal_ids),
     )

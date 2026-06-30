@@ -2183,6 +2183,8 @@ mappings:
     period: month
     unit: GBP
     comparison: money
+    tested_by_legal_ids:
+      - uk:statutes/ukpga/2012/5/8#universal_credit_award_amount
     rationale: Same WRA 2012 section 8 award formula as the source-law mapping, comparing the pre-take-up and pre-benefit-cap expression from uc_maximum_amount and uc_income_reduction.
 
   - legal_id: uk:programs/universal-credit/fy-2026-27#universal_credit_award_deduction_from_maximum_amount
