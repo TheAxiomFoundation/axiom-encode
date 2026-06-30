@@ -16386,6 +16386,14 @@ def _expected_proof_import_hash(
     return f"sha256:{hashlib.sha256(target_file.read_bytes()).hexdigest()}"
 
 
+class _OracleParameterTestSpec(NamedTuple):
+    rule_name: str
+    selector_input_ref: str | None
+    selector_value: object | None
+    expected_value: object
+    expected_period: str | dict[str, str] | None
+
+
 def _append_oracle_parameter_tests_if_missing(
     *,
     rules_file: Path,
@@ -16427,7 +16435,7 @@ def _append_oracle_parameter_tests_if_missing(
             continue
 
         index_name = _single_parameter_index_name(rule)
-        sample = _first_scalar_parameter_value(rule, indexed=index_name is not None)
+        sample = _latest_scalar_parameter_value(rule, indexed=index_name is not None)
         if sample is None:
             continue
         key, value, effective_from = sample
@@ -16488,9 +16496,7 @@ def _refresh_existing_oracle_parameter_test_inputs(
         for input_name in sorted(factual_inputs)
     }
     registry = load_policyengine_registry()
-    mapped_parameter_outputs: dict[
-        str, tuple[str, str | None, str | dict[str, str] | None]
-    ] = {}
+    mapped_parameter_outputs: dict[str, _OracleParameterTestSpec] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -16504,18 +16510,22 @@ def _refresh_existing_oracle_parameter_test_inputs(
         if mapping is None or mapping.mapping_type != "parameter_value":
             continue
         index_name = _single_parameter_index_name(rule)
-        sample = _first_scalar_parameter_value(rule, indexed=index_name is not None)
-        expected_period: str | dict[str, str] | None = None
-        if sample is not None:
-            _, _, effective_from = sample
-            expected_period = _oracle_parameter_test_period(
-                effective_from,
-                parameter_period=getattr(mapping, "period", None),
-            )
-        mapped_parameter_outputs[legal_id] = (
-            rule_name,
-            f"{target_base}#input.{index_name}" if index_name else None,
-            expected_period,
+        sample = _latest_scalar_parameter_value(rule, indexed=index_name is not None)
+        if sample is None:
+            continue
+        key, value, effective_from = sample
+        expected_period = _oracle_parameter_test_period(
+            effective_from,
+            parameter_period=getattr(mapping, "period", None),
+        )
+        mapped_parameter_outputs[legal_id] = _OracleParameterTestSpec(
+            rule_name=rule_name,
+            selector_input_ref=f"{target_base}#input.{index_name}"
+            if index_name
+            else None,
+            selector_value=key,
+            expected_value=value,
+            expected_period=expected_period,
         )
     if not mapped_parameter_outputs:
         return []
@@ -16542,18 +16552,22 @@ def _refresh_existing_oracle_parameter_test_inputs(
         if not isinstance(outputs, dict):
             continue
         matching_output_specs = [
-            mapped_parameter_outputs[str(output_ref)]
+            (str(output_ref), mapped_parameter_outputs[str(output_ref)])
             for output_ref in outputs
             if str(output_ref) in mapped_parameter_outputs
         ]
         if not matching_output_specs:
             continue
-        matching_outputs = [rule_name for rule_name, _, _ in matching_output_specs]
+        matching_outputs = [spec.rule_name for _, spec in matching_output_specs]
         selector_input_refs = {
-            input_ref for _, input_ref, _ in matching_output_specs if input_ref
+            spec.selector_input_ref
+            for _, spec in matching_output_specs
+            if spec.selector_input_ref
         }
         expected_periods = [
-            period for _, _, period in matching_output_specs if period is not None
+            spec.expected_period
+            for _, spec in matching_output_specs
+            if spec.expected_period is not None
         ]
         inputs = case.get("input")
         if not isinstance(inputs, dict):
@@ -16564,6 +16578,25 @@ def _refresh_existing_oracle_parameter_test_inputs(
             expected_period = expected_periods[0]
             if case.get("period") != expected_period:
                 case["period"] = expected_period
+                changed = True
+        for output_ref, spec in matching_output_specs:
+            existing_value = outputs.get(output_ref)
+            if (
+                output_ref not in outputs
+                or existing_value != spec.expected_value
+                or type(existing_value) is not type(spec.expected_value)
+            ):
+                outputs[output_ref] = spec.expected_value
+                changed = True
+            if spec.selector_input_ref is None:
+                continue
+            existing_selector_value = inputs.get(spec.selector_input_ref)
+            if (
+                spec.selector_input_ref not in inputs
+                or existing_selector_value != spec.selector_value
+                or type(existing_selector_value) is not type(spec.selector_value)
+            ):
+                inputs[spec.selector_input_ref] = spec.selector_value
                 changed = True
         for input_ref, default_value in input_defaults.items():
             if input_ref in selector_input_refs:
@@ -16650,31 +16683,60 @@ def _single_parameter_index_name(rule: dict) -> str | None:
     return None
 
 
-def _first_scalar_parameter_value(
+def _latest_scalar_parameter_value(
     rule: dict, *, indexed: bool
 ) -> tuple[object | None, object, str | None] | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
         return None
-    for version in versions:
+    latest: tuple[date, int, object | None, object, str | None] | None = None
+    for index, version in enumerate(versions):
         if not isinstance(version, dict):
             continue
         effective_from = version.get("effective_from")
         effective_from_text = (
             str(effective_from).strip() if effective_from is not None else None
         )
+        try:
+            effective_sort_date = (
+                date.fromisoformat(effective_from_text)
+                if effective_from_text
+                else date.min
+            )
+        except ValueError:
+            effective_sort_date = date.min
         if indexed:
             values = version.get("values")
             if not isinstance(values, dict):
                 continue
             for key, value in values.items():
                 if isinstance(value, (str, int, float, bool)) or value is None:
-                    return key, value, effective_from_text
+                    candidate = (
+                        effective_sort_date,
+                        index,
+                        key,
+                        value,
+                        effective_from_text,
+                    )
+                    if latest is None or candidate[:2] > latest[:2]:
+                        latest = candidate
+                    break
         else:
             value = _scalar_formula_value(version.get("formula"))
             if value is not None:
-                return None, value, effective_from_text
-    return None
+                candidate = (
+                    effective_sort_date,
+                    index,
+                    None,
+                    value,
+                    effective_from_text,
+                )
+                if latest is None or candidate[:2] > latest[:2]:
+                    latest = candidate
+    if latest is None:
+        return None
+    _, _, key, value, effective_from_text = latest
+    return key, value, effective_from_text
 
 
 def _oracle_parameter_test_period(
