@@ -6732,6 +6732,169 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     return issues
 
 
+_PRIMARY_SOURCE_AUTHORITY_SEGMENTS = {
+    "act",
+    "acts",
+    "code",
+    "cfr",
+    "legislation",
+    "public-law",
+    "public-laws",
+    "regulation",
+    "regulations",
+    "statute",
+    "statutes",
+    "usc",
+}
+_LOWER_SOURCE_AUTHORITY_SEGMENTS = {
+    "form",
+    "forms",
+    "guidance",
+    "guide",
+    "guides",
+    "manual",
+    "manuals",
+    "plan",
+    "plans",
+    "policy",
+    "policies",
+    "state-plan",
+    "state-plans",
+    "state_plan",
+    "state_plans",
+    "table",
+    "tables",
+}
+_UPSTREAM_SOURCE_CHECK_STATUSES = {
+    "checked_higher_authority",
+    "delegated_parameter_source",
+    "no_higher_authority_found",
+    "official_parameter_source",
+}
+
+
+def find_upstream_source_authority_issues(content: str) -> list[str]:
+    """Require an upstream-authority audit before encoding lower sources.
+
+    Statutes and regulations can be encoded directly because they are
+    potentially maximally upstream for a computable rule. Implementation
+    sources such as manuals, guidance, state plans, forms, and CMS tables are
+    sometimes the right source, but only after checking higher authority first.
+    """
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not any(
+        _is_executable_rulespec_rule(rule) for rule in rules
+    ):
+        return []
+
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return []
+    citation_paths, _source_label = _source_verification_source_fields(
+        source_verification
+    )
+    lower_authority_paths = tuple(
+        path for path in citation_paths if _source_path_requires_upstream_check(path)
+    )
+    if not lower_authority_paths:
+        return []
+
+    check = source_verification.get("upstream_source_check")
+    formatted_sources = _format_source_verification_paths(lower_authority_paths)
+    if not isinstance(check, dict):
+        return [
+            "Upstream source check required: "
+            f"{formatted_sources} is below statute/regulation authority. "
+            "Check statute/regulation sources first, then record "
+            "`module.source_verification.upstream_source_check` with "
+            "`status`, `checked_paths`, and `rationale`, or encode the "
+            "higher source instead."
+        ]
+
+    issues: list[str] = []
+    status = str(check.get("status") or "").strip()
+    if status not in _UPSTREAM_SOURCE_CHECK_STATUSES:
+        issues.append(
+            "Upstream source check status invalid: "
+            "`module.source_verification.upstream_source_check.status` must be "
+            "one of "
+            + ", ".join(
+                f"`{value}`" for value in sorted(_UPSTREAM_SOURCE_CHECK_STATUSES)
+            )
+            + "."
+        )
+
+    checked_paths = _source_check_paths(check.get("checked_paths"))
+    if not checked_paths:
+        issues.append(
+            "Upstream source check paths required: "
+            "`module.source_verification.upstream_source_check.checked_paths` "
+            "must list statute/regulation corpus paths or RuleSpec targets "
+            "that were checked before using the lower-authority source."
+        )
+    elif not any(
+        _source_reference_is_potentially_primary(path) for path in checked_paths
+    ):
+        issues.append(
+            "Upstream source check must include higher authority: "
+            "`module.source_verification.upstream_source_check.checked_paths` "
+            "must include at least one statute/regulation corpus path or "
+            "RuleSpec target."
+        )
+
+    rationale = str(check.get("rationale") or "").strip()
+    if len(rationale) < 20:
+        issues.append(
+            "Upstream source check rationale required: "
+            "`module.source_verification.upstream_source_check.rationale` must "
+            "explain why the lower-authority source is still the correct source "
+            "for this encoding."
+        )
+
+    return issues
+
+
+def _source_check_paths(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        text = value.strip()
+        return (text,) if text else ()
+    if not isinstance(value, list):
+        return ()
+    paths: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            paths.append(text)
+    return tuple(dict.fromkeys(paths))
+
+
+def _source_path_requires_upstream_check(path: str) -> bool:
+    segments = _source_reference_segments(path)
+    if segments & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS:
+        return False
+    return bool(segments & _LOWER_SOURCE_AUTHORITY_SEGMENTS)
+
+
+def _source_reference_is_potentially_primary(reference: str) -> bool:
+    return bool(
+        _source_reference_segments(reference) & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS
+    )
+
+
+def _source_reference_segments(reference: str) -> set[str]:
+    head = reference.split("#", 1)[0].strip().lower()
+    head = head.replace(":", "/")
+    return {segment for segment in re.split(r"[/\s]+", head) if segment}
+
+
 def _rulespec_rule_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name") or "<unknown>").strip() or "<unknown>"
 
@@ -21361,6 +21524,7 @@ class ValidatorPipeline:
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
+        issues.extend(find_upstream_source_authority_issues(content))
         proof_issues = (
             validate_rulespec_proofs(
                 content,

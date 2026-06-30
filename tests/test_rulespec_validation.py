@@ -96,6 +96,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
     find_upstream_placement_issues,
+    find_upstream_source_authority_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
     repair_copied_cross_reference_summary,
@@ -1005,6 +1006,135 @@ rules:
     ]
 
 
+def test_upstream_source_authority_accepts_statute_source():
+    content = """format: rulespec/v1
+module:
+  summary: The standard is 20 hours.
+  source_verification:
+    corpus_citation_path: us/statute/7/2015
+rules:
+  - name: minimum_hours
+    kind: parameter
+    dtype: Count
+    source: 7 USC 2015(e)(4)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '20'
+"""
+
+    assert find_upstream_source_authority_issues(content) == []
+
+
+def test_upstream_source_authority_rejects_lower_source_without_check():
+    content = """format: rulespec/v1
+module:
+  summary: CMS table states Georgia Medicaid child eligibility levels.
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+rules:
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.33'
+"""
+
+    issues = find_upstream_source_authority_issues(content)
+
+    assert issues == [
+        "Upstream source check required: "
+        "`us/form/cms/medicaid-chip-bhp-eligibility-levels` is below "
+        "statute/regulation authority. Check statute/regulation sources first, "
+        "then record "
+        "`module.source_verification.upstream_source_check` with `status`, "
+        "`checked_paths`, and `rationale`, or encode the higher source instead."
+    ]
+
+
+def test_upstream_source_authority_accepts_lower_source_with_audit():
+    content = """format: rulespec/v1
+module:
+  summary: CMS table states Georgia Medicaid child eligibility levels.
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/42/1396a
+        - us/regulation/42/435/118
+      rationale: |-
+        Federal statute and regulation define the child Medicaid eligibility
+        category and state-plan requirement, while the CMS table is the
+        official published source for this state-specific effective FPL value.
+rules:
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.33'
+"""
+
+    assert find_upstream_source_authority_issues(content) == []
+
+
+def test_upstream_source_authority_requires_checked_primary_path():
+    content = """format: rulespec/v1
+module:
+  summary: State manual states a TANF payment standard.
+  source_verification:
+    corpus_citation_path: us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant
+    upstream_source_check:
+      status: checked_higher_authority
+      checked_paths:
+        - us-ny/policy/otda/tanf-state-plan-2024-2026
+      rationale: State plan checked before encoding this payment standard.
+rules:
+  - name: tanf_payment_standard
+    kind: parameter
+    dtype: Money
+    source: TANF state plan
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '100'
+"""
+
+    issues = find_upstream_source_authority_issues(content)
+
+    assert issues == [
+        "Upstream source check must include higher authority: "
+        "`module.source_verification.upstream_source_check.checked_paths` must "
+        "include at least one statute/regulation corpus path or RuleSpec target."
+    ]
+
+
+def test_upstream_source_authority_requires_check_for_mixed_lower_sources():
+    content = """format: rulespec/v1
+module:
+  summary: Guidance restates the statutory value.
+  source_verification:
+    corpus_citation_paths:
+      - us/statute/7/2014
+      - us/guidance/usda/fns/snap-fy2026-cola/page-2
+rules:
+  - name: snap_guidance_amount
+    kind: parameter
+    dtype: Money
+    source: USDA guidance
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '100'
+"""
+
+    issues = find_upstream_source_authority_issues(content)
+
+    assert len(issues) == 1
+    assert "`us/guidance/usda/fns/snap-fy2026-cola/page-2`" in issues[0]
+
+
 def test_missing_derived_companion_output_rejects_uncovered_derived_rule(tmp_path):
     policy_repo = tmp_path / "rulespec-us"
     rules_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
@@ -1622,6 +1752,14 @@ module:
     The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on compile and
+        grounding behavior rather than source hierarchy validation.
 rules:
   - name: standard_utility_allowance_value
     kind: parameter
@@ -12237,6 +12375,14 @@ module:
   summary: The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on companion test
+        output behavior rather than source hierarchy validation.
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter
@@ -12757,6 +12903,14 @@ module:
   summary: The policy rate is 0.2.
   source_verification:
     corpus_citation_path: us/guidance/example/rate
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on parameter-only
+        output comparison rather than source hierarchy validation.
 rules:
   - name: policy_rate
     kind: parameter
@@ -12805,6 +12959,14 @@ module:
     plus 218 for each additional person.
   source_verification:
     corpus_citation_path: us/guidance/example/allotments
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on indexed table
+        execution rather than source hierarchy validation.
 rules:
   - name: benefit_amount_table
     kind: parameter
@@ -12872,6 +13034,14 @@ module:
   summary: The maximum monthly allotments are 298 and 546.
   source_verification:
     corpus_citation_path: us/guidance/example/allotments
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on indexed
+        parameter output comparison rather than source hierarchy validation.
 rules:
   - name: benefit_amount_table
     kind: parameter
@@ -14865,7 +15035,13 @@ rules:
 
 def test_validator_pipeline_maps_in_memory_source_text_to_declared_corpus_path(
     tmp_path,
+    monkeypatch,
 ):
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation_path: None,
+    )
     source_text = (
         "Effective January 2026, the MSA assistance standard for a person living "
         "alone is $1,055.00."
@@ -23263,12 +23439,12 @@ rules:
 """
     )
     rules_file.with_name("rules.test.yaml").write_text(
-        """- name: kind_mismatch
+        """- name: text_expected_as_number
   period: 2024-01
   input: {}
   output:
     code_text: 1
-    count: "1"
+    count: 1
 """
     )
 
@@ -23284,8 +23460,22 @@ rules:
         "code_text" in issue and "expected integer 1, got text 1" in issue
         for issue in result.issues
     )
+
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: integer_expected_as_text
+  period: 2024-01
+  input: {}
+  output:
+    code_text: "1"
+    count: "one"
+"""
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
     assert any(
-        "count" in issue and "expected text 1, got integer 1" in issue
+        "count" in issue and "expected text one, got integer 1" in issue
         for issue in result.issues
     )
 
@@ -23433,6 +23623,14 @@ module:
     The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/example/authority
+      rationale: |-
+        This fixture intentionally models a lower-authority source in CI after
+        checking a dummy statute path, so the test can focus on numeric
+        grounding behavior rather than source hierarchy validation.
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter

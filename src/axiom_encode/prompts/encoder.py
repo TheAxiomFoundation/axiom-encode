@@ -199,6 +199,18 @@ Hard requirements:
 - If the source has an ingested corpus provision, include
   `module.source_verification.corpus_citation_path` or
   `module.source_verification.corpus_citation_paths`.
+- If the corpus source path is below statute/regulation authority (for example
+  a `policy`, `manual`, `guidance`, `form`, table, CMS summary, or state plan),
+  do not treat it as adequate by default. First check statute/regulation
+  authority when provided in context. If the lower source remains the correct
+  source for the encoded value or rule, include
+  `module.source_verification.upstream_source_check` with:
+  `status` (`checked_higher_authority`, `official_parameter_source`,
+  `delegated_parameter_source`, or `no_higher_authority_found`),
+  `checked_paths` listing at least one statute/regulation corpus path or
+  RuleSpec target that was checked, and `rationale` explaining why the lower
+  source is still used. If no higher-authority check is available, stop and
+  emit a typed request `upstream_source_check_required` instead of encoding.
 - If accepted source claims are supplied, include their IDs under
   `module.source_claims`; do not inline claim bodies, values, formulas,
   evidence, or review metadata in RuleSpec.

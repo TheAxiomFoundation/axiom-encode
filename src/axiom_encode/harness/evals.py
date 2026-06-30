@@ -4799,6 +4799,18 @@ RuleSpec requirements:
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
 {corpus_rulespec_requirement.rstrip()}
+- If the corpus source path is below statute/regulation authority (for example
+  a `policy`, `manual`, `guidance`, `form`, table, CMS summary, or state plan),
+  do not treat it as adequate by default. First check statute/regulation
+  authority when provided in context. If the lower source remains the correct
+  source for the encoded value or rule, include
+  `module.source_verification.upstream_source_check` with `status`
+  (`checked_higher_authority`, `official_parameter_source`,
+  `delegated_parameter_source`, or `no_higher_authority_found`),
+  `checked_paths` listing at least one statute/regulation corpus path or
+  RuleSpec target that was checked, and `rationale` explaining why the lower
+  source is still used. If no higher-authority check is available, stop and
+  emit a typed request `upstream_source_check_required` instead of encoding.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
   `derived_relation` rule. Each atom
