@@ -2531,6 +2531,17 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert ca_capi_mapping.mapping_type == "direct_variable"
     assert ca_capi_mapping.policyengine_variable == "ca_capi"
     assert ca_capi_mapping.result_multiplier is None
+    il_aabd_personal_allowance_mapping = registry.mapping_for_legal_id(
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#il_aabd_personal_allowance",
+        country="us",
+    )
+    assert il_aabd_personal_allowance_mapping.mapping_type == "direct_variable"
+    assert (
+        il_aabd_personal_allowance_mapping.policyengine_variable
+        == "il_aabd_personal_allowance"
+    )
+    assert il_aabd_personal_allowance_mapping.period == "month"
+    assert il_aabd_personal_allowance_mapping.comparison == "money"
     colorado_ssp_grant_standard_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/9-ccr-2503-5/3.546#and_cs_total_grant_standard",
         country="us",
@@ -4933,6 +4944,91 @@ def test_policyengine_ca_capi_blocks_person_level_couple_share(tmp_path):
     assert mappable is False
     assert "SPM-unit total" in (reason or "")
     assert "each_member_of_eligible_couple_receives_capi" in (reason or "")
+
+
+def test_policyengine_il_aabd_personal_allowance_adapter_projects_inputs(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    script = pipeline._build_pe_us_scenario_script(
+        "il_aabd_personal_allowance",
+        {
+            "period": "2024-01",
+            "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_in_long_term_care": False,
+            "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_active": False,
+            "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_bedfast": True,
+            "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.persons_eating_together_count": 8,
+        },
+        "2024",
+    )
+
+    assert "'state_code_str': {'2024': 'IL'}" in script
+    assert "'spm_unit_size': {'2024-01': 8}" in script
+    assert "'il_aabd_is_bedfast': {'2024-01': True}" in script
+    assert "calculate('il_aabd_personal_allowance', '2024-01')" in script
+
+
+def test_policyengine_il_aabd_personal_allowance_mappability(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2024-01",
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_in_long_term_care": False,
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_active": True,
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_bedfast": False,
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.persons_eating_together_count": 4,
+    }
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "il_aabd_personal_allowance",
+        inputs,
+        pe_var="il_aabd_personal_allowance",
+    )
+
+    assert mappable is True
+    assert reason is None
+
+    inputs[
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_in_long_term_care"
+    ] = True
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "il_aabd_personal_allowance",
+        inputs,
+        pe_var="il_aabd_personal_allowance",
+    )
+
+    assert mappable is False
+    assert "long-term-care personal allowance branch" in (reason or "")
+
+    inputs[
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_in_long_term_care"
+    ] = False
+    inputs[
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.client_is_active"
+    ] = False
+    inputs[
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#input.persons_eating_together_count"
+    ] = 0
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "il_aabd_personal_allowance",
+        inputs,
+        pe_var="il_aabd_personal_allowance",
+    )
+
+    assert mappable is False
+    assert "neither-active-nor-bedfast zero branch" in (reason or "")
 
 
 def test_policyengine_medicare_adapter_projects_disability_inputs(tmp_path):

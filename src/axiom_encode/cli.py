@@ -17389,6 +17389,15 @@ def _zero_branch_numeric_upper_bound_input_overrides(
         rules_payload=rules_payload,
     )
     for input_name in sorted(factual_inputs):
+        sentinel_selector_value = _numeric_sentinel_selector_zero_input_override(
+            input_name=input_name,
+            target_formula=target_formula,
+            rules_payload=rules_payload,
+            scalar_values=scalar_values,
+        )
+        if sentinel_selector_value is not None:
+            overrides[f"{target_base}#input.{input_name}"] = sentinel_selector_value
+            continue
         zero_branch_thresholds = _numeric_upper_bounds_returning_zero_for_input(
             input_name,
             formulas=[target_formula] if target_formula else [],
@@ -17412,6 +17421,84 @@ def _zero_branch_numeric_upper_bound_input_overrides(
             threshold
         )
     return overrides
+
+
+def _numeric_sentinel_selector_zero_input_override(
+    *,
+    input_name: str,
+    target_formula: str | None,
+    rules_payload: dict[str, object],
+    scalar_values: dict[str, float],
+) -> int | float | None:
+    if not target_formula:
+        return None
+    for selector_name in _sentinel_selector_zero_rule_names(target_formula):
+        selector_formula = _local_formula_for_rule(
+            output_name=selector_name,
+            rules_payload=rules_payload,
+        )
+        if not selector_formula:
+            continue
+        if not re.search(rf"\b{re.escape(input_name)}\b", selector_formula):
+            continue
+        if not _formula_can_return_numeric_sentinel(selector_formula, sentinel=-1):
+            continue
+        lower_edges = _numeric_lower_edge_values_for_input(
+            input_name,
+            formulas=[selector_formula],
+            scalar_values=scalar_values,
+        )
+        if not lower_edges:
+            continue
+        return _below_lower_edge_value(min(lower_edges))
+    return None
+
+
+def _sentinel_selector_zero_rule_names(formula: str) -> list[str]:
+    pattern = re.compile(
+        r"\b(?P<selector>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*-1\s*:\s*0(?:\.0+)?\b"
+    )
+    names: list[str] = []
+    for match in pattern.finditer(formula):
+        selector = match["selector"]
+        if selector not in names:
+            names.append(selector)
+    return names
+
+
+def _formula_can_return_numeric_sentinel(formula: str, *, sentinel: int) -> bool:
+    sentinel_text = re.escape(str(sentinel))
+    return bool(re.search(rf"(?:^|[:\s]){sentinel_text}(?:\.0+)?\b", formula))
+
+
+def _numeric_lower_edge_values_for_input(
+    input_name: str,
+    *,
+    formulas: list[str],
+    scalar_values: dict[str, float],
+) -> list[float]:
+    rhs_pattern = r"(?P<rhs>-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
+    left_pattern = re.compile(
+        rf"\b{re.escape(input_name)}\b\s*(?P<op>==|>=|>)\s*{rhs_pattern}"
+    )
+    right_pattern = re.compile(
+        rf"(?P<rhs>-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
+        rf"\s*(?P<op>==|<=|<)\s*\b{re.escape(input_name)}\b"
+    )
+    thresholds: list[float] = []
+    for formula in formulas:
+        for pattern in (left_pattern, right_pattern):
+            for match in pattern.finditer(formula):
+                value = _numeric_formula_rhs_value(match["rhs"], scalar_values)
+                if value is not None:
+                    thresholds.append(value)
+    return thresholds
+
+
+def _below_lower_edge_value(threshold: float) -> int | float:
+    if threshold.is_integer():
+        return int(threshold) - 1
+    return threshold - max(1.0, abs(threshold) * 0.01)
 
 
 def _local_formula_for_rule(

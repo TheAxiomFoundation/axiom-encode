@@ -25805,6 +25805,7 @@ print("BENCHMARK:" + json.dumps(result))
                 aliases.update(source_keys)
             aliases.update(adapter.unsupported_truthy_input_keys)
             aliases.update(adapter.unsupported_falsy_input_keys)
+            aliases.update(adapter.projectable_input_keys)
             if adapter.state_code_from_boolean_input is not None:
                 aliases.add(adapter.state_code_from_boolean_input[0])
         return {alias.lower() for alias in aliases if alias}
@@ -26012,6 +26013,43 @@ print("BENCHMARK:" + json.dumps(result))
                         False,
                         f"{reason}: {', '.join(sorted(unsupported_falsy_keys))}",
                     )
+            if pe_var_name == "il_aabd_personal_allowance":
+                client_is_active = self._rulespec_test_input_value(
+                    inputs,
+                    "client_is_active",
+                )
+                client_is_bedfast = self._rulespec_test_input_value(
+                    inputs,
+                    "client_is_bedfast",
+                )
+                if client_is_active is not None and client_is_bedfast is not None:
+                    if not bool(client_is_active) and not bool(client_is_bedfast):
+                        return (
+                            False,
+                            "PolicyEngine Illinois AABD personal allowance treats "
+                            "non-bedfast clients as active and does not expose a "
+                            "source-level neither-active-nor-bedfast zero branch",
+                        )
+                    if bool(client_is_active) and bool(client_is_bedfast):
+                        return (
+                            False,
+                            "PolicyEngine Illinois AABD personal allowance uses "
+                            "bedfast status as the branch selector and does not "
+                            "represent simultaneous active and bedfast source facts",
+                        )
+                persons_eating_together = self._rulespec_test_input_value(
+                    inputs,
+                    "persons_eating_together_count",
+                )
+                if persons_eating_together is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        if float(persons_eating_together) < 1:
+                            return (
+                                False,
+                                "PolicyEngine Illinois AABD personal allowance "
+                                "clips SPM-unit size to at least 1 and does not "
+                                "represent the source-level below-table zero branch",
+                            )
         if country == "uk" and isinstance(expected, dict):
             return (
                 False,

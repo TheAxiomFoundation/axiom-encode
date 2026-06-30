@@ -33,6 +33,7 @@ class PolicyEngineUSVarAdapter:
     inverted_boolean_household_overrides: tuple[tuple[str, str], ...] = ()
     annual_direct_household_overrides: tuple[tuple[str, str], ...] = ()
     annual_inverted_boolean_household_overrides: tuple[tuple[str, str], ...] = ()
+    projectable_input_keys: tuple[str, ...] = ()
     unsupported_input_keys: tuple[str, ...] = ()
     unsupported_input_patterns: tuple[str, ...] = ()
     unsupported_falsy_input_keys: tuple[str, ...] = ()
@@ -598,6 +599,21 @@ PE_US_VAR_ADAPTERS = (
             "PolicyEngine California CAPI exposes the SPM-unit total and does "
             "not directly compare the person-level eligible-couple share or "
             "mixed CAPI/SSI-SSP couple branch"
+        ),
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("il_aabd_personal_allowance",),
+        pe_var="il_aabd_personal_allowance",
+        monthly=True,
+        spm=True,
+        default_state_code="IL",
+        direct_spm_overrides=(("persons_eating_together_count", "spm_unit_size"),),
+        monthly_boolean_person_inputs=(("client_is_bedfast", "il_aabd_is_bedfast"),),
+        projectable_input_keys=("client_is_active",),
+        unsupported_truthy_input_keys=("client_is_in_long_term_care",),
+        unsupported_input_reason=(
+            "PolicyEngine Illinois AABD personal allowance does not model the "
+            "DHS long-term-care personal allowance branch"
         ),
     ),
     PolicyEngineUSVarAdapter(
