@@ -1543,10 +1543,12 @@ surfaces:
   variable: ak_ssp
   source_type: state_implementation
   state: AK
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes Alaska DPA's 2026 APA and SSI standards and the source-derived monthly state-supplement payment-standard
+    cells. PolicyEngine's final `ak_ssp` surface also composes eligibility, federal living-arrangement/claim-type facts,
+    countable-income reduction, annualization, and person-level aggregation, so compare encoded payment-standard cells separately
+    until Axiom has the equivalent final benefit-composition surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Alabama SSP
