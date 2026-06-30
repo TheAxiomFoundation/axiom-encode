@@ -91,6 +91,7 @@ from axiom_encode.cli import (
     _repair_input_field_accesses_in_formulas,
     _repair_medicaid_optional_senior_composition_rules,
     _repair_medicaid_optional_senior_composition_tests,
+    _repair_medicaid_primary_category_composition_rules,
     _repair_medicaid_primary_category_composition_tests,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
@@ -25770,6 +25771,118 @@ rules:
             "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
         }
         assert "optional youth category eligible" in changed_tests
+
+    def test_repair_medicaid_primary_category_composes_working_disabled_category(
+        self,
+    ):
+        rules = """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/a/10
+rules:
+  - name: optional_working_disabled_minimum_age_years
+    kind: parameter
+    dtype: Count
+    source: 42 USC 1396a(a)(10)(A)(ii)(XV)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          16
+
+  - name: optional_working_disabled_age_ceiling_years
+    kind: parameter
+    dtype: Count
+    source: 42 USC 1396a(a)(10)(A)(ii)(XV)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          65
+
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(i)-(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          former_foster_care_child_medicaid_required
+          or is_optional_senior_or_disabled_for_medicaid
+"""
+
+        repaired_rules, changed_rules = (
+            _repair_medicaid_primary_category_composition_rules(
+                rules,
+                youth_hash="youth-hash",
+                medically_needy_hash="mn-hash",
+            )
+        )
+
+        assert (
+            "optional_working_disabled_medicaid_category_eligible" in changed_rules
+        )
+        assert (
+            "source: 42 USC 1396a(a)(10)(A)(ii)(XV)" in repaired_rules
+        )
+        assert (
+            "state_elects_optional_coverage_for_working_disabled_individuals"
+            in repaired_rules
+        )
+        assert (
+            "and individual_would_be_considered_receiving_ssi_but_for_earnings"
+            in repaired_rules
+        )
+        assert (
+            "or optional_working_disabled_medicaid_category_eligible"
+            in repaired_rules
+        )
+
+    def test_repair_medicaid_primary_category_tests_add_working_disabled_case(self):
+        tests = """- name: no composed mandatory category eligible
+  period: 2027-01
+  input:
+    us:statutes/42/1396a/m#input.individual_age_years: 30
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: not_holds
+"""
+
+        repaired_tests, changed_tests = (
+            _repair_medicaid_primary_category_composition_tests(tests)
+        )
+
+        parsed_tests = yaml.safe_load(repaired_tests)
+        working_disabled_case = next(
+            case
+            for case in parsed_tests
+            if case["name"] == "optional working disabled category eligible"
+        )
+        inputs = working_disabled_case["input"]
+        assert inputs["us:statutes/42/1396a/a/10#input.individual_age_years"] == 40
+        assert inputs["us:statutes/42/1396a/m#input.individual_age_years"] == 40
+        assert inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] == 40
+        assert (
+            inputs[
+                "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals"
+            ]
+            is True
+        )
+        assert working_disabled_case["output"] == {
+            "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        assert "optional working disabled category eligible" in changed_tests
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path

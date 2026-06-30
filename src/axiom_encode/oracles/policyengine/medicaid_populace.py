@@ -65,6 +65,10 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
     "young_adult": (
         "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible"
     ),
+    "working_disabled": (
+        "us:statutes/42/1396a/a/10"
+        "#optional_working_disabled_medicaid_category_eligible"
+    ),
     "optional_senior_disabled": (
         "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
     ),
@@ -473,6 +477,7 @@ def _project_case_inputs(
     young_adult_eligible: bool,
     senior_or_disabled_eligible: bool,
     medically_needy_eligible: bool,
+    working_disabled_buy_in_eligible: bool,
     mandatory_subpart_b: bool,
     work_requirement_eligible: bool,
     medicare_eligible: bool,
@@ -626,6 +631,7 @@ def _project_case_inputs(
 
     young_adult = bool(young_adult_eligible)
     inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] = numeric_age
+    inputs["us:statutes/42/1396a/a/10#input.individual_age_years"] = numeric_age
     inputs[
         "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"
     ] = False
@@ -644,6 +650,17 @@ def _project_case_inputs(
     inputs[
         "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category"
     ] = young_adult
+
+    working_disabled = bool(working_disabled_buy_in_eligible)
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals"
+    ] = working_disabled
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings"
+    ] = working_disabled
+    inputs[
+        "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations"
+    ] = working_disabled
 
     medically_needy = bool(medically_needy_eligible)
     inputs[
@@ -834,6 +851,8 @@ def load_policyengine_cases(
             == "SENIOR_OR_DISABLED",
             medically_needy_eligible=str(values["medicaid_category"][index])
             == "MEDICALLY_NEEDY",
+            working_disabled_buy_in_eligible=str(values["medicaid_category"][index])
+            == "WORKING_DISABLED_BUY_IN",
             mandatory_subpart_b=mandatory_subpart_b,
             work_requirement_eligible=bool(values["work"][index]),
             medicare_eligible=bool(values["medicare"][index]),

@@ -7517,6 +7517,9 @@ MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE = (
 MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE = (
     "optional_medically_needy_medicaid_may_be_provided"
 )
+MEDICAID_OPTIONAL_WORKING_DISABLED_RULE = (
+    "optional_working_disabled_medicaid_category_eligible"
+)
 MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL = "medicaid-primary-category-composition-v1"
 
 MEDICAID_YOUTH_RULESPEC = """format: rulespec/v1
@@ -8216,6 +8219,38 @@ def _repair_medicaid_primary_category_composition_rules(
         repaired = repaired[:rule_start] + optional_youth_rule + repaired[rule_start:]
         changed.append(MEDICAID_OPTIONAL_YOUTH_RULE)
 
+    if f"\n  - name: {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}\n" not in repaired:
+        rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+        optional_working_disabled_rule = f"""  - name: {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(ii)(XV)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+              excerpt: "who, but for earnings in excess of the limit established under section 1396d(q)(2)(B), would be considered to be receiving supplemental security income, who is at least 16, but less than 65, years of age, and whose assets, resources, and earned or unearned income (or both) do not exceed such limitations (if any) as the State may establish"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          state_elects_optional_coverage_for_working_disabled_individuals
+          and not individual_described_in_mandatory_clause_i
+          and individual_would_be_considered_receiving_ssi_but_for_earnings
+          and individual_age_years >= optional_working_disabled_minimum_age_years
+          and individual_age_years < optional_working_disabled_age_ceiling_years
+          and assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations
+
+"""
+        repaired = (
+            repaired[:rule_start] + optional_working_disabled_rule + repaired[rule_start:]
+        )
+        changed.append(MEDICAID_OPTIONAL_WORKING_DISABLED_RULE)
+
     rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
     next_rule = repaired.find("\n  - name:", rule_start + 1)
     rule_end = next_rule if next_rule != -1 else len(repaired)
@@ -8261,6 +8296,7 @@ def _repair_medicaid_primary_category_composition_rules(
     if insertion_point not in repaired:
         insertion_point = "          or former_foster_care_child_medicaid_required\n"
     additions = [
+        f"          or {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}\n",
         f"          or {MEDICAID_OPTIONAL_YOUTH_RULE}\n",
         f"          or {MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE}\n",
         f"          or {MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE}\n",
@@ -8281,13 +8317,17 @@ def _repair_medicaid_primary_category_composition_rules(
 
 
 _MEDICAID_PRIMARY_FALSE_INPUTS = {
+    "us:statutes/42/1396a/a/10#input.individual_age_years": 30,
     "us:statutes/42/1396d/a/i#input.individual_age_years": 30,
     "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
     "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
     "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option": False,
     "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i": False,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals": False,
     "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
     "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category": False,
+    "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings": False,
+    "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations": False,
     "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option": False,
     "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard": False,
     "us:regulations/42-cfr/435/301#input.incurred_medical_expenses_at_least_equal_to_income_standard_difference": False,
@@ -8326,6 +8366,16 @@ _MEDICAID_PRIMARY_MEDICALLY_NEEDY_TRUE_INPUTS = {
     "us:regulations/42-cfr/435/301#input.person_is_blind": False,
     "us:regulations/42-cfr/435/301#input.person_is_disabled": False,
     "us:regulations/42-cfr/435/301#input.person_is_parent_or_other_caretaker_relative": False,
+}
+
+_MEDICAID_PRIMARY_WORKING_DISABLED_TRUE_INPUTS = {
+    "us:statutes/42/1396a/a/10#input.individual_age_years": 40,
+    "us:statutes/42/1396a/m#input.individual_age_years": 40,
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 40,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals": True,
+    "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
+    "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings": True,
+    "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations": True,
 }
 
 
@@ -8388,6 +8438,21 @@ def _repair_medicaid_primary_category_composition_tests(
         }
         cases.append(medically_needy_case)
         changed.append("optional medically needy category eligible")
+
+    if "optional working disabled category eligible" not in names:
+        working_disabled_case = copy.deepcopy(template)
+        working_disabled_case["name"] = "optional working disabled category eligible"
+        inputs = working_disabled_case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
+        inputs.update(_MEDICAID_PRIMARY_WORKING_DISABLED_TRUE_INPUTS)
+        working_disabled_case["output"] = {
+            "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        cases.append(working_disabled_case)
+        changed.append("optional working disabled category eligible")
 
     return _dump_rulespec_repair_yaml(cases), changed
 
