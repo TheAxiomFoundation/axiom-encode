@@ -3988,6 +3988,14 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's 106 CMR 704.270 rule applies the statutory employment, applicant/client, deemed-income, 100% earned-income-disregard, EAEDC restriction, and filing-unit membership conditions. PolicyEngine's ma_tafdc_work_related_expense_deduction exposes the flat amount parameter without these legal eligibility restrictions, so the conditional legal output is not a one-to-one oracle target.
 
+  - legal_id: us-ma:regulations/106-cmr/704/260/block-1#ma_tafdc_financial_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ma_tafdc_financial_eligible
+    candidate_priority: P4
+    rationale: Axiom's 106 CMR 704.260 rule applies the source-law income test against the applicable Need Standard and treats income equal to that standard as eligible after excluding noncountable income, Full Employment Program wages, and the listed disregards. PolicyEngine's ma_tafdc_financial_eligible uses PE's own income graph and a strict less-than comparison against ma_tafdc_payment_standard, so the legal output is adjacent TAFDC coverage rather than a one-to-one oracle target.
+
   - legal_id: us-ma:regulations/106-cmr/704/230/block-1#ma_tafdc_monthly_absent_parent_income_disregard
     country: us
     program: tanf

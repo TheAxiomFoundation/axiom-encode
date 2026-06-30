@@ -2829,6 +2829,46 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_massachusetts_tafdc_income_test(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-ma/regulations/106-cmr/704/260/block-1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ma_tafdc_financial_eligible
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '0001-01-01'
+        formula: countable_income <= applicable_need_standard
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-ma/regulations/106-cmr/704/260/block-1.test.yaml",
+        """- name: eligible_at_need_standard
+  period: 2026-01
+  output:
+    us-ma:regulations/106-cmr/704/260/block-1#ma_tafdc_financial_eligible: holds
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["untested_comparable"] == 0
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-ma:regulations/106-cmr/704/260/block-1#ma_tafdc_financial_eligible"
+    )
+    assert item["program"] == "tanf"
+    assert item["status"] == "known_not_comparable"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "ma_tafdc_financial_eligible"
+    assert item["candidate_priority"] == "P4"
+    assert "strict less-than comparison" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_washington_tanf_wac_components(tmp_path):
     _write_rulespec_file(
         tmp_path
