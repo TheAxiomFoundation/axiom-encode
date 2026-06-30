@@ -607,12 +607,8 @@ PE_US_VAR_ADAPTERS = (
         monthly=True,
         spm=True,
         default_state_code="IL",
-        direct_spm_overrides=(
-            ("persons_eating_together_count", "spm_unit_size"),
-        ),
-        monthly_boolean_person_inputs=(
-            ("client_is_bedfast", "il_aabd_is_bedfast"),
-        ),
+        direct_spm_overrides=(("persons_eating_together_count", "spm_unit_size"),),
+        monthly_boolean_person_inputs=(("client_is_bedfast", "il_aabd_is_bedfast"),),
         projectable_input_keys=("client_is_active",),
         unsupported_truthy_input_keys=("client_is_in_long_term_care",),
         unsupported_input_reason=(

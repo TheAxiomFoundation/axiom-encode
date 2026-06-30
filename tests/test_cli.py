@@ -12394,9 +12394,7 @@ rules:
         self, tmp_path
     ):
         repo = tmp_path / "rulespec-us"
-        rules_file = (
-            tmp_path / "out" / "policies" / "dhs" / "csmm" / "11-01-01.yaml"
-        )
+        rules_file = tmp_path / "out" / "policies" / "dhs" / "csmm" / "11-01-01.yaml"
         test_file = rules_file.with_name("11-01-01.test.yaml")
         rules_file.parent.mkdir(parents=True)
         repo.mkdir()
