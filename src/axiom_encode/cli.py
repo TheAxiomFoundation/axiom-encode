@@ -8366,6 +8366,7 @@ def _repair_medicaid_primary_category_composition_tests(
         inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
         inputs.update(_MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS)
         youth_case["output"] = {
+            "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible": "holds",
             "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
         }
         cases.append(youth_case)
