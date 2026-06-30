@@ -178,6 +178,31 @@ axiom-encode oracle-coverage \
   --fail-on-untested-comparable
 ```
 
+For PolicyEngine program-surface parity, a legal-ID mapping is not enough. Active
+surfaces that the report classifies as `wired` still require a Populace-backed
+comparison before they can be treated as PE-parity-complete. The program-surface
+manifest can record this under `populace_validation`:
+
+```yaml
+populace_validation:
+  status: validated
+  command: axiom-encode tax-populace-compare --variable income_tax --year 2024
+  dataset: populace-us-2024
+  last_run: '2026-06-30'
+```
+
+`validated` entries must cite a Populace comparison command, dataset, and run
+date. Use `pending_validator`, `blocked`, or `not_applicable` only with a
+concrete rationale. CI jobs that want to forbid unvalidated wired program
+surfaces can use:
+
+```bash
+axiom-encode oracle-coverage \
+  --root /path/to/workspace \
+  --include-program-surfaces \
+  --fail-on-unvalidated-populace-surfaces
+```
+
 ## Candidate Triage
 
 Use the candidate command to turn coverage into a priority queue:
