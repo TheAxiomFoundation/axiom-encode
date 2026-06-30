@@ -23,7 +23,12 @@ from axiom_encode.repo_routing import (
 from .registry import PolicyEngineMapping, load_policyengine_registry
 
 EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
-ORACLE_COVERAGE_STATUSES = {"comparable", "known_not_comparable", "unmapped"}
+ORACLE_COVERAGE_STATUSES = {
+    "comparable",
+    "incomplete_comparable",
+    "known_not_comparable",
+    "unmapped",
+}
 PROGRAM_SURFACE_STATUSES = {
     "deferred_jurisdiction",
     "input_only",
@@ -130,6 +135,51 @@ _US_STATE_VARIABLE_PREFIX_RE = re.compile(
 _INTERVAL_BOUND_HELPER_RE = re.compile(
     r"(^|_)(tier|band|bracket|interval|row)_(lower|upper)_bound$"
 )
+_FORMULA_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_QUOTED_STRING_RE = re.compile(r"('([^'\\]|\\.)*'|\"([^\"\\]|\\.)*\")")
+_RULESPEC_BUILTIN_IDENTIFIERS = {
+    "False",
+    "None",
+    "True",
+    "abs",
+    "all",
+    "and",
+    "any",
+    "ceil",
+    "count",
+    "count_where",
+    "else",
+    "false",
+    "floor",
+    "if",
+    "in",
+    "len",
+    "max",
+    "min",
+    "not",
+    "or",
+    "round",
+    "sum",
+    "sum_where",
+    "true",
+    "where",
+}
+_UPSTREAM_PLACEHOLDER_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"(^|_)as_defined_in_",
+        r"(^|_)defined_(in|under)_",
+        r"(^|_)described_in_.*(section|subsection|paragraph|subparagraph|clause|subclause|part|subpart|title|chapter|act)",
+        r"(^|_)determined_(for|under|by)_",
+        r"(^|_)conditions_under_",
+        r"(^|_)state_elected_.*category",
+        r"(^|_)previous_mandatory_subclause",
+        r"(^|_)mandatory_subclauses",
+        r"(^|_)applicable_level",
+        r"^person_is_in_.*category",
+        r"^person_is_qualified_.*(beneficiary|group)",
+    )
+)
 POLICYBENCH_SOURCE_URL = "https://policybench.org/"
 POLICYBENCH_SNAPSHOT = "2026-06-14"
 POLICYBENCH_HOUSEHOLD_OUTPUT_WEIGHTS = {
@@ -208,6 +258,8 @@ class PolicyEngineCoverageItem:
     candidate_priority: str | None = None
     tested: bool = False
     test_output_count: int = 0
+    upstream_completeness_status: str | None = None
+    upstream_completeness_issues: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, str | int | bool | None]:
         return {
@@ -226,6 +278,8 @@ class PolicyEngineCoverageItem:
             "candidate_priority": self.candidate_priority,
             "tested": self.tested,
             "test_output_count": self.test_output_count,
+            "upstream_completeness_status": self.upstream_completeness_status,
+            "upstream_completeness_issues": list(self.upstream_completeness_issues),
         }
 
 
@@ -827,6 +881,7 @@ def _iter_policyengine_coverage_items(
             rules = payload.get("rules")
             if not isinstance(rules, list):
                 continue
+            defined_identifiers = _rulespec_defined_identifiers(payload)
             test_output_counts = _rulespec_test_output_counts(rulespec_file)
             for rule in rules:
                 if not isinstance(rule, dict):
@@ -862,6 +917,7 @@ def _iter_policyengine_coverage_items(
                         rule=rule,
                         kind=kind,
                         mapping=mapping,
+                        defined_identifiers=defined_identifiers,
                         test_output_count=test_output_count,
                     )
                 )
@@ -1053,6 +1109,19 @@ def _candidate_from_coverage_item(
             recommendation=(
                 "Add this comparable output to the companion .test.yaml so CI "
                 "continues to exercise the oracle mapping."
+            ),
+        )
+
+    if status == "incomplete_comparable":
+        return _candidate_item(
+            item,
+            category="incomplete_comparable",
+            priority=_candidate_priority(item, "P1"),
+            recommendation=(
+                "Do not treat this direct PolicyEngine mapping as parity-ready "
+                "yet. Encode or import the unresolved primary-source "
+                "dependencies listed in upstream_completeness_issues, then "
+                "rerun coverage and Populace validation."
             ),
         )
 
@@ -1840,9 +1909,12 @@ def _coverage_item_from_mapping(
     rule: dict[str, Any],
     kind: str,
     mapping: PolicyEngineMapping | None,
+    defined_identifiers: set[str],
     test_output_count: int,
 ) -> PolicyEngineCoverageItem:
     file_path = _display_file_path(rulespec_file, root)
+    upstream_issues: tuple[str, ...] = ()
+    upstream_status: str | None = None
     if mapping is None:
         program = _infer_program_from_legal_id(legal_id, rule_name=rule_name)
         if _is_interval_bound_helper_rule(rule_name, rule):
@@ -1873,6 +1945,14 @@ def _coverage_item_from_mapping(
             legal_id, rule_name=rule_name
         )
         mapping_type = mapping.mapping_type
+        upstream_issues = _direct_mapping_upstream_completeness_issues(
+            rule=rule,
+            mapping=mapping,
+            defined_identifiers=defined_identifiers,
+        )
+        if upstream_issues:
+            status = "incomplete_comparable"
+            upstream_status = "needs_upstream_encoding"
     else:
         status = "known_not_comparable"
         program = mapping.program or _infer_program_from_legal_id(
@@ -1896,7 +1976,84 @@ def _coverage_item_from_mapping(
         candidate_priority=mapping.candidate_priority if mapping else None,
         tested=test_output_count > 0,
         test_output_count=test_output_count,
+        upstream_completeness_status=upstream_status,
+        upstream_completeness_issues=upstream_issues,
     )
+
+
+def _rulespec_defined_identifiers(payload: dict[str, Any]) -> set[str]:
+    """Return rule/import names available to formulas in one RuleSpec file."""
+    identifiers: set[str] = set()
+    raw_imports = payload.get("imports") or []
+    if isinstance(raw_imports, list):
+        for raw_import in raw_imports:
+            if not isinstance(raw_import, str):
+                continue
+            _, _, output_name = raw_import.partition("#")
+            if output_name:
+                identifiers.add(output_name.strip())
+
+    raw_rules = payload.get("rules") or []
+    if isinstance(raw_rules, list):
+        for rule in raw_rules:
+            if not isinstance(rule, dict):
+                continue
+            name = str(rule.get("name") or "").strip()
+            if name:
+                identifiers.add(name)
+    return identifiers
+
+
+def _direct_mapping_upstream_completeness_issues(
+    *,
+    rule: dict[str, Any],
+    mapping: PolicyEngineMapping,
+    defined_identifiers: set[str],
+) -> tuple[str, ...]:
+    """Flag direct PE mappings that still depend on broad upstream placeholders."""
+    if mapping.mapping_type != "direct_variable":
+        return ()
+
+    unresolved = sorted(
+        identifier
+        for identifier in _rule_formula_identifiers(rule)
+        if identifier not in defined_identifiers
+        and identifier not in _RULESPEC_BUILTIN_IDENTIFIERS
+    )
+    suspicious = [
+        identifier
+        for identifier in unresolved
+        if _is_upstream_placeholder_identifier(identifier)
+    ]
+    if not suspicious:
+        return ()
+    return tuple(
+        "Direct PolicyEngine mapping depends on unresolved upstream placeholder "
+        f"`{identifier}`; encode/import the primary source for that dependency "
+        "before treating this output as comparable."
+        for identifier in suspicious
+    )
+
+
+def _rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
+    identifiers: set[str] = set()
+    versions = rule.get("versions") or []
+    if not isinstance(versions, list):
+        return identifiers
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if formula is None:
+            continue
+        text = _QUOTED_STRING_RE.sub(" ", str(formula))
+        identifiers.update(_FORMULA_IDENTIFIER_RE.findall(text))
+    return identifiers
+
+
+def _is_upstream_placeholder_identifier(identifier: str) -> bool:
+    lowered = identifier.lower()
+    return any(pattern.search(lowered) for pattern in _UPSTREAM_PLACEHOLDER_PATTERNS)
 
 
 def _is_interval_bound_helper_rule(rule_name: str, rule: dict[str, Any]) -> bool:

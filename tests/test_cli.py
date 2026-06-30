@@ -1949,6 +1949,51 @@ class TestCmdValidate:
         assert "Populace validation: not_configured=1" in output
         assert "29.86% is_medicaid_eligible: not_configured" in output
 
+    def test_oracle_coverage_fail_on_incomplete_comparable_exits_nonzero(
+        self, capsys, tmp_path
+    ):
+        args = MagicMock()
+        args.root = tmp_path
+        args.oracle = "policyengine"
+        args.program = None
+        args.limit = 25
+        args.fail_on_unmapped = False
+        args.fail_on_untested_comparable = False
+        args.fail_on_incomplete_comparable = True
+        args.include_program_surfaces = False
+        args.fail_on_pending_program_surfaces = False
+        args.fail_on_unvalidated_populace_surfaces = False
+        args.json = False
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_coverage_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(tmp_path),
+                "total_outputs": 1,
+                "status_counts": {"incomplete_comparable": 1},
+                "untested_comparable": 0,
+                "program_counts": {"medicaid": 1},
+                "repos": [],
+                "items": [
+                    {
+                        "legal_id": "us:statutes/42/1396a/a/10#is_medicaid_eligible",
+                        "status": "incomplete_comparable",
+                        "upstream_completeness_issues": [
+                            "Direct PolicyEngine mapping depends on unresolved upstream placeholder `person_is_in_other_mandatory_category_described_in_subparagraph_A_i`; encode/import the primary source for that dependency before treating this output as comparable."
+                        ],
+                    }
+                ],
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_coverage(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Incomplete comparable outputs: 1" in output
+        assert "us:statutes/42/1396a/a/10#is_medicaid_eligible" in output
+
     def test_oracle_candidates_prints_priority_queue(self, capsys, tmp_path):
         args = MagicMock()
         args.root = tmp_path

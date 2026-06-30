@@ -719,6 +719,14 @@ def main():
         help="Exit non-zero when a comparable output is absent from companion tests",
     )
     oracle_coverage_parser.add_argument(
+        "--fail-on-incomplete-comparable",
+        action="store_true",
+        help=(
+            "Exit non-zero when a direct oracle mapping still depends on "
+            "unresolved upstream placeholder references"
+        ),
+    )
+    oracle_coverage_parser.add_argument(
         "--include-program-surfaces",
         action="store_true",
         help="Include PolicyEngine program-variable surface wiring coverage",
@@ -3828,6 +3836,9 @@ def cmd_oracle_coverage(args):
     fail_on_unvalidated_populace_surfaces = (
         getattr(args, "fail_on_unvalidated_populace_surfaces", False) is True
     )
+    fail_on_incomplete_comparable = (
+        getattr(args, "fail_on_incomplete_comparable", False) is True
+    )
     report = build_policyengine_coverage_report(
         root,
         program=args.program,
@@ -3836,6 +3847,7 @@ def cmd_oracle_coverage(args):
 
     unmapped = int(report["status_counts"].get("unmapped", 0))
     untested_comparable = int(report.get("untested_comparable", 0))
+    incomplete_comparable = int(report["status_counts"].get("incomplete_comparable", 0))
     pending_program_surfaces = int(
         (report.get("program_surfaces") or {}).get("active_pending_surfaces", 0)
     )
@@ -3845,6 +3857,7 @@ def cmd_oracle_coverage(args):
     should_fail = (
         (args.fail_on_unmapped and unmapped)
         or (args.fail_on_untested_comparable and untested_comparable)
+        or (fail_on_incomplete_comparable and incomplete_comparable)
         or (
             fail_on_pending_program_surfaces
             and include_program_surfaces
@@ -3867,6 +3880,7 @@ def cmd_oracle_coverage(args):
     print(f"Executable outputs: {report['total_outputs']}")
     print(f"Status: {_format_counter(report['status_counts'])}")
     print(f"Untested comparable outputs: {untested_comparable}")
+    print(f"Incomplete comparable outputs: {incomplete_comparable}")
     print(f"Programs: {_format_counter(report['program_counts'])}")
     if report.get("program_surfaces"):
         surfaces = report["program_surfaces"]
@@ -3931,6 +3945,21 @@ def cmd_oracle_coverage(args):
             print(f"  - {item['legal_id']}")
         if len(untested_items) > args.limit:
             print(f"  - ... {len(untested_items) - args.limit} more")
+
+    incomplete_items = [
+        item
+        for item in report["items"]
+        if item.get("status") == "incomplete_comparable"
+    ]
+    if incomplete_items:
+        print()
+        print(f"Incomplete comparable outputs (first {args.limit}):")
+        for item in incomplete_items[: args.limit]:
+            print(f"  - {item['legal_id']}")
+            for issue in (item.get("upstream_completeness_issues") or [])[:3]:
+                print(f"    - {issue}")
+        if len(incomplete_items) > args.limit:
+            print(f"  - ... {len(incomplete_items) - args.limit} more")
 
     program_surfaces = report.get("program_surfaces") or {}
     pending_surface_items = [
