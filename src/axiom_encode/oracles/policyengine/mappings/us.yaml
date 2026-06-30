@@ -3970,6 +3970,24 @@ mappings:
     comparison: money
     rationale: Massachusetts TAFDC infant benefit comparison targets the one-infant subset where the 106 CMR 705.600 equipment-source and component-request conditions are all satisfied and the department-set crib or mattress plus layette rates total PolicyEngine's flat per-infant amount.
 
+  - legal_id: us-ma:regulations/106-cmr/704/270/block-1#work_related_expense_deduction_monthly_amount
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ma.dta.tcap.deductions.work_related_expenses.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Massachusetts TAFDC monthly work-related-expense deduction amount.
+
+  - legal_id: us-ma:regulations/106-cmr/704/270/block-1#ma_tafdc_work_related_expense_deduction_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ma_tafdc_work_related_expense_deduction
+    candidate_priority: P4
+    rationale: Axiom's 106 CMR 704.270 rule applies the statutory employment, applicant/client, deemed-income, 100% earned-income-disregard, EAEDC restriction, and filing-unit membership conditions. PolicyEngine's ma_tafdc_work_related_expense_deduction exposes the flat amount parameter without these legal eligibility restrictions, so the conditional legal output is not a one-to-one oracle target.
+
   - legal_id: us-az:programs/tanf/fy-2026#az_tanf
     country: us
     program: tanf
