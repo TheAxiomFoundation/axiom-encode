@@ -3926,6 +3926,38 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the PM 10-01-02 non-regular roll check minimum-payment rule. PolicyEngine does not model Illinois TANF non-regular roll or Mercury checks as a distinct surface.
 
+  - legal_id: us-il:policies/dhs/csmm/25-06-01#aabd_grant_adjustment_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.il.dhs.aabd.payment.grant_amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Illinois AABD monthly grant-adjustment amount table in WAG 25-06-01 and PolicyEngine's Illinois AABD grant amount parameter.
+
+  - legal_id: us-il:policies/dhs/csmm/25-06-01#aabd_cash_certification_required_indicator
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the WAG 25-06-01 effective-date rule that after July 1, 1982 only certified AABD Cash cases receive the grant adjustment. PolicyEngine stores the grant amount but does not expose this source-specific certification gate as a one-to-one variable.
+
+  - legal_id: us-il:policies/dhs/csmm/25-06-01#aabd_retrospective_budgeting_required_indicator
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the WAG 25-06-01 historical retrospective-budgeting interval for AABD overpayment computation. PolicyEngine's Illinois AABD model does not expose this historical case-budgeting procedure as a one-to-one variable.
+
+  - legal_id: us-il:policies/dhs/csmm/25-06-01#il_aabd_grant_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: il_aabd_grant_amount
+    candidate_priority: P4
+    rationale: RuleSpec applies the WAG 25-06-01 certification gate before returning a case-level grant-adjustment amount. PolicyEngine's `il_aabd_grant_amount` exposes the monthly grant parameter without this source-specific certification branch, so the ungated table output is the comparable oracle target.
+
   - legal_id: us-wa:regulations/388/388-478/388-478-0035#cash_assistance_earned_income_limit_final_family_size_floor
     country: us
     program: tanf
