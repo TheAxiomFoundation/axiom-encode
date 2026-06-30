@@ -89,12 +89,20 @@ signature.
 ## Source pinning and staleness
 
 RuleSpec modules ground to legal text through
-`module.source_verification.corpus_citation_path`. The schema also accepts an
-optional `source_sha256` pin — the SHA-256 hex digest of the exact corpus
-provision text the module was encoded from — plus in-content
-`module.encoding_provenance` (`encoder`, `model`, `run_id`, `reviewed_by`)
-and `module.validation` (oracle, `matches`/`mismatches`/`pending` status,
-`last_run` date) blocks. All three are optional and inert at runtime.
+`module.source_verification.corpus_citation_path`. If that source is below
+statute/regulation authority, such as a policy manual, guidance page, form,
+CMS table, or state plan, validation requires
+`module.source_verification.upstream_source_check` with `status`,
+`checked_paths`, and `rationale`. The checked paths must include at least one
+statute/regulation corpus path or RuleSpec target that was checked before the
+lower source was encoded. This makes lower-authority sources reviewable instead
+of silently treating them as maximally upstream.
+
+The schema also accepts an optional `source_sha256` pin — the SHA-256 hex
+digest of the exact corpus provision text the module was encoded from — plus
+in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
+`reviewed_by`) and `module.validation` (oracle, `matches`/`mismatches`/
+`pending` status, `last_run` date) blocks. These fields are inert at runtime.
 
 Check every pinned module in a jurisdiction checkout against a local
 `axiom-corpus` checkout:
