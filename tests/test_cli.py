@@ -25834,14 +25834,29 @@ rules:
             "optional_working_disabled_medicaid_category_eligible" in changed_rules
         )
         assert (
+            "optional_ssi_excess_earnings_medicaid_category_eligible"
+            in changed_rules
+        )
+        assert (
             "source: 42 USC 1396a(a)(10)(A)(ii)(XV)" in repaired_rules
+        )
+        assert (
+            "source: 42 USC 1396a(a)(10)(A)(ii)(XIII)" in repaired_rules
         )
         assert (
             "state_elects_optional_coverage_for_working_disabled_individuals"
             in repaired_rules
         )
         assert (
+            "family_income_as_fraction_of_poverty_line < optional_ssi_excess_earnings_family_income_limit_poverty_line_rate"
+            in repaired_rules
+        )
+        assert (
             "and individual_would_be_considered_receiving_ssi_but_for_earnings"
+            in repaired_rules
+        )
+        assert (
+            "or optional_ssi_excess_earnings_medicaid_category_eligible"
             in repaired_rules
         )
         assert (
@@ -25882,7 +25897,31 @@ rules:
             "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible": "holds",
             "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
         }
+        ssi_excess_case = next(
+            case
+            for case in parsed_tests
+            if case["name"] == "optional SSI excess earnings category eligible"
+        )
+        ssi_inputs = ssi_excess_case["input"]
+        assert ssi_inputs["us:statutes/42/1396a/a/10#input.individual_age_years"] == 72
+        assert (
+            ssi_inputs[
+                "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_ssi_excess_earnings_individuals"
+            ]
+            is True
+        )
+        assert (
+            ssi_inputs[
+                "us:statutes/42/1396a/a/10#input.family_income_as_fraction_of_poverty_line"
+            ]
+            == 1.0
+        )
+        assert ssi_excess_case["output"] == {
+            "us:statutes/42/1396a/a/10#optional_ssi_excess_earnings_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
         assert "optional working disabled category eligible" in changed_tests
+        assert "optional SSI excess earnings category eligible" in changed_tests
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path

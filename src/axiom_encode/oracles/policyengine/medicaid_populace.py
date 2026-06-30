@@ -65,6 +65,10 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
     "young_adult": (
         "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible"
     ),
+    "ssi_excess_earnings": (
+        "us:statutes/42/1396a/a/10"
+        "#optional_ssi_excess_earnings_medicaid_category_eligible"
+    ),
     "working_disabled": (
         "us:statutes/42/1396a/a/10"
         "#optional_working_disabled_medicaid_category_eligible"
@@ -478,6 +482,7 @@ def _project_case_inputs(
     senior_or_disabled_eligible: bool,
     medically_needy_eligible: bool,
     working_disabled_buy_in_eligible: bool,
+    ssi_excess_earnings_buy_in_eligible: bool,
     mandatory_subpart_b: bool,
     work_requirement_eligible: bool,
     medicare_eligible: bool,
@@ -652,12 +657,20 @@ def _project_case_inputs(
     ] = young_adult
 
     working_disabled = bool(working_disabled_buy_in_eligible)
+    ssi_excess_earnings = bool(ssi_excess_earnings_buy_in_eligible)
+    ssi_but_for_earnings = working_disabled or ssi_excess_earnings
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_ssi_excess_earnings_individuals"
+    ] = ssi_excess_earnings
     inputs[
         "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals"
     ] = working_disabled
     inputs[
         "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings"
-    ] = working_disabled
+    ] = ssi_but_for_earnings
+    inputs[
+        "us:statutes/42/1396a/a/10#input.family_income_as_fraction_of_poverty_line"
+    ] = 1.0 if ssi_excess_earnings else 3.0
     inputs[
         "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations"
     ] = working_disabled
@@ -851,8 +864,16 @@ def load_policyengine_cases(
             == "SENIOR_OR_DISABLED",
             medically_needy_eligible=str(values["medicaid_category"][index])
             == "MEDICALLY_NEEDY",
-            working_disabled_buy_in_eligible=str(values["medicaid_category"][index])
-            == "WORKING_DISABLED_BUY_IN",
+            working_disabled_buy_in_eligible=(
+                str(values["medicaid_category"][index])
+                == "WORKING_DISABLED_BUY_IN"
+                and str(states[index]) != "CA"
+            ),
+            ssi_excess_earnings_buy_in_eligible=(
+                str(values["medicaid_category"][index])
+                == "WORKING_DISABLED_BUY_IN"
+                and str(states[index]) == "CA"
+            ),
             mandatory_subpart_b=mandatory_subpart_b,
             work_requirement_eligible=bool(values["work"][index]),
             medicare_eligible=bool(values["medicare"][index]),
