@@ -1801,6 +1801,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_medicaid_optional_parser = subparsers.add_parser(
+        "repair-medicaid-optional-senior-composition",
+        help="Apply signed deterministic Medicaid optional senior/disabled composition repairs",
+    )
+    repair_medicaid_optional_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_medicaid_optional_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_ny_snap_categorical_parser = subparsers.add_parser(
         "repair-new-york-snap-categorical-eligibility",
         help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
@@ -2501,6 +2520,8 @@ def main():
         cmd_repair_georgia_cms_medicaid_availability(args)
     elif args.command == "repair-georgia-cms-effective-magi-limits":
         cmd_repair_georgia_cms_effective_magi_limits(args)
+    elif args.command == "repair-medicaid-optional-senior-composition":
+        cmd_repair_medicaid_optional_senior_composition(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
         cmd_repair_new_york_snap_categorical_eligibility(args)
     elif args.command == "repair-new-york-snap-benefit-tests":
@@ -7446,6 +7467,337 @@ def _repair_georgia_cms_effective_magi_limit_tests(
             f"{rule['test_value']}\n"
         )
     return repaired, [rule["name"] for rule in missing]
+
+
+MEDICAID_A10_RELATIVE = Path("statutes/42/1396a/a/10.yaml")
+MEDICAID_A10_CITATION = "us/statute/42/1396a/a/10"
+MEDICAID_OPTIONAL_SENIOR_TARGET = (
+    "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+)
+MEDICAID_OPTIONAL_SENIOR_RULE = "is_optional_senior_or_disabled_for_medicaid"
+
+
+class _RulespecRepairDumper(yaml.SafeDumper):
+    pass
+
+
+def _rulespec_repair_str_representer(
+    dumper: yaml.SafeDumper, value: str
+) -> yaml.nodes.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_RulespecRepairDumper.add_representer(str, _rulespec_repair_str_representer)
+
+
+def _dump_rulespec_repair_yaml(payload: Any) -> str:
+    return yaml.dump(
+        payload,
+        Dumper=_RulespecRepairDumper,
+        sort_keys=False,
+        allow_unicode=False,
+        width=1000,
+    )
+
+
+def cmd_repair_medicaid_optional_senior_composition(args):
+    """Apply signed deterministic Medicaid optional senior/disabled composition."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-medicaid-optional-senior-composition must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = MEDICAID_A10_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    medicaid_m_file = repo_path / "statutes/42/1396a/m.yaml"
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+    if not medicaid_m_file.exists():
+        print(f"Required optional-category RuleSpec file not found: {medicaid_m_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    optional_hash = _sha256_file(medicaid_m_file)
+    repaired_content, repaired_rules = (
+        _repair_medicaid_optional_senior_composition_rules(
+            original_content, optional_hash=optional_hash
+        )
+    )
+    repaired_test_content, repaired_tests = (
+        _repair_medicaid_optional_senior_composition_tests(original_test_content)
+    )
+    applied_files = [rules_file, test_file]
+    axiom_encode_git = None
+
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+        if manifest_path.exists():
+            current_hashes = {
+                file.relative_to(repo_path).as_posix(): _sha256_file(file)
+                for file in applied_files
+            }
+            payload = json.loads(manifest_path.read_text())
+            manifest_hashes = {
+                item.get("path"): item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict)
+            }
+            if all(
+                manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
+            ):
+                axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+                if (
+                    payload.get("axiom_encode_version") == __version__
+                    and payload.get("axiom_encode_git") == axiom_encode_git
+                ):
+                    print("No Medicaid optional senior composition repairs found.")
+                    return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    if axiom_encode_git is None:
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [(relative_output, applied_files)],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+
+            test_failures = _rulespec_companion_test_failures(
+                test_file,
+                root=repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+            if test_failures:
+                print("Repair failed companion tests; restored original files.")
+                for failure in test_failures[:20]:
+                    case_name = failure.get("case") or "<unknown case>"
+                    print(f"- {case_name}: {failure.get('message')}")
+                sys.exit(1)
+        finally:
+            validation_passed = "validation" in locals() and validation.all_passed
+            tests_passed = "test_failures" in locals() and not test_failures
+            if not validation_passed or not tests_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="medicaid-optional-senior-composition-v1",
+            tool="axiom-encode repair-medicaid-optional-senior-composition",
+            citation=MEDICAID_A10_CITATION,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    changed_names = sorted(set(repaired_rules) | set(repaired_tests))
+    print("Applied Medicaid optional senior composition repair")
+    if changed_names:
+        print(f"changed_rules={', '.join(changed_names)}")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+def _repair_medicaid_optional_senior_composition_rules(
+    content: str, *, optional_hash: str
+) -> tuple[str, list[str]]:
+    if "\n  - name: is_medicaid_eligible\n" not in content:
+        raise ValueError("Missing is_medicaid_eligible rule")
+
+    repaired = content
+    changed: list[str] = []
+
+    if MEDICAID_OPTIONAL_SENIOR_TARGET not in repaired:
+        module_marker = "\nmodule:\n"
+        if module_marker not in repaired:
+            raise ValueError("RuleSpec payload must contain module section")
+        repaired = repaired.replace(
+            module_marker,
+            f"\n  - {MEDICAID_OPTIONAL_SENIOR_TARGET}{module_marker}",
+            1,
+        )
+        changed.append("is_medicaid_eligible")
+
+    source_marker = "    source: 42 USC 1396a(a)(10)(A)(i)\n"
+    if source_marker in repaired:
+        repaired = repaired.replace(
+            source_marker,
+            "    source: 42 USC 1396a(a)(10)(A)(i)-(ii)\n",
+            1,
+        )
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+    next_rule = repaired.find("\n  - name:", rule_start + 1)
+    rule_end = next_rule if next_rule != -1 else len(repaired)
+    rule_text = repaired[rule_start:rule_end]
+
+    proof_atom = (
+        "          - path: versions[0].formula\n"
+        "            kind: import\n"
+        "            import:\n"
+        f"              target: {MEDICAID_OPTIONAL_SENIOR_TARGET}\n"
+        f"              output: {MEDICAID_OPTIONAL_SENIOR_RULE}\n"
+        f"              hash: sha256:{optional_hash}\n"
+    )
+    if MEDICAID_OPTIONAL_SENIOR_TARGET not in rule_text:
+        versions_marker = "    versions:\n"
+        if versions_marker not in rule_text:
+            raise ValueError("is_medicaid_eligible must have versions")
+        rule_text = rule_text.replace(
+            versions_marker,
+            proof_atom + versions_marker,
+            1,
+        )
+        repaired = repaired[:rule_start] + rule_text + repaired[rule_end:]
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    if f"or {MEDICAID_OPTIONAL_SENIOR_RULE}" not in repaired:
+        formula_marker = "          or former_foster_care_child_medicaid_required\n"
+        if formula_marker not in repaired:
+            raise ValueError("Missing Medicaid eligibility formula insertion point")
+        repaired = repaired.replace(
+            formula_marker,
+            formula_marker
+            + f"          or {MEDICAID_OPTIONAL_SENIOR_RULE}\n",
+            1,
+        )
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    return repaired, changed
+
+
+_MEDICAID_OPTIONAL_FALSE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 30,
+    "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3": False,
+    "us:statutes/42/1396a/m#input.income_determined_for_this_subsection": 999999,
+    "us:statutes/42/1396a/m#input.state_established_income_level_amount": 0,
+    "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate": 1.0,
+    "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program": 999999,
+    "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program": 2000,
+    "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals": False,
+    "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals": 2000,
+}
+
+
+_MEDICAID_OPTIONAL_TRUE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 65,
+    "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3": False,
+    "us:statutes/42/1396a/m#input.income_determined_for_this_subsection": 900,
+    "us:statutes/42/1396a/m#input.state_established_income_level_amount": 1000,
+    "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate": 1.0,
+    "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program": 1900,
+    "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program": 2000,
+    "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals": False,
+    "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals": 2000,
+}
+
+
+def _repair_medicaid_optional_senior_composition_tests(
+    content: str,
+) -> tuple[str, list[str]]:
+    cases = yaml.safe_load(content)
+    if not isinstance(cases, list):
+        raise ValueError("RuleSpec companion tests must be a list")
+
+    changed: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        for key, value in _MEDICAID_OPTIONAL_FALSE_INPUTS.items():
+            if key not in inputs:
+                inputs[key] = value
+                changed.append(str(case.get("name") or "<unnamed>"))
+
+    names = {case.get("name") for case in cases if isinstance(case, dict)}
+    if "optional senior disabled category eligible" not in names:
+        template = None
+        for case in cases:
+            if (
+                isinstance(case, dict)
+                and case.get("name") == "no composed mandatory category eligible"
+            ):
+                template = copy.deepcopy(case)
+                break
+        if template is None:
+            raise ValueError("Missing no composed mandatory category eligible test")
+        template["name"] = "optional senior disabled category eligible"
+        inputs = template.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_OPTIONAL_TRUE_INPUTS)
+        template["output"] = {"us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"}
+        cases.append(template)
+        changed.append("optional senior disabled category eligible")
+
+    return _dump_rulespec_repair_yaml(cases), changed
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):

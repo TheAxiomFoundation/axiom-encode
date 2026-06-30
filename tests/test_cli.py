@@ -89,6 +89,8 @@ from axiom_encode.cli import (
     _repair_half_unit_add_person_formulas,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
+    _repair_medicaid_optional_senior_composition_rules,
+    _repair_medicaid_optional_senior_composition_tests,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
@@ -25662,6 +25664,81 @@ rules:
         assert payload["axiom_encode_version"] == AXIOM_ENCODE_TEST_VERSION
         assert payload["axiom_encode_git"] == current_git
         assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
+
+    def test_repair_medicaid_optional_senior_composition_updates_rule_and_tests(
+        self,
+    ):
+        rules = """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/a/10
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          parent_or_caretaker_relative_eligible
+          or former_foster_care_child_medicaid_required
+"""
+        tests = """- name: no composed mandatory category eligible
+  period: 2027-01
+  input:
+    us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative: false
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: not_holds
+"""
+
+        repaired_rules, changed_rules = (
+            _repair_medicaid_optional_senior_composition_rules(
+                rules, optional_hash="abc123"
+            )
+        )
+        repaired_tests, changed_tests = (
+            _repair_medicaid_optional_senior_composition_tests(tests)
+        )
+
+        assert changed_rules == ["is_medicaid_eligible"]
+        assert (
+            "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+            in repaired_rules
+        )
+        assert "source: 42 USC 1396a(a)(10)(A)(i)-(ii)" in repaired_rules
+        assert "hash: sha256:abc123" in repaired_rules
+        assert "or is_optional_senior_or_disabled_for_medicaid" in repaired_rules
+
+        parsed_tests = yaml.safe_load(repaired_tests)
+        assert [case["name"] for case in parsed_tests] == [
+            "no composed mandatory category eligible",
+            "optional senior disabled category eligible",
+        ]
+        baseline_inputs = parsed_tests[0]["input"]
+        assert (
+            baseline_inputs["us:statutes/42/1396a/m#input.individual_age_years"] == 30
+        )
+        optional_inputs = parsed_tests[1]["input"]
+        assert (
+            optional_inputs["us:statutes/42/1396a/m#input.individual_age_years"] == 65
+        )
+        assert parsed_tests[1]["output"] == {
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
+        }
+        assert "optional senior disabled category eligible" in changed_tests
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path
