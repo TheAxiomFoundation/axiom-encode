@@ -4772,8 +4772,10 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
 
     target_hint = ""
     if policyengine_rule_hint:
-        policyengine_context_exports_section = _format_policyengine_hint_context_exports(
-            context_files,
+        policyengine_context_exports_section = (
+            _format_policyengine_hint_context_exports(
+                context_files,
+            )
         )
         target_hint = f"""
 Preferred principal output:

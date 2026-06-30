@@ -60,12 +60,10 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
         "#medicaid_required_for_ssi_mandatory_group"
     ),
     "former_foster": (
-        "us:regulations/42-cfr/435/150"
-        "#former_foster_care_child_medicaid_required"
+        "us:regulations/42-cfr/435/150#former_foster_care_child_medicaid_required"
     ),
     "community_engagement": (
-        "us:statutes/42/1396a/xx"
-        "#demonstrated_community_engagement_for_month"
+        "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
     ),
 }
 DEFAULT_PROGRAM_RELATIVE_PATH = Path("us/statutes/42/1396a/a/10.yaml")
@@ -306,7 +304,10 @@ def _person_state_codes(sim: Any, period: int, count: int) -> np.ndarray:
         count,
     )
     return np.asarray(
-        [state_by_household_id.get(int(household_id), "") for household_id in person_household_ids]
+        [
+            state_by_household_id.get(int(household_id), "")
+            for household_id in person_household_ids
+        ]
     )
 
 
@@ -461,9 +462,9 @@ def _project_case_inputs(
     ):
         inputs[key] = numeric_age
 
-    inputs["us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative"] = bool(
-        parent_nfc
-    )
+    inputs[
+        "us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative"
+    ] = bool(parent_nfc)
     inputs[
         "us:regulations/42-cfr/435/110#input.person_is_spouse_of_parent_or_caretaker_relative_living_with_them"
     ] = False
@@ -472,9 +473,9 @@ def _project_case_inputs(
     ] = bool(parent_fc)
 
     pregnant_full_eligible = bool(pregnant_nfc and pregnant_fc)
-    pregnant_limit = _threshold_inputs_from_component(
-        eligible=pregnant_full_eligible
-    )[1]
+    pregnant_limit = _threshold_inputs_from_component(eligible=pregnant_full_eligible)[
+        1
+    ]
     child_component_eligible = bool(
         (numeric_age < 1 and infant_fc)
         or (1 <= numeric_age <= 5 and young_child_fc)
@@ -484,9 +485,11 @@ def _project_case_inputs(
     # The current rules engine run request addresses inputs by name within the
     # compiled program. Several imported Medicaid modules use this same local
     # input name, so use one synthetic income projection for all of them.
-    shared_income_fraction = 1.0 if (
-        pregnant_full_eligible or child_component_eligible or adult_full_eligible
-    ) else 2.0
+    shared_income_fraction = (
+        1.0
+        if (pregnant_full_eligible or child_component_eligible or adult_full_eligible)
+        else 2.0
+    )
 
     _, child_limit = _threshold_inputs_from_component(
         eligible=child_component_eligible,
@@ -533,13 +536,15 @@ def _project_case_inputs(
     inputs[
         "us:regulations/42-cfr/435/119#input.household_income_as_fraction_of_fpl"
     ] = shared_income_fraction
-    inputs["us:regulations/42-cfr/435/119#input.person_is_parent_or_caretaker_relative"] = bool(
-        parent_nfc
-    )
+    inputs[
+        "us:regulations/42-cfr/435/119#input.person_is_parent_or_caretaker_relative"
+    ] = bool(parent_nfc)
     inputs[
         "us:regulations/42-cfr/435/119#input.person_lives_with_dependent_child_under_age_threshold"
     ] = False
-    inputs["us:regulations/42-cfr/435/119#input.dependent_child_receiving_medicaid"] = True
+    inputs["us:regulations/42-cfr/435/119#input.dependent_child_receiving_medicaid"] = (
+        True
+    )
     inputs["us:regulations/42-cfr/435/119#input.dependent_child_receiving_chip"] = False
     inputs[
         "us:regulations/42-cfr/435/119#input.dependent_child_enrolled_in_minimum_essential_coverage"
@@ -640,7 +645,9 @@ def load_policyengine_cases(
         ),
         "pregnant_fc": calculate(sim, "is_pregnant_for_medicaid_fc", year).astype(bool),
         "infant_fc": calculate(sim, "is_infant_for_medicaid_fc", year).astype(bool),
-        "young_child_fc": calculate(sim, "is_young_child_for_medicaid_fc", year).astype(bool),
+        "young_child_fc": calculate(sim, "is_young_child_for_medicaid_fc", year).astype(
+            bool
+        ),
         "older_child": calculate(sim, "is_older_child_for_medicaid", year).astype(bool),
         "adult_nfc": calculate(sim, "is_adult_for_medicaid_nfc", year).astype(bool),
         "adult_fc": calculate(sim, "is_adult_for_medicaid_fc", year).astype(bool),
@@ -718,30 +725,20 @@ def load_policyengine_cases(
                         values["medicaid_income_level"][index]
                     ),
                     "medicaid_category": str(values["medicaid_category"][index]),
-                    "is_parent_for_medicaid_nfc": bool(
-                        values["parent_nfc"][index]
-                    ),
+                    "is_parent_for_medicaid_nfc": bool(values["parent_nfc"][index]),
                     "is_parent_for_medicaid_fc": bool(values["parent_fc"][index]),
-                    "is_pregnant_for_medicaid_nfc": bool(
-                        values["pregnant_nfc"][index]
-                    ),
-                    "is_pregnant_for_medicaid_fc": bool(
-                        values["pregnant_fc"][index]
-                    ),
+                    "is_pregnant_for_medicaid_nfc": bool(values["pregnant_nfc"][index]),
+                    "is_pregnant_for_medicaid_fc": bool(values["pregnant_fc"][index]),
                     "is_infant_for_medicaid_fc": bool(values["infant_fc"][index]),
                     "is_young_child_for_medicaid_fc": bool(
                         values["young_child_fc"][index]
                     ),
-                    "is_older_child_for_medicaid": bool(
-                        values["older_child"][index]
-                    ),
+                    "is_older_child_for_medicaid": bool(values["older_child"][index]),
                     "is_adult_for_medicaid_nfc": bool(values["adult_nfc"][index]),
                     "is_adult_for_medicaid_fc": bool(values["adult_fc"][index]),
                     "is_ssi_recipient_for_medicaid": bool(values["ssi"][index]),
                     "is_medicare_eligible": bool(values["medicare"][index]),
-                    "medicaid_work_requirement_eligible": bool(
-                        values["work"][index]
-                    ),
+                    "medicaid_work_requirement_eligible": bool(values["work"][index]),
                     "projected_mandatory_subpart_b": mandatory_subpart_b,
                     "is_medicaid_immigration_status_eligible": bool(
                         values["immigration"][index]

@@ -15070,13 +15070,10 @@ rules:
         assert "us:regulations/42-cfr/435/119#adult_group_eligible" not in inputs
         assert (
             "us:statutes/42/1396a/xx"
-            "#demonstrated_community_engagement_for_month"
-            not in inputs
+            "#demonstrated_community_engagement_for_month" not in inputs
         )
         assert (
-            test_payload[0]["output"][
-                "us:statutes/42/1396a/a/10#is_medicaid_eligible"
-            ]
+            test_payload[0]["output"]["us:statutes/42/1396a/a/10#is_medicaid_eligible"]
             == "holds"
         )
 
@@ -20780,8 +20777,7 @@ rules:
         assert "us:statutes/42/1396a/xx#input.monthly_work_hours: 80" in test_text
         assert (
             "us:statutes/42/1396a/a/10#input."
-            "adult_expansion_subject_to_subsections_k_and_xx_satisfied"
-            not in test_text
+            "adult_expansion_subject_to_subsections_k_and_xx_satisfied" not in test_text
         )
 
     def test_not_operational_same_section_import_repair_does_not_add_broad_import(
@@ -21360,9 +21356,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        rules_file = (
-            output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
-        )
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
         policy_repo = tmp_path / "rulespec-us"
@@ -21415,9 +21409,7 @@ rules:
         payload = yaml.safe_load(rules_file.read_text())
         assert payload["module"].get("deferred_outputs") is None
         assert [
-            rule["name"]
-            for rule in payload["rules"]
-            if isinstance(rule, dict)
+            rule["name"] for rule in payload["rules"] if isinstance(rule, dict)
         ] == ["is_medicaid_eligible"]
         assert "is_medicaid_eligible" in test_file.read_text()
 

@@ -153,6 +153,14 @@ surfaces:
   priority: P1
   rationale: PolicyBench scores this direct person-level Medicaid eligibility variable. Axiom has source-level category and
     state-parameter rules, but still needs a PE-facing eligibility composite before claiming parity.
+  populace_validation:
+    status: blocked
+    command: axiom-encode medicaid-populace-compare --program /path/to/rulespec-us/us/statutes/42/1396a/a/10.yaml --workspace-root /path/to/workspace --pre-sample-households 150 --sample-size 50
+    dataset: populace-us-2024 local H5
+    last_run: '2026-06-30'
+    rationale: CA and IL Populace smoke comparisons run against the real Axiom rules engine still show PE SENIOR_OR_DISABLED
+      rows as PE-eligible and Axiom-ineligible. Close optional aged/blind/disabled Medicaid from federal primary sources
+      plus maximally-upstream state-set income and resource standards before marking this surface validated.
 - country: us
   program_id: chip
   program_name: CHIP

@@ -11476,7 +11476,10 @@ rules:
         )
 
         assert "uc_standard_allowance_single_claimant_aged_under_25" in prompt
-        assert "Treat `uc_standard_allowance_single_claimant_aged_under_25` as a required oracle-facing surface" in prompt
+        assert (
+            "Treat `uc_standard_allowance_single_claimant_aged_under_25` as a required oracle-facing surface"
+            in prompt
+        )
         assert "Do not" in prompt
         assert "module.deferred_outputs[]" in prompt
         assert "import that" in prompt
@@ -11542,7 +11545,9 @@ rules:
 
         assert len(issues) == 1
         assert "broad upstream placeholder" in issues[0]
-        assert "person_covered_by_other_mandatory_subparagraph_A_i_category" in issues[0]
+        assert (
+            "person_covered_by_other_mandatory_subparagraph_A_i_category" in issues[0]
+        )
         assert "person_is_described_in_previous_mandatory_subclause" in issues[0]
         assert "income_as_determined_under_subsection_e_14" in issues[0]
 

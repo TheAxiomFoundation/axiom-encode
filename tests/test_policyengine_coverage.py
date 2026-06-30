@@ -969,6 +969,9 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert medicaid["axiom_status"] == "pending_rulespec_encoding"
     assert medicaid["mapping_count"] == 1
     assert medicaid["comparable_mapping_count"] == 1
+    assert medicaid["populace_validation_status"] == "blocked"
+    assert "medicaid-populace-compare" in medicaid["populace_validation_command"]
+    assert "SENIOR_OR_DISABLED" in medicaid["populace_validation_rationale"]
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 

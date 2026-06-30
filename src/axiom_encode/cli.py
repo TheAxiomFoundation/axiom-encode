@@ -36730,14 +36730,12 @@ def _try_repair_generated_imported_output_test_mismatches_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    repaired_positive_imports = (
-        _repair_positive_imported_judgment_composition_tests(
-            rules_file=rules_file,
-            test_file=test_file,
-            policy_repo_path=policy_repo_path,
-            relative_output=relative_output,
-            issues=issues,
-        )
+    repaired_positive_imports = _repair_positive_imported_judgment_composition_tests(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
     )
     if repaired_positive_imports:
         return repaired_positive_imports
@@ -36959,13 +36957,9 @@ def _harmonize_imported_judgment_branch_inputs(
             del inputs[direct_key]
             repairs.append(f"test:{case_name}:remove:{direct_key}")
 
-    for fragment, (producer_ref, desired_value) in sorted(
-        desired_by_fragment.items()
-    ):
+    for fragment, (producer_ref, desired_value) in sorted(desired_by_fragment.items()):
         matching_keys = [
-            key
-            for key in list(inputs)
-            if _rulespec_test_key_fragment(key) == fragment
+            key for key in list(inputs) if _rulespec_test_key_fragment(key) == fragment
         ]
         exact_key = _matching_mapping_key_by_rulespec_ref(inputs, producer_ref)
         if exact_key is None:
@@ -37038,9 +37032,7 @@ def _imported_judgment_positive_branches_for_rule(
                 branch_names.append(part)
             if not branch_names:
                 continue
-            branches.append(
-                tuple(imported_refs_by_name[name] for name in branch_names)
-            )
+            branches.append(tuple(imported_refs_by_name[name] for name in branch_names))
     return branches
 
 

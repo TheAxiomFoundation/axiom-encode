@@ -16309,9 +16309,7 @@ def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
 
 def _identifier_has_rate_token(identifier: str) -> bool:
     """Return whether an identifier names a rate as a token, not a substring."""
-    tokens = {
-        token for token in _normalize_identifier(identifier).split("_") if token
-    }
+    tokens = {token for token in _normalize_identifier(identifier).split("_") if token}
     return bool(tokens.intersection({"rate", "rates"}))
 
 
