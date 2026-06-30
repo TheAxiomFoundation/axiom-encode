@@ -29347,6 +29347,174 @@ rules:
             "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_maximum_monthly_payment_standard": 450
         }
 
+    def test_repair_oracle_parameter_tests_uses_month_for_monthly_parameters(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.yaml"
+        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: medical_institution_monthly_ssp_base
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2023-07-01'
+        formula: '70'
+"""
+        )
+        test_file.write_text(
+            """- name: existing
+  output:
+    us-wa:regulations/388/388-478/388-478-0055#some_other_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo / "us-wa",
+            file=Path("regulations/388/388-478/388-478-0055.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if legal_id == (
+                    "us-wa:regulations/388/388-478/388-478-0055"
+                    "#medical_institution_monthly_ssp_base"
+                ):
+                    return SimpleNamespace(
+                        mapping_type="parameter_value", period="month"
+                    )
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        added = payload[-1]
+        assert added["name"] == "oracle_parameter_medical_institution_monthly_ssp_base"
+        assert added["period"] == "2023-07"
+        assert added["input"] == {}
+        assert added["output"] == {
+            "us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base": 70
+        }
+
+    def test_repair_oracle_parameter_tests_refreshes_existing_monthly_period(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.yaml"
+        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: medical_institution_monthly_ssp_base
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2023-07-01'
+        formula: '70'
+"""
+        )
+        test_file.write_text(
+            """- name: oracle_parameter_medical_institution_monthly_ssp_base
+  period:
+    period_kind: custom
+    name: policy_year
+    start: '2023-07-01'
+    end: '2024-06-30'
+  input: {}
+  output:
+    us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base: 70
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo / "us-wa",
+            file=Path("regulations/388/388-478/388-478-0055.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if legal_id == (
+                    "us-wa:regulations/388/388-478/388-478-0055"
+                    "#medical_institution_monthly_ssp_base"
+                ):
+                    return SimpleNamespace(
+                        mapping_type="parameter_value", period="month"
+                    )
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert len(payload) == 1
+        assert payload[0]["period"] == "2023-07"
+        assert payload[0]["output"] == {
+            "us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base": 70
+        }
+
     def test_repair_oracle_parameter_tests_replaces_empty_list_file(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/42/18795a/c/3.yaml"

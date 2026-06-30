@@ -16440,7 +16440,10 @@ def _append_oracle_parameter_tests_if_missing(
         appended_cases.append(
             {
                 "name": "_".join(case_name_parts),
-                "period": _oracle_parameter_test_period(effective_from),
+                "period": _oracle_parameter_test_period(
+                    effective_from,
+                    parameter_period=getattr(mapping, "period", None),
+                ),
                 "input": inputs,
                 "output": {legal_id: value},
             }
@@ -16484,11 +16487,10 @@ def _refresh_existing_oracle_parameter_test_inputs(
         )
         for input_name in sorted(factual_inputs)
     }
-    if not input_defaults:
-        return []
-
     registry = load_policyengine_registry()
-    mapped_parameter_outputs: dict[str, tuple[str, str | None]] = {}
+    mapped_parameter_outputs: dict[
+        str, tuple[str, str | None, str | dict[str, str] | None]
+    ] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -16502,9 +16504,18 @@ def _refresh_existing_oracle_parameter_test_inputs(
         if mapping is None or mapping.mapping_type != "parameter_value":
             continue
         index_name = _single_parameter_index_name(rule)
+        sample = _first_scalar_parameter_value(rule, indexed=index_name is not None)
+        expected_period: str | dict[str, str] | None = None
+        if sample is not None:
+            _, _, effective_from = sample
+            expected_period = _oracle_parameter_test_period(
+                effective_from,
+                parameter_period=getattr(mapping, "period", None),
+            )
         mapped_parameter_outputs[legal_id] = (
             rule_name,
             f"{target_base}#input.{index_name}" if index_name else None,
+            expected_period,
         )
     if not mapped_parameter_outputs:
         return []
@@ -16537,15 +16548,23 @@ def _refresh_existing_oracle_parameter_test_inputs(
         ]
         if not matching_output_specs:
             continue
-        matching_outputs = [rule_name for rule_name, _ in matching_output_specs]
+        matching_outputs = [rule_name for rule_name, _, _ in matching_output_specs]
         selector_input_refs = {
-            input_ref for _, input_ref in matching_output_specs if input_ref
+            input_ref for _, input_ref, _ in matching_output_specs if input_ref
         }
+        expected_periods = [
+            period for _, _, period in matching_output_specs if period is not None
+        ]
         inputs = case.get("input")
         if not isinstance(inputs, dict):
             inputs = {}
             case["input"] = inputs
         changed = False
+        if expected_periods:
+            expected_period = expected_periods[0]
+            if case.get("period") != expected_period:
+                case["period"] = expected_period
+                changed = True
         for input_ref, default_value in input_defaults.items():
             if input_ref in selector_input_refs:
                 continue
@@ -16658,7 +16677,11 @@ def _first_scalar_parameter_value(
     return None
 
 
-def _oracle_parameter_test_period(effective_from: str | None) -> dict[str, str]:
+def _oracle_parameter_test_period(
+    effective_from: str | None,
+    *,
+    parameter_period: str | None = None,
+) -> str | dict[str, str]:
     """Return a one-year period that is valid for a generated parameter test."""
     default = {
         "period_kind": "tax_year",
@@ -16673,6 +16696,8 @@ def _oracle_parameter_test_period(effective_from: str | None) -> dict[str, str]:
         return default
     if start.year < 1900:
         return default
+    if str(parameter_period or "").strip().lower() == "month":
+        return f"{start.year:04d}-{start.month:02d}"
     if start.month == 1 and start.day == 1:
         return {
             "period_kind": "tax_year",
