@@ -732,6 +732,14 @@ def main():
         ),
     )
     oracle_coverage_parser.add_argument(
+        "--fail-on-unvalidated-populace-surfaces",
+        action="store_true",
+        help=(
+            "Exit non-zero when an included active wired PolicyEngine program "
+            "surface lacks validated Populace comparison metadata"
+        ),
+    )
+    oracle_coverage_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
 
@@ -3817,6 +3825,9 @@ def cmd_oracle_coverage(args):
     fail_on_pending_program_surfaces = (
         getattr(args, "fail_on_pending_program_surfaces", False) is True
     )
+    fail_on_unvalidated_populace_surfaces = (
+        getattr(args, "fail_on_unvalidated_populace_surfaces", False) is True
+    )
     report = build_policyengine_coverage_report(
         root,
         program=args.program,
@@ -3828,6 +3839,9 @@ def cmd_oracle_coverage(args):
     pending_program_surfaces = int(
         (report.get("program_surfaces") or {}).get("active_pending_surfaces", 0)
     )
+    unvalidated_populace_surfaces = int(
+        (report.get("program_surfaces") or {}).get("unvalidated_populace_surfaces", 0)
+    )
     should_fail = (
         (args.fail_on_unmapped and unmapped)
         or (args.fail_on_untested_comparable and untested_comparable)
@@ -3835,6 +3849,11 @@ def cmd_oracle_coverage(args):
             fail_on_pending_program_surfaces
             and include_program_surfaces
             and pending_program_surfaces
+        )
+        or (
+            fail_on_unvalidated_populace_surfaces
+            and include_program_surfaces
+            and unvalidated_populace_surfaces
         )
     )
     if args.json:
@@ -3856,12 +3875,18 @@ def cmd_oracle_coverage(args):
             f"{surfaces['total_surfaces']} "
             f"status={_format_counter(surfaces['status_counts'])} "
             f"pending={surfaces['pending_surfaces']} "
-            f"active_pending={surfaces.get('active_pending_surfaces', 0)}"
+            f"active_pending={surfaces.get('active_pending_surfaces', 0)} "
+            f"unvalidated_populace={surfaces.get('unvalidated_populace_surfaces', 0)}"
         )
         print(
             "PolicyEngine surface priorities: "
             f"{_format_counter(surfaces['priority_counts'])}"
         )
+        if surfaces.get("populace_validation_counts"):
+            print(
+                "PolicyEngine Populace validation: "
+                f"{_format_counter(surfaces['populace_validation_counts'])}"
+            )
         policybench = surfaces.get("policybench")
         if policybench:
             print(
@@ -3936,6 +3961,29 @@ def cmd_oracle_coverage(args):
             )
         if len(pending_surface_items) > args.limit:
             print(f"  - ... {len(pending_surface_items) - args.limit} more")
+
+    unvalidated_populace_items = (report.get("program_surfaces") or {}).get(
+        "unvalidated_populace_items"
+    ) or []
+    if unvalidated_populace_items:
+        print()
+        print(
+            "Active wired PolicyEngine program surfaces without Populace "
+            f"validation (first {args.limit}):"
+        )
+        for item in unvalidated_populace_items[: args.limit]:
+            state = f" [{item['state']}]" if item.get("state") else ""
+            weight = item.get("policybench_household_weight")
+            weight_prefix = (
+                f"{weight:.2f}% " if isinstance(weight, (int, float)) else ""
+            )
+            print(
+                f"  - {weight_prefix}{item['variable']}{state}: "
+                f"{item.get('populace_validation_status') or 'not_configured'} "
+                f"({item['program_id']})"
+            )
+        if len(unvalidated_populace_items) > args.limit:
+            print(f"  - ... {len(unvalidated_populace_items) - args.limit} more")
 
     sys.exit(1 if should_fail else 0)
 

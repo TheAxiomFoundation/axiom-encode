@@ -36,6 +36,13 @@ PROGRAM_SURFACE_STATUSES = {
     "wired",
 }
 PROGRAM_SURFACE_LIFECYCLES = {"active", "inactive", "sunset", "historical"}
+POPULACE_VALIDATION_STATUSES = {
+    "validated",
+    "pending_validator",
+    "not_applicable",
+    "not_configured",
+    "blocked",
+}
 POLICYENGINE_CLOUD_QUEUE_SCHEMA = "axiom-encode/policyengine-cloud-queue/v1"
 POLICYENGINE_CLOUD_RUN_ARTIFACT_SCHEMA = (
     "axiom-encode/policyengine-cloud-run-artifact/v1"
@@ -281,6 +288,11 @@ class PolicyEngineProgramSurfaceItem:
     legal_ids: tuple[str, ...] = ()
     policybench_output: str | None = None
     policybench_household_weight: float | None = None
+    populace_validation_status: str = "not_configured"
+    populace_validation_command: str | None = None
+    populace_validation_dataset: str | None = None
+    populace_validation_last_run: str | None = None
+    populace_validation_rationale: str | None = None
 
     def as_dict(self) -> dict[str, str | int | float | list[str] | None]:
         return {
@@ -303,6 +315,11 @@ class PolicyEngineProgramSurfaceItem:
             "legal_ids": list(self.legal_ids),
             "policybench_output": self.policybench_output,
             "policybench_household_weight": self.policybench_household_weight,
+            "populace_validation_status": self.populace_validation_status,
+            "populace_validation_command": self.populace_validation_command,
+            "populace_validation_dataset": self.populace_validation_dataset,
+            "populace_validation_last_run": self.populace_validation_last_run,
+            "populace_validation_rationale": self.populace_validation_rationale,
         }
 
 
@@ -567,6 +584,15 @@ def build_policyengine_program_surface_report(
     active_pending_surfaces = [
         surface for surface in pending_surfaces if surface.lifecycle == "active"
     ]
+    unvalidated_populace_surfaces = [
+        surface
+        for surface in surfaces
+        if _surface_requires_populace_validation(surface)
+        and surface.populace_validation_status != "validated"
+    ]
+    populace_validation_counts = Counter(
+        surface.populace_validation_status for surface in surfaces
+    )
     actionable_surfaces = sorted(
         active_pending_surfaces,
         key=lambda surface: (
@@ -596,9 +622,32 @@ def build_policyengine_program_surface_report(
         },
         "pending_surfaces": len(pending_surfaces),
         "active_pending_surfaces": len(active_pending_surfaces),
+        "unvalidated_populace_surfaces": len(unvalidated_populace_surfaces),
+        "populace_validation_counts": dict(sorted(populace_validation_counts.items())),
+        "unvalidated_populace_items": [
+            surface.as_dict()
+            for surface in sorted(
+                unvalidated_populace_surfaces,
+                key=lambda surface: (
+                    -(surface.policybench_household_weight or 0.0),
+                    _candidate_priority_rank(surface.priority or ""),
+                    surface.category,
+                    surface.coverage,
+                    surface.program_id,
+                    surface.variable,
+                ),
+            )
+        ],
         "actionable_surfaces": [surface.as_dict() for surface in actionable_surfaces],
         "items": [surface.as_dict() for surface in surfaces],
     }
+
+
+def _surface_requires_populace_validation(
+    surface: PolicyEngineProgramSurfaceItem,
+) -> bool:
+    """Return whether a PE-facing surface needs population-level parity evidence."""
+    return surface.lifecycle == "active" and surface.axiom_status == "wired"
 
 
 def _cloud_queue_item_from_program_surface(
@@ -1313,7 +1362,50 @@ def _load_policyengine_program_surface_manifest(
                 "surfaces P1/P2 and demote historical, inactive, or sunset "
                 "surfaces."
             )
+        _validate_populace_validation(raw_surface, path=path)
     return payload
+
+
+def _validate_populace_validation(raw_surface: dict[str, Any], *, path: Path) -> None:
+    raw_validation = raw_surface.get("populace_validation")
+    if raw_validation is None:
+        return
+    variable = raw_surface.get("variable")
+    if not isinstance(raw_validation, dict):
+        raise ValueError(
+            f"PolicyEngine surface {variable} populace_validation must be an object: "
+            f"{path}"
+        )
+    status = str(raw_validation.get("status") or "")
+    if status not in POPULACE_VALIDATION_STATUSES:
+        raise ValueError(
+            f"Unsupported PolicyEngine surface Populace validation status for "
+            f"{variable}: {status}"
+        )
+    if status == "validated":
+        missing = [
+            key
+            for key in ("command", "dataset", "last_run")
+            if not str(raw_validation.get(key) or "").strip()
+        ]
+        if missing:
+            raise ValueError(
+                f"Validated PolicyEngine surface {variable} missing "
+                f"populace_validation {', '.join(missing)}: {path}"
+            )
+        command = str(raw_validation.get("command") or "")
+        if "populace" not in command:
+            raise ValueError(
+                f"Validated PolicyEngine surface {variable} must cite a Populace "
+                f"comparison command: {path}"
+            )
+    if status in {"blocked", "not_applicable", "pending_validator"}:
+        rationale = str(raw_validation.get("rationale") or "").strip()
+        if len(rationale) < 20:
+            raise ValueError(
+                f"PolicyEngine surface {variable} Populace validation status "
+                f"{status} requires a rationale: {path}"
+            )
 
 
 def _program_surface_item_from_payload(
@@ -1345,6 +1437,7 @@ def _program_surface_item_from_payload(
         payload,
         legal_ids=legal_ids,
     )
+    populace_validation = _populace_validation_fields(payload)
     return PolicyEngineProgramSurfaceItem(
         country=country,
         program_id=str(payload["program_id"]),
@@ -1369,7 +1462,35 @@ def _program_surface_item_from_payload(
             if policybench_output
             else None
         ),
+        populace_validation_status=populace_validation["status"],
+        populace_validation_command=populace_validation.get("command"),
+        populace_validation_dataset=populace_validation.get("dataset"),
+        populace_validation_last_run=populace_validation.get("last_run"),
+        populace_validation_rationale=populace_validation.get("rationale"),
     )
+
+
+def _populace_validation_fields(payload: dict[str, Any]) -> dict[str, str | None]:
+    raw_validation = payload.get("populace_validation")
+    if not isinstance(raw_validation, dict):
+        return {"status": "not_configured"}
+    status = str(raw_validation.get("status") or "not_configured")
+    if status not in POPULACE_VALIDATION_STATUSES:
+        status = "not_configured"
+    return {
+        "status": status,
+        "command": _optional_text(raw_validation.get("command")),
+        "dataset": _optional_text(raw_validation.get("dataset")),
+        "last_run": _optional_text(raw_validation.get("last_run")),
+        "rationale": _optional_text(raw_validation.get("rationale")),
+    }
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _policybench_output_for_program_surface(

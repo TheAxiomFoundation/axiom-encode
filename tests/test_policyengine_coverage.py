@@ -696,11 +696,20 @@ surfaces:
     assert report["active_priority_counts"] == {"P1": 6}
     assert report["pending_surfaces"] == 1
     assert report["active_pending_surfaces"] == 1
+    assert report["unvalidated_populace_surfaces"] == 1
+    assert report["populace_validation_counts"] == {"not_configured": 6}
+    assert [item["variable"] for item in report["unvalidated_populace_items"]] == [
+        "income_tax"
+    ]
     assert [item["variable"] for item in report["actionable_surfaces"]] == ["wic"]
     items_by_variable = {item["variable"]: item for item in report["items"]}
     assert items_by_variable["income_tax"]["axiom_status"] == "wired"
     assert items_by_variable["income_tax"]["lifecycle"] == "active"
     assert items_by_variable["income_tax"]["mapping_count"] == 1
+    assert (
+        items_by_variable["income_tax"]["populace_validation_status"]
+        == "not_configured"
+    )
     assert items_by_variable["wic"]["axiom_status"] == "pending_rulespec_encoding"
     assert items_by_variable["aca_ptc"]["axiom_status"] == "known_not_comparable"
     assert items_by_variable["aca_ptc"]["mapping_count"] == 1
@@ -718,6 +727,96 @@ surfaces:
     assert items_by_variable["employee_payroll_tax"][
         "policybench_household_weight"
     ] == pytest.approx(15.65)
+
+
+def test_policyengine_program_surface_report_accepts_populace_validation_metadata(
+    tmp_path,
+):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: federal_income_tax
+    program_name: Federal income taxes
+    category: Taxes
+    policyengine_status: complete
+    coverage: US
+    variable: income_tax
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Should be overridden by the legal-ID registry.
+    populace_validation:
+      status: validated
+      command: axiom-encode tax-populace-compare --variable income_tax --year 2024
+      dataset: populace-us-2024
+      last_run: '2026-06-30'
+""",
+        encoding="utf-8",
+    )
+    registry = _ProgramSurfaceRegistry(
+        {
+            "income_tax": [
+                PolicyEngineMapping(
+                    legal_id="us:statutes/26/6401#income_tax",
+                    country="us",
+                    mapping_type="direct_variable",
+                    policyengine_variable="income_tax",
+                )
+            ],
+        }
+    )
+
+    report = build_policyengine_program_surface_report(
+        manifest_path=manifest,
+        registry=registry,
+    )
+
+    assert report["status_counts"] == {"wired": 1}
+    assert report["unvalidated_populace_surfaces"] == 0
+    assert report["populace_validation_counts"] == {"validated": 1}
+    item = report["items"][0]
+    assert item["populace_validation_status"] == "validated"
+    assert item["populace_validation_dataset"] == "populace-us-2024"
+    assert "tax-populace-compare" in item["populace_validation_command"]
+
+
+def test_policyengine_program_surface_rejects_incomplete_validated_populace_metadata(
+    tmp_path,
+):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: federal_income_tax
+    program_name: Federal income taxes
+    category: Taxes
+    policyengine_status: complete
+    coverage: US
+    variable: income_tax
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Claims validation without the required evidence fields.
+    populace_validation:
+      status: validated
+      command: axiom-encode oracle-coverage --program tax
+      dataset: populace-us-2024
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing populace_validation last_run"):
+        build_policyengine_program_surface_report(
+            manifest_path=manifest,
+            registry=_ProgramSurfaceRegistry({}),
+        )
 
 
 def test_policyengine_program_surface_report_sorts_actionable_by_policybench_weight(
