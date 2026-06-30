@@ -1479,6 +1479,25 @@ def test_policyengine_program_surface_marks_california_ssp_known_not_comparable(
     assert "annual SPM-unit final amount" in ca_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_alaska_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ak_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ak_ssp = items_by_variable["ak_ssp"]
+
+    assert ak_ssp["program_id"] == "ssi_state_supplement"
+    assert ak_ssp["state"] == "AK"
+    assert ak_ssp["axiom_status"] == "known_not_comparable"
+    assert ak_ssp["mapping_count"] >= 1
+    assert ak_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#ak_ssp_payment_standard"
+        in ak_ssp["legal_ids"]
+    )
+    assert "payment-standard cells" in ak_ssp["rationale"]
+    assert "final benefit-composition surface" in ak_ssp["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 

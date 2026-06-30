@@ -1613,6 +1613,134 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for couple SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
 
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - INDEPENDENT
+      - INDIVIDUAL
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA A Individual (A1E), represented by PolicyEngine's independent individual SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_individual_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    candidate_priority: P4
+    rationale: Alaska DPA's 2026 APA and SSI standards imply a B Individual state supplement of 1031 - 662.67 = 368.33; PolicyEngine's household-of-another individual cell currently stores 368, so this cell should be treated as a PolicyEngine parameter discrepancy rather than forced into an oracle pass.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_individual_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - ASSISTED_LIVING
+      - INDIVIDUAL
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA ALH Individual (H1E), represented by PolicyEngine's assisted-living individual SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_couple_one_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - INDEPENDENT
+      - COUPLE_ONE_ELIGIBLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA A Couple, one eligible (A2S), represented by PolicyEngine's independent one-eligible-couple SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_couple_one_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    candidate_priority: P4
+    rationale: Alaska DPA's 2026 APA and SSI standards imply a B Couple, one eligible state supplement of 1127 - 662.67 = 464.33; PolicyEngine's household-of-another one-eligible-couple cell currently stores 464, so this cell should be treated as a PolicyEngine parameter discrepancy rather than forced into an oracle pass.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_couple_one_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - ASSISTED_LIVING
+      - COUPLE_ONE_ELIGIBLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA ALH Couple, one eligible (H2S), represented by PolicyEngine's assisted-living one-eligible-couple SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_couple_both_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - INDEPENDENT
+      - COUPLE_BOTH_ELIGIBLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA A Couple, both eligible (A2C), represented by PolicyEngine's independent both-eligible-couple SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_couple_both_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - HOUSEHOLD_OF_ANOTHER
+      - COUPLE_BOTH_ELIGIBLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA B Couple, both eligible (B2C), represented by PolicyEngine's household-of-another both-eligible-couple SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_couple_both_eligible_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - ASSISTED_LIVING
+      - COUPLE_BOTH_ELIGIBLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an APA ALH Couple, both eligible (H2C), represented by PolicyEngine's assisted-living both-eligible-couple SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#eligible_institution_monthly_state_supplement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.ssp.payment_standard
+    parameter_key_path:
+      - MEDICAID_FACILITY
+      - INDIVIDUAL
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska monthly state supplement for an eligible institution (NHP), represented by PolicyEngine's Medicaid-facility individual SSP payment-standard cell.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#ak_ssp_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ak_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local monthly selector over Alaska DPA household type codes. PolicyEngine's final `ak_ssp` surface also composes eligibility, living-arrangement and claim-type projections, countable-income reduction, annualization, and person-level aggregation, so compare the encoded monthly row cells separately.
+
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
     program: ssi_state_supplement
