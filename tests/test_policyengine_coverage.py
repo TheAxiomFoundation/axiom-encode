@@ -111,6 +111,44 @@ rules:
     )
 
 
+def test_direct_policyengine_mapping_with_upstream_placeholders_is_incomplete(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us" / "statutes" / "42" / "1396a" / "a" / "10.yaml",
+        """format: rulespec/v1
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          person_is_in_other_mandatory_category_described_in_subparagraph_A_i
+          or person_is_in_state_elected_optional_category_described_in_subparagraph_A_ii
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="medicaid")
+
+    assert report["status_counts"] == {"incomplete_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == ("us:statutes/42/1396a/a/10#is_medicaid_eligible")
+    assert item["status"] == "incomplete_comparable"
+    assert item["policyengine_variable"] == "is_medicaid_eligible"
+    assert item["upstream_completeness_status"] == "needs_upstream_encoding"
+    assert any(
+        "person_is_in_other_mandatory_category_described_in_subparagraph_A_i" in issue
+        for issue in item["upstream_completeness_issues"]
+    )
+
+    candidates = build_policyengine_candidate_report(tmp_path, program="medicaid")
+    assert candidates["items"][0]["category"] == "incomplete_comparable"
+    assert candidates["items"][0]["priority"] == "P1"
+
+
 def test_policyengine_coverage_classifies_aca_ptc_rev_proc_scalar_helpers(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us/us/policies/irs/rev-proc-2025-25/aca-ptc.yaml",
