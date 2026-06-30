@@ -8167,7 +8167,8 @@ def _repair_medicaid_primary_category_composition_rules(
     if missing_imports:
         repaired = repaired.replace(
             module_marker,
-            "".join(f"  - {target}\n" for target in missing_imports)
+            "\n"
+            + "".join(f"  - {target}\n" for target in missing_imports)
             + module_marker,
             1,
         )
