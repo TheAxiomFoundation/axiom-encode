@@ -62,8 +62,17 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
     "former_foster": (
         "us:regulations/42-cfr/435/150#former_foster_care_child_medicaid_required"
     ),
+    "young_adult": (
+        "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible"
+    ),
     "optional_senior_disabled": (
         "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+    ),
+    "medically_needy_mandatory": (
+        "us:regulations/42-cfr/435/301#mandatory_medically_needy_medicaid_required"
+    ),
+    "medically_needy_optional": (
+        "us:regulations/42-cfr/435/301#optional_medically_needy_medicaid_may_be_provided"
     ),
     "community_engagement": (
         "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
@@ -461,7 +470,9 @@ def _project_case_inputs(
     adult_nfc: bool,
     adult_fc: bool,
     ssi_recipient: bool,
+    young_adult_eligible: bool,
     senior_or_disabled_eligible: bool,
+    medically_needy_eligible: bool,
     mandatory_subpart_b: bool,
     work_requirement_eligible: bool,
     medicare_eligible: bool,
@@ -613,6 +624,68 @@ def _project_case_inputs(
         "us:regulations/42-cfr/435/150#input.person_was_enrolled_in_medicaid_under_state_plan_or_1115_demonstration_upon_attaining_age_18"
     ] = False
 
+    young_adult = bool(young_adult_eligible)
+    inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] = numeric_age
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"
+    ] = False
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option"
+    ] = False
+    inputs[
+        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
+    ] = young_adult
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i"
+    ] = bool(mandatory_subpart_b)
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category"
+    ] = young_adult
+
+    medically_needy = bool(medically_needy_eligible)
+    inputs[
+        "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option"
+    ] = medically_needy
+    inputs[
+        "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard"
+    ] = medically_needy
+    inputs[
+        "us:regulations/42-cfr/435/301#input.incurred_medical_expenses_at_least_equal_to_income_standard_difference"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard"
+    ] = medically_needy
+    inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_or_optional_categorically_needy_under_subpart_b_or_c"
+    ] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_age"] = numeric_age
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_categorically_needy_under_subpart_b"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.woman_received_medically_needy_medicaid_on_day_pregnancy_ends"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.month_is_within_extended_postpregnancy_period"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_is_parent_or_other_caretaker_relative"
+    ] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_is_aged"] = bool(
+        medically_needy and numeric_age >= 65
+    )
+    inputs["us:regulations/42-cfr/435/301#input.person_is_blind"] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_is_disabled"] = bool(
+        medically_needy and numeric_age < 65
+    )
+    inputs[
+        "us:regulations/42-cfr/435/301#input.agency_provides_medicaid_to_any_individual_in_persons_optional_group"
+    ] = False
+
     inputs["us:statutes/42/1396a/xx#input.monthly_work_hours"] = (
         80 if work_requirement_eligible else 0
     )
@@ -755,8 +828,12 @@ def load_policyengine_cases(
             adult_nfc=bool(values["adult_nfc"][index]),
             adult_fc=bool(values["adult_fc"][index]),
             ssi_recipient=bool(values["ssi"][index]),
+            young_adult_eligible=str(values["medicaid_category"][index])
+            == "YOUNG_ADULT",
             senior_or_disabled_eligible=str(values["medicaid_category"][index])
             == "SENIOR_OR_DISABLED",
+            medically_needy_eligible=str(values["medicaid_category"][index])
+            == "MEDICALLY_NEEDY",
             mandatory_subpart_b=mandatory_subpart_b,
             work_requirement_eligible=bool(values["work"][index]),
             medicare_eligible=bool(values["medicare"][index]),

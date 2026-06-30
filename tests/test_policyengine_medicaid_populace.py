@@ -157,7 +157,9 @@ def test_project_case_inputs_uses_shared_income_projection_for_medicaid_imports(
         adult_nfc=False,
         adult_fc=True,
         ssi_recipient=False,
+        young_adult_eligible=False,
         senior_or_disabled_eligible=False,
+        medically_needy_eligible=False,
         mandatory_subpart_b=True,
         work_requirement_eligible=True,
         medicare_eligible=False,
@@ -198,7 +200,9 @@ def test_project_case_inputs_maps_senior_disabled_category_to_statutory_inputs()
         adult_nfc=False,
         adult_fc=False,
         ssi_recipient=False,
+        young_adult_eligible=False,
         senior_or_disabled_eligible=True,
+        medically_needy_eligible=False,
         mandatory_subpart_b=False,
         work_requirement_eligible=True,
         medicare_eligible=False,
@@ -223,6 +227,88 @@ def test_project_case_inputs_maps_senior_disabled_category_to_statutory_inputs()
         ]
         == 1.0
     )
+
+
+def test_project_case_inputs_maps_young_adult_category_to_statutory_inputs():
+    inputs = medicaid_populace._project_case_inputs(
+        {},
+        age=20,
+        medicaid_income_level=0.25,
+        parent_nfc=False,
+        parent_fc=False,
+        pregnant_nfc=False,
+        pregnant_fc=False,
+        infant_fc=False,
+        young_child_fc=False,
+        older_child_eligible=False,
+        adult_nfc=False,
+        adult_fc=False,
+        ssi_recipient=False,
+        young_adult_eligible=True,
+        senior_or_disabled_eligible=False,
+        medically_needy_eligible=False,
+        mandatory_subpart_b=False,
+        work_requirement_eligible=True,
+        medicare_eligible=False,
+    )
+
+    assert inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] == 20
+    assert (
+        inputs[
+            "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
+        ]
+        is True
+    )
+    assert (
+        inputs[
+            "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category"
+        ]
+        is True
+    )
+
+
+def test_project_case_inputs_maps_medically_needy_category_to_cfr_inputs():
+    inputs = medicaid_populace._project_case_inputs(
+        {},
+        age=44,
+        medicaid_income_level=0.25,
+        parent_nfc=False,
+        parent_fc=False,
+        pregnant_nfc=False,
+        pregnant_fc=False,
+        infant_fc=False,
+        young_child_fc=False,
+        older_child_eligible=False,
+        adult_nfc=False,
+        adult_fc=False,
+        ssi_recipient=False,
+        young_adult_eligible=False,
+        senior_or_disabled_eligible=False,
+        medically_needy_eligible=True,
+        mandatory_subpart_b=False,
+        work_requirement_eligible=True,
+        medicare_eligible=False,
+    )
+
+    assert (
+        inputs[
+            "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option"
+        ]
+        is True
+    )
+    assert (
+        inputs[
+            "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard"
+        ]
+        is True
+    )
+    assert (
+        inputs[
+            "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard"
+        ]
+        is True
+    )
+    assert inputs["us:regulations/42-cfr/435/301#input.person_is_disabled"] is True
 
 
 def test_summarize_by_pe_category_counts_directional_mismatches():
