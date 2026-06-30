@@ -1647,6 +1647,21 @@ def test_policyengine_program_surface_marks_michigan_ssp_known_not_comparable():
     assert "SPM-unit aggregate" in michigan_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_minnesota_msa_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="mn_msa")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    minnesota_msa = items_by_variable["mn_msa"]
+
+    assert minnesota_msa["program_id"] == "ssi_state_supplement"
+    assert minnesota_msa["state"] == "MN"
+    assert minnesota_msa["axiom_status"] == "known_not_comparable"
+    assert minnesota_msa["policybench_output"] == "ssi"
+    assert minnesota_msa["policybench_household_weight"] > 0
+    assert "PolicyEngine parameter mappings" in minnesota_msa["rationale"]
+    assert "final `mn_msa` surface" in minnesota_msa["rationale"]
+
+
 def test_policyengine_program_surface_marks_florida_oss_known_not_comparable():
     report = build_policyengine_program_surface_report(program="fl_oss")
 
