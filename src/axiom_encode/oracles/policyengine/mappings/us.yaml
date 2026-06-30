@@ -1613,6 +1613,111 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for couple SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
 
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an A Individual row. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_individual_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for a B Individual row. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_individual_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an ALH Individual row. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_couple_one_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an A Couple with one eligible individual. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_couple_one_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for a B Couple with one eligible individual. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_couple_one_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an ALH Couple with one eligible individual. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_couple_both_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an A Couple with both individuals eligible. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_couple_both_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for a B Couple with both individuals eligible. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#alh_couple_both_eligible_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for an ALH Couple with both individuals eligible. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#eligible_institution_apa_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source-level APA gross payment standard for the eligible institution row. PolicyEngine stores net state supplement payment-standard cells after subtracting the federal SSI amount, not this APA gross-standard intermediate.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_ssi_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source table's federal SSI payment standard for an A Individual row as an input to the state supplement calculation. PolicyEngine's Alaska SSP table stores the net state supplement, while federal SSI rates are represented on the separate SSI surface.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_individual_ssi_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source table's federal SSI payment standard for a B Individual row as an input to the state supplement calculation. PolicyEngine's Alaska SSP table stores the net state supplement, while federal SSI rates are represented on the separate SSI surface.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_couple_both_eligible_ssi_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source table's federal SSI payment standard for an A Couple with both individuals eligible as an input to the state supplement calculation. PolicyEngine's Alaska SSP table stores the net state supplement, while federal SSI rates are represented on the separate SSI surface.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#b_couple_both_eligible_ssi_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source table's federal SSI payment standard for a B Couple with both individuals eligible as an input to the state supplement calculation. PolicyEngine's Alaska SSP table stores the net state supplement, while federal SSI rates are represented on the separate SSI surface.
+
+  - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#eligible_institution_ssi_payment_standard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Alaska DPA source table's federal SSI payment standard for the eligible institution row as an input to the state supplement calculation. PolicyEngine's Alaska SSP table stores the net state supplement, while federal SSI rates are represented on the separate SSI surface.
+
   - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_monthly_state_supplement
     country: us
     program: ssi_state_supplement
