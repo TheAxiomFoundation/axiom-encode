@@ -12390,6 +12390,102 @@ rules:
             "us:regulations/388/388-450/388-450-0170#dependent_care_hours_band": 0
         }
 
+    def test_zero_branch_repair_uses_below_first_valid_selector_row_for_sentinel_zero(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = (
+            tmp_path / "out" / "policies" / "dhs" / "csmm" / "11-01-01.yaml"
+        )
+        test_file = rules_file.with_name("11-01-01.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: persons_eating_together_one
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1'
+  - name: persons_eating_together_two
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '2'
+  - name: persons_eating_together_three
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '3'
+  - name: persons_eating_together_seven
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '7'
+  - name: persons_eating_together_eight
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '8'
+  - name: persons_eating_together_band
+    kind: derived
+    entity: Person
+    dtype: Integer
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if persons_eating_together == persons_eating_together_one: 0 else: if persons_eating_together == persons_eating_together_two: 1 else: if persons_eating_together >= persons_eating_together_three and persons_eating_together <= persons_eating_together_seven: 2 else: if persons_eating_together >= persons_eating_together_eight: 3 else: -1
+  - name: active_client_personal_allowance
+    kind: parameter
+    dtype: Money
+    indexed_by: persons_eating_together_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 62.43
+          1: 57.25
+          2: 53.71
+          3: 52.91
+  - name: il_aabd_personal_allowance
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if persons_eating_together_band == -1: 0 else: active_client_personal_allowance[persons_eating_together_band]
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("policies/dhs/csmm/11-01-01.yaml"),
+            issues=[
+                "Zero branch test coverage missing: `il_aabd_personal_allowance` "
+                "has a formula branch that returns 0."
+            ],
+        )
+
+        assert repaired == ["auto_zero_il_aabd_personal_allowance"]
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:policies/dhs/csmm/11-01-01#input.persons_eating_together": 0
+        }
+        assert cases[0]["output"] == {
+            "us:policies/dhs/csmm/11-01-01#il_aabd_personal_allowance": 0
+        }
+
     def test_repair_zero_branch_tests_derives_hidden_zero_issues(
         self, capsys, tmp_path
     ):
