@@ -7,7 +7,7 @@ import importlib.util
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -369,10 +369,9 @@ def build_policyengine_coverage_report(
     duplicate_outputs_collapsed = len(raw_items) - len(
         {item.legal_id for item in raw_items}
     )
-    items = sorted(
-        _dedupe_coverage_items_by_legal_id(raw_items),
-        key=lambda item: item.legal_id,
-    )
+    deduped_items = _dedupe_coverage_items_by_legal_id(raw_items)
+    evidence_items = _apply_test_evidence_mappings(deduped_items, registry)
+    items = sorted(evidence_items, key=lambda item: item.legal_id)
     if program:
         programs = _program_filter_values(program)
         items = [item for item in items if item.program in programs]
@@ -816,6 +815,41 @@ def _iter_policyengine_coverage_items(
                     )
                 )
     return items
+
+
+def _apply_test_evidence_mappings(
+    items: list[PolicyEngineCoverageItem],
+    registry,
+) -> list[PolicyEngineCoverageItem]:
+    """Mark outputs tested when their mapping points to tested source outputs."""
+    test_output_counts_by_id = {item.legal_id: item.test_output_count for item in items}
+    out: list[PolicyEngineCoverageItem] = []
+    for item in items:
+        prefix, _, _ = item.legal_id.partition(":")
+        mapping = registry.mapping_for_legal_id(
+            item.legal_id,
+            country=_country_from_rulespec_prefix(prefix),
+        )
+        if not mapping or not mapping.tested_by_legal_ids:
+            out.append(item)
+            continue
+        evidence_count = sum(
+            test_output_counts_by_id.get(evidence_legal_id, 0)
+            for evidence_legal_id in set(mapping.tested_by_legal_ids)
+            if evidence_legal_id != item.legal_id
+        )
+        if evidence_count <= 0:
+            out.append(item)
+            continue
+        total_count = item.test_output_count + evidence_count
+        out.append(
+            replace(
+                item,
+                tested=total_count > 0,
+                test_output_count=total_count,
+            )
+        )
+    return out
 
 
 def _iter_program_spec_coverage_items(

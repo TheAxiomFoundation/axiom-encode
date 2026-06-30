@@ -15932,6 +15932,51 @@ def test_universal_credit_program_wrapper_outputs_are_classified(tmp_path):
         )
         is None
     )
+    assert final_mapping.tested_by_legal_ids == (
+        "uk:statutes/ukpga/2012/5/8#universal_credit_award_amount",
+    )
+
+
+def test_universal_credit_program_wrapper_counts_source_test_evidence(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "programs/uk/universal-credit/fy-2026-27.yaml",
+        "program: uk/universal-credit\n"
+        "period: 2026-04\n"
+        "outputs:\n"
+        "  - universal_credit_award_amount\n",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/2012/5/8.yaml",
+        """format: rulespec/v1
+rules:
+  - name: universal_credit_award_amount
+    kind: derived
+    versions:
+      - effective_from: '0001-01-01'
+        formula: max(0, universal_credit_maximum_amount - universal_credit_amounts_to_be_deducted)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/2012/5/8.test.yaml",
+        """- name: source_award_amount_is_tested
+  period: 2026-04
+  output:
+    uk:statutes/ukpga/2012/5/8#universal_credit_award_amount: 1000
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="universal_credit",
+    )
+
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    final_award = items_by_id[
+        "uk:programs/universal-credit/fy-2026-27#universal_credit_award_amount"
+    ]
+    assert final_award["tested"] is True
+    assert final_award["test_output_count"] == 1
 
 
 def test_council_tax_reduction_policy_surface_is_classified(tmp_path):
