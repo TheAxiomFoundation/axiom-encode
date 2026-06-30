@@ -1498,6 +1498,150 @@ def test_policyengine_program_surface_marks_alaska_ssp_known_not_comparable():
     assert "final benefit-composition surface" in ak_ssp["rationale"]
 
 
+def test_policyengine_coverage_maps_alabama_ssp_amount_cells(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-al"
+        / "policies/dhr/ssp/state-supplement-payment-standard.yaml",
+        """format: rulespec/v1
+rules:
+  - name: fcmp_nursing_care_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 100
+  - name: fcmp_nursing_care_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 60
+  - name: nursing_care_supplement_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 60
+  - name: nursing_care_supplement_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 60
+  - name: personal_care_level_a_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 60
+  - name: personal_care_level_a_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 60
+  - name: personal_care_level_b_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 56
+  - name: personal_care_level_b_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 56
+  - name: foster_care_personal_or_nursing_care_supplement_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 110
+  - name: foster_care_personal_or_nursing_care_supplement_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 110
+  - name: cerebral_palsy_treatment_center_care_payment_monthly_amount
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 196
+  - name: cerebral_palsy_treatment_center_care_maximum_budgeted
+    kind: parameter
+    versions:
+      - effective_from: '1995-03-31'
+        formula: 196
+  - name: al_ssp
+    kind: derived
+    versions:
+      - effective_from: '1995-03-31'
+        formula: amount
+  - name: al_ssp_maximum_budgeted
+    kind: derived
+    versions:
+      - effective_from: '1995-03-31'
+        formula: amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-al"
+        / "policies/dhr/ssp/state-supplement-payment-standard.test.yaml",
+        """- name: alabama_ssp_payment_amount_cells
+  period: 2026-01
+  input: {}
+  output:
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#fcmp_nursing_care_payment_monthly_amount: 100
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#nursing_care_supplement_payment_monthly_amount: 60
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_a_payment_monthly_amount: 60
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#personal_care_level_b_payment_monthly_amount: 56
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#foster_care_personal_or_nursing_care_supplement_payment_monthly_amount: 110
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#cerebral_palsy_treatment_center_care_payment_monthly_amount: 196
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="ssi_state_supplement",
+    )
+    items_by_name = {item["rule_name"]: item for item in report["items"]}
+
+    assert report["total_outputs"] == 14
+    assert report["status_counts"] == {
+        "comparable": 6,
+        "known_not_comparable": 8,
+    }
+    assert report["untested_comparable"] == 0
+    fcmp_amount = items_by_name["fcmp_nursing_care_payment_monthly_amount"]
+    assert fcmp_amount["policyengine_parameter"] == "gov.states.al.dhr.ssp.amount"
+    assert fcmp_amount["parameter_key"] == "FCMP_NURSING_CARE"
+    assert fcmp_amount["status"] == "comparable"
+    assert fcmp_amount["tested"] is True
+    assert (
+        items_by_name["cerebral_palsy_treatment_center_care_payment_monthly_amount"][
+            "parameter_key"
+        ]
+        == "CEREBRAL_PALSY"
+    )
+    assert items_by_name["al_ssp"]["policyengine_variable"] == "al_ssp"
+    assert items_by_name["al_ssp"]["status"] == "known_not_comparable"
+
+
+def test_policyengine_program_surface_marks_alabama_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="al_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    al_ssp = items_by_variable["al_ssp"]
+
+    assert al_ssp["program_id"] == "ssi_state_supplement"
+    assert al_ssp["state"] == "AL"
+    assert al_ssp["axiom_status"] == "known_not_comparable"
+    assert al_ssp["mapping_count"] >= 1
+    assert al_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-al:policies/dhr/ssp/state-supplement-payment-standard#al_ssp"
+        in al_ssp["legal_ids"]
+    )
+    assert "monthly state-supplement payment-standard cells" in al_ssp["rationale"]
+    assert "final `al_ssp` surface" in al_ssp["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 

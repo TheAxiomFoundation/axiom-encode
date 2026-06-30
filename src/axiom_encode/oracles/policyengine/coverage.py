@@ -190,6 +190,7 @@ class PolicyEngineCoverageItem:
     mapping_type: str | None = None
     policyengine_variable: str | None = None
     policyengine_parameter: str | None = None
+    parameter_key: str | None = None
     rationale: str | None = None
     candidate_priority: str | None = None
     tested: bool = False
@@ -207,6 +208,7 @@ class PolicyEngineCoverageItem:
             "mapping_type": self.mapping_type,
             "policyengine_variable": self.policyengine_variable,
             "policyengine_parameter": self.policyengine_parameter,
+            "parameter_key": self.parameter_key,
             "rationale": self.rationale,
             "candidate_priority": self.candidate_priority,
             "tested": self.tested,
@@ -1730,6 +1732,7 @@ def _coverage_item_from_mapping(
         mapping_type=mapping_type,
         policyengine_variable=mapping.policyengine_variable if mapping else None,
         policyengine_parameter=mapping.policyengine_parameter if mapping else None,
+        parameter_key=mapping.parameter_key if mapping else None,
         rationale=mapping.rationale if mapping else None,
         candidate_priority=mapping.candidate_priority if mapping else None,
         tested=test_output_count > 0,

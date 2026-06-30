@@ -29429,6 +29429,95 @@ rules:
             "us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base": 70
         }
 
+    def test_repair_oracle_parameter_tests_uses_next_month_for_midmonth_effective_date(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = (
+            policy_repo
+            / "us-al/policies/dhr/ssp/state-supplement-payment-standard.yaml"
+        )
+        test_file = (
+            policy_repo
+            / "us-al/policies/dhr/ssp/state-supplement-payment-standard.test.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: fcmp_nursing_care_payment_monthly_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '1995-03-31'
+        formula: '100'
+"""
+        )
+        test_file.write_text(
+            """- name: existing
+  output:
+    us-al:policies/dhr/ssp/state-supplement-payment-standard#some_other_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo / "us-al",
+            file=Path("policies/dhr/ssp/state-supplement-payment-standard.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if legal_id == (
+                    "us-al:policies/dhr/ssp/state-supplement-payment-standard"
+                    "#fcmp_nursing_care_payment_monthly_amount"
+                ):
+                    return SimpleNamespace(
+                        mapping_type="parameter_value", period="month"
+                    )
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        added = payload[-1]
+        assert added["name"] == (
+            "oracle_parameter_fcmp_nursing_care_payment_monthly_amount"
+        )
+        assert added["period"] == "1995-04"
+        assert added["output"] == {
+            "us-al:policies/dhr/ssp/state-supplement-payment-standard#fcmp_nursing_care_payment_monthly_amount": 100
+        }
+
     def test_repair_oracle_parameter_tests_refreshes_existing_monthly_period(
         self, tmp_path
     ):

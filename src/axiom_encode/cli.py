@@ -16759,6 +16759,10 @@ def _oracle_parameter_test_period(
     if start.year < 1900:
         return default
     if str(parameter_period or "").strip().lower() == "month":
+        if start.day != 1:
+            year = start.year + (1 if start.month == 12 else 0)
+            month = 1 if start.month == 12 else start.month + 1
+            return f"{year:04d}-{month:02d}"
         return f"{start.year:04d}-{start.month:02d}"
     if start.month == 1 and start.day == 1:
         return {
