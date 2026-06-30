@@ -94,6 +94,54 @@ def test_runtime_output_id_for_public_id_resolves_branch_qualified_id(tmp_path: 
     )
 
 
+def test_axiom_output_ids_by_label_can_request_eligibility_only(
+    monkeypatch, tmp_path: Path
+):
+    artifact = tmp_path / "program.json"
+    artifact.write_text(
+        """
+        {
+          "program": {
+            "derived": [
+              {
+                "id": "us:statutes/42/1396a/a/10#is_medicaid_eligible",
+                "name": "is_medicaid_eligible"
+              },
+              {
+                "id": "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid",
+                "name": "is_optional_senior_or_disabled_for_medicaid"
+              }
+            ]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        medicaid_populace,
+        "AXIOM_COMPONENT_OUTPUT_IDS",
+        {
+            "optional_senior_disabled": (
+                "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+            )
+        },
+    )
+
+    assert medicaid_populace.axiom_output_ids_by_label(
+        artifact,
+        include_diagnostics=False,
+    ) == {
+        "eligible": "us:statutes/42/1396a/a/10#is_medicaid_eligible",
+    }
+    assert (
+        medicaid_populace.axiom_output_ids_by_label(
+            artifact,
+            include_diagnostics=True,
+        )["optional_senior_disabled"]
+        == "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+    )
+
+
 def test_project_case_inputs_uses_shared_income_projection_for_medicaid_imports():
     inputs = medicaid_populace._project_case_inputs(
         {},

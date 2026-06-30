@@ -173,6 +173,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         ),
     )
     parser.add_argument(
+        "--eligibility-only",
+        action="store_true",
+        help=(
+            "Request only the compared Medicaid eligibility output from Axiom. "
+            "Use this for full-population gates; omit it for sampled diagnostic "
+            "runs that need component outputs."
+        ),
+    )
+    parser.add_argument(
         "--populace-year",
         type=int,
         default=DEFAULT_US_POPULACE_YEAR,
@@ -872,6 +881,27 @@ def runtime_output_id_for_public_id(artifact: Path, public_id: str) -> str:
     )
 
 
+def axiom_output_ids_by_label(
+    artifact: Path,
+    *,
+    include_diagnostics: bool,
+) -> dict[str, str]:
+    outputs = {
+        "eligible": runtime_output_id_for_public_id(
+            artifact,
+            COMPARED_AXIOM_OUTPUT_ID,
+        )
+    }
+    if include_diagnostics:
+        outputs.update(
+            {
+                label: runtime_output_id_for_public_id(artifact, public_id)
+                for label, public_id in AXIOM_COMPONENT_OUTPUT_IDS.items()
+            }
+        )
+    return outputs
+
+
 def compare(
     cases: list[PersonCase],
     results: list[dict[str, Any]],
@@ -1034,15 +1064,10 @@ def main(args: argparse.Namespace | None = None) -> None:
         artifact = Path(tmp_dir) / "program.bin"
         print(f"Compiling {program}...", flush=True)
         compile_program(binary, program, artifact, env=env)
-        axiom_output_id_by_label = {
-            "eligible": runtime_output_id_for_public_id(
-                artifact, COMPARED_AXIOM_OUTPUT_ID
-            ),
-            **{
-                label: runtime_output_id_for_public_id(artifact, public_id)
-                for label, public_id in AXIOM_COMPONENT_OUTPUT_IDS.items()
-            },
-        }
+        axiom_output_id_by_label = axiom_output_ids_by_label(
+            artifact,
+            include_diagnostics=not args.eligibility_only,
+        )
         print(
             f"Resolved {COMPARED_AXIOM_OUTPUT_ID} to runtime output "
             f"{axiom_output_id_by_label['eligible']}.",
