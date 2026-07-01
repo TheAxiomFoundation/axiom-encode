@@ -1225,6 +1225,9 @@ _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
 )
 _APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
+_UPSTREAM_SOURCE_CHECK_BASELINE_PATH = (
+    Path(".axiom") / "upstream-source-check-baseline.txt"
+)
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
     r"section\s+(?P<section>[0-9A-Za-z.-]+(?:\([^)]+\))*)"
@@ -6888,6 +6891,91 @@ def find_upstream_source_authority_issues(content: str) -> list[str]:
             "for this encoding."
         )
 
+    return issues
+
+
+def _upstream_source_check_baseline_roots(
+    policy_repo_path: Path | None,
+) -> tuple[Path, ...]:
+    if policy_repo_path is None:
+        return ()
+    root = Path(policy_repo_path).resolve(strict=False)
+    roots = [root]
+    parent = root.parent
+    if (
+        not root.name.startswith("rulespec-")
+        and parent.name.startswith("rulespec-")
+        and is_jurisdiction_content_root(root)
+    ):
+        roots.append(parent)
+
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in roots:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return tuple(deduped)
+
+
+def _load_upstream_source_check_baseline(baseline_root: Path | None) -> set[str]:
+    if baseline_root is None:
+        return set()
+    baseline_path = Path(baseline_root) / _UPSTREAM_SOURCE_CHECK_BASELINE_PATH
+    try:
+        text = baseline_path.read_text()
+    except OSError:
+        return set()
+    entries: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        entries.add(Path(line).as_posix().lstrip("./"))
+    return entries
+
+
+def _rules_file_baseline_key(
+    rules_file: Path,
+    policy_repo_path: Path | None,
+) -> str | None:
+    if policy_repo_path is None:
+        return None
+    try:
+        return (
+            Path(rules_file)
+            .resolve(strict=False)
+            .relative_to(Path(policy_repo_path).resolve(strict=False))
+            .as_posix()
+        )
+    except (OSError, ValueError):
+        return None
+
+
+def _upstream_source_issue_is_missing_check_only(issue: str) -> bool:
+    return issue.startswith("Upstream source check required: ")
+
+
+def upstream_source_authority_issues_for_rules_file(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None,
+) -> list[str]:
+    """Apply the strict upstream-source check, honoring explicit legacy baselines."""
+    issues = find_upstream_source_authority_issues(content)
+    if not issues or not all(
+        _upstream_source_issue_is_missing_check_only(issue) for issue in issues
+    ):
+        return issues
+
+    for baseline_root in _upstream_source_check_baseline_roots(policy_repo_path):
+        key = _rules_file_baseline_key(rules_file, baseline_root)
+        if key is None:
+            continue
+        if key in _load_upstream_source_check_baseline(baseline_root):
+            return []
     return issues
 
 
@@ -21602,7 +21690,13 @@ class ValidatorPipeline:
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
-        issues.extend(find_upstream_source_authority_issues(content))
+        issues.extend(
+            upstream_source_authority_issues_for_rules_file(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         proof_issues = (
             validate_rulespec_proofs(
                 content,
