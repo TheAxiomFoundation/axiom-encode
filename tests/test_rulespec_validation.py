@@ -2740,6 +2740,18 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert michigan_ssp_person_mapping.mapping_type == "not_comparable"
     assert michigan_ssp_person_mapping.policyengine_variable == "mi_ssp_person"
+    wa_ssp_eligibility_mapping = registry.mapping_for_legal_id(
+        "us-wa:regulations/388/388-474/388-474-0012#individual_is_eligible_for_ssp_as_described",
+        country="us",
+    )
+    assert wa_ssp_eligibility_mapping.mapping_type == "not_comparable"
+    assert wa_ssp_eligibility_mapping.policyengine_variable == "wa_ssp"
+    wa_ssp_ineligible_spouse_mapping = registry.mapping_for_legal_id(
+        "us-wa:regulations/388/388-474/388-474-0012#ssp_eligibility_based_on_ineligible_spouse_status",
+        country="us",
+    )
+    assert wa_ssp_ineligible_spouse_mapping.mapping_type == "not_comparable"
+    assert wa_ssp_ineligible_spouse_mapping.policyengine_variable == "wa_ssp"
     section_2014c_net_failure_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line",
         country="us",
