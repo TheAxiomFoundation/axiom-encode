@@ -2036,6 +2036,36 @@ def test_policyengine_program_surface_marks_georgia_ssp_known_not_comparable():
     )
 
 
+def test_policyengine_program_surface_marks_illinois_aabd_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="il_aabd")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    illinois_aabd = items_by_variable["il_aabd"]
+
+    assert illinois_aabd["program_id"] == "ssi_state_supplement"
+    assert illinois_aabd["state"] == "IL"
+    assert illinois_aabd["axiom_status"] == "known_not_comparable"
+    assert illinois_aabd["mapping_count"] == 0
+    assert illinois_aabd["comparable_mapping_count"] == 0
+    assert "final `il_aabd` SPM-unit" in illinois_aabd["rationale"]
+
+    registry = load_policyengine_registry()
+    grant_amount_mapping = registry.mapping_for_legal_id(
+        "us-il:policies/dhs/csmm/25-06-01#il_aabd_grant_amount",
+        country="us",
+    )
+    assert grant_amount_mapping.policyengine_variable == "il_aabd_grant_amount"
+
+    personal_allowance_mapping = registry.mapping_for_legal_id(
+        "us-il:policies/dhs/csmm/11-01-01/personal-allowance#il_aabd_personal_allowance",
+        country="us",
+    )
+    assert personal_allowance_mapping.mapping_type == "direct_variable"
+    assert (
+        personal_allowance_mapping.policyengine_variable == "il_aabd_personal_allowance"
+    )
+
+
 def test_policyengine_program_surface_marks_michigan_ssp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="mi_ssp")
 
