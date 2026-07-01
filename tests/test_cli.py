@@ -26039,6 +26039,40 @@ rules:
             "statutes/42/1396a/a/10.yaml",
             "statutes/42/1396a/a/10.test.yaml",
         ]
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "refresh manifest")
+
+        rules_file.write_text(
+            rules_file.read_text().replace(
+                "\n  - us:statutes/42/1396a/m\n",
+                "\n  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid\n",
+            )
+        )
+        _git(checkout, "add", str(rules_file.relative_to(checkout)))
+        _git(checkout, "commit", "-m", "stale module import")
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "new789", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_medicaid_primary_category_composition(args)
+
+        repaired_payload = json.loads(manifest.read_text())
+        assert "\n  - us:statutes/42/1396a/m\n" in rules_file.read_text()
+        assert test_file.read_text() == first_test_content
+        assert repaired_payload["axiom_encode_git"]["commit"] == "new789"
+        assert [item["path"] for item in repaired_payload["applied_files"]] == [
+            "statutes/42/1396a/a/10.yaml",
+            "statutes/42/1396a/a/10.test.yaml",
+        ]
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path
