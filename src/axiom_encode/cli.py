@@ -7511,9 +7511,7 @@ MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET = (
 MEDICAID_MEDICALLY_NEEDY_OPTIONAL_TARGET = (
     "us:regulations/42-cfr/435/301#optional_medically_needy_medicaid_may_be_provided"
 )
-MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE = (
-    "mandatory_medically_needy_medicaid_required"
-)
+MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE = "mandatory_medically_needy_medicaid_required"
 MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE = (
     "optional_medically_needy_medicaid_may_be_provided"
 )
@@ -7932,8 +7930,7 @@ def _repair_medicaid_optional_senior_composition_rules(
             raise ValueError("Missing Medicaid eligibility formula insertion point")
         repaired = repaired.replace(
             formula_marker,
-            formula_marker
-            + f"          or {MEDICAID_OPTIONAL_SENIOR_RULE}\n",
+            formula_marker + f"          or {MEDICAID_OPTIONAL_SENIOR_RULE}\n",
             1,
         )
         if "is_medicaid_eligible" not in changed:
@@ -8041,7 +8038,9 @@ def cmd_repair_medicaid_primary_category_composition(args):
         print(f"RuleSpec companion test file not found: {test_file}")
         sys.exit(1)
     if not medically_needy_file.exists():
-        print(f"Required medically needy RuleSpec file not found: {medically_needy_file}")
+        print(
+            f"Required medically needy RuleSpec file not found: {medically_needy_file}"
+        )
         sys.exit(1)
 
     signing_key = _require_applied_encoding_manifest_signing_key()
@@ -8061,7 +8060,9 @@ def cmd_repair_medicaid_primary_category_composition(args):
         rules_file: original_content,
         test_file: original_test_content,
         youth_file: youth_file.read_text() if youth_file.exists() else None,
-        youth_test_file: youth_test_file.read_text() if youth_test_file.exists() else None,
+        youth_test_file: youth_test_file.read_text()
+        if youth_test_file.exists()
+        else None,
     }
 
     youth_hash = _sha256_text(MEDICAID_YOUTH_RULESPEC)
@@ -8250,7 +8251,9 @@ def _repair_medicaid_primary_category_composition_rules(
 
 """
         repaired = (
-            repaired[:rule_start] + optional_working_disabled_rule + repaired[rule_start:]
+            repaired[:rule_start]
+            + optional_working_disabled_rule
+            + repaired[rule_start:]
         )
         changed.append(MEDICAID_OPTIONAL_WORKING_DISABLED_RULE)
 
@@ -8280,7 +8283,9 @@ def _repair_medicaid_primary_category_composition_rules(
 
 """
         repaired = (
-            repaired[:rule_start] + optional_ssi_excess_earnings_rule + repaired[rule_start:]
+            repaired[:rule_start]
+            + optional_ssi_excess_earnings_rule
+            + repaired[rule_start:]
         )
         changed.append(MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE)
 
@@ -8466,7 +8471,7 @@ def _repair_medicaid_primary_category_composition_tests(
         inputs.update(_MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS)
         youth_case["output"] = {
             "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible": "holds",
-            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
         }
         cases.append(youth_case)
         changed.append("optional youth category eligible")

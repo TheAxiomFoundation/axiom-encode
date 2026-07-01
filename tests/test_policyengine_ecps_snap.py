@@ -41,9 +41,7 @@ def test_set_input_value_updates_every_matching_legal_input():
     assert set(inputs.values()) == {4}
 
 
-def test_axiom_rules_env_prioritizes_active_rulespec_worktree(
-    monkeypatch, tmp_path
-):
+def test_axiom_rules_env_prioritizes_active_rulespec_worktree(monkeypatch, tmp_path):
     workspace = tmp_path / "workspace"
     stale_repo = workspace / "rulespec-us"
     active_repo = tmp_path / "worktrees" / "rulespec-us-medicaid-primary-categories"

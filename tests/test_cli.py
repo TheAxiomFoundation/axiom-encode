@@ -25830,19 +25830,12 @@ rules:
             )
         )
 
+        assert "optional_working_disabled_medicaid_category_eligible" in changed_rules
         assert (
-            "optional_working_disabled_medicaid_category_eligible" in changed_rules
+            "optional_ssi_excess_earnings_medicaid_category_eligible" in changed_rules
         )
-        assert (
-            "optional_ssi_excess_earnings_medicaid_category_eligible"
-            in changed_rules
-        )
-        assert (
-            "source: 42 USC 1396a(a)(10)(A)(ii)(XV)" in repaired_rules
-        )
-        assert (
-            "source: 42 USC 1396a(a)(10)(A)(ii)(XIII)" in repaired_rules
-        )
+        assert "source: 42 USC 1396a(a)(10)(A)(ii)(XV)" in repaired_rules
+        assert "source: 42 USC 1396a(a)(10)(A)(ii)(XIII)" in repaired_rules
         assert (
             "state_elects_optional_coverage_for_working_disabled_individuals"
             in repaired_rules
@@ -25860,8 +25853,7 @@ rules:
             in repaired_rules
         )
         assert (
-            "or optional_working_disabled_medicaid_category_eligible"
-            in repaired_rules
+            "or optional_working_disabled_medicaid_category_eligible" in repaired_rules
         )
 
     def test_repair_medicaid_primary_category_tests_add_working_disabled_case(self):

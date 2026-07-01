@@ -220,9 +220,7 @@ def test_project_case_inputs_maps_senior_disabled_category_to_statutory_inputs()
         is True
     )
     assert (
-        inputs[
-            "us:statutes/42/1396a/m#input.income_determined_for_this_subsection"
-        ]
+        inputs["us:statutes/42/1396a/m#input.income_determined_for_this_subsection"]
         == 0.5
     )
     assert (

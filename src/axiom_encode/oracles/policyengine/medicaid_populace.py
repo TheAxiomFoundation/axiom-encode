@@ -70,8 +70,7 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
         "#optional_ssi_excess_earnings_medicaid_category_eligible"
     ),
     "working_disabled": (
-        "us:statutes/42/1396a/a/10"
-        "#optional_working_disabled_medicaid_category_eligible"
+        "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible"
     ),
     "optional_senior_disabled": (
         "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
@@ -596,12 +595,10 @@ def _project_case_inputs(
     inputs[
         "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3"
     ] = bool(optional_senior_disabled and numeric_age < 65)
-    inputs[
-        "us:statutes/42/1396a/m#input.income_determined_for_this_subsection"
-    ] = 0.5 if optional_senior_disabled else 2.0
-    inputs[
-        "us:statutes/42/1396a/m#input.state_established_income_level_amount"
-    ] = 1.0
+    inputs["us:statutes/42/1396a/m#input.income_determined_for_this_subsection"] = (
+        0.5 if optional_senior_disabled else 2.0
+    )
+    inputs["us:statutes/42/1396a/m#input.state_established_income_level_amount"] = 1.0
     inputs[
         "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate"
     ] = 1.0
@@ -637,15 +634,9 @@ def _project_case_inputs(
     young_adult = bool(young_adult_eligible)
     inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] = numeric_age
     inputs["us:statutes/42/1396a/a/10#input.individual_age_years"] = numeric_age
-    inputs[
-        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"
-    ] = False
-    inputs[
-        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option"
-    ] = False
-    inputs[
-        "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option"
-    ] = False
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"] = False
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option"] = False
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option"] = False
     inputs[
         "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
     ] = young_adult
@@ -865,13 +856,11 @@ def load_policyengine_cases(
             medically_needy_eligible=str(values["medicaid_category"][index])
             == "MEDICALLY_NEEDY",
             working_disabled_buy_in_eligible=(
-                str(values["medicaid_category"][index])
-                == "WORKING_DISABLED_BUY_IN"
+                str(values["medicaid_category"][index]) == "WORKING_DISABLED_BUY_IN"
                 and str(states[index]) != "CA"
             ),
             ssi_excess_earnings_buy_in_eligible=(
-                str(values["medicaid_category"][index])
-                == "WORKING_DISABLED_BUY_IN"
+                str(values["medicaid_category"][index]) == "WORKING_DISABLED_BUY_IN"
                 and str(states[index]) == "CA"
             ),
             mandatory_subpart_b=mandatory_subpart_b,
