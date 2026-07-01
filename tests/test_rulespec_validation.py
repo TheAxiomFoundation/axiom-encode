@@ -105,6 +105,7 @@ from axiom_encode.harness.validator_pipeline import (
     repair_source_table_band_scalar_parameters,
     repair_source_table_interval_row_alignment,
     repair_source_table_interval_tests,
+    upstream_source_authority_issues_for_rules_file,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -1077,6 +1078,123 @@ rules:
 """
 
     assert find_upstream_source_authority_issues(content) == []
+
+
+def test_upstream_source_authority_baseline_suppresses_legacy_missing_audit(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "us-ga/policies/cms/eligibility-levels.yaml"
+    rules_file.parent.mkdir(parents=True)
+    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
+    baseline.parent.mkdir()
+    baseline.write_text(
+        "# Legacy lower-authority files awaiting upstream-source audit.\n"
+        "us-ga/policies/cms/eligibility-levels.yaml\n"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: CMS table states Georgia Medicaid child eligibility levels.
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+rules:
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.33'
+"""
+
+    assert find_upstream_source_authority_issues(content)
+    assert (
+        upstream_source_authority_issues_for_rules_file(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_upstream_source_authority_baseline_resolves_country_monorepo_parent(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    content_root = repo / "us-in"
+    rules_file = (
+        content_root
+        / "policies/dfr/snap-tanf-program-policy-manual/3010-15-cash-assistance-income-standards.yaml"
+    )
+    rules_file.parent.mkdir(parents=True)
+    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
+    baseline.parent.mkdir()
+    baseline.write_text(
+        "# Legacy lower-authority files awaiting upstream-source audit.\n"
+        "us-in/policies/dfr/snap-tanf-program-policy-manual/3010-15-cash-assistance-income-standards.yaml\n"
+    )
+    content = """format: rulespec/v1
+module:
+  summary: Indiana TANF cash assistance income standards.
+  source_verification:
+    corpus_citation_path: us-in/manual/dfr/snap-tanf-program-policy-manual/page-296
+rules:
+  - name: indiana_tanf_income_standard
+    kind: parameter
+    dtype: Money
+    source: Indiana SNAP/TANF Program Policy Manual section 3010.15
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '592'
+"""
+
+    assert (
+        upstream_source_authority_issues_for_rules_file(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=content_root,
+        )
+        == []
+    )
+
+
+def test_upstream_source_authority_baseline_does_not_hide_invalid_audit(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "us-ga/policies/cms/eligibility-levels.yaml"
+    rules_file.parent.mkdir(parents=True)
+    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
+    baseline.parent.mkdir()
+    baseline.write_text("us-ga/policies/cms/eligibility-levels.yaml\n")
+    content = """format: rulespec/v1
+module:
+  summary: CMS table states Georgia Medicaid child eligibility levels.
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+    upstream_source_check:
+      status: checked_higher_authority
+      checked_paths:
+        - us/form/cms/medicaid-chip-bhp-eligibility-levels
+      rationale: CMS table checked before encoding.
+rules:
+  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.33'
+"""
+
+    issues = upstream_source_authority_issues_for_rules_file(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert issues == [
+        "Upstream source check must include higher authority: "
+        "`module.source_verification.upstream_source_check.checked_paths` must "
+        "include at least one statute/regulation corpus path or RuleSpec target."
+    ]
 
 
 def test_upstream_source_authority_requires_checked_primary_path():
