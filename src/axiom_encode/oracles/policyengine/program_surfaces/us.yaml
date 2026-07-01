@@ -322,10 +322,13 @@ surfaces:
   variable: ma_tafdc
   source_type: state_implementation
   state: MA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has source-law Massachusetts TAFDC coverage for the tested 106 CMR 704.500 monthly grant calculation
+    plus existing payment-standard, work-expense, child-support, financial-eligibility, and infant-benefit legal slices.
+    PolicyEngine's ma_tafdc is a final annual benefit surface with its own eligibility and income graph, clothing and infant
+    additions, and an EAEDC comparison selector, so keep it known-not-comparable until a full legal program bridge composes
+    the same final boundaries.
 - country: us
   program_id: tanf
   program_name: Montana TANF

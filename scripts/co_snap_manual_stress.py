@@ -44,9 +44,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--axiom-corpus", type=Path, default=DEFAULT_AXIOM_CORPUS)
     parser.add_argument("--axiom-rules-engine", type=Path, default=DEFAULT_RULES_ENGINE)
     parser.add_argument("--policy-repo", type=Path, default=DEFAULT_POLICY_REPO)
-    parser.add_argument("--backend", choices=["openai", "codex", "claude"], default="openai")
+    parser.add_argument(
+        "--backend", choices=["openai", "codex", "claude"], default="openai"
+    )
     parser.add_argument("--model", default="gpt-5.5")
-    parser.add_argument("--mode", choices=["cold", "repo-augmented"], default="repo-augmented")
+    parser.add_argument(
+        "--mode", choices=["cold", "repo-augmented"], default="repo-augmented"
+    )
     parser.add_argument("--timeout-seconds", type=int, default=210)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--start-index", type=int, default=0)
@@ -335,7 +339,9 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True), flush=True)
 
     print(
-        json.dumps({"event": "stress_done", "results": str(results_path)}, sort_keys=True),
+        json.dumps(
+            {"event": "stress_done", "results": str(results_path)}, sort_keys=True
+        ),
         flush=True,
     )
     return 0

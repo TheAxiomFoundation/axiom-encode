@@ -104,7 +104,9 @@ POLICYENGINE_US_PYTHON_CANDIDATES = [
 ]
 WORKSPACES = [
     AXIOM_ENCODE_ROOT,
-    *sorted(path for path in AXIOM_ENCODE_ROOT.parent.glob("rulespec-*") if path.is_dir()),
+    *sorted(
+        path for path in AXIOM_ENCODE_ROOT.parent.glob("rulespec-*") if path.is_dir()
+    ),
 ]
 RETRYABLE_PATTERNS = (
     "usage limit",

@@ -2149,6 +2149,27 @@ def test_policyengine_program_surface_marks_alaska_atap_known_not_comparable():
     assert "earned-income deductions" in alaska_atap["rationale"]
 
 
+def test_policyengine_program_surface_marks_massachusetts_tafdc_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    massachusetts_tafdc = items_by_variable["ma_tafdc"]
+
+    assert massachusetts_tafdc["program_id"] == "tanf"
+    assert massachusetts_tafdc["state"] == "MA"
+    assert massachusetts_tafdc["axiom_status"] == "known_not_comparable"
+    assert massachusetts_tafdc["mapping_count"] == 1
+    assert massachusetts_tafdc["comparable_mapping_count"] == 0
+    assert (
+        "us-ma:regulations/106-cmr/704/500/block-1#tafdc_monthly_grant_amount"
+        in massachusetts_tafdc["legal_ids"]
+    )
+    assert (
+        "106 CMR 704.500 monthly grant calculation" in massachusetts_tafdc["rationale"]
+    )
+    assert "EAEDC comparison selector" in massachusetts_tafdc["rationale"]
+
+
 def test_policyengine_coverage_classifies_alaska_atap_adult_included_table_helpers(
     tmp_path,
 ):
