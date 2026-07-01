@@ -573,6 +573,18 @@ SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
+    r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),(?:\d{1,2}|\d{4}))"
+    r"(?!\d)",
+    re.IGNORECASE,
+)
+EUROPEAN_THOUSANDS_NUMBER_PATTERN = re.compile(
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
+    r"(-?\d{1,3}(?:[.\u00a0\u202f ]\d{3})+)"
+    r"(?=\s*(?:euro|euros|eur\b|€|\bchildren?\b|\bpersons?\b|\bhouseholds?\b))",
+    re.IGNORECASE,
+)
 SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
     r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"
 )
@@ -582,6 +594,19 @@ _SIMPLE_FRACTION_EXPRESSION = re.compile(
 _EXTRACTED_PARAMETER_SCALAR_COMPARISON = re.compile(
     r"^(?:(?P<left_name>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<right_value>-?[\d,]+(?:\.\d+)?)|(?P<left_value>-?[\d,]+(?:\.\d+)?)\s*==\s*(?P<right_name>[A-Za-z_][A-Za-z0-9_]*))$"
 )
+
+
+def _normalize_grouped_thousands_number(raw: str) -> str:
+    return (
+        raw.replace(".", "")
+        .replace(" ", "")
+        .replace("\u00a0", "")
+        .replace("\u202f", "")
+    )
+
+
+def _normalize_european_decimal_number(raw: str) -> str:
+    return _normalize_grouped_thousands_number(raw).replace(",", ".")
 
 
 def _is_source_backed_simple_fraction_parameter(
@@ -730,7 +755,9 @@ _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
     r"^[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$", re.IGNORECASE
 )
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
-    r"^(PART|CHAPTER|SCHEDULE|REGULATION|ARTICLE)\b", re.IGNORECASE
+    r"^(?:(?:PART|CHAPTER|SCHEDULE|REGULATION)\b|"
+    r"ARTICLE\b\s*(?:\d+[A-Za-z]?)?\s*$)",
+    re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_CITATION_PATTERN = re.compile(
     r"^\d+\s+[A-Z]{2,}(?:\s+\d+[A-Za-z0-9./-]*)+\s*$"
@@ -2643,6 +2670,20 @@ def extract_numbers_from_text(text: str) -> set[float]:
         numbers.add(value)
         occupied_spans.append(span)
 
+    for match in EUROPEAN_DECIMAL_NUMBER_PATTERN.finditer(text):
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+            occupied_spans.append(match.span(1))
+
+    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(text):
+        if _span_overlaps(match.span(1), occupied_spans):
+            continue
+        raw = _normalize_grouped_thousands_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+            occupied_spans.append(match.span(1))
+
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
@@ -3150,6 +3191,26 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
             continue
         occurrences.append(value)
         spans.append(span)
+
+    for match in EUROPEAN_DECIMAL_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        if _span_overlaps(span, spans):
+            continue
+        with contextlib.suppress(ValueError):
+            occurrences.append(
+                float(_normalize_european_decimal_number(match.group(1)))
+            )
+            spans.append(span)
+
+    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        if _span_overlaps(span, spans):
+            continue
+        with contextlib.suppress(ValueError):
+            occurrences.append(
+                float(_normalize_grouped_thousands_number(match.group(1)))
+            )
+            spans.append(span)
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
         span = match.span(1)
@@ -17793,7 +17854,10 @@ def _find_source_text_value_issues(
             return []
         return issues
 
-    if _source_text_contains_scalar_value(normalized_text, expected_value):
+    if _source_text_contains_scalar_value(
+        normalized_text,
+        expected_value,
+    ) or _source_text_contains_numeric_value_equivalent(source_text, expected_value):
         return []
     return [
         "Source verification value missing: "
@@ -18613,6 +18677,13 @@ def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
         )
         for value_text in value_texts
     )
+
+
+def _source_text_contains_numeric_value_equivalent(text: str, value: Any) -> bool:
+    numeric = _numeric_rule_value(value)
+    if numeric is None:
+        return False
+    return numeric_value_is_grounded(numeric[1], extract_numbers_from_text(text))
 
 
 def _source_text_contains_table_value_multiset(
