@@ -8127,9 +8127,27 @@ def cmd_repair_medicaid_primary_category_composition(args):
             if _path_differs_from_original(path, originals.get(path))
         ]
     )
+    refresh_manifest_files: list[Path] = []
     if not changed_by_command:
-        print("No Medicaid primary category composition repairs found.")
-        return
+        for relative_output, group_files in manifest_groups:
+            applied_files = [path for path in group_files if path.exists()]
+            if not applied_files:
+                continue
+            if not _applied_manifest_matches_current_deterministic_repair(
+                repo_path=repo_path,
+                relative_output=relative_output,
+                applied_files=applied_files,
+                model=MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL,
+                axiom_encode_git=axiom_encode_git,
+                signing_key=signing_key,
+            ):
+                refresh_manifest_files.extend(applied_files)
+        if refresh_manifest_files:
+            changed_by_command = _unique_paths(refresh_manifest_files)
+        else:
+            print("No Medicaid primary category composition repairs found.")
+            return
+    refresh_only = bool(refresh_manifest_files)
 
     manifest_paths = _write_grouped_deterministic_repair_manifests(
         repo_path=repo_path,
@@ -8142,11 +8160,15 @@ def cmd_repair_medicaid_primary_category_composition(args):
     )
 
     changed_names = sorted(set(repaired_rules) | set(repaired_tests))
-    print("Applied Medicaid primary category composition repair")
-    if changed_names:
+    if refresh_only:
+        print("Refreshed Medicaid primary category composition repair manifest")
+    else:
+        print("Applied Medicaid primary category composition repair")
+    if changed_names and not refresh_only:
         print(f"changed_rules={', '.join(changed_names)}")
-    for path in changed_by_command:
-        print(f"changed={path.relative_to(repo_path)}")
+    if not refresh_only:
+        for path in changed_by_command:
+            print(f"changed={path.relative_to(repo_path)}")
     for manifest_path in manifest_paths:
         print(f"manifest={manifest_path}")
 

@@ -197,6 +197,7 @@ from axiom_encode.cli import (
     cmd_repair_imported_test_inputs,
     cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
+    cmd_repair_medicaid_primary_category_composition,
     cmd_repair_missing_deferred_outputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_mixed_derived_entity_output_tests,
@@ -25673,6 +25674,7 @@ rules:
         rules = """format: rulespec/v1
 imports:
   - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
+  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid
 module:
   proof_validation:
     required: true
@@ -25914,6 +25916,118 @@ rules:
         }
         assert "optional working disabled category eligible" in changed_tests
         assert "optional SSI excess earnings category eligible" in changed_tests
+
+    def test_repair_medicaid_primary_category_refreshes_stale_manifest(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        _init_test_git_repo(checkout)
+        policy_repo = checkout / "us"
+        rules_file = policy_repo / "statutes/42/1396a/a/10.yaml"
+        test_file = policy_repo / "statutes/42/1396a/a/10.test.yaml"
+        medically_needy_file = policy_repo / "regulations/42-cfr/435/301.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/a/10
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(i)-(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          former_foster_care_child_medicaid_required
+          or is_optional_senior_or_disabled_for_medicaid
+"""
+        )
+        test_file.write_text(
+            """- name: no composed mandatory category eligible
+  period: 2027-01
+  input:
+    us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative: false
+  output:
+    us:statutes/42/1396a/a/10#is_medicaid_eligible: not_holds
+"""
+        )
+        medically_needy_file.parent.mkdir(parents=True, exist_ok=True)
+        medically_needy_file.write_text("format: rulespec/v1\nrules: []\n")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "initial")
+
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path.suffix == ".yaml"
+                assert path.is_relative_to(policy_repo)
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/42/1396a/a/10.json"
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "old123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_medicaid_primary_category_composition(args)
+
+        first_payload = json.loads(manifest.read_text())
+        first_rules_content = rules_file.read_text()
+        first_test_content = test_file.read_text()
+        assert first_payload["axiom_encode_git"]["commit"] == "old123"
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "apply old repair")
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "new456", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_medicaid_primary_category_composition(args)
+
+        refreshed_payload = json.loads(manifest.read_text())
+        assert rules_file.read_text() == first_rules_content
+        assert test_file.read_text() == first_test_content
+        assert refreshed_payload["axiom_encode_git"]["commit"] == "new456"
+        assert [item["path"] for item in refreshed_payload["applied_files"]] == [
+            "statutes/42/1396a/a/10.yaml",
+            "statutes/42/1396a/a/10.test.yaml",
+        ]
 
     def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
         self, tmp_path
