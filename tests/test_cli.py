@@ -94,6 +94,7 @@ from axiom_encode.cli import (
     _repair_medicaid_optional_senior_composition_tests,
     _repair_medicaid_primary_category_composition_rules,
     _repair_medicaid_primary_category_composition_tests,
+    _repair_minnesota_mfip_upstream_source_check_file,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
@@ -199,6 +200,7 @@ from axiom_encode.cli import (
     cmd_repair_invalid_test_inputs,
     cmd_repair_judgment_positive_tests,
     cmd_repair_medicaid_primary_category_composition,
+    cmd_repair_minnesota_mfip_upstream_source_check,
     cmd_repair_missing_deferred_outputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_mixed_derived_entity_output_tests,
@@ -11063,6 +11065,120 @@ rules:
             "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
             "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
         ]
+
+    def test_repair_minnesota_mfip_source_check_writes_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(policy_repo)
+        target = (
+            policy_repo
+            / "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  kind: source
+  source_verification:
+    corpus_citation_path: us-mn/manual/dhs/combined-manual/current/page-944
+  summary: Minnesota MFIP grant calculation.
+rules:
+  - name: final_total_mfip_grant
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: max(0, total_mfip_grant_before_proration)
+"""
+        )
+        test_file = target.with_name("mfip-total-grant.test.yaml")
+        test_file.write_text(
+            """- name: no_income_example
+  period: 2026-01
+  input: {}
+  output:
+    us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#final_total_mfip_grant: 0
+"""
+        )
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_minnesota_mfip_upstream_source_check(
+                SimpleNamespace(
+                    repo=policy_repo,
+                    axiom_rules_path=tmp_path / "axiom-rules-engine",
+                )
+            )
+
+        content = target.read_text()
+        assert "upstream_source_check:" in content
+        assert "us-mn/statute/142G.16" in content
+        assert "us-mn/statute/142G.17" in content
+        assert "us-mn/statute/256P.03" in content
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/us-mn/policies/dhs/combined-manual/"
+            "0022-12/mfip-total-grant.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["citation"] == (
+            "us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant"
+        )
+        assert payload["model"] == "minnesota-mfip-upstream-source-check-v1"
+        assert payload["tool"] == (
+            "axiom-encode repair-minnesota-mfip-upstream-source-check"
+        )
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml",
+            "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.test.yaml",
+        ]
+
+    def test_minnesota_mfip_source_check_rejects_conflicting_existing_block(
+        self, tmp_path
+    ):
+        target = tmp_path / "mfip-total-grant.yaml"
+        target.write_text(
+            """format: rulespec/v1
+module:
+  kind: source
+  source_verification:
+    corpus_citation_path: us-mn/manual/dhs/combined-manual/current/page-944
+    upstream_source_check:
+      status: no_higher_authority_found
+      checked_paths: []
+      rationale: stale
+rules: []
+"""
+        )
+
+        with pytest.raises(RuntimeError, match="different upstream_source_check"):
+            _repair_minnesota_mfip_upstream_source_check_file(target)
 
     def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
         rules = """format: rulespec/v1

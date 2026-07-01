@@ -1380,6 +1380,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_minnesota_mfip_parser = subparsers.add_parser(
+        "repair-minnesota-mfip-upstream-source-check",
+        help="Apply a signed deterministic upstream-source audit for Minnesota MFIP",
+    )
+    repair_minnesota_mfip_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_minnesota_mfip_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_child_fragment_parser = subparsers.add_parser(
         "repair-child-fragment-reencoding",
         help=(
@@ -2530,6 +2549,8 @@ def main():
         cmd_repair_same_section_subsection_imports(args)
     elif args.command == "repair-source-child-corpus-paths":
         cmd_repair_source_child_corpus_paths(args)
+    elif args.command == "repair-minnesota-mfip-upstream-source-check":
+        cmd_repair_minnesota_mfip_upstream_source_check(args)
     elif args.command == "repair-child-fragment-reencoding":
         cmd_repair_child_fragment_reencoding(args)
     elif args.command == "repair-upstream-placement-duplicates":
@@ -4507,6 +4528,28 @@ ARIZONA_SNAP_BENEFIT_RELATIVE = Path(
     "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
 )
 
+MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL = (
+    "minnesota-mfip-upstream-source-check-v1"
+)
+MINNESOTA_MFIP_RELATIVE_OUTPUT = Path(
+    "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml"
+)
+MINNESOTA_MFIP_MANUAL_SOURCE = "us-mn/manual/dhs/combined-manual/current/page-944"
+MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_BLOCK = """    upstream_source_check:
+      status: checked_higher_authority
+      checked_paths:
+        - us-mn/statute/142G.16
+        - us-mn/statute/142G.17
+        - us-mn/statute/256P.03
+      rationale: |-
+        Minnesota statutes define the MFIP income/payment calculation,
+        transitional standard, family wage level, and earned-income disregard.
+        The DHS Combined Manual remains the official implementation source for
+        this module's operational grant procedure, including applicant
+        proration, recoupment, and cash/food issuance against the published
+        standards.
+"""
+
 
 def cmd_repair_colorado_snap_federal_refs(args):
     """Apply signed deterministic repairs for Colorado SNAP federal ref drift."""
@@ -5013,6 +5056,148 @@ def cmd_repair_arizona_snap_composition(args):
             print(f"changed={path.relative_to(repo_path)}")
     for manifest_path in manifest_paths:
         print(f"manifest={manifest_path}")
+
+
+def cmd_repair_minnesota_mfip_upstream_source_check(args):
+    """Apply a signed deterministic upstream-source audit for Minnesota MFIP."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-minnesota-mfip-upstream-source-check must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = MINNESOTA_MFIP_RELATIVE_OUTPUT
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+
+    manifest_groups = [(relative_output, [rules_file, test_file])]
+    try:
+        _ensure_no_unmanifested_preexisting_rulespec_changes(
+            repo_path,
+            manifest_groups,
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    originals = {
+        path: path.read_text() if path.exists() else None
+        for path in (rules_file, test_file)
+    }
+    try:
+        changed = _repair_minnesota_mfip_upstream_source_check_file(rules_file)
+        refresh_manifest = False
+        if not changed:
+            if not _applied_manifest_matches_current_deterministic_repair(
+                repo_path=repo_path,
+                relative_output=relative_output,
+                applied_files=[path for path in (rules_file, test_file) if path.exists()],
+                model=MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL,
+                axiom_encode_git=axiom_encode_git,
+                signing_key=signing_key,
+            ):
+                refresh_manifest = True
+            else:
+                print("No Minnesota MFIP upstream-source repairs found.")
+                return
+
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=False,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            raise RuntimeError("\n".join(issues) or "validation failed")
+
+        if test_file.exists():
+            test_issues = _companion_test_issues(
+                test_files=[test_file],
+                repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+            if test_issues:
+                raise RuntimeError(
+                    "Companion tests failed after Minnesota MFIP upstream-source "
+                    "repair:\n" + "\n".join(f"- {issue}" for issue in test_issues)
+                )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in (rules_file, test_file)
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    refresh_only = not changed_by_command and refresh_manifest
+    if refresh_only:
+        changed_by_command = [path for path in (rules_file, test_file) if path.exists()]
+    if not changed_by_command:
+        print("No Minnesota MFIP upstream-source repairs found.")
+        return
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model=MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL,
+        tool="axiom-encode repair-minnesota-mfip-upstream-source-check",
+    )
+
+    if refresh_only:
+        print("Refreshed Minnesota MFIP upstream-source repair manifest")
+    else:
+        print("Applied Minnesota MFIP upstream-source repair")
+        for path in changed_by_command:
+            print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _repair_minnesota_mfip_upstream_source_check_file(rules_file: Path) -> bool:
+    content = rules_file.read_text()
+    if MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_BLOCK in content:
+        return False
+    if "\n    upstream_source_check:\n" in f"\n{content}":
+        raise RuntimeError(
+            "Minnesota MFIP RuleSpec already has a different upstream_source_check"
+        )
+
+    source_line = f"    corpus_citation_path: {MINNESOTA_MFIP_MANUAL_SOURCE}\n"
+    marker = "  source_verification:\n" + source_line
+    if marker not in content:
+        raise RuntimeError(
+            "Minnesota MFIP RuleSpec does not have the expected manual "
+            f"source_verification path: {MINNESOTA_MFIP_MANUAL_SOURCE}"
+        )
+
+    rules_file.write_text(
+        content.replace(
+            marker,
+            marker + MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_BLOCK,
+            1,
+        )
+    )
+    return True
 
 
 def _applied_manifest_matches_current_deterministic_repair(
@@ -12992,10 +13177,7 @@ def _write_grouped_deterministic_repair_manifests(
                 backend="deterministic",
                 model=model,
                 tool=tool,
-                citation=(
-                    f"{_repo_jurisdiction_prefix(repo_path)}:"
-                    f"{_relative_rulespec_import_target(relative_output)}"
-                ),
+                citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
                 generation_prompt_sha256=None,
                 trace_file=None,
                 context_manifest_file=None,
