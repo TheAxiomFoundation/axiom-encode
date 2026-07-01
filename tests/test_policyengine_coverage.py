@@ -1039,6 +1039,28 @@ def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known
     )
 
 
+def test_policyengine_program_surface_marks_medicare_proxy_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="medicare")
+
+    medicare = {item["variable"]: item for item in report["items"]}[
+        "is_medicare_eligible"
+    ]
+    assert medicare["axiom_status"] == "known_not_comparable"
+    assert medicare["policybench_output"] == "person_level_medicare_eligibility"
+    assert medicare["policybench_household_weight"] == pytest.approx(10.74)
+    assert medicare["mapping_count"] >= 1
+    assert medicare["comparable_mapping_count"] == 0
+    assert (
+        "us:statutes/42/426/a/1#attained_age_65_requirement_satisfied"
+        in (medicare["legal_ids"])
+    )
+    assert (
+        "us:policies/cms/original-medicare-part-a-b#is_medicare_eligible"
+        in (medicare["legal_ids"])
+    )
+    assert report["actionable_surfaces"] == []
+
+
 def test_policyengine_registry_resolves_wic_and_chip_eligibility_prefixes():
     registry = load_policyengine_registry()
 
