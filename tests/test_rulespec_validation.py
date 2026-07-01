@@ -5684,6 +5684,156 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_european_thousands_separator_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-bru/statute/example/article/9
+rules:
+  - name: brussels_family_benefits_social_supplement_low_income_upper_bound
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '31000'
+"""
+
+    source_text = "lorsque les revenus annuels du menage n'atteignent pas 31.000 euros"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 31000 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_article_line_european_thousands_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/132
+rules:
+  - name: belgium_pit_two_children_tax_free_increase
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '5110'
+"""
+
+    source_text = (
+        "Article 132, CIR 92 (revenus 2025) Le montant de base est majore "
+        "des supplements suivants pour personnes a charge: 2 degres pour "
+        "deux enfants: 5.110 euros (montant indexe)."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 5110 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_spaced_thousands_separator_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/14
+rules:
+  - name: belgium_social_integration_cohabitant_base_annual_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '4400'
+"""
+
+    source_text = "1° 4 400 EUR pour toute personne cohabitant."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 4400 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_european_decimal_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/6
+rules:
+  - name: belgium_grapa_base_annual_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '6765.89'
+"""
+
+    source_text = "Le montant annuel s'eleve au maximum a 6.765,89 euros."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 6765.89 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_european_decimal_money_table_cell():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-bru/guidance/example/page-5
+rules:
+  - name: brussels_circulation_tax_cv_0_to_4_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-07-01'
+        formula: '107.18'
+"""
+
+    source_text = "TARIFS (1) CC CV PK € 0 - 0,7 0 - 4 107,18 0,8 - 0,9 5 134,11"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 107.18 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_european_decimal_coefficient():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/6
+rules:
+  - name: belgium_grapa_isolated_multiplier
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.5'
+"""
+
+    source_text = "Le coefficient 1,50 s'applique au montant vise au paragraphe 1er."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 1.5 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_four_place_european_decimal_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/5
+rules:
+  - name: belgium_excise_beer_rate_per_hectolitre_degree_plato
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-06-30'
+        formula: '0.7933'
+"""
+
+    source_text = "La biere est soumise a un droit d'accise de 0,7933 EUR."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.7933 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_does_not_trust_module_summary():
     content = """format: rulespec/v1
 module:
@@ -7123,6 +7273,65 @@ def test_numeric_occurrence_extraction_ignores_bare_dotted_regulatory_reference(
     )
 
     assert extract_numeric_occurrences_from_text(text) == [pytest.approx(0.0831)]
+
+
+def test_numeric_occurrence_extraction_accepts_european_thousands_money():
+    text = (
+        "Under article 9, income must be less than 45.000 euros. "
+        "Dotted legal reference 4.304.3 remains a citation."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [45000.0]
+
+
+def test_numeric_occurrence_extraction_keeps_article_line_body_amount():
+    text = (
+        "Article 132, CIR 92 (revenus 2025) Le montant de base est majore "
+        "des supplements suivants pour personnes a charge: 2 degres pour "
+        "deux enfants: 5.110 euros (montant indexe)."
+    )
+
+    assert 5110.0 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_spaced_thousands_money():
+    text = (
+        "Le montant annuel est 4 400 EUR. "
+        "Dotted legal reference 4.304.3 remains a citation."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [4400.0]
+
+
+def test_numeric_occurrence_extraction_accepts_european_decimal_money():
+    text = (
+        "Le montant annuel s'eleve au maximum a 6.765,89 euros. "
+        "Dotted legal reference 4.304.3 remains a citation."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [6765.89]
+
+
+def test_numeric_occurrence_extraction_accepts_european_decimal_money_table_cell():
+    text = "TARIFS (1) CC CV PK € 0 - 0,7 0 - 4 107,18 0,8 - 0,9 5 134,11"
+
+    values = extract_numeric_occurrences_from_text(text)
+
+    assert 107.18 in values
+    assert 134.11 in values
+    assert 1000.0 in extract_numbers_from_text("The limit is 1,000 dollars.")
+
+
+def test_numeric_occurrence_extraction_accepts_european_decimal_coefficient():
+    text = "Le coefficient 1,50 s'applique au montant vise au paragraphe 1er."
+
+    assert extract_numeric_occurrences_from_text(text) == [1.5]
+
+
+def test_numeric_occurrence_extraction_accepts_four_place_european_decimal_money():
+    text = "Le droit d'accise est 0,7933 EUR par hectolitre-degre Plato."
+
+    assert extract_numeric_occurrences_from_text(text) == [0.7933]
 
 
 def test_numeric_occurrence_extraction_ignores_section_symbol_reference():
@@ -15453,6 +15662,43 @@ rules:
         source_texts={
             "us/guidance/irs/rev-proc-2025-32/page-10": (
                 "The applicable rates are 10% and 12%."
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_european_decimal_source_values():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/6
+    values:
+      belgium_grapa_base_annual_amount: 7449.26
+      belgium_grapa_isolated_multiplier: 1.5
+rules:
+  - name: belgium_grapa_base_annual_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '7449.26'
+  - name: belgium_grapa_isolated_multiplier
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.5'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "be/statute/example/article/6": (
+                "Le montant annuel est remplace par 7.449,26 euros. "
+                "Le coefficient 1,50 s'applique au montant vise."
             )
         },
     )
