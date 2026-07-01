@@ -11066,9 +11066,7 @@ rules:
             "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
         ]
 
-    def test_repair_minnesota_mfip_source_check_writes_signed_manifest(
-        self, tmp_path
-    ):
+    def test_repair_minnesota_mfip_source_check_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         _init_test_git_repo(policy_repo)
         target = (

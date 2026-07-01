@@ -2104,17 +2104,13 @@ def test_policyengine_program_surface_marks_minnesota_mfip_wired_pending_populac
     assert minnesota_mfip["comparable_mapping_count"] == 1
     assert (
         "us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#"
-        "mfip_cash_portion_issued_as_cash"
-        in minnesota_mfip["legal_ids"]
+        "mfip_cash_portion_issued_as_cash" in minnesota_mfip["legal_ids"]
     )
-    assert (
-        minnesota_mfip["populace_validation_status"]
-        == "pending_validator"
-    )
+    assert minnesota_mfip["populace_validation_status"] == "pending_validator"
     assert "mn_mfip" in minnesota_mfip["populace_validation_command"]
-    assert "No PolicyEngine US adapter" in minnesota_mfip[
-        "populace_validation_rationale"
-    ]
+    assert (
+        "No PolicyEngine US adapter" in minnesota_mfip["populace_validation_rationale"]
+    )
 
 
 def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():

@@ -4528,9 +4528,7 @@ ARIZONA_SNAP_BENEFIT_RELATIVE = Path(
     "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
 )
 
-MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL = (
-    "minnesota-mfip-upstream-source-check-v1"
-)
+MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL = "minnesota-mfip-upstream-source-check-v1"
 MINNESOTA_MFIP_RELATIVE_OUTPUT = Path(
     "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml"
 )
@@ -5102,7 +5100,9 @@ def cmd_repair_minnesota_mfip_upstream_source_check(args):
             if not _applied_manifest_matches_current_deterministic_repair(
                 repo_path=repo_path,
                 relative_output=relative_output,
-                applied_files=[path for path in (rules_file, test_file) if path.exists()],
+                applied_files=[
+                    path for path in (rules_file, test_file) if path.exists()
+                ],
                 model=MINNESOTA_MFIP_UPSTREAM_SOURCE_CHECK_MODEL,
                 axiom_encode_git=axiom_encode_git,
                 signing_key=signing_key,
