@@ -159,6 +159,12 @@ from .oracles.policyengine.medicaid_populace import (
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
+from .oracles.policyengine.us_populace import (
+    configure_parser as configure_us_populace_compare_parser,
+)
+from .oracles.policyengine.us_populace import (
+    main as run_us_populace_compare,
+)
 from .repo_routing import (
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
@@ -889,6 +895,12 @@ def main():
         help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Populace",
     )
     configure_medicaid_populace_compare_parser(medicaid_populace_compare_parser)
+
+    us_populace_compare_parser = subparsers.add_parser(
+        "us-populace-compare",
+        help="Compare direct-variable US RuleSpec output against PolicyEngine over Populace",
+    )
+    configure_us_populace_compare_parser(us_populace_compare_parser)
 
     uk_populace_compare_parser = subparsers.add_parser(
         "uk-populace-compare",
@@ -2467,6 +2479,8 @@ def main():
         sys.exit(run_tax_populace_compare(args))
     elif args.command == "medicaid-populace-compare":
         sys.exit(run_medicaid_populace_compare(args))
+    elif args.command == "us-populace-compare":
+        sys.exit(run_us_populace_compare(args))
     elif args.command in {"uk-populace-compare", "uk-efrs-compare"}:
         sys.exit(run_uk_populace_compare(args))
     elif args.command in {"uk-populace-coverage", "uk-efrs-coverage"}:
