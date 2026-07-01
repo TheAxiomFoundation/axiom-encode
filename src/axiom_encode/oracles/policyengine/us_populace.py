@@ -573,6 +573,11 @@ def source_variables_for_adapters(
             *adapter.monthly_boolean_person_inputs,
         ):
             person_vars[pe_key] = None
+        for _rule_key, pe_key in (
+            *adapter.direct_spm_overrides,
+            *adapter.annual_direct_spm_overrides,
+        ):
+            spm_vars[pe_key] = None
         if variable == "co_oap":
             person_vars["ssi"] = None
         if variable == "ca_capi":
@@ -590,6 +595,8 @@ def source_variables_for_adapters(
                     "spm_unit_is_married": None,
                 }
             )
+        if variable == "mn_mfip":
+            spm_vars["mn_mfip_eligible"] = None
     return {"person": person_vars, "spm_unit": spm_vars}
 
 
@@ -602,6 +609,10 @@ def project_case_inputs(
 ) -> tuple[dict[str, Any], str | None]:
     if variable == "ca_capi":
         return project_ca_capi_inputs(row=row, spm_row=spm_row)
+    if spm_row is None and (
+        adapter.direct_spm_overrides or adapter.annual_direct_spm_overrides
+    ):
+        return {}, f"{variable}_missing_spm_unit"
     inputs: dict[str, Any] = {}
     for rule_key, pe_key in adapter.direct_person_inputs:
         inputs[rule_key] = money(row_value(row, pe_key))
@@ -627,12 +638,38 @@ def project_case_inputs(
         inputs[rule_key] = bool_value(row_value(row, pe_key))
     for rule_key, pe_key in adapter.monthly_boolean_person_inputs:
         inputs[rule_key] = bool_value(row_value(row, pe_key))
+    for rule_key, pe_key in adapter.direct_spm_overrides:
+        inputs[rule_key] = money(row_value(spm_row, pe_key))
+    for rule_key, pe_key in adapter.annual_direct_spm_overrides:
+        inputs[rule_key] = money(row_value(spm_row, pe_key)) / 12.0
     for key in adapter.unsupported_truthy_input_keys:
         inputs.setdefault(key, False)
     for key in adapter.unsupported_falsy_input_keys:
         inputs.setdefault(key, True)
     if variable == "co_state_supplement":
         inputs.setdefault("ssa_is_recovering_ssi_payment_due_to_overpayment", False)
+    if variable == "mn_mfip":
+        if not bool_value(row_value(spm_row, "mn_mfip_eligible")):
+            return {}, "mn_mfip_ineligible_spm_unit"
+        earned = money(inputs.get("net_earned_income_in_budget_month", 0.0))
+        unearned = money(inputs.get("unearned_income_in_budget_month", 0.0))
+        if unearned < 0:
+            return {}, "mn_mfip_negative_unearned_income"
+        inputs.update(
+            {
+                "unit_receives_no_income_other_than_mfip": (
+                    earned <= 0 and unearned <= 0
+                ),
+                "unit_receives_unearned_income_only": (earned <= 0 and unearned > 0),
+                "unit_has_earned_income_only": earned > 0 and unearned <= 0,
+                "unit_has_both_earned_and_unearned_income": (
+                    earned > 0 and unearned > 0
+                ),
+                "unit_is_applicant_case": False,
+                "prorated_benefit_under_section_0022_12_03": 0.0,
+                "recoupment_amount_if_applicable": 0.0,
+            }
+        )
     return inputs, None
 
 
@@ -781,6 +818,9 @@ def compare_outputs(
             "California CAPI is compared only on individual, non-couple SPM units; "
             "PE exposes CAPI as an SPM-unit surface while the encoded legal rule is "
             "a person-level final-benefit formula.",
+            "Minnesota MFIP is compared only on PE-eligible SPM units because the "
+            "encoded RuleSpec module covers the post-eligibility grant and cash "
+            "issuance calculation.",
         ],
     )
 
@@ -837,7 +877,16 @@ def calculate_policyengine(sim: Any, name: str, period: str | int) -> Any:
 
 
 def policyengine_source_period(variable: str, *, year: int, month: int) -> str | int:
-    monthly_sources = {"ssi", "ssi_countable_income", "ssi_amount_if_eligible"}
+    monthly_sources = {
+        "ssi",
+        "ssi_countable_income",
+        "ssi_amount_if_eligible",
+        "mn_mfip_countable_earned_income",
+        "mn_mfip_countable_unearned_income",
+        "mn_mfip_family_wage_level",
+        "mn_mfip_food_portion",
+        "mn_mfip_full_transitional_standard",
+    }
     if variable in monthly_sources:
         return f"{year:04d}-{month:02d}"
     return year

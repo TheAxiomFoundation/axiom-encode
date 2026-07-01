@@ -2264,7 +2264,7 @@ def test_policyengine_program_surface_marks_kansas_tanf_known_not_comparable():
     assert "countable income" in kansas_tanf["rationale"]
 
 
-def test_policyengine_program_surface_marks_minnesota_mfip_wired_pending_populace_validator():
+def test_policyengine_program_surface_marks_minnesota_mfip_wired_and_populace_validated():
     report = build_policyengine_program_surface_report(program="tanf")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2279,11 +2279,11 @@ def test_policyengine_program_surface_marks_minnesota_mfip_wired_pending_populac
         "us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#"
         "mfip_cash_portion_issued_as_cash" in minnesota_mfip["legal_ids"]
     )
-    assert minnesota_mfip["populace_validation_status"] == "pending_validator"
+    assert minnesota_mfip["populace_validation_status"] == "validated"
+    assert minnesota_mfip["populace_validation_dataset"] == "populace-us-2024 local H5"
+    assert minnesota_mfip["populace_validation_last_run"] == "2026-07-02"
     assert "mn_mfip" in minnesota_mfip["populace_validation_command"]
-    assert (
-        "No PolicyEngine US adapter" in minnesota_mfip["populace_validation_rationale"]
-    )
+    assert "74 eligible person rows" in minnesota_mfip["populace_validation_rationale"]
 
 
 def test_policyengine_program_surface_marks_florida_tca_known_not_comparable():

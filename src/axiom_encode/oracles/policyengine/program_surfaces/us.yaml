@@ -661,10 +661,14 @@ surfaces:
     surface. The RuleSpec module records the higher-authority check against Minnesota Statutes 142G.16, 142G.17, and
     256P.03 before relying on DHS manual operational procedure.
   populace_validation:
-    status: pending_validator
-    command: uv run axiom-encode us-populace-compare --variable mn_mfip --sample-size 1 --state MN --json
-    rationale: The current US Populace comparator exits with "No PolicyEngine US adapter is configured for mn_mfip";
-      add the Minnesota MFIP adapter before claiming Populace-verified parity.
+    status: validated
+    command: AXIOM_POPULACE_US_2024_H5=/Users/maxghenis/.codex-artifacts/populace-us-fiscal-refresh-703bd81-no-oos-20260620/artifacts/populace_us_2024.h5 uv run --extra dev --with /Users/maxghenis/.cache/uv/sdists-v9/path/f08f6e929a1989dd/bP-zFPqTOCCpXVEGGxK3G/policyengine_us-1.751.2-py3-none-any.whl --with policyengine-core==3.26.0 --with '/Users/maxghenis/PolicyEngine/populace/packages/populace-data[us]' --with numpy --with pandas axiom-encode us-populace-compare --root /Users/maxghenis/TheAxiomFoundation --rulespec-root /Users/maxghenis/TheAxiomFoundation/rulespec-us --axiom-rules-engine-path /Users/maxghenis/TheAxiomFoundation/axiom-rules-engine --year 2026 --month 1 --populace-year 2024 --variable mn_mfip --state MN --sample-size 0 --max-differences 10 --allow-policyengine-us-version
+    dataset: populace-us-2024 local H5
+    last_run: '2026-07-02'
+    rationale: Full Minnesota Populace run compared 74 eligible person rows across 22 SPM units with 0 mismatches.
+      The comparator skips 2,000 ineligible person rows because the encoded RuleSpec module covers the MFIP grant and
+      cash-issuance calculation after eligibility, while PolicyEngine's final mn_mfip variable is defined only for
+      eligible SPM units.
 - country: us
   program_id: tanf
   program_name: Tennessee Families First

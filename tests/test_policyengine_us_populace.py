@@ -300,6 +300,80 @@ def test_project_co_state_supplement_keeps_monthly_pe_income_monthly():
     assert projected["ssi_payment_received_amount"] == 600
 
 
+def test_project_mn_mfip_spm_inputs_to_cash_portion_boundary():
+    adapter = get_pe_us_var_adapter("mn_mfip")
+    assert adapter is not None
+
+    projected, reason = us_populace.project_case_inputs(
+        "mn_mfip",
+        adapter,
+        row={},
+        spm_row={
+            "mn_mfip_eligible": True,
+            "mn_mfip_full_transitional_standard": 1087,
+            "mn_mfip_family_wage_level": 1195.7,
+            "mn_mfip_countable_earned_income": 467.5,
+            "mn_mfip_countable_unearned_income": 0,
+            "mn_mfip_food_portion": 445,
+        },
+    )
+
+    assert reason is None
+    assert projected["transitional_standard_for_corresponding_payment_month"] == 1087
+    assert projected["family_wage_level_for_corresponding_payment_month"] == 1195.7
+    assert projected["net_earned_income_in_budget_month"] == 467.5
+    assert projected["unearned_income_in_budget_month"] == 0
+    assert projected["mfip_food_portion_amount_under_section_0020_09"] == 445
+    assert projected["unit_has_earned_income_only"] is True
+    assert projected["unit_receives_no_income_other_than_mfip"] is False
+    assert projected["unit_is_applicant_case"] is False
+    assert projected["recoupment_amount_if_applicable"] == 0
+
+
+def test_project_mn_mfip_skips_negative_unearned_income():
+    adapter = get_pe_us_var_adapter("mn_mfip")
+    assert adapter is not None
+
+    projected, reason = us_populace.project_case_inputs(
+        "mn_mfip",
+        adapter,
+        row={},
+        spm_row={
+            "mn_mfip_eligible": True,
+            "mn_mfip_full_transitional_standard": 1087,
+            "mn_mfip_family_wage_level": 1195.7,
+            "mn_mfip_countable_earned_income": 0,
+            "mn_mfip_countable_unearned_income": -10,
+            "mn_mfip_food_portion": 445,
+        },
+    )
+
+    assert projected == {}
+    assert reason == "mn_mfip_negative_unearned_income"
+
+
+def test_project_mn_mfip_skips_ineligible_spm_units():
+    adapter = get_pe_us_var_adapter("mn_mfip")
+    assert adapter is not None
+
+    projected, reason = us_populace.project_case_inputs(
+        "mn_mfip",
+        adapter,
+        row={},
+        spm_row={
+            "mn_mfip_eligible": False,
+            "mn_mfip_full_transitional_standard": 1087,
+            "mn_mfip_family_wage_level": 1195.7,
+            "mn_mfip_countable_earned_income": 0,
+            "mn_mfip_countable_unearned_income": 0,
+            "mn_mfip_food_portion": 445,
+        },
+    )
+
+    assert projected == {}
+    assert reason == "mn_mfip_ineligible_spm_unit"
+
+
 def test_policyengine_target_period_uses_mapping_multiplier_before_monthly_adapter():
     co_oap_adapter = get_pe_us_var_adapter("co_oap")
     assert co_oap_adapter is not None
@@ -343,14 +417,17 @@ def test_policyengine_target_period_uses_mapping_multiplier_before_monthly_adapt
 
 def test_source_variables_for_adapters_excludes_target_variables():
     source_vars = us_populace.source_variables_for_adapters(
-        ("co_oap", "co_state_supplement", "ca_capi")
+        ("co_oap", "co_state_supplement", "ca_capi", "mn_mfip")
     )
 
     assert "co_oap" not in source_vars["person"]
     assert "co_state_supplement" not in source_vars["person"]
     assert "ca_capi" not in source_vars["person"]
+    assert "mn_mfip" not in source_vars["spm_unit"]
     assert "ca_capi" not in source_vars["spm_unit"]
     assert "ca_capi_eligible" in source_vars["spm_unit"]
+    assert "mn_mfip_eligible" in source_vars["spm_unit"]
+    assert "mn_mfip_full_transitional_standard" in source_vars["spm_unit"]
 
 
 def test_configure_us_populace_parser_accepts_repeated_variables():
