@@ -25800,6 +25800,15 @@ rules:
         )
 
         assert changed == ["is_medicaid_eligible"]
+        assert repaired.startswith(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+module:
+  proof_validation:
+    required: true
+"""
+        )
         parsed = yaml.safe_load(repaired)
         medicaid = parsed["rules"][0]
         assert medicaid["versions"][0]["effective_from"] == "2014-01-01"

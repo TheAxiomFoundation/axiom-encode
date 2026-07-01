@@ -7741,6 +7741,31 @@ def _dump_rulespec_repair_yaml(payload: Any) -> str:
     )
 
 
+def _render_rulespec_rule_block(rule: dict[str, Any]) -> str:
+    rendered = _dump_rulespec_repair_yaml([rule])
+    return "".join(
+        f"  {line}" if line.strip() else line
+        for line in rendered.splitlines(keepends=True)
+    )
+
+
+def _replace_rulespec_rule_block(
+    content: str,
+    *,
+    rule_name: str,
+    rendered_rule: str,
+) -> str:
+    pattern = re.compile(
+        rf"(?m)^  - name: {re.escape(rule_name)}\n"
+        r"(?P<body>.*?)(?=^  - name: |\Z)",
+        re.DOTALL,
+    )
+    match = pattern.search(content)
+    if match is None:
+        raise ValueError(f"Could not locate RuleSpec rule block: {rule_name}")
+    return content[: match.start()] + rendered_rule + content[match.end() :]
+
+
 def cmd_repair_medicaid_optional_senior_composition(args):
     """Apply signed deterministic Medicaid optional senior/disabled composition."""
     repo_path = Path(args.repo).resolve()
@@ -8783,7 +8808,14 @@ def _repair_medicaid_community_engagement_effective_date_rules(
         repaired_atoms.append(future_atom)
     proof["atoms"] = repaired_atoms
 
-    return _dump_rulespec_repair_yaml(payload), ["is_medicaid_eligible"]
+    return (
+        _replace_rulespec_rule_block(
+            content,
+            rule_name="is_medicaid_eligible",
+            rendered_rule=_render_rulespec_rule_block(medicaid_rule),
+        ),
+        ["is_medicaid_eligible"],
+    )
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):
