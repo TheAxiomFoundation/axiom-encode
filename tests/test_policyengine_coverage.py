@@ -928,7 +928,6 @@ surfaces:
 
     assert report["policybench"]["snapshot"] == "2026-06-14"
     assert [item["variable"] for item in report["actionable_surfaces"]] == [
-        "is_medicaid_eligible",
         "is_medicare_eligible",
         "md_montgomery_eitc_refundable",
         "wic",
@@ -937,7 +936,6 @@ surfaces:
     assert [
         item["policybench_household_weight"] for item in report["actionable_surfaces"]
     ] == [
-        pytest.approx(29.86),
         pytest.approx(10.74),
         pytest.approx(0.55),
         pytest.approx(0.32),
@@ -966,12 +964,12 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
 
     assert medicaid["program_id"] == "medicaid"
     assert medicaid["source_type"] == "eligibility"
-    assert medicaid["axiom_status"] == "pending_rulespec_encoding"
+    assert medicaid["axiom_status"] == "wired"
     assert medicaid["mapping_count"] == 1
     assert medicaid["comparable_mapping_count"] == 1
-    assert medicaid["populace_validation_status"] == "blocked"
+    assert medicaid["populace_validation_status"] == "validated"
     assert "medicaid-populace-compare" in medicaid["populace_validation_command"]
-    assert "SENIOR_OR_DISABLED" in medicaid["populace_validation_rationale"]
+    assert "160,858 matches" in medicaid["populace_validation_rationale"]
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 

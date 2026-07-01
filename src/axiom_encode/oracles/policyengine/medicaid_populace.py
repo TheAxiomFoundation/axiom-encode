@@ -516,20 +516,21 @@ def _project_case_inputs(
     )
     adult_full_eligible = bool(adult_nfc and adult_fc)
     # The current rules engine run request addresses inputs by name within the
-    # compiled program. Several imported Medicaid modules use this same local
-    # input name, so use one synthetic income projection for all of them.
+    # compiled program. Several imported Medicaid modules use these same local
+    # input names, so use one synthetic projection for each shared fact.
     shared_income_fraction = (
         1.0
         if (pregnant_full_eligible or child_component_eligible or adult_full_eligible)
         else 2.0
     )
+    shared_person_is_pregnant = bool(pregnant_nfc)
 
     _, child_limit = _threshold_inputs_from_component(
         eligible=child_component_eligible,
         threshold=1.33,
     )
-    inputs["us:regulations/42-cfr/435/116#input.person_is_pregnant"] = bool(
-        pregnant_nfc
+    inputs["us:regulations/42-cfr/435/116#input.person_is_pregnant"] = (
+        shared_person_is_pregnant
     )
     inputs[
         "us:regulations/42-cfr/435/116#input.household_income_as_fraction_of_fpl"
@@ -557,8 +558,8 @@ def _project_case_inputs(
         "us:regulations/42-cfr/435/118#input.state_plan_child_income_standard_fpl_ratio"
     ] = child_limit
 
-    inputs["us:regulations/42-cfr/435/119#input.person_is_pregnant"] = bool(
-        pregnant_nfc
+    inputs["us:regulations/42-cfr/435/119#input.person_is_pregnant"] = (
+        shared_person_is_pregnant
     )
     inputs[
         "us:regulations/42-cfr/435/119#input.person_entitled_to_or_enrolled_in_medicare_part_a_or_b"
@@ -679,7 +680,9 @@ def _project_case_inputs(
     inputs[
         "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard"
     ] = medically_needy
-    inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] = (
+        shared_person_is_pregnant
+    )
     inputs[
         "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_or_optional_categorically_needy_under_subpart_b_or_c"
     ] = False
