@@ -651,10 +651,17 @@ surfaces:
   variable: mn_mfip
   source_type: state_implementation
   state: MN
-  axiom_status: pending_rulespec_encoding
+  axiom_status: wired
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes the Minnesota Combined Manual MFIP total grant, applicant-proration, recoupment, and cash/food
+    issuance split, with a direct legal-ID mapping from the cash portion issued as cash to PolicyEngine's monthly mn_mfip
+    surface. The RuleSpec module records the higher-authority check against Minnesota Statutes 142G.16, 142G.17, and
+    256P.03 before relying on DHS manual operational procedure.
+  populace_validation:
+    status: pending_validator
+    command: uv run axiom-encode us-populace-compare --variable mn_mfip --sample-size 1 --state MN --json
+    rationale: The current US Populace comparator exits with "No PolicyEngine US adapter is configured for mn_mfip";
+      add the Minnesota MFIP adapter before claiming Populace-verified parity.
 - country: us
   program_id: tanf
   program_name: Tennessee Families First
