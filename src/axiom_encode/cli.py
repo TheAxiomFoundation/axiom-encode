@@ -7492,9 +7492,8 @@ def _repair_georgia_cms_effective_magi_limit_tests(
 
 MEDICAID_A10_RELATIVE = Path("statutes/42/1396a/a/10.yaml")
 MEDICAID_A10_CITATION = "us/statute/42/1396a/a/10"
-MEDICAID_OPTIONAL_SENIOR_TARGET = (
-    "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
-)
+MEDICAID_OPTIONAL_SENIOR_MODULE_TARGET = "us:statutes/42/1396a/m"
+MEDICAID_OPTIONAL_SENIOR_TARGET = f"{MEDICAID_OPTIONAL_SENIOR_MODULE_TARGET}#is_optional_senior_or_disabled_for_medicaid"
 MEDICAID_OPTIONAL_SENIOR_RULE = "is_optional_senior_or_disabled_for_medicaid"
 MEDICAID_YOUTH_RELATIVE = Path("statutes/42/1396d/a/i.yaml")
 MEDICAID_YOUTH_MODULE_TARGET = "us:statutes/42/1396d/a/i"
@@ -7877,16 +7876,21 @@ def _repair_medicaid_optional_senior_composition_rules(
     repaired = content
     changed: list[str] = []
 
-    if MEDICAID_OPTIONAL_SENIOR_TARGET not in repaired:
-        module_marker = "\nmodule:\n"
-        if module_marker not in repaired:
-            raise ValueError("RuleSpec payload must contain module section")
-        repaired = repaired.replace(
-            module_marker,
-            f"\n  - {MEDICAID_OPTIONAL_SENIOR_TARGET}{module_marker}",
-            1,
-        )
-        changed.append("is_medicaid_eligible")
+    optional_module_line = f"  - {MEDICAID_OPTIONAL_SENIOR_MODULE_TARGET}\n"
+    optional_specific_line = f"  - {MEDICAID_OPTIONAL_SENIOR_TARGET}\n"
+    if optional_module_line not in repaired:
+        if optional_specific_line in repaired:
+            repaired = repaired.replace(optional_specific_line, optional_module_line, 1)
+        else:
+            module_marker = "\nmodule:\n"
+            if module_marker not in repaired:
+                raise ValueError("RuleSpec payload must contain module section")
+            repaired = repaired.replace(
+                module_marker,
+                f"\n{optional_module_line}{module_marker}",
+                1,
+            )
+        changed.append("imports")
 
     source_marker = "    source: 42 USC 1396a(a)(10)(A)(i)\n"
     if source_marker in repaired:
@@ -8186,13 +8190,21 @@ def _repair_medicaid_primary_category_composition_rules(
     changed: list[str] = []
 
     imports_to_add = [
+        MEDICAID_OPTIONAL_SENIOR_MODULE_TARGET,
         MEDICAID_YOUTH_MODULE_TARGET,
         MEDICAID_MEDICALLY_NEEDY_MODULE_TARGET,
     ]
     module_marker = "\nmodule:\n"
     if module_marker not in repaired:
         raise ValueError("RuleSpec payload must contain module section")
-    missing_imports = [target for target in imports_to_add if target not in repaired]
+    optional_module_line = f"  - {MEDICAID_OPTIONAL_SENIOR_MODULE_TARGET}\n"
+    optional_specific_line = f"  - {MEDICAID_OPTIONAL_SENIOR_TARGET}\n"
+    if optional_module_line not in repaired and optional_specific_line in repaired:
+        repaired = repaired.replace(optional_specific_line, optional_module_line, 1)
+        changed.append("imports")
+    missing_imports = [
+        target for target in imports_to_add if f"  - {target}\n" not in repaired
+    ]
     if missing_imports:
         repaired = repaired.replace(
             module_marker,

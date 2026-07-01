@@ -25717,7 +25717,12 @@ rules:
             _repair_medicaid_optional_senior_composition_tests(tests)
         )
 
-        assert changed_rules == ["is_medicaid_eligible"]
+        assert changed_rules == ["imports", "is_medicaid_eligible"]
+        assert "\n  - us:statutes/42/1396a/m\n" in repaired_rules
+        assert (
+            "\n  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid\n"
+            not in repaired_rules
+        )
         assert (
             "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
             in repaired_rules
@@ -25856,6 +25861,11 @@ rules:
         )
         assert (
             "or optional_working_disabled_medicaid_category_eligible" in repaired_rules
+        )
+        assert "\n  - us:statutes/42/1396a/m\n" in repaired_rules
+        assert (
+            "\n  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid\n"
+            not in repaired_rules
         )
 
     def test_repair_medicaid_primary_category_tests_add_working_disabled_case(self):
@@ -26003,6 +26013,7 @@ rules:
         first_rules_content = rules_file.read_text()
         first_test_content = test_file.read_text()
         assert first_payload["axiom_encode_git"]["commit"] == "old123"
+        assert "\n  - us:statutes/42/1396a/m\n" in first_rules_content
         _git(checkout, "add", ".")
         _git(checkout, "commit", "-m", "apply old repair")
 
