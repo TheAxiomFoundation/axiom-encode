@@ -149,18 +149,18 @@ surfaces:
   coverage: US
   variable: is_medicaid_eligible
   source_type: eligibility
-  axiom_status: pending_rulespec_encoding
+  axiom_status: wired
   priority: P1
-  rationale: PolicyBench scores this direct person-level Medicaid eligibility variable. Axiom has source-level category and
-    state-parameter rules, but still needs a PE-facing eligibility composite before claiming parity.
+  rationale: PolicyBench scores this direct person-level Medicaid eligibility variable. Axiom now wires the federal source-level
+    category composite, optional federal category surfaces, and projected state-set category inputs into a PE-facing eligibility
+    comparison surface.
   populace_validation:
-    status: blocked
-    command: axiom-encode medicaid-populace-compare --program /path/to/rulespec-us/us/statutes/42/1396a/a/10.yaml --workspace-root /path/to/workspace --pre-sample-households 150 --sample-size 50
+    status: validated
+    command: AXIOM_POPULACE_US_2024_H5=/Users/maxghenis/.codex-artifacts/populace-us-fiscal-refresh-703bd81-no-oos-20260620/artifacts/populace_us_2024.h5 uv run --with policyengine-us --with policyengine-core==3.26.0 --with /Users/maxghenis/PolicyEngine/populace/packages/populace-data[us] --with numpy --with pandas axiom-encode medicaid-populace-compare --year 2024 --month 1 --populace-year 2024 --program /Users/maxghenis/TheAxiomFoundation/rulespec-us/us/statutes/42/1396a/a/10.yaml --workspace-root /Users/maxghenis/TheAxiomFoundation --axiom-binary /Users/maxghenis/TheAxiomFoundation/_worktrees/axiom-rules-engine-derived-versions-20260701/target/debug/axiom-rules-engine --eligibility-only --fail-on-mismatch --min-match-rate 1 --max-differences 20
     dataset: populace-us-2024 local H5
-    last_run: '2026-06-30'
-    rationale: CA and IL Populace smoke comparisons run against the real Axiom rules engine still show PE SENIOR_OR_DISABLED
-      rows as PE-eligible and Axiom-ineligible. Close optional aged/blind/disabled Medicaid from federal primary sources
-      plus maximally-upstream state-set income and resource standards before marking this surface validated.
+    last_run: '2026-07-01'
+    rationale: Full-population eligibility-only comparison passed with 160,858 people compared, 160,858 matches, 0 mismatches,
+      and 100.00% match rate across all PE Medicaid categories.
 - country: us
   program_id: chip
   program_name: CHIP

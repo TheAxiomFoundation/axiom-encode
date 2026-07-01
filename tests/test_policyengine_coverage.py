@@ -884,9 +884,17 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: is_medicaid_eligible
-    axiom_status: pending_rulespec_encoding
+    axiom_status: wired
+    populace_validation:
+      status: validated
+      command: axiom-encode medicaid-populace-compare --eligibility-only
+      dataset: Populace US 2024
+      last_run: '2026-07-01'
+      compared: 160858
+      matches: 160858
+      mismatches: 0
     priority: P1
-    rationale: Needs RuleSpec encoding.
+    rationale: Validated against Populace Medicaid eligibility.
   - country: us
     program_id: medicare
     program_name: Medicare
@@ -928,7 +936,6 @@ surfaces:
 
     assert report["policybench"]["snapshot"] == "2026-06-14"
     assert [item["variable"] for item in report["actionable_surfaces"]] == [
-        "is_medicaid_eligible",
         "is_medicare_eligible",
         "md_montgomery_eitc_refundable",
         "wic",
@@ -937,7 +944,6 @@ surfaces:
     assert [
         item["policybench_household_weight"] for item in report["actionable_surfaces"]
     ] == [
-        pytest.approx(29.86),
         pytest.approx(10.74),
         pytest.approx(0.55),
         pytest.approx(0.32),
@@ -966,12 +972,12 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
 
     assert medicaid["program_id"] == "medicaid"
     assert medicaid["source_type"] == "eligibility"
-    assert medicaid["axiom_status"] == "pending_rulespec_encoding"
+    assert medicaid["axiom_status"] == "wired"
     assert medicaid["mapping_count"] == 1
     assert medicaid["comparable_mapping_count"] == 1
-    assert medicaid["populace_validation_status"] == "blocked"
+    assert medicaid["populace_validation_status"] == "validated"
     assert "medicaid-populace-compare" in medicaid["populace_validation_command"]
-    assert "SENIOR_OR_DISABLED" in medicaid["populace_validation_rationale"]
+    assert "160,858 matches" in medicaid["populace_validation_rationale"]
     assert medicaid["policybench_output"] == "person_level_medicaid_eligibility"
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 
@@ -1009,11 +1015,9 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["total_surfaces"] == 2
     assert report["status_counts"] == {
         "out_of_scope": 1,
-        "pending_rulespec_encoding": 1,
+        "wired": 1,
     }
-    assert [item["variable"] for item in report["actionable_surfaces"]] == [
-        "is_medicaid_eligible"
-    ]
+    assert report["actionable_surfaces"] == []
 
 
 def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():

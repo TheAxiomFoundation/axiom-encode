@@ -1839,6 +1839,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_medicaid_ce_parser = subparsers.add_parser(
+        "repair-medicaid-community-engagement-effective-date",
+        help="Apply signed deterministic Medicaid community-engagement effective-date repairs",
+    )
+    repair_medicaid_ce_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_medicaid_ce_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_ny_snap_categorical_parser = subparsers.add_parser(
         "repair-new-york-snap-categorical-eligibility",
         help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
@@ -2543,6 +2562,8 @@ def main():
         cmd_repair_medicaid_optional_senior_composition(args)
     elif args.command == "repair-medicaid-primary-category-composition":
         cmd_repair_medicaid_primary_category_composition(args)
+    elif args.command == "repair-medicaid-community-engagement-effective-date":
+        cmd_repair_medicaid_community_engagement_effective_date(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
         cmd_repair_new_york_snap_categorical_eligibility(args)
     elif args.command == "repair-new-york-snap-benefit-tests":
@@ -7521,6 +7542,13 @@ MEDICAID_OPTIONAL_WORKING_DISABLED_RULE = (
     "optional_working_disabled_medicaid_category_eligible"
 )
 MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL = "medicaid-primary-category-composition-v1"
+MEDICAID_COMMUNITY_ENGAGEMENT_EFFECTIVE_DATE_REPAIR_MODEL = (
+    "medicaid-community-engagement-effective-date-v1"
+)
+MEDICAID_COMMUNITY_ENGAGEMENT_TARGET = (
+    "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
+)
+MEDICAID_COMMUNITY_ENGAGEMENT_RULE = "demonstrated_community_engagement_for_month"
 
 MEDICAID_YOUTH_RULESPEC = """format: rulespec/v1
 module:
@@ -7693,6 +7721,11 @@ class _RulespecRepairDumper(yaml.SafeDumper):
     pass
 
 
+class _RulespecRepairBlockDumper(_RulespecRepairDumper):
+    def increase_indent(self, flow: bool = False, indentless: bool = False):
+        return super().increase_indent(flow, False)
+
+
 def _rulespec_repair_str_representer(
     dumper: yaml.SafeDumper, value: str
 ) -> yaml.nodes.ScalarNode:
@@ -7711,6 +7744,37 @@ def _dump_rulespec_repair_yaml(payload: Any) -> str:
         allow_unicode=False,
         width=1000,
     )
+
+
+def _render_rulespec_rule_block(rule: dict[str, Any]) -> str:
+    rendered = yaml.dump(
+        [rule],
+        Dumper=_RulespecRepairBlockDumper,
+        sort_keys=False,
+        allow_unicode=False,
+        width=1000,
+    )
+    return "".join(
+        f"  {line}" if line.strip() else line
+        for line in rendered.splitlines(keepends=True)
+    )
+
+
+def _replace_rulespec_rule_block(
+    content: str,
+    *,
+    rule_name: str,
+    rendered_rule: str,
+) -> str:
+    pattern = re.compile(
+        rf"(?m)^  - name: {re.escape(rule_name)}\n"
+        r"(?P<body>.*?)(?=^  - name: |\Z)",
+        re.DOTALL,
+    )
+    match = pattern.search(content)
+    if match is None:
+        raise ValueError(f"Could not locate RuleSpec rule block: {rule_name}")
+    return content[: match.start()] + rendered_rule + content[match.end() :]
 
 
 def cmd_repair_medicaid_optional_senior_composition(args):
@@ -8555,6 +8619,218 @@ def _repair_medicaid_primary_category_composition_tests(
         changed.append("optional SSI excess earnings category eligible")
 
     return _dump_rulespec_repair_yaml(cases), changed
+
+
+def cmd_repair_medicaid_community_engagement_effective_date(args):
+    """Apply signed deterministic Medicaid community-engagement timing repairs."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-medicaid-community-engagement-effective-date must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    rules_file = repo_path / MEDICAID_A10_RELATIVE
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    manifest_groups = [(MEDICAID_A10_RELATIVE, [rules_file, test_file])]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    originals = {rules_file: original_content, test_file: original_test_content}
+
+    repaired_content, repaired_rules = (
+        _repair_medicaid_community_engagement_effective_date_rules(original_content)
+    )
+    changed_by_command: list[Path] = []
+    try:
+        rules_file.write_text(repaired_content)
+
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            validation_issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            raise RuntimeError(
+                "Validation failed after Medicaid community-engagement repair:\n"
+                + "\n".join(f"- {issue}" for issue in validation_issues)
+            )
+
+        test_issues = _companion_test_issues(
+            test_files=[test_file],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after Medicaid community-engagement repair:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in (rules_file, test_file)
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    refresh_manifest_files: list[Path] = []
+    if not changed_by_command:
+        applied_files = [rules_file, test_file]
+        if not _applied_manifest_matches_current_deterministic_repair(
+            repo_path=repo_path,
+            relative_output=MEDICAID_A10_RELATIVE,
+            applied_files=applied_files,
+            model=MEDICAID_COMMUNITY_ENGAGEMENT_EFFECTIVE_DATE_REPAIR_MODEL,
+            axiom_encode_git=axiom_encode_git,
+            signing_key=signing_key,
+        ):
+            refresh_manifest_files.extend(applied_files)
+        else:
+            print("No Medicaid community-engagement effective-date repairs found.")
+            return
+    refresh_only = bool(refresh_manifest_files)
+    if refresh_only:
+        changed_by_command = _unique_paths(refresh_manifest_files)
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model=MEDICAID_COMMUNITY_ENGAGEMENT_EFFECTIVE_DATE_REPAIR_MODEL,
+        tool="axiom-encode repair-medicaid-community-engagement-effective-date",
+    )
+
+    if refresh_only:
+        print("Refreshed Medicaid community-engagement effective-date repair manifest")
+    else:
+        print("Applied Medicaid community-engagement effective-date repair")
+    if repaired_rules and not refresh_only:
+        print(f"changed_rules={', '.join(repaired_rules)}")
+    if not refresh_only:
+        for path in changed_by_command:
+            print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _repair_medicaid_community_engagement_effective_date_rules(
+    content: str,
+) -> tuple[str, list[str]]:
+    payload = yaml.safe_load(content)
+    if not isinstance(payload, dict):
+        raise ValueError("RuleSpec payload must be a mapping")
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        raise ValueError("RuleSpec payload must contain rules")
+
+    medicaid_rule = next(
+        (
+            rule
+            for rule in rules
+            if isinstance(rule, dict) and rule.get("name") == "is_medicaid_eligible"
+        ),
+        None,
+    )
+    if medicaid_rule is None:
+        raise ValueError("Missing is_medicaid_eligible rule")
+
+    versions = medicaid_rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        raise ValueError("is_medicaid_eligible must have versions")
+    original_formula = (
+        versions[0].get("formula") if isinstance(versions[0], dict) else None
+    )
+    if not isinstance(original_formula, str):
+        raise ValueError("is_medicaid_eligible first version must have formula")
+
+    gated_adult_group = (
+        "(adult_group_eligible and demonstrated_community_engagement_for_month)"
+    )
+    if len(versions) >= 2 and versions[0].get("formula") != original_formula:
+        raise ValueError("Unexpected Medicaid eligibility version shape")
+    if (
+        len(versions) >= 2
+        and MEDICAID_COMMUNITY_ENGAGEMENT_RULE in str(versions[1].get("formula"))
+        and MEDICAID_COMMUNITY_ENGAGEMENT_RULE not in str(versions[0].get("formula"))
+    ):
+        return content, []
+    if gated_adult_group not in original_formula:
+        raise ValueError("Missing adult-group community-engagement formula branch")
+
+    past_formula = original_formula.replace(
+        gated_adult_group, "adult_group_eligible", 1
+    )
+    future_formula = original_formula
+    medicaid_rule["versions"] = [
+        {
+            "effective_from": versions[0].get("effective_from", "2014-01-01"),
+            "formula": past_formula,
+        },
+        {
+            "effective_from": "2026-12-31",
+            "formula": future_formula,
+        },
+    ]
+
+    proof = medicaid_rule.get("metadata", {}).get("proof", {})
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        raise ValueError("is_medicaid_eligible proof atoms must be a list")
+    repaired_atoms: list[dict[str, Any]] = []
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            repaired_atoms.append(atom)
+            continue
+        if atom.get("path") != "versions[0].formula":
+            repaired_atoms.append(atom)
+            continue
+        imported = atom.get("import")
+        if (
+            isinstance(imported, dict)
+            and imported.get("target") == MEDICAID_COMMUNITY_ENGAGEMENT_TARGET
+        ):
+            future_atom = copy.deepcopy(atom)
+            future_atom["path"] = "versions[1].formula"
+            repaired_atoms.append(future_atom)
+            continue
+        repaired_atoms.append(atom)
+        future_atom = copy.deepcopy(atom)
+        future_atom["path"] = "versions[1].formula"
+        repaired_atoms.append(future_atom)
+    proof["atoms"] = repaired_atoms
+
+    return (
+        _replace_rulespec_rule_block(
+            content,
+            rule_name="is_medicaid_eligible",
+            rendered_rule=_render_rulespec_rule_block(medicaid_rule),
+        ),
+        ["is_medicaid_eligible"],
+    )
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):

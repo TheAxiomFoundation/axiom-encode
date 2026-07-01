@@ -891,7 +891,7 @@ rules:
     ]
 
 
-def test_versioned_derived_formula_rejects_multiple_formula_versions():
+def test_versioned_derived_formula_allows_multiple_formula_versions():
     content = """format: rulespec/v1
 rules:
   - name: savers_credit_gross_contributions
@@ -918,9 +918,7 @@ rules:
 
     issues = find_versioned_derived_formula_issues(content)
 
-    assert len(issues) == 1
-    assert "savers_credit_gross_contributions has 2 formula versions" in issues[0]
-    assert "Versioned derived formula unsupported" in issues[0]
+    assert issues == []
 
 
 def test_rule_source_metadata_rejects_executable_rules_without_rule_source():

@@ -187,6 +187,36 @@ def test_project_case_inputs_uses_shared_income_projection_for_medicaid_imports(
     )
 
 
+def test_project_case_inputs_uses_shared_pregnancy_projection_for_medicaid_imports():
+    inputs = medicaid_populace._project_case_inputs(
+        {},
+        age=35,
+        medicaid_income_level=0.25,
+        parent_nfc=False,
+        parent_fc=True,
+        pregnant_nfc=True,
+        pregnant_fc=True,
+        infant_fc=False,
+        young_child_fc=False,
+        older_child_eligible=False,
+        adult_nfc=True,
+        adult_fc=True,
+        ssi_recipient=False,
+        young_adult_eligible=False,
+        senior_or_disabled_eligible=False,
+        medically_needy_eligible=False,
+        working_disabled_buy_in_eligible=False,
+        ssi_excess_earnings_buy_in_eligible=False,
+        mandatory_subpart_b=True,
+        work_requirement_eligible=True,
+        medicare_eligible=False,
+    )
+
+    assert inputs["us:regulations/42-cfr/435/116#input.person_is_pregnant"] is True
+    assert inputs["us:regulations/42-cfr/435/119#input.person_is_pregnant"] is True
+    assert inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] is True
+
+
 def test_project_case_inputs_maps_senior_disabled_category_to_statutory_inputs():
     inputs = medicaid_populace._project_case_inputs(
         {},

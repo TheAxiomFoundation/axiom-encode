@@ -89,6 +89,7 @@ from axiom_encode.cli import (
     _repair_half_unit_add_person_formulas,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
+    _repair_medicaid_community_engagement_effective_date_rules,
     _repair_medicaid_optional_senior_composition_rules,
     _repair_medicaid_optional_senior_composition_tests,
     _repair_medicaid_primary_category_composition_rules,
@@ -25748,6 +25749,97 @@ rules:
             "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
         }
         assert "optional senior disabled category eligible" in changed_tests
+
+    def test_repair_medicaid_community_engagement_effective_date_splits_versions(
+        self,
+    ):
+        rules = """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a/a/10
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(i)-(ii), (C)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:regulations/42-cfr/435/119#adult_group_eligible
+              output: adult_group_eligible
+              hash: sha256:adult
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+              output: demonstrated_community_engagement_for_month
+              hash: sha256:engagement
+    versions:
+      - effective_from: '2014-01-01'
+        formula: |-
+          parent_or_caretaker_relative_eligible
+          or (adult_group_eligible and demonstrated_community_engagement_for_month)
+          or former_foster_care_child_medicaid_required
+"""
+
+        repaired, changed = _repair_medicaid_community_engagement_effective_date_rules(
+            rules
+        )
+
+        assert changed == ["is_medicaid_eligible"]
+        assert repaired.startswith(
+            """format: rulespec/v1
+imports:
+  - us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month
+module:
+  proof_validation:
+    required: true
+"""
+        )
+        parsed = yaml.safe_load(repaired)
+        medicaid = parsed["rules"][0]
+        assert medicaid["versions"][0]["effective_from"] == "2014-01-01"
+        assert medicaid["versions"][1]["effective_from"] == "2026-12-31"
+        assert "adult_group_eligible" in medicaid["versions"][0]["formula"]
+        assert (
+            "demonstrated_community_engagement_for_month"
+            not in medicaid["versions"][0]["formula"]
+        )
+        assert (
+            "(adult_group_eligible and demonstrated_community_engagement_for_month)"
+            in medicaid["versions"][1]["formula"]
+        )
+        atoms = medicaid["metadata"]["proof"]["atoms"]
+        engagement_atoms = [
+            atom
+            for atom in atoms
+            if atom.get("import", {}).get("target")
+            == "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
+        ]
+        assert [atom["path"] for atom in engagement_atoms] == ["versions[1].formula"]
+        adult_atoms = [
+            atom
+            for atom in atoms
+            if atom.get("import", {}).get("target")
+            == "us:regulations/42-cfr/435/119#adult_group_eligible"
+        ]
+        assert [atom["path"] for atom in adult_atoms] == [
+            "versions[0].formula",
+            "versions[1].formula",
+        ]
 
     def test_repair_medicaid_primary_category_tests_keep_youth_age_inputs_consistent(
         self,
