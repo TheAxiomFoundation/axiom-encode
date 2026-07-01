@@ -20885,6 +20885,64 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_floors_each_min_income_argument():
+    content = """format: rulespec/v1
+rules:
+  - name: earned_income_deduction_amount_person
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if initial_deduction_category_applies:
+            min(total_gross_monthly_earned_income, initial_earned_income_deduction_amount)
+          else:
+            min(total_gross_monthly_earned_income, continuing_earned_income_deduction_base_amount + continuing_deduction_rate * max(0, total_gross_monthly_earned_income - continuing_earned_income_deduction_base_amount))
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["earned_income_deduction_amount_person"]
+    assert (
+        "min(max(0, total_gross_monthly_earned_income), "
+        "initial_earned_income_deduction_amount)" in repaired
+    )
+    assert (
+        "min(max(0, total_gross_monthly_earned_income), "
+        "continuing_earned_income_deduction_base_amount + "
+        "continuing_deduction_rate * max(0, "
+        "total_gross_monthly_earned_income - "
+        "continuing_earned_income_deduction_base_amount))" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_repair_nonnegative_amount_reductions_replaces_quoted_formula_scalar():
+    content = """format: rulespec/v1
+rules:
+  - name: earned_income_deduction_amount_person
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: "if initial_deduction_category_applies:\\n  min(total_gross_monthly_earned_income, initial_earned_income_deduction_amount)\\nelse:\\n  0"
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["earned_income_deduction_amount_person"]
+    assert "formula: |-" in repaired
+    assert (
+        "min(max(0, total_gross_monthly_earned_income), "
+        "initial_earned_income_deduction_amount)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"

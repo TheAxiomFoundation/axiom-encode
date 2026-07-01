@@ -10602,11 +10602,32 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
 
 
 def _nonnegative_income_base_missing_zero_floor(expression: str) -> bool:
-    if _final_expression_has_zero_floor(expression):
+    stripped_expression = expression.strip()
+    if any(
+        start == 0 and end == len(stripped_expression)
+        for start, end, _argument in _zero_floor_call_spans(stripped_expression)
+    ):
         return False
     if not _NONNEGATIVE_INCOME_BASE_FORMULA_PATTERN.search(expression):
         return False
-    return not _ZERO_FLOORED_INCOME_BASE_PATTERN.search(expression)
+    return any(
+        _min_argument_has_unfloored_income_base(argument)
+        for _start, _end, arguments in _min_call_spans(expression)
+        for argument in arguments
+    )
+
+
+def _min_argument_has_unfloored_income_base(argument: str) -> bool:
+    return any(
+        not _income_base_identifier_is_parameter_cap(match.group(0))
+        for match in _INCOME_BASE_IDENTIFIER_PATTERN.finditer(
+            _expression_without_zero_floor_calls(argument.strip())
+        )
+    )
+
+
+def _income_base_identifier_is_parameter_cap(identifier: str) -> bool:
+    return identifier.lower().endswith("_amount")
 
 
 def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
@@ -10709,7 +10730,12 @@ def _taxable_income_expression_has_zero_floor(expression: str) -> bool:
 
 def _repair_nonnegative_amount_reduction_formula(formula: str) -> str:
     if _nonnegative_income_base_missing_zero_floor(formula):
-        repaired_formula = _repair_nonnegative_income_base_expression(formula.strip())
+        repaired_formula = formula.strip()
+        for _ in range(20):
+            next_formula = _repair_nonnegative_income_base_expression(repaired_formula)
+            if next_formula == repaired_formula:
+                break
+            repaired_formula = next_formula
         if repaired_formula != formula.strip():
             return repaired_formula
 
@@ -10759,9 +10785,7 @@ def _repair_nonnegative_income_base_expression(expression: str) -> str:
         repaired_arguments = [argument.strip() for argument in arguments]
         for index, argument in enumerate(arguments):
             stripped_argument = argument.strip()
-            if not _INCOME_BASE_IDENTIFIER_PATTERN.search(stripped_argument):
-                continue
-            if _ZERO_FLOORED_INCOME_BASE_PATTERN.search(stripped_argument):
+            if not _min_argument_has_unfloored_income_base(stripped_argument):
                 continue
             repaired_arguments[index] = f"max(0, {stripped_argument})"
             return (
@@ -11153,7 +11177,14 @@ def _replace_folded_formula_scalar_text_once(content: str, old: str, new: str) -
     )
     for match in formula_scalar_pattern.finditer(content):
         body = match.group("body")
-        if _normalize_yaml_folded_scalar_text(body) != old_normalized:
+        scalar_value: str | None = body
+        with contextlib.suppress(yaml.YAMLError):
+            loaded_scalar = yaml.safe_load(match.group(0))
+            if isinstance(loaded_scalar, dict) and isinstance(
+                loaded_scalar.get("formula"), str
+            ):
+                scalar_value = loaded_scalar["formula"]
+        if _normalize_yaml_folded_scalar_text(scalar_value or "") != old_normalized:
             continue
         line_start = content.rfind("\n", 0, match.start()) + 1
         indent_match = re.match(r"[ \t]*", content[line_start : match.start()])
