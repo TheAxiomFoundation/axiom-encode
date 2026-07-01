@@ -2034,13 +2034,14 @@ def project_aotc_person_inputs(
     person: Any,
     context: PersonProjectionContext,
 ) -> dict[str, Any]:
+    # PolicyEngine treats qualified_tuition_expenses as the amount eligible for
+    # the education-credit schedule. It does not expose a separate gross-tuition
+    # value that should be reduced again by educational assistance.
     return {
         "qualified_tuition_and_related_expenses": money(
             person.get("qualified_tuition_expenses", 0)
         ),
-        "excludable_educational_assistance": money(
-            person.get("educational_assistance", 0)
-        ),
+        "excludable_educational_assistance": 0.0,
         "is_taxpayer": context.is_head,
         "is_spouse": context.is_spouse,
         "is_tax_unit_dependent": context.is_tax_unit_dependent,
@@ -2791,12 +2792,15 @@ def compare_outputs(
             "the available nonrefundable-credit limit remain explicit upstream "
             "boundary inputs until those federal tax chains are encoded "
             "end-to-end.",
-            "AOTC projections run encoded 26 USC 25A math from Populace tuition, "
-            "educational-assistance, enrollment, credential, institution, "
-            "prior-claim, and SSN-card facts. Income tax before credits, CDCC, "
-            "and foreign tax credit remain explicit upstream boundary inputs "
-            "until the full federal credit-ordering chain is encoded "
-            "end-to-end.",
+            "AOTC projections run encoded 26 USC 25A math from "
+            "Populace/PolicyEngine adjusted qualified-tuition, enrollment, "
+            "credential, institution, prior-claim, and SSN-card facts. "
+            "Educational assistance is not subtracted a second time because "
+            "PolicyEngine exposes only the already creditable "
+            "qualified_tuition_expenses amount for this oracle surface. "
+            "Income tax before credits, CDCC, and foreign tax credit remain "
+            "explicit upstream boundary inputs until the full federal "
+            "credit-ordering chain is encoded end-to-end.",
             "Nonrefundable-credit projections run encoded 26 USC 26 aggregate "
             "sum and cap math from upstream credit components supplied as "
             "boundary inputs. Individual component-credit correctness remains "
