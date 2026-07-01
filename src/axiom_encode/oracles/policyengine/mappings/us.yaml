@@ -4073,6 +4073,330 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Arizona Cash Assistance wrapper composes DES FAA5 payment-standard, needy-family, prospective-eligibility, and eligible-no-pay issuance rules, including the under-$10 no-pay boundary. PolicyEngine's az_tanf is a final monthly SPM-unit benefit gated by PE's demographic, immigration, resource, and income graph and does not share the DES eligible-no-pay issuance boundary, so this is not a one-to-one oracle target yet.
 
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_by_family_size
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ak.dpa.atap.need_standard.amount
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA adult-included need-standard table through family size 10. PolicyEngine's need_standard.amount parameter currently stores a historical size-1-to-8 table and a separate additional-person amount, so this full source table is adjacent but not a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_each_additional
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.need_standard.additional_person
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Alaska ATAP adult-included need-standard each-additional-person amount from the official 2026 DPA standards, represented in PolicyEngine as the need_standard additional_person parameter.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_max_payment_by_family_size
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ak.dpa.atap.payment.base
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA adult-included maximum-payment table through family size 10. PolicyEngine decomposes maximum payment into a size-2 base amount plus an additional-child parameter and does not expose the full source table as a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_max_payment_each_additional
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ak.dpa.atap.payment.additional_child
+    candidate_priority: P4
+    rationale: The official DPA standards row is an each-additional-person amount for the adult-included maximum-payment table. PolicyEngine stores an additional_child payment parameter used by its dependent-count formula, so the value is adjacent but the legal surface and indexing are not the same.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_max_shelter_by_family_size
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA maximum-shelter table used by low-shelter-cost ATAP reductions. PolicyEngine's current Alaska ATAP model explicitly omits the shelter-cost reduction and has no corresponding parameter table.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_max_shelter_each_additional
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA each-additional maximum-shelter amount used by low-shelter-cost ATAP reductions. PolicyEngine's current Alaska ATAP model explicitly omits the shelter-cost reduction and has no corresponding parameter.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_ratable_reduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap
+    candidate_priority: P4
+    rationale: Axiom records the official DPA 43.13 percent ratable-reduction standard as a source parameter. PolicyEngine derives an effective payment ratio from its size-2 payment and need-standard parameters inside ak_atap rather than exposing this published percentage, and the derived PE ratio is not the same legal source surface.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#ak_atap_need_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_need_standard
+    candidate_priority: P4
+    rationale: Axiom's source-level output selects the official adult-included DPA need-standard table and applies the each-additional amount beyond the table maximum. PolicyEngine's ak_atap_need_standard also includes PE's pregnant-woman branch and SPM-unit composition, so it is not a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included-gross-income-limit#ak_atap_gross_income_limit_family_size_lookup
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_limit
+    candidate_priority: P4
+    rationale: Axiom exposes the family-size selector helper used to read the official adult-included 185 percent standards table. PolicyEngine compares the final derived gross-income-limit amount and does not expose this source-table selector.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included-gross-income-limit#ak_atap_gross_income_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_limit
+    candidate_priority: P4
+    rationale: Axiom exposes the official adult-included 185 percent standard table and each-additional row from the 2026 DPA standards. PolicyEngine derives ak_atap_gross_income_limit as 185 percent of its broader ak_atap_need_standard graph, including non-adult-included branches, so this source-table output is adjacent rather than directly comparable.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included-maximum-payment#ak_atap_maximum_payment_family_size_lookup
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_maximum_payment
+    candidate_priority: P4
+    rationale: Axiom exposes the family-size selector helper used to read the official adult-included maximum-payment table. PolicyEngine compares a derived maximum-payment variable from dependent counts and does not expose this source-table selector.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included-maximum-payment#ak_atap_maximum_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_maximum_payment
+    candidate_priority: P4
+    rationale: Axiom exposes the official adult-included maximum-payment table and each-additional row from the 2026 DPA standards. PolicyEngine's ak_atap_maximum_payment uses a simplified size-2 base plus additional-child formula and a separate pregnant-woman branch, so this source-table output is adjacent rather than directly comparable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-280-resource-limit#atap_standard_resource_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.resource_limit.standard.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same 7 AAC 45.280 standard ATAP resource limit, represented in PolicyEngine as the Alaska ATAP standard resource-limit amount.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-280-resource-limit#atap_resource_limit_with_older_individual
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.resource_limit.elderly.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same 7 AAC 45.280 higher ATAP resource limit for an assistance unit with an older individual, represented in PolicyEngine as the elderly resource-limit amount.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-280-resource-limit#older_individual_resource_limit_minimum_age
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.resource_limit.elderly.age_threshold
+    period: year
+    comparison: count
+    rationale: Same 7 AAC 45.280 age threshold for the higher ATAP resource limit, represented in PolicyEngine as the elderly resource-limit age_threshold parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-280-resource-limit#ak_atap_resources_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_resources_eligible
+    candidate_priority: P4
+    rationale: Axiom applies 7 AAC 45.280 to nonexempt resources valued under the Alaska regulation and the source-level older-individual threshold. PolicyEngine's helper is projected through PE's SPM-unit assets and age graph, so it is adjacent but not a one-to-one legal oracle target.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-400-child-support-income#atap_monthly_direct_child_support_retention_disregard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.income.deductions.child_support
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same 7 AAC 45.400 monthly direct child-support retention disregard, represented in PolicyEngine as the Alaska ATAP child-support deduction parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-400-child-support-income#ak_atap_countable_unearned_income
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_unearned_income
+    candidate_priority: P4
+    rationale: Axiom encodes the 7 AAC 45.400 cash child-support timing, direct-payment retention, noncash-payment, repayment, and noncooperation rules. PolicyEngine subtracts a generic child-support exclusion from gross unearned income, so the source-level legal output is not directly comparable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-400-child-support-income#atap_child_support_overpayment_repayment_required
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_unearned_income
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.400 overpayment-repayment consequence for recipients who retain excess direct child-support payments. PolicyEngine's child-support surface is an income deduction and does not expose this administrative repayment determination.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-400-child-support-income#atap_child_support_noncooperation_due_to_excess_retention
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_unearned_income
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.400 noncooperation determination for recipients who retain excess direct child-support payments. PolicyEngine's child-support surface is an income deduction and does not expose this administrative cooperation status.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#atap_gross_income_standard_percentage
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.gross_income_limit_rate
+    period: month
+    comparison: ratio
+    rationale: Same 7 AAC 45.470 gross-income standard percentage, represented in PolicyEngine as the Alaska ATAP gross_income_limit_rate parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#atap_income_excess_denial_threshold
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the one-cent excess-income denial threshold stated in 7 AAC 45.470. PolicyEngine tests eligibility with direct less-than-or-equal comparisons and does not expose this administrative threshold as a parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#ak_atap_countable_income_for_income_eligibility
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_income
+    candidate_priority: P4
+    rationale: Axiom computes the 7 AAC 45.470 countable-income amount after source-level deductions and disregards under 7 AAC 45.475-45.500. PolicyEngine's ak_atap_countable_income uses its own earned and unearned income graph and omits several Alaska source-level branches, so this is not a direct oracle target.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#ak_atap_gross_income_initial_screen_met
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_eligible
+    candidate_priority: P4
+    rationale: Axiom's initial screen combines source-level resource eligibility with the gross-income limit. PolicyEngine's ak_atap_gross_income_eligible checks only PE gross income against the PE gross-income-limit variable, so the eligibility predicate is not one-to-one.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#ak_atap_gross_income_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom's 7 AAC 45.470 gross-income eligibility output requires both the gross-income screen and countable income not exceeding the need standard. PolicyEngine separates gross-income and net-income tests and then composes them with demographic and immigration gates in ak_atap_eligible, so there is no one-to-one variable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#atap_payment_calculation_required_after_income_eligibility
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the source-level trigger for proceeding to ATAP payment calculation after income eligibility and all other chapter eligibility requirements are met. PolicyEngine exposes final PE eligibility, not this procedural calculation trigger.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-gross-income-eligibility#atap_income_excess_requires_denial_suspension_or_termination_under_gross_income_rule
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.470 denial, suspension, or termination consequence when income exceeds the gross-income rule thresholds. PolicyEngine exposes eligibility booleans and does not expose this administrative consequence as a one-to-one variable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-income-eligibility#income_excess_minimum_for_denial
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the one-cent excess-income threshold stated in 7 AAC 45.470. PolicyEngine tests eligibility with direct less-than-or-equal comparisons and does not expose this administrative threshold as a parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-income-eligibility#countable_income_under_7_aac_45_470_b
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_income
+    candidate_priority: P4
+    rationale: Axiom computes the source-level 7 AAC 45.470(b) countable-income amount after deductions and disregards under 7 AAC 45.475-45.500. PolicyEngine's ak_atap_countable_income uses its own earned and unearned income graph and omits several Alaska source-level branches, so this is not a direct oracle target.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-income-eligibility#atap_initial_income_screen_met
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_eligible
+    candidate_priority: P4
+    rationale: Axiom's initial screen combines source-level resource eligibility with the gross-income limit. PolicyEngine's ak_atap_gross_income_eligible checks only PE gross income against the PE gross-income-limit variable, so the eligibility predicate is not one-to-one.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-income-eligibility#ak_atap_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom's 7 AAC 45.470 income-eligibility output combines source-level resource, gross-income, countable-income, and other-eligibility inputs. PolicyEngine's ak_atap_eligible adds PE federal TANF demographic and immigration projections and separate PE helper tests, so this is adjacent rather than directly comparable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-470-income-eligibility#atap_income_excess_requires_denial_suspension_or_termination
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.470 denial, suspension, or termination consequence when income exceeds source-level thresholds. PolicyEngine exposes eligibility booleans and does not expose this administrative consequence as a one-to-one variable.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-485-care-disregard#dependent_child_under_two_monthly_care_disregard_cap
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.income.deductions.childcare
+    parameter_calc_value: 0
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same 7 AAC 45.485 dependent-child care disregard cap for a child under age two, represented in PolicyEngine by evaluating the childcare deduction scale at age 0.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-485-care-disregard#dependent_child_two_or_older_monthly_care_disregard_cap
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ak.dpa.atap.income.deductions.childcare
+    parameter_calc_value: 2
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same 7 AAC 45.485 dependent-child care disregard cap for a child age two or older, represented in PolicyEngine by evaluating the childcare deduction scale at age 2.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-485-care-disregard#incapacitated_parent_monthly_care_disregard_cap
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_childcare_deduction
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.485 monthly care-disregard cap for an incapacitated parent. PolicyEngine's childcare deduction models dependent-child care expenses only and does not expose this incapacitated-parent care branch.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-485-care-disregard#ak_atap_childcare_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_childcare_deduction
+    candidate_priority: P4
+    rationale: Axiom encodes 7 AAC 45.485 child and incapacitated-parent care disregards, including the 7 AAC 45.495 and 45.500 exception inputs. PolicyEngine models only a dependent-child childcare-expense cap, so the source-level deduction is not a one-to-one oracle target.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-525-payment-amount#assistance_unit_size_for_two_individuals
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.525 size-two assistance-unit constant used in the statutory payment ratio. PolicyEngine hard-codes the size-two ratio inside ak_atap through payment.base and need_standard.amount['2'] rather than exposing this source constant as a parameter.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-525-payment-amount#atap_minimum_payment_threshold
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap
+    candidate_priority: P4
+    rationale: Axiom exposes the 7 AAC 45.525 under-$10 no-payment threshold. PolicyEngine's current ak_atap formula does not implement the minimum-payment threshold, so there is no one-to-one oracle target.
+
+  - legal_id: us-ak:regulations/aac/title-7/chapter-45/45-525-payment-amount#ak_atap
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap
+    candidate_priority: P4
+    rationale: Axiom preserves 7 AAC 45.525 payment mechanics, including low-shelter-cost reduction, floor-to-dollar rounding, the under-$10 payment rule, and mandatory recoupment treatment. PolicyEngine's ak_atap omits several Alaska ATAP features and uses PE's SPM-unit graph, so this source-level payment amount is adjacent but not directly comparable.
+
   - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_need_standard
     country: us
     program: tanf

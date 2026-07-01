@@ -2138,9 +2138,13 @@ def test_policyengine_program_surface_marks_alaska_atap_known_not_comparable():
     assert alaska_atap["program_id"] == "tanf"
     assert alaska_atap["state"] == "AK"
     assert alaska_atap["axiom_status"] == "known_not_comparable"
-    assert alaska_atap["mapping_count"] == 1
+    assert alaska_atap["mapping_count"] >= 1
     assert alaska_atap["comparable_mapping_count"] == 0
     assert "us-ak:programs/tanf/fy-2026#ak_atap" in alaska_atap["legal_ids"]
+    assert (
+        "us-ak:regulations/aac/title-7/chapter-45/45-525-payment-amount#ak_atap"
+        in alaska_atap["legal_ids"]
+    )
     assert "Alaska ATAP FY 2026 program bridge" in alaska_atap["rationale"]
     assert "earned-income deductions" in alaska_atap["rationale"]
 
