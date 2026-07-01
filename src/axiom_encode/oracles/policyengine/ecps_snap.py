@@ -768,33 +768,36 @@ def resolve_axiom_binary(workspace_root: Path, override: Path | None) -> Path:
 
 def axiom_rules_env(program: Path, workspace_root: Path) -> dict[str, str]:
     env = os.environ.copy()
+    active_roots: list[Path] = []
+    current_repo = program.resolve()
+    for parent in current_repo.parents:
+        if parent.name.startswith("rulespec-"):
+            active_roots.append(parent)
+            break
     roots = [
         workspace_root / "rulespec-us",
         workspace_root / "_axiom" / "rulespec-us",
         program.parent,
         program.parent.parent,
     ]
-    current_repo = program.resolve()
-    for parent in current_repo.parents:
-        if parent.name.startswith("rulespec-"):
-            roots.append(parent)
-            break
     roots.extend(sorted(workspace_root.glob("rulespec-*")))
     roots.extend(sorted((workspace_root / "_axiom").glob("rulespec-*")))
     existing = [path.resolve() for path in roots if path.exists()]
     configured = [
         Path(path).resolve()
-        for path in env.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(":")
+        for path in env.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(os.pathsep)
         if path
     ]
     unique_roots = []
     seen: set[Path] = set()
-    for path in [*configured, *existing]:
+    for path in [*active_roots, *configured, *existing]:
         if path in seen:
             continue
         seen.add(path)
         unique_roots.append(path)
-    env["AXIOM_RULESPEC_REPO_ROOTS"] = ":".join(str(path) for path in unique_roots)
+    env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(
+        str(path) for path in unique_roots
+    )
     return env
 
 

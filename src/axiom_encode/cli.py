@@ -1801,6 +1801,44 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_medicaid_optional_parser = subparsers.add_parser(
+        "repair-medicaid-optional-senior-composition",
+        help="Apply signed deterministic Medicaid optional senior/disabled composition repairs",
+    )
+    repair_medicaid_optional_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_medicaid_optional_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_medicaid_primary_parser = subparsers.add_parser(
+        "repair-medicaid-primary-category-composition",
+        help="Apply signed deterministic Medicaid young-adult and medically-needy composition repairs",
+    )
+    repair_medicaid_primary_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_medicaid_primary_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_ny_snap_categorical_parser = subparsers.add_parser(
         "repair-new-york-snap-categorical-eligibility",
         help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
@@ -2501,6 +2539,10 @@ def main():
         cmd_repair_georgia_cms_medicaid_availability(args)
     elif args.command == "repair-georgia-cms-effective-magi-limits":
         cmd_repair_georgia_cms_effective_magi_limits(args)
+    elif args.command == "repair-medicaid-optional-senior-composition":
+        cmd_repair_medicaid_optional_senior_composition(args)
+    elif args.command == "repair-medicaid-primary-category-composition":
+        cmd_repair_medicaid_primary_category_composition(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
         cmd_repair_new_york_snap_categorical_eligibility(args)
     elif args.command == "repair-new-york-snap-benefit-tests":
@@ -7446,6 +7488,1061 @@ def _repair_georgia_cms_effective_magi_limit_tests(
             f"{rule['test_value']}\n"
         )
     return repaired, [rule["name"] for rule in missing]
+
+
+MEDICAID_A10_RELATIVE = Path("statutes/42/1396a/a/10.yaml")
+MEDICAID_A10_CITATION = "us/statute/42/1396a/a/10"
+MEDICAID_OPTIONAL_SENIOR_TARGET = (
+    "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+)
+MEDICAID_OPTIONAL_SENIOR_RULE = "is_optional_senior_or_disabled_for_medicaid"
+MEDICAID_YOUTH_RELATIVE = Path("statutes/42/1396d/a/i.yaml")
+MEDICAID_YOUTH_MODULE_TARGET = "us:statutes/42/1396d/a/i"
+MEDICAID_YOUTH_TARGET = (
+    "us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance"
+)
+MEDICAID_YOUTH_RULE = "youth_age_category_for_medical_assistance"
+MEDICAID_OPTIONAL_YOUTH_RULE = "optional_youth_medicaid_category_eligible"
+MEDICAID_MEDICALLY_NEEDY_RELATIVE = Path("regulations/42-cfr/435/301.yaml")
+MEDICAID_MEDICALLY_NEEDY_MODULE_TARGET = "us:regulations/42-cfr/435/301"
+MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET = (
+    "us:regulations/42-cfr/435/301#mandatory_medically_needy_medicaid_required"
+)
+MEDICAID_MEDICALLY_NEEDY_OPTIONAL_TARGET = (
+    "us:regulations/42-cfr/435/301#optional_medically_needy_medicaid_may_be_provided"
+)
+MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE = "mandatory_medically_needy_medicaid_required"
+MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE = (
+    "optional_medically_needy_medicaid_may_be_provided"
+)
+MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE = (
+    "optional_ssi_excess_earnings_medicaid_category_eligible"
+)
+MEDICAID_OPTIONAL_WORKING_DISABLED_RULE = (
+    "optional_working_disabled_medicaid_category_eligible"
+)
+MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL = "medicaid-primary-category-composition-v1"
+
+MEDICAID_YOUTH_RULESPEC = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/1396d/a
+  summary: |-
+    Clause (i) includes individuals "under the age of 21, or, at the option of the State, under the age of 20, 19, or 18 as the State may choose."
+rules:
+  - name: default_youth_age_ceiling_years
+    kind: parameter
+    dtype: Count
+    source: 42 U.S.C. 1396d(a)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/42/1396d/a
+              excerpt: "under the age of 21"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          21
+
+  - name: state_option_youth_age_ceiling_20_years
+    kind: parameter
+    dtype: Count
+    source: 42 U.S.C. 1396d(a)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/42/1396d/a
+              excerpt: "at the option of the State, under the age of 20"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          20
+
+  - name: state_option_youth_age_ceiling_19_years
+    kind: parameter
+    dtype: Count
+    source: 42 U.S.C. 1396d(a)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/42/1396d/a
+              excerpt: "at the option of the State, under the age of ... 19"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          19
+
+  - name: state_option_youth_age_ceiling_18_years
+    kind: parameter
+    dtype: Count
+    source: 42 U.S.C. 1396d(a)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/42/1396d/a
+              excerpt: "at the option of the State, under the age of ... 18"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          18
+
+  - name: youth_age_category_for_medical_assistance
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 U.S.C. 1396d(a)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/42/1396d/a
+          - path: versions[0].formula
+            kind: parameter
+            import:
+              target: us:statutes/42/1396d/a/i#default_youth_age_ceiling_years
+              output: default_youth_age_ceiling_years
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: parameter
+            import:
+              target: us:statutes/42/1396d/a/i#state_option_youth_age_ceiling_20_years
+              output: state_option_youth_age_ceiling_20_years
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: parameter
+            import:
+              target: us:statutes/42/1396d/a/i#state_option_youth_age_ceiling_19_years
+              output: state_option_youth_age_ceiling_19_years
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: parameter
+            import:
+              target: us:statutes/42/1396d/a/i#state_option_youth_age_ceiling_18_years
+              output: state_option_youth_age_ceiling_18_years
+              hash: sha256:local
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          (state_chooses_under_age_18_option and individual_age_years < state_option_youth_age_ceiling_18_years)
+          or (state_chooses_under_age_19_option and individual_age_years < state_option_youth_age_ceiling_19_years)
+          or (state_chooses_under_age_20_option and individual_age_years < state_option_youth_age_ceiling_20_years)
+          or (
+            not state_chooses_under_age_18_option
+            and not state_chooses_under_age_19_option
+            and not state_chooses_under_age_20_option
+            and individual_age_years < default_youth_age_ceiling_years
+          )
+"""
+
+MEDICAID_YOUTH_TEST = """- name: default_under_21_category_holds
+  period: 2026-01
+  input:
+    us:statutes/42/1396d/a/i#input.individual_age_years: 20
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option: false
+  output:
+    us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance: holds
+- name: default_at_21_category_not_holds
+  period: 2026-01
+  input:
+    us:statutes/42/1396d/a/i#input.individual_age_years: 21
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option: false
+  output:
+    us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance: not_holds
+- name: state_under_20_option_excludes_age_20
+  period: 2026-01
+  input:
+    us:statutes/42/1396d/a/i#input.individual_age_years: 20
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option: true
+  output:
+    us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance: not_holds
+- name: state_under_18_option_includes_age_17
+  period: 2026-01
+  input:
+    us:statutes/42/1396d/a/i#input.individual_age_years: 17
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option: true
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option: false
+    us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option: false
+  output:
+    us:statutes/42/1396d/a/i#youth_age_category_for_medical_assistance: holds
+"""
+
+
+class _RulespecRepairDumper(yaml.SafeDumper):
+    pass
+
+
+def _rulespec_repair_str_representer(
+    dumper: yaml.SafeDumper, value: str
+) -> yaml.nodes.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_RulespecRepairDumper.add_representer(str, _rulespec_repair_str_representer)
+
+
+def _dump_rulespec_repair_yaml(payload: Any) -> str:
+    return yaml.dump(
+        payload,
+        Dumper=_RulespecRepairDumper,
+        sort_keys=False,
+        allow_unicode=False,
+        width=1000,
+    )
+
+
+def cmd_repair_medicaid_optional_senior_composition(args):
+    """Apply signed deterministic Medicaid optional senior/disabled composition."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-medicaid-optional-senior-composition must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = MEDICAID_A10_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    medicaid_m_file = repo_path / "statutes/42/1396a/m.yaml"
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+    if not medicaid_m_file.exists():
+        print(f"Required optional-category RuleSpec file not found: {medicaid_m_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    optional_hash = _sha256_file(medicaid_m_file)
+    repaired_content, repaired_rules = (
+        _repair_medicaid_optional_senior_composition_rules(
+            original_content, optional_hash=optional_hash
+        )
+    )
+    repaired_test_content, repaired_tests = (
+        _repair_medicaid_optional_senior_composition_tests(original_test_content)
+    )
+    applied_files = [rules_file, test_file]
+    axiom_encode_git = None
+
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+        if manifest_path.exists():
+            current_hashes = {
+                file.relative_to(repo_path).as_posix(): _sha256_file(file)
+                for file in applied_files
+            }
+            payload = json.loads(manifest_path.read_text())
+            manifest_hashes = {
+                item.get("path"): item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict)
+            }
+            if all(
+                manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
+            ):
+                axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+                if (
+                    payload.get("axiom_encode_version") == __version__
+                    and payload.get("axiom_encode_git") == axiom_encode_git
+                ):
+                    print("No Medicaid optional senior composition repairs found.")
+                    return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    if axiom_encode_git is None:
+        axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [(relative_output, applied_files)],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+
+            test_failures = _rulespec_companion_test_failures(
+                test_file,
+                root=repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+            if test_failures:
+                print("Repair failed companion tests; restored original files.")
+                for failure in test_failures[:20]:
+                    case_name = failure.get("case") or "<unknown case>"
+                    print(f"- {case_name}: {failure.get('message')}")
+                sys.exit(1)
+        finally:
+            validation_passed = "validation" in locals() and validation.all_passed
+            tests_passed = "test_failures" in locals() and not test_failures
+            if not validation_passed or not tests_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="medicaid-optional-senior-composition-v1",
+            tool="axiom-encode repair-medicaid-optional-senior-composition",
+            citation=MEDICAID_A10_CITATION,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    changed_names = sorted(set(repaired_rules) | set(repaired_tests))
+    print("Applied Medicaid optional senior composition repair")
+    if changed_names:
+        print(f"changed_rules={', '.join(changed_names)}")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+def _repair_medicaid_optional_senior_composition_rules(
+    content: str, *, optional_hash: str
+) -> tuple[str, list[str]]:
+    if "\n  - name: is_medicaid_eligible\n" not in content:
+        raise ValueError("Missing is_medicaid_eligible rule")
+
+    repaired = content
+    changed: list[str] = []
+
+    if MEDICAID_OPTIONAL_SENIOR_TARGET not in repaired:
+        module_marker = "\nmodule:\n"
+        if module_marker not in repaired:
+            raise ValueError("RuleSpec payload must contain module section")
+        repaired = repaired.replace(
+            module_marker,
+            f"\n  - {MEDICAID_OPTIONAL_SENIOR_TARGET}{module_marker}",
+            1,
+        )
+        changed.append("is_medicaid_eligible")
+
+    source_marker = "    source: 42 USC 1396a(a)(10)(A)(i)\n"
+    if source_marker in repaired:
+        repaired = repaired.replace(
+            source_marker,
+            "    source: 42 USC 1396a(a)(10)(A)(i)-(ii)\n",
+            1,
+        )
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+    next_rule = repaired.find("\n  - name:", rule_start + 1)
+    rule_end = next_rule if next_rule != -1 else len(repaired)
+    rule_text = repaired[rule_start:rule_end]
+
+    proof_atom = (
+        "          - path: versions[0].formula\n"
+        "            kind: import\n"
+        "            import:\n"
+        f"              target: {MEDICAID_OPTIONAL_SENIOR_TARGET}\n"
+        f"              output: {MEDICAID_OPTIONAL_SENIOR_RULE}\n"
+        f"              hash: sha256:{optional_hash}\n"
+    )
+    if MEDICAID_OPTIONAL_SENIOR_TARGET not in rule_text:
+        versions_marker = "    versions:\n"
+        if versions_marker not in rule_text:
+            raise ValueError("is_medicaid_eligible must have versions")
+        rule_text = rule_text.replace(
+            versions_marker,
+            proof_atom + versions_marker,
+            1,
+        )
+        repaired = repaired[:rule_start] + rule_text + repaired[rule_end:]
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    if f"or {MEDICAID_OPTIONAL_SENIOR_RULE}" not in repaired:
+        formula_marker = "          or former_foster_care_child_medicaid_required\n"
+        if formula_marker not in repaired:
+            raise ValueError("Missing Medicaid eligibility formula insertion point")
+        repaired = repaired.replace(
+            formula_marker,
+            formula_marker + f"          or {MEDICAID_OPTIONAL_SENIOR_RULE}\n",
+            1,
+        )
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    return repaired, changed
+
+
+_MEDICAID_OPTIONAL_FALSE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 30,
+    "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3": False,
+    "us:statutes/42/1396a/m#input.income_determined_for_this_subsection": 999999,
+    "us:statutes/42/1396a/m#input.state_established_income_level_amount": 0,
+    "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate": 1.0,
+    "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program": 999999,
+    "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program": 2000,
+    "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals": False,
+    "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals": 2000,
+}
+
+
+_MEDICAID_OPTIONAL_TRUE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 65,
+    "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3": False,
+    "us:statutes/42/1396a/m#input.income_determined_for_this_subsection": 900,
+    "us:statutes/42/1396a/m#input.state_established_income_level_amount": 1000,
+    "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate": 1.0,
+    "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program": 1900,
+    "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program": 2000,
+    "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals": False,
+    "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A": False,
+    "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals": 2000,
+}
+
+
+def _repair_medicaid_optional_senior_composition_tests(
+    content: str,
+) -> tuple[str, list[str]]:
+    cases = yaml.safe_load(content)
+    if not isinstance(cases, list):
+        raise ValueError("RuleSpec companion tests must be a list")
+
+    changed: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        for key, value in _MEDICAID_OPTIONAL_FALSE_INPUTS.items():
+            if key not in inputs:
+                inputs[key] = value
+                changed.append(str(case.get("name") or "<unnamed>"))
+
+    names = {case.get("name") for case in cases if isinstance(case, dict)}
+    if "optional senior disabled category eligible" not in names:
+        template = None
+        for case in cases:
+            if (
+                isinstance(case, dict)
+                and case.get("name") == "no composed mandatory category eligible"
+            ):
+                template = copy.deepcopy(case)
+                break
+        if template is None:
+            raise ValueError("Missing no composed mandatory category eligible test")
+        template["name"] = "optional senior disabled category eligible"
+        inputs = template.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_OPTIONAL_TRUE_INPUTS)
+        template["output"] = {"us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"}
+        cases.append(template)
+        changed.append("optional senior disabled category eligible")
+
+    return _dump_rulespec_repair_yaml(cases), changed
+
+
+def _sha256_text(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def cmd_repair_medicaid_primary_category_composition(args):
+    """Apply signed deterministic Medicaid young-adult and medically-needy repairs."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-medicaid-primary-category-composition must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    rules_file = repo_path / MEDICAID_A10_RELATIVE
+    test_file = _rulespec_test_path(rules_file)
+    youth_file = repo_path / MEDICAID_YOUTH_RELATIVE
+    youth_test_file = _rulespec_test_path(youth_file)
+    medically_needy_file = repo_path / MEDICAID_MEDICALLY_NEEDY_RELATIVE
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+    if not medically_needy_file.exists():
+        print(
+            f"Required medically needy RuleSpec file not found: {medically_needy_file}"
+        )
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    manifest_groups = [
+        (MEDICAID_YOUTH_RELATIVE, [youth_file, youth_test_file]),
+        (MEDICAID_A10_RELATIVE, [rules_file, test_file]),
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    originals = {
+        rules_file: original_content,
+        test_file: original_test_content,
+        youth_file: youth_file.read_text() if youth_file.exists() else None,
+        youth_test_file: youth_test_file.read_text()
+        if youth_test_file.exists()
+        else None,
+    }
+
+    youth_hash = _sha256_text(MEDICAID_YOUTH_RULESPEC)
+    medically_needy_hash = _sha256_file(medically_needy_file)
+    repaired_content, repaired_rules = (
+        _repair_medicaid_primary_category_composition_rules(
+            original_content,
+            youth_hash=youth_hash,
+            medically_needy_hash=medically_needy_hash,
+        )
+    )
+    repaired_test_content, repaired_tests = (
+        _repair_medicaid_primary_category_composition_tests(original_test_content)
+    )
+
+    try:
+        youth_file.parent.mkdir(parents=True, exist_ok=True)
+        youth_file.write_text(MEDICAID_YOUTH_RULESPEC)
+        youth_test_file.write_text(MEDICAID_YOUTH_TEST)
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        validation_pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_issues: list[str] = []
+        for candidate in (youth_file, rules_file):
+            validation = validation_pipeline.validate(candidate, skip_reviewers=True)
+            if not validation.all_passed:
+                validation_issues.extend(
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                )
+        if validation_issues:
+            raise RuntimeError(
+                "Validation failed after Medicaid primary category repair:\n"
+                + "\n".join(f"- {issue}" for issue in validation_issues)
+            )
+
+        test_issues = _companion_test_issues(
+            test_files=[youth_test_file, test_file],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after Medicaid primary category repair:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in (youth_file, youth_test_file, rules_file, test_file)
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    refresh_manifest_files: list[Path] = []
+    if not changed_by_command:
+        for relative_output, group_files in manifest_groups:
+            applied_files = [path for path in group_files if path.exists()]
+            if not applied_files:
+                continue
+            if not _applied_manifest_matches_current_deterministic_repair(
+                repo_path=repo_path,
+                relative_output=relative_output,
+                applied_files=applied_files,
+                model=MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL,
+                axiom_encode_git=axiom_encode_git,
+                signing_key=signing_key,
+            ):
+                refresh_manifest_files.extend(applied_files)
+        if refresh_manifest_files:
+            changed_by_command = _unique_paths(refresh_manifest_files)
+        else:
+            print("No Medicaid primary category composition repairs found.")
+            return
+    refresh_only = bool(refresh_manifest_files)
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model=MEDICAID_PRIMARY_CATEGORY_REPAIR_MODEL,
+        tool="axiom-encode repair-medicaid-primary-category-composition",
+    )
+
+    changed_names = sorted(set(repaired_rules) | set(repaired_tests))
+    if refresh_only:
+        print("Refreshed Medicaid primary category composition repair manifest")
+    else:
+        print("Applied Medicaid primary category composition repair")
+    if changed_names and not refresh_only:
+        print(f"changed_rules={', '.join(changed_names)}")
+    if not refresh_only:
+        for path in changed_by_command:
+            print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _repair_medicaid_primary_category_composition_rules(
+    content: str,
+    *,
+    youth_hash: str,
+    medically_needy_hash: str,
+) -> tuple[str, list[str]]:
+    if "\n  - name: is_medicaid_eligible\n" not in content:
+        raise ValueError("Missing is_medicaid_eligible rule")
+
+    repaired = content
+    changed: list[str] = []
+
+    imports_to_add = [
+        MEDICAID_YOUTH_MODULE_TARGET,
+        MEDICAID_MEDICALLY_NEEDY_MODULE_TARGET,
+    ]
+    module_marker = "\nmodule:\n"
+    if module_marker not in repaired:
+        raise ValueError("RuleSpec payload must contain module section")
+    missing_imports = [target for target in imports_to_add if target not in repaired]
+    if missing_imports:
+        repaired = repaired.replace(
+            module_marker,
+            "\n"
+            + "".join(f"  - {target}\n" for target in missing_imports)
+            + module_marker,
+            1,
+        )
+        changed.append("imports")
+
+    source_marker = "    source: 42 USC 1396a(a)(10)(A)(i)-(ii)\n"
+    if source_marker in repaired:
+        repaired = repaired.replace(
+            source_marker,
+            "    source: 42 USC 1396a(a)(10)(A)(i)-(ii), (C)\n",
+            1,
+        )
+        changed.append("is_medicaid_eligible")
+
+    if f"\n  - name: {MEDICAID_OPTIONAL_YOUTH_RULE}\n" not in repaired:
+        rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+        optional_youth_rule = f"""  - name: {MEDICAID_OPTIONAL_YOUTH_RULE}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: {MEDICAID_YOUTH_TARGET}
+              output: {MEDICAID_YOUTH_RULE}
+              hash: sha256:{youth_hash}
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i
+          and not individual_described_in_mandatory_clause_i
+          and {MEDICAID_YOUTH_RULE}
+          and individual_meets_income_and_resources_requirements_for_optional_category
+
+"""
+        repaired = repaired[:rule_start] + optional_youth_rule + repaired[rule_start:]
+        changed.append(MEDICAID_OPTIONAL_YOUTH_RULE)
+
+    if f"\n  - name: {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}\n" not in repaired:
+        rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+        optional_working_disabled_rule = f"""  - name: {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(ii)(XV)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+              excerpt: "who, but for earnings in excess of the limit established under section 1396d(q)(2)(B), would be considered to be receiving supplemental security income, who is at least 16, but less than 65, years of age, and whose assets, resources, and earned or unearned income (or both) do not exceed such limitations (if any) as the State may establish"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          state_elects_optional_coverage_for_working_disabled_individuals
+          and not individual_described_in_mandatory_clause_i
+          and individual_would_be_considered_receiving_ssi_but_for_earnings
+          and individual_age_years >= optional_working_disabled_minimum_age_years
+          and individual_age_years < optional_working_disabled_age_ceiling_years
+          and assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations
+
+"""
+        repaired = (
+            repaired[:rule_start]
+            + optional_working_disabled_rule
+            + repaired[rule_start:]
+        )
+        changed.append(MEDICAID_OPTIONAL_WORKING_DISABLED_RULE)
+
+    if f"\n  - name: {MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE}\n" not in repaired:
+        rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+        optional_ssi_excess_earnings_rule = f"""  - name: {MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 42 USC 1396a(a)(10)(A)(ii)(XIII)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/1396a/a/10
+              excerpt: "who are in families whose income is less than 250 percent of the income official poverty line ... and who but for earnings in excess of the limit established under section 1396d(q)(2)(B), would be considered to be receiving supplemental security income"
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          state_elects_optional_coverage_for_ssi_excess_earnings_individuals
+          and not individual_described_in_mandatory_clause_i
+          and individual_would_be_considered_receiving_ssi_but_for_earnings
+          and family_income_as_fraction_of_poverty_line < optional_ssi_excess_earnings_family_income_limit_poverty_line_rate
+
+"""
+        repaired = (
+            repaired[:rule_start]
+            + optional_ssi_excess_earnings_rule
+            + repaired[rule_start:]
+        )
+        changed.append(MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE)
+
+    rule_start = repaired.index("\n  - name: is_medicaid_eligible\n") + 1
+    next_rule = repaired.find("\n  - name:", rule_start + 1)
+    rule_end = next_rule if next_rule != -1 else len(repaired)
+    rule_text = repaired[rule_start:rule_end]
+
+    proof_atoms = []
+    if MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET not in rule_text:
+        proof_atoms.append(
+            (
+                MEDICAID_MEDICALLY_NEEDY_MANDATORY_TARGET,
+                MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE,
+                medically_needy_hash,
+            )
+        )
+    if MEDICAID_MEDICALLY_NEEDY_OPTIONAL_TARGET not in rule_text:
+        proof_atoms.append(
+            (
+                MEDICAID_MEDICALLY_NEEDY_OPTIONAL_TARGET,
+                MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE,
+                medically_needy_hash,
+            )
+        )
+    if proof_atoms:
+        versions_marker = "    versions:\n"
+        if versions_marker not in rule_text:
+            raise ValueError("is_medicaid_eligible must have versions")
+        proof_text = ""
+        for target, output, digest in proof_atoms:
+            proof_text += (
+                "          - path: versions[0].formula\n"
+                "            kind: import\n"
+                "            import:\n"
+                f"              target: {target}\n"
+                f"              output: {output}\n"
+                f"              hash: sha256:{digest}\n"
+            )
+        rule_text = rule_text.replace(versions_marker, proof_text + versions_marker, 1)
+        repaired = repaired[:rule_start] + rule_text + repaired[rule_end:]
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    insertion_point = f"          or {MEDICAID_OPTIONAL_SENIOR_RULE}\n"
+    if insertion_point not in repaired:
+        insertion_point = "          or former_foster_care_child_medicaid_required\n"
+    additions = [
+        f"          or {MEDICAID_OPTIONAL_SSI_EXCESS_EARNINGS_RULE}\n",
+        f"          or {MEDICAID_OPTIONAL_WORKING_DISABLED_RULE}\n",
+        f"          or {MEDICAID_OPTIONAL_YOUTH_RULE}\n",
+        f"          or {MEDICAID_MEDICALLY_NEEDY_MANDATORY_RULE}\n",
+        f"          or {MEDICAID_MEDICALLY_NEEDY_OPTIONAL_RULE}\n",
+    ]
+    missing_additions = [line for line in additions if line not in repaired]
+    if missing_additions:
+        if insertion_point not in repaired:
+            raise ValueError("Missing Medicaid eligibility formula insertion point")
+        repaired = repaired.replace(
+            insertion_point,
+            insertion_point + "".join(missing_additions),
+            1,
+        )
+        if "is_medicaid_eligible" not in changed:
+            changed.append("is_medicaid_eligible")
+
+    return repaired, changed
+
+
+_MEDICAID_PRIMARY_FALSE_INPUTS = {
+    "us:statutes/42/1396a/a/10#input.individual_age_years": 30,
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 30,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option": False,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i": False,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_ssi_excess_earnings_individuals": False,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals": False,
+    "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
+    "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category": False,
+    "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings": False,
+    "us:statutes/42/1396a/a/10#input.family_income_as_fraction_of_poverty_line": 3.0,
+    "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations": False,
+    "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option": False,
+    "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard": False,
+    "us:regulations/42-cfr/435/301#input.incurred_medical_expenses_at_least_equal_to_income_standard_difference": False,
+    "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard": False,
+    "us:regulations/42-cfr/435/301#input.person_is_pregnant": False,
+    "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_or_optional_categorically_needy_under_subpart_b_or_c": False,
+    "us:regulations/42-cfr/435/301#input.person_age": 30,
+    "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_categorically_needy_under_subpart_b": False,
+    "us:regulations/42-cfr/435/301#input.woman_received_medically_needy_medicaid_on_day_pregnancy_ends": False,
+    "us:regulations/42-cfr/435/301#input.month_is_within_extended_postpregnancy_period": False,
+    "us:regulations/42-cfr/435/301#input.person_is_parent_or_other_caretaker_relative": False,
+    "us:regulations/42-cfr/435/301#input.person_is_aged": False,
+    "us:regulations/42-cfr/435/301#input.person_is_blind": False,
+    "us:regulations/42-cfr/435/301#input.person_is_disabled": False,
+    "us:regulations/42-cfr/435/301#input.agency_provides_medicaid_to_any_individual_in_persons_optional_group": False,
+}
+
+_MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS = {
+    "us:statutes/42/1396a/m#input.individual_age_years": 20,
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 20,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option": False,
+    "us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option": False,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i": True,
+    "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
+    "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category": True,
+}
+
+_MEDICAID_PRIMARY_MEDICALLY_NEEDY_TRUE_INPUTS = {
+    "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option": True,
+    "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard": True,
+    "us:regulations/42-cfr/435/301#input.incurred_medical_expenses_at_least_equal_to_income_standard_difference": False,
+    "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard": True,
+    "us:regulations/42-cfr/435/301#input.person_age": 65,
+    "us:regulations/42-cfr/435/301#input.person_is_aged": True,
+    "us:regulations/42-cfr/435/301#input.person_is_blind": False,
+    "us:regulations/42-cfr/435/301#input.person_is_disabled": False,
+    "us:regulations/42-cfr/435/301#input.person_is_parent_or_other_caretaker_relative": False,
+}
+
+_MEDICAID_PRIMARY_WORKING_DISABLED_TRUE_INPUTS = {
+    "us:statutes/42/1396a/a/10#input.individual_age_years": 40,
+    "us:statutes/42/1396a/m#input.individual_age_years": 40,
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 40,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals": True,
+    "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
+    "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings": True,
+    "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations": True,
+}
+
+_MEDICAID_PRIMARY_SSI_EXCESS_EARNINGS_TRUE_INPUTS = {
+    "us:statutes/42/1396a/a/10#input.individual_age_years": 72,
+    "us:statutes/42/1396a/m#input.individual_age_years": 72,
+    "us:statutes/42/1396d/a/i#input.individual_age_years": 72,
+    "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_ssi_excess_earnings_individuals": True,
+    "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i": False,
+    "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings": True,
+    "us:statutes/42/1396a/a/10#input.family_income_as_fraction_of_poverty_line": 1.0,
+}
+
+
+def _repair_medicaid_primary_category_composition_tests(
+    content: str,
+) -> tuple[str, list[str]]:
+    cases = yaml.safe_load(content)
+    if not isinstance(cases, list):
+        raise ValueError("RuleSpec companion tests must be a list")
+
+    changed: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        for key, value in _MEDICAID_PRIMARY_FALSE_INPUTS.items():
+            if key not in inputs:
+                inputs[key] = value
+                changed.append(str(case.get("name") or "<unnamed>"))
+
+    names = {case.get("name") for case in cases if isinstance(case, dict)}
+    template = None
+    for case in cases:
+        if (
+            isinstance(case, dict)
+            and case.get("name") == "no composed mandatory category eligible"
+        ):
+            template = case
+            break
+    if template is None:
+        raise ValueError("Missing no composed mandatory category eligible test")
+
+    if "optional youth category eligible" not in names:
+        youth_case = copy.deepcopy(template)
+        youth_case["name"] = "optional youth category eligible"
+        inputs = youth_case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
+        inputs.update(_MEDICAID_PRIMARY_YOUTH_TRUE_INPUTS)
+        youth_case["output"] = {
+            "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        cases.append(youth_case)
+        changed.append("optional youth category eligible")
+
+    if "optional medically needy category eligible" not in names:
+        medically_needy_case = copy.deepcopy(template)
+        medically_needy_case["name"] = "optional medically needy category eligible"
+        inputs = medically_needy_case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
+        inputs.update(_MEDICAID_PRIMARY_MEDICALLY_NEEDY_TRUE_INPUTS)
+        medically_needy_case["output"] = {
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds"
+        }
+        cases.append(medically_needy_case)
+        changed.append("optional medically needy category eligible")
+
+    if "optional working disabled category eligible" not in names:
+        working_disabled_case = copy.deepcopy(template)
+        working_disabled_case["name"] = "optional working disabled category eligible"
+        inputs = working_disabled_case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
+        inputs.update(_MEDICAID_PRIMARY_WORKING_DISABLED_TRUE_INPUTS)
+        working_disabled_case["output"] = {
+            "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        cases.append(working_disabled_case)
+        changed.append("optional working disabled category eligible")
+
+    if "optional SSI excess earnings category eligible" not in names:
+        ssi_excess_case = copy.deepcopy(template)
+        ssi_excess_case["name"] = "optional SSI excess earnings category eligible"
+        inputs = ssi_excess_case.setdefault("input", {})
+        if not isinstance(inputs, dict):
+            raise ValueError("RuleSpec test input must be a mapping")
+        inputs.update(_MEDICAID_PRIMARY_FALSE_INPUTS)
+        inputs.update(_MEDICAID_PRIMARY_SSI_EXCESS_EARNINGS_TRUE_INPUTS)
+        ssi_excess_case["output"] = {
+            "us:statutes/42/1396a/a/10#optional_ssi_excess_earnings_medicaid_category_eligible": "holds",
+            "us:statutes/42/1396a/a/10#is_medicaid_eligible": "holds",
+        }
+        cases.append(ssi_excess_case)
+        changed.append("optional SSI excess earnings category eligible")
+
+    return _dump_rulespec_repair_yaml(cases), changed
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):

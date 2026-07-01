@@ -1,5 +1,6 @@
 import shutil
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -38,6 +39,27 @@ def test_set_input_value_updates_every_matching_legal_input():
     set_input_value(inputs, "household_size", 4)
 
     assert set(inputs.values()) == {4}
+
+
+def test_axiom_rules_env_prioritizes_active_rulespec_worktree(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace"
+    stale_repo = workspace / "rulespec-us"
+    active_repo = tmp_path / "worktrees" / "rulespec-us-medicaid-primary-categories"
+    program = active_repo / "us" / "statutes" / "42" / "1396a" / "a" / "10.yaml"
+    stale_repo.mkdir(parents=True)
+    program.parent.mkdir(parents=True)
+    program.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+
+    env = ecps_snap.axiom_rules_env(program, workspace)
+
+    roots = [
+        Path(root)
+        for root in env["AXIOM_RULESPEC_REPO_ROOTS"].split(ecps_snap.os.pathsep)
+    ]
+    assert roots[0] == active_repo.resolve()
+    assert stale_repo.resolve() in roots
+    assert roots.index(active_repo.resolve()) < roots.index(stale_repo.resolve())
 
 
 def test_set_input_value_can_skip_optional_unknown_inputs():

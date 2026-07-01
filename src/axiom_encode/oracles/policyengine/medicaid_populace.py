@@ -62,6 +62,25 @@ AXIOM_COMPONENT_OUTPUT_IDS = {
     "former_foster": (
         "us:regulations/42-cfr/435/150#former_foster_care_child_medicaid_required"
     ),
+    "young_adult": (
+        "us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible"
+    ),
+    "ssi_excess_earnings": (
+        "us:statutes/42/1396a/a/10"
+        "#optional_ssi_excess_earnings_medicaid_category_eligible"
+    ),
+    "working_disabled": (
+        "us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible"
+    ),
+    "optional_senior_disabled": (
+        "us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid"
+    ),
+    "medically_needy_mandatory": (
+        "us:regulations/42-cfr/435/301#mandatory_medically_needy_medicaid_required"
+    ),
+    "medically_needy_optional": (
+        "us:regulations/42-cfr/435/301#optional_medically_needy_medicaid_may_be_provided"
+    ),
     "community_engagement": (
         "us:statutes/42/1396a/xx#demonstrated_community_engagement_for_month"
     ),
@@ -167,6 +186,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
             "Projection mode. policyengine-components maps PE category "
             "component predicates into RuleSpec source inputs to isolate final "
             "surface-composition differences."
+        ),
+    )
+    parser.add_argument(
+        "--eligibility-only",
+        action="store_true",
+        help=(
+            "Request only the compared Medicaid eligibility output from Axiom. "
+            "Use this for full-population gates; omit it for sampled diagnostic "
+            "runs that need component outputs."
         ),
     )
     parser.add_argument(
@@ -449,6 +477,11 @@ def _project_case_inputs(
     adult_nfc: bool,
     adult_fc: bool,
     ssi_recipient: bool,
+    young_adult_eligible: bool,
+    senior_or_disabled_eligible: bool,
+    medically_needy_eligible: bool,
+    working_disabled_buy_in_eligible: bool,
+    ssi_excess_earnings_buy_in_eligible: bool,
     mandatory_subpart_b: bool,
     work_requirement_eligible: bool,
     medicare_eligible: bool,
@@ -557,6 +590,37 @@ def _project_case_inputs(
         "us:regulations/42-cfr/435/120/ssi-mandatory-group#input.person_is_receiving_or_deemed_receiving_ssi"
     ] = bool(ssi_recipient)
 
+    optional_senior_disabled = bool(senior_or_disabled_eligible)
+    inputs["us:statutes/42/1396a/m#input.individual_age_years"] = numeric_age
+    inputs[
+        "us:statutes/42/1396a/m#input.disabled_as_determined_under_section_1382c_a_3"
+    ] = bool(optional_senior_disabled and numeric_age < 65)
+    inputs["us:statutes/42/1396a/m#input.income_determined_for_this_subsection"] = (
+        0.5 if optional_senior_disabled else 2.0
+    )
+    inputs["us:statutes/42/1396a/m#input.state_established_income_level_amount"] = 1.0
+    inputs[
+        "us:statutes/42/1396a/m#input.state_established_income_level_poverty_line_rate"
+    ] = 1.0
+    inputs[
+        "us:statutes/42/1396a/m#input.resources_determined_for_supplemental_security_income_program"
+    ] = 1.0 if optional_senior_disabled else 3.0
+    inputs[
+        "us:statutes/42/1396a/m#input.maximum_resources_for_supplemental_security_income_program"
+    ] = 2.0
+    inputs[
+        "us:statutes/42/1396a/m#input.state_provides_medical_assistance_to_individuals_not_described_in_subsection_a_10_A"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.state_elects_higher_resource_level_for_non_a10A_individuals"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.individual_not_described_in_subsection_a_10_A"
+    ] = False
+    inputs[
+        "us:statutes/42/1396a/m#input.state_optional_resource_level_amount_for_non_a10A_individuals"
+    ] = 0.0
+
     inputs[
         "us:regulations/42-cfr/435/150#input.person_eligible_and_enrolled_for_mandatory_coverage_under_435_110_through_435_118_or_435_120_through_435_145"
     ] = bool(mandatory_subpart_b)
@@ -565,6 +629,82 @@ def _project_case_inputs(
     ] = False
     inputs[
         "us:regulations/42-cfr/435/150#input.person_was_enrolled_in_medicaid_under_state_plan_or_1115_demonstration_upon_attaining_age_18"
+    ] = False
+
+    young_adult = bool(young_adult_eligible)
+    inputs["us:statutes/42/1396d/a/i#input.individual_age_years"] = numeric_age
+    inputs["us:statutes/42/1396a/a/10#input.individual_age_years"] = numeric_age
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_18_option"] = False
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_19_option"] = False
+    inputs["us:statutes/42/1396d/a/i#input.state_chooses_under_age_20_option"] = False
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_reasonable_category_of_individuals_described_in_1396d_a_i"
+    ] = young_adult
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_described_in_mandatory_clause_i"
+    ] = bool(mandatory_subpart_b)
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_meets_income_and_resources_requirements_for_optional_category"
+    ] = young_adult
+
+    working_disabled = bool(working_disabled_buy_in_eligible)
+    ssi_excess_earnings = bool(ssi_excess_earnings_buy_in_eligible)
+    ssi_but_for_earnings = working_disabled or ssi_excess_earnings
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_ssi_excess_earnings_individuals"
+    ] = ssi_excess_earnings
+    inputs[
+        "us:statutes/42/1396a/a/10#input.state_elects_optional_coverage_for_working_disabled_individuals"
+    ] = working_disabled
+    inputs[
+        "us:statutes/42/1396a/a/10#input.individual_would_be_considered_receiving_ssi_but_for_earnings"
+    ] = ssi_but_for_earnings
+    inputs[
+        "us:statutes/42/1396a/a/10#input.family_income_as_fraction_of_poverty_line"
+    ] = 1.0 if ssi_excess_earnings else 3.0
+    inputs[
+        "us:statutes/42/1396a/a/10#input.assets_resources_and_earned_or_unearned_income_do_not_exceed_state_established_limitations"
+    ] = working_disabled
+
+    medically_needy = bool(medically_needy_eligible)
+    inputs[
+        "us:regulations/42-cfr/435/301#input.agency_chooses_medically_needy_option"
+    ] = medically_needy
+    inputs[
+        "us:regulations/42-cfr/435/301#input.income_meets_applicable_medically_needy_standard"
+    ] = medically_needy
+    inputs[
+        "us:regulations/42-cfr/435/301#input.incurred_medical_expenses_at_least_equal_to_income_standard_difference"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.resources_meet_applicable_medically_needy_standard"
+    ] = medically_needy
+    inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_or_optional_categorically_needy_under_subpart_b_or_c"
+    ] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_age"] = numeric_age
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_except_for_income_and_resources_would_be_mandatory_categorically_needy_under_subpart_b"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.woman_received_medically_needy_medicaid_on_day_pregnancy_ends"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.month_is_within_extended_postpregnancy_period"
+    ] = False
+    inputs[
+        "us:regulations/42-cfr/435/301#input.person_is_parent_or_other_caretaker_relative"
+    ] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_is_aged"] = bool(
+        medically_needy and numeric_age >= 65
+    )
+    inputs["us:regulations/42-cfr/435/301#input.person_is_blind"] = False
+    inputs["us:regulations/42-cfr/435/301#input.person_is_disabled"] = bool(
+        medically_needy and numeric_age < 65
+    )
+    inputs[
+        "us:regulations/42-cfr/435/301#input.agency_provides_medicaid_to_any_individual_in_persons_optional_group"
     ] = False
 
     inputs["us:statutes/42/1396a/xx#input.monthly_work_hours"] = (
@@ -709,6 +849,20 @@ def load_policyengine_cases(
             adult_nfc=bool(values["adult_nfc"][index]),
             adult_fc=bool(values["adult_fc"][index]),
             ssi_recipient=bool(values["ssi"][index]),
+            young_adult_eligible=str(values["medicaid_category"][index])
+            == "YOUNG_ADULT",
+            senior_or_disabled_eligible=str(values["medicaid_category"][index])
+            == "SENIOR_OR_DISABLED",
+            medically_needy_eligible=str(values["medicaid_category"][index])
+            == "MEDICALLY_NEEDY",
+            working_disabled_buy_in_eligible=(
+                str(values["medicaid_category"][index]) == "WORKING_DISABLED_BUY_IN"
+                and str(states[index]) != "CA"
+            ),
+            ssi_excess_earnings_buy_in_eligible=(
+                str(values["medicaid_category"][index]) == "WORKING_DISABLED_BUY_IN"
+                and str(states[index]) == "CA"
+            ),
             mandatory_subpart_b=mandatory_subpart_b,
             work_requirement_eligible=bool(values["work"][index]),
             medicare_eligible=bool(values["medicare"][index]),
@@ -831,6 +985,27 @@ def runtime_output_id_for_public_id(artifact: Path, public_id: str) -> str:
         f"Compiled artifact exposes multiple outputs matching {public_id}: "
         + ", ".join(matches)
     )
+
+
+def axiom_output_ids_by_label(
+    artifact: Path,
+    *,
+    include_diagnostics: bool,
+) -> dict[str, str]:
+    outputs = {
+        "eligible": runtime_output_id_for_public_id(
+            artifact,
+            COMPARED_AXIOM_OUTPUT_ID,
+        )
+    }
+    if include_diagnostics:
+        outputs.update(
+            {
+                label: runtime_output_id_for_public_id(artifact, public_id)
+                for label, public_id in AXIOM_COMPONENT_OUTPUT_IDS.items()
+            }
+        )
+    return outputs
 
 
 def compare(
@@ -995,15 +1170,10 @@ def main(args: argparse.Namespace | None = None) -> None:
         artifact = Path(tmp_dir) / "program.bin"
         print(f"Compiling {program}...", flush=True)
         compile_program(binary, program, artifact, env=env)
-        axiom_output_id_by_label = {
-            "eligible": runtime_output_id_for_public_id(
-                artifact, COMPARED_AXIOM_OUTPUT_ID
-            ),
-            **{
-                label: runtime_output_id_for_public_id(artifact, public_id)
-                for label, public_id in AXIOM_COMPONENT_OUTPUT_IDS.items()
-            },
-        }
+        axiom_output_id_by_label = axiom_output_ids_by_label(
+            artifact,
+            include_diagnostics=not args.eligibility_only,
+        )
         print(
             f"Resolved {COMPARED_AXIOM_OUTPUT_ID} to runtime output "
             f"{axiom_output_id_by_label['eligible']}.",
@@ -1041,7 +1211,8 @@ def main(args: argparse.Namespace | None = None) -> None:
             f"adult_fc={row['pe_adult_fc']} work={row['pe_work']} "
             f"axiom_child={row.get('axiom_child')} "
             f"axiom_adult={row.get('axiom_adult')} "
-            f"axiom_ssi={row.get('axiom_ssi')}"
+            f"axiom_ssi={row.get('axiom_ssi')} "
+            f"axiom_optional_senior_disabled={row.get('axiom_optional_senior_disabled')}"
         )
 
     if args.write_csv is not None:
