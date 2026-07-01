@@ -884,9 +884,17 @@ surfaces:
     policyengine_status: complete
     coverage: US
     variable: is_medicaid_eligible
-    axiom_status: pending_rulespec_encoding
+    axiom_status: wired
+    populace_validation:
+      status: validated
+      command: axiom-encode medicaid-populace-compare --eligibility-only
+      dataset: Populace US 2024
+      last_run: '2026-07-01'
+      compared: 160858
+      matches: 160858
+      mismatches: 0
     priority: P1
-    rationale: Needs RuleSpec encoding.
+    rationale: Validated against Populace Medicaid eligibility.
   - country: us
     program_id: medicare
     program_name: Medicare
@@ -1007,11 +1015,9 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["total_surfaces"] == 2
     assert report["status_counts"] == {
         "out_of_scope": 1,
-        "pending_rulespec_encoding": 1,
+        "wired": 1,
     }
-    assert [item["variable"] for item in report["actionable_surfaces"]] == [
-        "is_medicaid_eligible"
-    ]
+    assert report["actionable_surfaces"] == []
 
 
 def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():

@@ -212,15 +212,9 @@ def test_project_case_inputs_uses_shared_pregnancy_projection_for_medicaid_impor
         medicare_eligible=False,
     )
 
-    assert (
-        inputs["us:regulations/42-cfr/435/116#input.person_is_pregnant"] is True
-    )
-    assert (
-        inputs["us:regulations/42-cfr/435/119#input.person_is_pregnant"] is True
-    )
-    assert (
-        inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] is True
-    )
+    assert inputs["us:regulations/42-cfr/435/116#input.person_is_pregnant"] is True
+    assert inputs["us:regulations/42-cfr/435/119#input.person_is_pregnant"] is True
+    assert inputs["us:regulations/42-cfr/435/301#input.person_is_pregnant"] is True
 
 
 def test_project_case_inputs_maps_senior_disabled_category_to_statutory_inputs():

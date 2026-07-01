@@ -8761,7 +8761,9 @@ def _repair_medicaid_community_engagement_effective_date_rules(
     versions = medicaid_rule.get("versions")
     if not isinstance(versions, list) or not versions:
         raise ValueError("is_medicaid_eligible must have versions")
-    original_formula = versions[0].get("formula") if isinstance(versions[0], dict) else None
+    original_formula = (
+        versions[0].get("formula") if isinstance(versions[0], dict) else None
+    )
     if not isinstance(original_formula, str):
         raise ValueError("is_medicaid_eligible first version must have formula")
 
@@ -8779,7 +8781,9 @@ def _repair_medicaid_community_engagement_effective_date_rules(
     if gated_adult_group not in original_formula:
         raise ValueError("Missing adult-group community-engagement formula branch")
 
-    past_formula = original_formula.replace(gated_adult_group, "adult_group_eligible", 1)
+    past_formula = original_formula.replace(
+        gated_adult_group, "adult_group_eligible", 1
+    )
     future_formula = original_formula
     medicaid_rule["versions"] = [
         {
