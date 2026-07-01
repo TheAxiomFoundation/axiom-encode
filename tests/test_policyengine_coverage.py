@@ -1736,6 +1736,61 @@ def test_policyengine_program_surface_marks_alaska_ssp_known_not_comparable():
     assert "final benefit-composition surface" in ak_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_connecticut_ssp_pending_encoding():
+    report = build_policyengine_program_surface_report(program="ct_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ct_ssp = items_by_variable["ct_ssp"]
+
+    assert ct_ssp["program_id"] == "ssi_state_supplement"
+    assert ct_ssp["state"] == "CT"
+    assert ct_ssp["axiom_status"] == "pending_rulespec_encoding"
+    assert "Conn. Gen. Stat. § 17b-600" in ct_ssp["rationale"]
+    assert "final monthly Connecticut SSP amount" in ct_ssp["rationale"]
+
+
+def test_policyengine_coverage_maps_connecticut_ssp_income_cap_rate(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-ct" / "statutes/17b-600.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ct_ssp_income_cap_rate
+    kind: derived
+    entity: Person
+    dtype: Rate
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: ct_ssp_income_cap_multiplier
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us-ct" / "statutes/17b-600.test.yaml",
+        """- name: connecticut_ssp_income_cap_rate
+  period: 2026-01
+  input: {}
+  output:
+    us-ct:statutes/17b-600#ct_ssp_income_cap_rate: 3.0
+""",
+    )
+
+    report = build_policyengine_coverage_report(
+        tmp_path,
+        program="ssi_state_supplement",
+    )
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    income_cap = items_by_id["us-ct:statutes/17b-600#ct_ssp_income_cap_rate"]
+
+    assert income_cap["status"] == "comparable"
+    assert income_cap["mapping_type"] == "parameter_value"
+    assert (
+        income_cap["policyengine_parameter"]
+        == "gov.states.ct.dss.ssp.eligibility.income_cap_rate"
+    )
+    assert income_cap["tested"] is True
+
+
 def test_policyengine_coverage_maps_alabama_ssp_amount_cells(tmp_path):
     _write_rulespec_file(
         tmp_path
