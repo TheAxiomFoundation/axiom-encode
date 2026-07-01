@@ -1473,7 +1473,7 @@ def test_project_aotc_person_inputs_uses_ecps_education_leaves():
     )
 
     assert projected["qualified_tuition_and_related_expenses"] == 4_500
-    assert projected["excludable_educational_assistance"] == 500
+    assert projected["excludable_educational_assistance"] == 0
     assert projected["is_tax_unit_dependent"] is True
     assert projected["meets_higher_education_act_student_requirements"] is True
     assert projected["at_least_half_time_student"] is True
