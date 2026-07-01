@@ -4081,6 +4081,43 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the official 2026 Alaska DPA adult-included need-standard table through family size 10. PolicyEngine's need_standard.amount parameter currently stores a historical size-1-to-8 table and a separate additional-person amount, so this full source table is adjacent but not a one-to-one oracle target.
 
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_185_percent_standard_by_family_size
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_limit
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA adult-included 185 percent standard table through family size 10 as a source-table helper. PolicyEngine derives ak_atap_gross_income_limit from its broader need-standard graph and does not expose this source table as a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_185_percent_standard_each_additional
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_limit
+    candidate_priority: P4
+    rationale: Axiom exposes the official 2026 Alaska DPA adult-included each-additional amount for the 185 percent standards table. PolicyEngine derives gross-income limits from its own need-standard graph rather than exposing this published source-table increment as a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_family_size_minimum
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the minimum family-size row used to select the official 2026 Alaska DPA adult-included standards tables. PolicyEngine compares final TANF amounts and does not expose this source-table selector boundary.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_family_size_table_maximum
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the maximum listed family-size row used before applying the each-additional row in the official 2026 Alaska DPA adult-included standards tables. PolicyEngine does not expose this source-table selector boundary as a one-to-one oracle target.
+
+  - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_family_size_lookup
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the generated family-size lookup used to select the official 2026 Alaska DPA adult-included standards-table row. PolicyEngine compares final derived Alaska ATAP variables and does not expose this source-table lookup helper.
+
   - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_each_additional
     country: us
     program: tanf

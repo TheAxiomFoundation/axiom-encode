@@ -2149,6 +2149,68 @@ def test_policyengine_program_surface_marks_alaska_atap_known_not_comparable():
     assert "earned-income deductions" in alaska_atap["rationale"]
 
 
+def test_policyengine_coverage_classifies_alaska_atap_adult_included_table_helpers(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-ak/policies/dpa/atap/standards/2026/adult-included.yaml",
+        """format: rulespec/v1
+rules:
+  - name: adult_included_family_size_minimum
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2
+  - name: adult_included_family_size_table_maximum
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 10
+  - name: adult_included_185_percent_standard_by_family_size
+    kind: parameter
+    dtype: Money
+    indexed_by: adult_included_family_size_lookup
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          2: 3529
+  - name: adult_included_185_percent_standard_each_additional
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 447
+  - name: adult_included_family_size_lookup
+    kind: derived
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adult_included_family_size_minimum
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    items_by_rule = {item["rule_name"]: item for item in report["items"]}
+    assert set(items_by_rule) == {
+        "adult_included_185_percent_standard_by_family_size",
+        "adult_included_185_percent_standard_each_additional",
+        "adult_included_family_size_lookup",
+        "adult_included_family_size_minimum",
+        "adult_included_family_size_table_maximum",
+    }
+    for item in items_by_rule.values():
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+        assert item["program"] == "tanf"
+        assert "source-table" in item["rationale"]
+
+
 def test_policyengine_program_surface_marks_new_york_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
