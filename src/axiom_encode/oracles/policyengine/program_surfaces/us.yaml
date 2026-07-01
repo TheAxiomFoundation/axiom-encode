@@ -1644,8 +1644,30 @@ surfaces:
   state: CO
   axiom_status: wired
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    Colorado AND-CS grant-payment rules are encoded and wired to PolicyEngine's CO state-supplement surface. Populace
+    validation is currently blocked by PolicyEngine-US parameter drift: PE-US 1.751.2 carries the 2025 monthly grant standard
+    of $967 into 2026, while 9 CCR 2503-5 3.546 sets $994 effective January 1, 2026. The upstream PE fix is
+    PolicyEngine/policyengine-us#8807.
+  populace_validation:
+    status: blocked
+    dataset: populace-us-2024 local H5
+    command: >-
+      AXIOM_POPULACE_US_2024_H5=/Users/maxghenis/.codex-artifacts/populace-us-fiscal-refresh-703bd81-no-oos-20260620/artifacts/populace_us_2024.h5
+      uv run --with policyengine-us --with policyengine-core==3.26.0
+      --with /Users/maxghenis/PolicyEngine/populace/packages/populace-data[us]
+      --with numpy --with pandas axiom-encode us-populace-compare
+      --root /Users/maxghenis/TheAxiomFoundation
+      --rulespec-root /Users/maxghenis/TheAxiomFoundation/rulespec-us
+      --axiom-rules-engine-path /Users/maxghenis/TheAxiomFoundation/_worktrees/axiom-rules-engine-derived-versions-20260701
+      --year 2026 --month 1 --populace-year 2024
+      --variable co_state_supplement --sample-size 0 --max-differences 10
+    last_run: '2026-07-01'
+    rationale: >-
+      Full Colorado Populace run compared 2,209 people and found 1 mismatch, exactly $27/month: RuleSpec applies
+      the 2026 source-law AND-CS grant standard of $994, while PolicyEngine-US 1.751.2 still uses $967 for 2026.
+      Installing local PE branch codex/co-ssi-2026-params from PolicyEngine/policyengine-us#8807 removes the mismatch;
+      the paired CO OAP/AND-CS Populace run compared 4,418 values with 0 mismatches.
 - country: us
   program_id: ssi_state_supplement
   program_name: DC OSSP
@@ -2152,8 +2174,30 @@ surfaces:
   source_type: program
   axiom_status: wired
   priority: P1
-  rationale: Colorado OAP grant payment rules are encoded and wired to PolicyEngine's CO OAP surface; Populace validation
-    is still required before claiming population-level parity.
+  rationale: >-
+    Colorado OAP grant-payment rules are encoded and wired to PolicyEngine's CO OAP surface. Populace validation
+    is currently blocked by PolicyEngine-US parameter drift: PE-US 1.751.2 carries the 2025 monthly grant standard of
+    $1,005 into 2026, while 9 CCR 2503-5 3.530 sets $1,032 effective January 1, 2026. The upstream PE fix is
+    PolicyEngine/policyengine-us#8807.
+  populace_validation:
+    status: blocked
+    dataset: populace-us-2024 local H5
+    command: >-
+      AXIOM_POPULACE_US_2024_H5=/Users/maxghenis/.codex-artifacts/populace-us-fiscal-refresh-703bd81-no-oos-20260620/artifacts/populace_us_2024.h5
+      uv run --with policyengine-us --with policyengine-core==3.26.0
+      --with /Users/maxghenis/PolicyEngine/populace/packages/populace-data[us]
+      --with numpy --with pandas axiom-encode us-populace-compare
+      --root /Users/maxghenis/TheAxiomFoundation
+      --rulespec-root /Users/maxghenis/TheAxiomFoundation/rulespec-us
+      --axiom-rules-engine-path /Users/maxghenis/TheAxiomFoundation/_worktrees/axiom-rules-engine-derived-versions-20260701
+      --year 2026 --month 1 --populace-year 2024
+      --variable co_oap --sample-size 0 --max-differences 10
+    last_run: '2026-07-01'
+    rationale: >-
+      Full Colorado Populace run compared 2,209 people and found 62 mismatches, each exactly $27/month: RuleSpec
+      applies the 2026 source-law OAP grant standard of $1,032, while PolicyEngine-US 1.751.2 still uses $1,005 for 2026.
+      Installing local PE branch codex/co-ssi-2026-params from PolicyEngine/policyengine-us#8807 removes the mismatches;
+      the paired CO OAP/AND-CS Populace run compared 4,418 values with 0 mismatches.
 - country: us
   program_id: co_chp
   program_name: Colorado CHP
@@ -2236,6 +2280,34 @@ surfaces:
   rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through an
     exact final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in the
     scanned RuleSpec checkout.
+  populace_validation:
+    status: validated
+    dataset: populace-us-2024 local H5
+    command: >-
+      AXIOM_POPULACE_US_2024_H5=/Users/maxghenis/.codex-artifacts/populace-us-fiscal-refresh-703bd81-no-oos-20260620/artifacts/populace_us_2024.h5
+      uv run --with policyengine-us --with policyengine-core==3.26.0
+      --with /Users/maxghenis/PolicyEngine/populace/packages/populace-data[us]
+      --with numpy --with pandas axiom-encode us-populace-compare
+      --root /Users/maxghenis/TheAxiomFoundation
+      --rulespec-root /Users/maxghenis/TheAxiomFoundation/rulespec-us
+      --axiom-rules-engine-path /Users/maxghenis/TheAxiomFoundation/_worktrees/axiom-rules-engine-derived-versions-20260701
+      --year 2026 --month 1 --populace-year 2024
+      --variable ca_capi --sample-size 0 --json
+    last_run: '2026-07-01'
+    compared_persons: 5378
+    compared_spm_units: 3757
+    compared_values: 5378
+    skipped_cases: 10197
+    mismatch_count: 0
+    outputs:
+    - output: us-ca:regulations/cdss/eas/49/49-055#ca_capi
+      compared: 5378
+      mismatches: 0
+      max_abs_diff: 0.0
+    rationale: >-
+      Full California Populace comparison passed for 5,378 comparable non-couple person cases, with 0 mismatches;
+      10,197 married SPM-unit cases were skipped because PolicyEngine exposes CAPI as an SPM-unit total while the encoded
+      legal output is person-level.
 - country: us
   program_id: care
   program_name: California CARE
