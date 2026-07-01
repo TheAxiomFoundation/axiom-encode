@@ -111,6 +111,7 @@ class USVariableComparisonRow:
     axiom: float
     policyengine: float
     diff: float
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -697,7 +698,21 @@ def compare_outputs(
                 }
         for index, case in enumerate(cases):
             if index >= len(axiom_outputs):
-                break
+                for mapping in mappings:
+                    item = summary[mapping.legal_id]
+                    item["mismatches"] += 1
+                    mismatches.append(
+                        USVariableComparisonRow(
+                            variable=variable,
+                            entity_id=person_entity_id(case.person_id),
+                            output=mapping.legal_id,
+                            axiom=0.0,
+                            policyengine=money(case.pe_outputs[variable]),
+                            diff=-money(case.pe_outputs[variable]),
+                            reason="missing_axiom_row",
+                        )
+                    )
+                continue
             compared_person_ids.add(case.person_id)
             if case.spm_unit_id is not None:
                 compared_spm_units.add(case.spm_unit_id)
@@ -705,6 +720,19 @@ def compare_outputs(
             outputs = result.get("outputs") or {}
             for mapping in mappings:
                 if mapping.legal_id not in outputs:
+                    item = summary[mapping.legal_id]
+                    item["mismatches"] += 1
+                    mismatches.append(
+                        USVariableComparisonRow(
+                            variable=variable,
+                            entity_id=person_entity_id(case.person_id),
+                            output=mapping.legal_id,
+                            axiom=0.0,
+                            policyengine=money(case.pe_outputs[variable]),
+                            diff=-money(case.pe_outputs[variable]),
+                            reason="missing_axiom_output",
+                        )
+                    )
                     continue
                 axiom_value = output_number(outputs.get(mapping.legal_id))
                 pe_value = money(case.pe_outputs[variable])
@@ -796,6 +824,7 @@ def print_report(
             print(
                 f"  - entity={row.entity_id} {row.variable}:{row.output}: "
                 f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} diff={row.diff:.2f}"
+                + (f" reason={row.reason}" if row.reason else "")
             )
     print()
     print("Projection notes:")

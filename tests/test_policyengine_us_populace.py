@@ -172,6 +172,68 @@ rules:
     )
 
 
+def test_compare_outputs_flags_missing_axiom_row_as_mismatch():
+    mapping = PolicyEngineMapping(
+        legal_id="us-co:regulations/9-ccr-2503-5/3.548#and_cs_authorized_grant_payment",
+        country="us",
+        mapping_type="direct_variable",
+        policyengine_variable="co_state_supplement",
+    )
+    case = us_populace.USVariableCase(
+        variable="co_state_supplement",
+        person_id=456,
+        spm_unit_id=88,
+        state="CO",
+        inputs={},
+        pe_outputs={"co_state_supplement": 894},
+    )
+
+    report = us_populace.compare_outputs(
+        variables=("co_state_supplement",),
+        cases_by_variable={"co_state_supplement": [case]},
+        mappings_by_variable={"co_state_supplement": (mapping,)},
+        axiom_outputs_by_variable={"co_state_supplement": []},
+        skipped_reasons={},
+        tolerance=0.01,
+        relative_tolerance=1e-9,
+    )
+
+    assert report.compared_values == 0
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].reason == "missing_axiom_row"
+
+
+def test_compare_outputs_flags_missing_legal_output_as_mismatch():
+    mapping = PolicyEngineMapping(
+        legal_id="us-ca:regulations/cdss/eas/49/49-055#ca_capi",
+        country="us",
+        mapping_type="direct_variable",
+        policyengine_variable="ca_capi",
+    )
+    case = us_populace.USVariableCase(
+        variable="ca_capi",
+        person_id=123,
+        spm_unit_id=99,
+        state="CA",
+        inputs={},
+        pe_outputs={"ca_capi": 600},
+    )
+
+    report = us_populace.compare_outputs(
+        variables=("ca_capi",),
+        cases_by_variable={"ca_capi": [case]},
+        mappings_by_variable={"ca_capi": (mapping,)},
+        axiom_outputs_by_variable={"ca_capi": [{"outputs": {}}]},
+        skipped_reasons={},
+        tolerance=0.01,
+        relative_tolerance=1e-9,
+    )
+
+    assert report.compared_values == 0
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].reason == "missing_axiom_output"
+
+
 def test_project_oap_combines_pe_ssi_sources_into_total_countable_income():
     adapter = get_pe_us_var_adapter("co_oap")
     assert adapter is not None

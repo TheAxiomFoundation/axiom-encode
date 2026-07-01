@@ -2277,9 +2277,10 @@ surfaces:
   source_type: program
   axiom_status: wired
   priority: P2
-  rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through an
-    exact final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in the
-    scanned RuleSpec checkout.
+  rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through a
+    person-level final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in
+    the scanned RuleSpec checkout, while Populace validation is scoped to cases where PolicyEngine's SPM-unit CAPI
+    surface maps cleanly to a single person-level legal output.
   populace_validation:
     status: validated
     dataset: populace-us-2024 local H5
