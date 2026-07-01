@@ -541,6 +541,35 @@ PE_US_VAR_ADAPTERS = (
         ),
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("mfip_cash_portion_issued_as_cash",),
+        pe_var="mn_mfip",
+        monthly=True,
+        spm=True,
+        default_state_code="MN",
+        direct_spm_overrides=(
+            (
+                "transitional_standard_for_corresponding_payment_month",
+                "mn_mfip_full_transitional_standard",
+            ),
+            (
+                "family_wage_level_for_corresponding_payment_month",
+                "mn_mfip_family_wage_level",
+            ),
+            (
+                "net_earned_income_in_budget_month",
+                "mn_mfip_countable_earned_income",
+            ),
+            (
+                "unearned_income_in_budget_month",
+                "mn_mfip_countable_unearned_income",
+            ),
+            (
+                "mfip_food_portion_amount_under_section_0020_09",
+                "mn_mfip_food_portion",
+            ),
+        ),
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("ca_capi",),
         pe_var="ca_capi",
         default_state_code="CA",
