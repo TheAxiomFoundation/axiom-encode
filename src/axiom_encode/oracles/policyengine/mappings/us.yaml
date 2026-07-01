@@ -830,12 +830,10 @@ mappings:
   - legal_id: us:policies/cms/original-medicare-part-a-b#is_medicare_eligible
     country: us
     program: medicare
-    mapping_type: direct_variable
+    mapping_type: not_comparable
     policyengine_variable: is_medicare_eligible
-    entity: person
-    period: year
-    comparison: boolean
-    rationale: CMS's Original Medicare guidance backs the simplified PolicyEngine Medicare eligibility surface for age-based eligibility at 65 and disability-based automatic Medicare Part A and Part B enrollment after 24 months of Social Security disability benefits.
+    candidate_priority: P1
+    rationale: CMS's Original Medicare guidance backs the simplified age-65 and 24-month SSDI facts used by PolicyEngine, but it is not the maximally upstream legal boundary for Medicare entitlement. Primary 42 USC 426 conditions also require section 402 or railroad-retirement entitlement/application facts and include additional disability, railroad, government-employment, enrollment, and termination timing branches that PolicyEngine's is_medicare_eligible proxy does not expose.
 
   - legal_id: us:regulations/47-cfr/54/409#lifeline_income_limit_ratio
     country: us

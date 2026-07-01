@@ -1944,10 +1944,14 @@ surfaces:
   coverage: US
   variable: is_medicare_eligible
   source_type: program
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom has primary-source 42 USC 426 Medicare entitlement slices plus CMS guidance parameters for the simplified
+    age-65 and 24-month SSDI facts. PolicyEngine's is_medicare_eligible variable is a simplified person-level proxy
+    using only age >= 65 or SSDI months >= 24, and does not expose the statutory section 402 entitlement,
+    railroad-retirement, government-employment application, enrollment, or termination-timing conditions needed for a
+    maximally upstream one-to-one RuleSpec oracle. Track the source-level statutory mappings separately instead of
+    claiming final Medicare PE parity from the guidance bridge.
 - country: us
   program_id: section_8
   program_name: Section 8
