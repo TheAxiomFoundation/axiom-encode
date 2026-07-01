@@ -20762,6 +20762,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 2014(g) resource-test intermediates (vehicle countable amount, fair-market-value threshold, indexed base-amount components, rounding increments) are internal pieces of PolicyEngine's asset-limit aggregation; PE exposes the final snap_assets and snap_asset_limit but not these per-vehicle and base-amount computation steps.
 
+  - legal_id_prefix: us:statutes/42/1382/e/1#
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: 42 USC 1382(e)(1) outputs are source-level institutional-eligibility, medical-facility cap, emergency-shelter, temporary-institutionalization, and inmate-reporting payment rules. PolicyEngine exposes final SSI eligibility and benefit amounts, not these statutory institutional exceptions, caps, and administrative payment predicates as one-to-one oracle variables.
+
   - legal_id_prefix: us:statutes/42/1396a/xx#
     country: us
     program: medicaid
