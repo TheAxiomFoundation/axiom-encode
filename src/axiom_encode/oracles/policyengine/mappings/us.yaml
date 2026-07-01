@@ -4047,6 +4047,14 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's 106 CMR 704.260 rule applies the source-law income test against the applicable Need Standard and treats income equal to that standard as eligible after excluding noncountable income, Full Employment Program wages, and the listed disregards. PolicyEngine's ma_tafdc_financial_eligible uses PE's own income graph and a strict less-than comparison against ma_tafdc_payment_standard, so the legal output is adjacent TAFDC coverage rather than a one-to-one oracle target.
 
+  - legal_id: us-ma:regulations/106-cmr/704/500/block-1#tafdc_monthly_grant_amount
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ma_tafdc
+    candidate_priority: P4
+    rationale: Axiom's 106 CMR 704.500 grant-calculation output preserves the source-law need-standard deficit, whole-dollar rounding, payment-standard cap, and under-$10 no-grant rule. PolicyEngine's ma_tafdc is a final annual benefit surface that composes PE eligibility, income, clothing allowance, infant benefit, and an EAEDC comparison selector, so this legal grant slice is adjacent progress but not a one-to-one oracle target.
+
   - legal_id: us-ma:regulations/106-cmr/704/230/block-1#ma_tafdc_monthly_absent_parent_income_disregard
     country: us
     program: tanf
