@@ -92,6 +92,8 @@ AOTC_PROGRAM_PATH = Path("statutes/26/25A.yaml")
 AOTC_BASE = "us:statutes/26/25A"
 NONREFUNDABLE_CREDITS_PROGRAM_PATH = Path("statutes/26/26.yaml")
 NONREFUNDABLE_CREDITS_BASE = "us:statutes/26/26"
+INCOME_TAX_PROGRAM_PATH = Path("statutes/26/6401.yaml")
+INCOME_TAX_BASE = "us:statutes/26/6401"
 SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
@@ -352,6 +354,16 @@ NONREFUNDABLE_CREDITS_OUTPUTS = {
         "pe": "income_tax_capped_non_refundable_credits",
     },
 }
+INCOME_TAX_OUTPUTS = {
+    "income_tax_refundable_credits": {
+        "axiom": f"{INCOME_TAX_BASE}#income_tax_refundable_credits",
+        "pe": "income_tax_refundable_credits",
+    },
+    "income_tax": {
+        "axiom": f"{INCOME_TAX_BASE}#income_tax",
+        "pe": "income_tax",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
@@ -361,6 +373,7 @@ SURFACE_OUTPUTS = {
     "cdcc": CDCC_OUTPUTS,
     "aotc": AOTC_OUTPUTS,
     "nonrefundable-credits": NONREFUNDABLE_CREDITS_OUTPUTS,
+    "income-tax": INCOME_TAX_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
@@ -372,6 +385,7 @@ SURFACE_PROGRAM_PATHS = {
     "cdcc": CDCC_PROGRAM_PATH,
     "aotc": AOTC_PROGRAM_PATH,
     "nonrefundable-credits": NONREFUNDABLE_CREDITS_PROGRAM_PATH,
+    "income-tax": INCOME_TAX_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 
@@ -427,9 +441,12 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "energy_efficient_home_improvement_credit",
             "filing_status",
             "foreign_tax_credit",
+            "income_tax",
             "income_tax_before_credits",
+            "income_tax_before_refundable_credits",
             "income_tax_capped_non_refundable_credits",
             "income_tax_non_refundable_credits",
+            "income_tax_refundable_credits",
             "income_tax_unavailable_non_refundable_credits",
             "min_head_spouse_earned",
             "net_capital_gain",
@@ -1083,6 +1100,8 @@ def build_axiom_request(
         return build_aotc_request(pe_data=pe_data, year=year)
     if surface == "nonrefundable-credits":
         return build_nonrefundable_credits_request(pe_data=pe_data, year=year)
+    if surface == "income-tax":
+        return build_income_tax_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -1303,6 +1322,41 @@ def build_nonrefundable_credits_request(
                 "outputs": [
                     spec["axiom"] for spec in NONREFUNDABLE_CREDITS_OUTPUTS.values()
                 ],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_income_tax_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        for name, value in project_income_tax_inputs(row=row).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in INCOME_TAX_OUTPUTS.values()],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -2109,6 +2163,25 @@ def project_nonrefundable_credits_inputs(*, row: Any) -> dict[str, Any]:
     }
 
 
+def project_income_tax_inputs(*, row: Any) -> dict[str, Any]:
+    tax_before_refundable_credits = money(
+        row.get("income_tax_before_refundable_credits", 0)
+    )
+    return {
+        "credits_allowable_under_subpart_c_excluding_section_33_for_overpayment": (
+            money(row.get("income_tax_refundable_credits", 0))
+        ),
+        "nonresident_withholding_credit_treated_as_refundable_amount": 0.0,
+        "tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits": (
+            tax_before_refundable_credits
+        ),
+        "amount_paid_as_tax": 0.0,
+        "no_tax_liability_in_respect_of_amount_paid": (
+            tax_before_refundable_credits == 0
+        ),
+    }
+
+
 def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
     filing_status = str(row["filing_status"])
     filing_status_numeric = filing_status_code(filing_status)
@@ -2806,6 +2879,12 @@ def compare_outputs(
             "boundary inputs. Individual component-credit correctness remains "
             "with each component surface until the full federal credit chain is "
             "encoded end-to-end.",
+            "Final income-tax projections run encoded 26 USC 6401 overpayment "
+            "math from PolicyEngine's before-refundable-credit liability and "
+            "refundable-credit aggregate. Section 33/nonresident withholding "
+            "credit treatment is zero for this PolicyEngine surface because "
+            "PolicyEngine's refundable-credit aggregate is configured from "
+            "Subpart C credits and does not include payment withholding.",
         ],
     )
 
