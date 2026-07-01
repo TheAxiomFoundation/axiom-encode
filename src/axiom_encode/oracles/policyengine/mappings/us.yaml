@@ -2135,6 +2135,38 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the current WAC 388-478-0055 source slice with local WAC 388-474 eligibility/category facts and an explicit deferred output for post-2024 medical-institution COLA. PolicyEngine's wa_ssp is a final person-level category wrapper over SSI eligibility, federal living arrangement, disabled-category timing, and a historical amount parameter schedule, so compare the encoded source components separately until the WAC 388-474 eligibility rules and historical WSR rate table are encoded.
 
+  - legal_id: us-wa:regulations/388/388-474/388-474-0012#individual_is_eligible_for_ssp_as_described
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level WAC 388-474-0012 SSP eligibility predicate. PolicyEngine's wa_ssp is a final payment variable that combines eligibility, payment-category selection, and historical amount schedules, so this predicate is not a one-to-one oracle target.
+
+  - legal_id: us-wa:regulations/388/388-474/388-474-0012#ssp_eligibility_based_on_developmental_disabilities_administration_determination
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the WAC 388-474-0012(f) DDA-determination eligibility branch. PolicyEngine does not expose this branch separately from final Washington SSP payment eligibility and amount calculation.
+
+  - legal_id: us-wa:regulations/388/388-474/388-474-0012#ssp_eligibility_based_on_foster_child_brs_services
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the WAC 388-474-0012(g) foster-child BRS eligibility branch. PolicyEngine does not expose this branch separately from final Washington SSP payment eligibility and amount calculation.
+
+  - legal_id: us-wa:regulations/388/388-474/388-474-0012#ssp_eligibility_based_on_ineligible_spouse_status
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: wa_ssp
+    candidate_priority: P4
+    rationale: RuleSpec exposes the WAC 388-474-0012(b) ineligible-spouse eligibility branch. PolicyEngine does not expose this branch separately from final Washington SSP payment eligibility and amount calculation.
+
   - legal_id: us:statutes/7/2014/e/6/A#snap_net_income_pre_shelter
     country: us
     program: snap
