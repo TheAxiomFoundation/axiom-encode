@@ -6164,43 +6164,13 @@ def _source_text_looks_like_table(source_text: str) -> bool:
 
 
 def find_versioned_derived_formula_issues(content: str) -> list[str]:
-    """Flag derived rules that rely on unsupported period-selected formulas."""
-    try:
-        payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
-        return []
-    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return []
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        return []
+    """Return versioned-derived issues.
 
-    issues: list[str] = []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if str(rule.get("kind") or "").strip().lower() != "derived":
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list):
-            continue
-        formula_versions = [
-            version
-            for version in versions
-            if isinstance(version, dict)
-            and isinstance(version.get("formula"), str)
-            and version["formula"].strip()
-        ]
-        if len(formula_versions) <= 1:
-            continue
-        name = str(rule.get("name") or "<unknown>")
-        issues.append(
-            "Versioned derived formula unsupported: "
-            f"{name} has {len(formula_versions)} formula versions. "
-            "Use a single source-faithful conditional formula or resolve the "
-            "currently applicable source context before encoding."
-        )
-    return issues
+    Versioned derived formulas are supported by the Axiom runtime. This hook is
+    retained so older manifests and callers can keep invoking the same
+    validation surface without special-casing the capability transition.
+    """
+    return []
 
 
 def find_upstream_placement_issues(
