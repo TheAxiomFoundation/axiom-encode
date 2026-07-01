@@ -2210,6 +2210,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Council Tax Reduction helper outputs expose source-law scheme selection, capital, excess-income, taper, and simulated-award mechanics; PolicyEngine UK exposes the final household council_tax_reduction variable rather than these helpers one-to-one.
 
+  - legal_id_prefix: uk:policies/govuk/vat#
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    rationale: GOV.UK VAT policy outputs are firm-level registration, output-tax, input-tax, and net-liability rules; PolicyEngine UK does not currently expose a firm entity or one-to-one VAT variables for these outputs.
+
   - legal_id_prefix: uk-kingston-upon-thames:policies/kingston-upon-thames/council-tax-reduction#
     country: uk
     program: council_tax_reduction

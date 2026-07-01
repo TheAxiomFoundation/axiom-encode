@@ -49,6 +49,25 @@ rules:
         formula: local_input
 """
 
+_UK_VAT_RULESPEC = """format: rulespec/v1
+rules:
+  - name: vat_registration_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2024-04-01'
+        formula: 90000
+  - name: firm_vat_registered
+    kind: derived
+    versions:
+      - effective_from: '2024-04-01'
+        formula: firm_has_active_vat_registration
+  - name: net_vat_liability
+    kind: derived
+    versions:
+      - effective_from: '2024-04-01'
+        formula: standard_rate_output_vat - recoverable_input_vat
+"""
+
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,6 +261,31 @@ def test_monorepo_uk_jurisdiction_directories(tmp_path):
     assert _malformed_doubled_ids(report) == []
     repos = {item["repo"] for item in report["items"]}
     assert repos == {"rulespec-uk", "rulespec-uk-kingston-upon-thames"}
+
+
+def test_uk_vat_policy_outputs_are_classified_not_comparable(tmp_path):
+    """Firm-level GOV.UK VAT outputs are explicit non-comparable UK surfaces."""
+    root = tmp_path / "mono"
+    _write(
+        root / "rulespec-uk" / "uk" / "policies" / "govuk" / "vat.yaml",
+        _UK_VAT_RULESPEC,
+    )
+
+    report = build_policyengine_coverage_report(root)
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for legal_id in (
+        "uk:policies/govuk/vat#vat_registration_threshold",
+        "uk:policies/govuk/vat#firm_vat_registered",
+        "uk:policies/govuk/vat#net_vat_liability",
+    ):
+        item = items_by_id[legal_id]
+        assert item["repo"] == "rulespec-uk"
+        assert item["program"] == "vat"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
 
 
 def test_monorepo_program_directory_is_not_a_jurisdiction(tmp_path):
