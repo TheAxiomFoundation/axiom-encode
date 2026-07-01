@@ -4198,6 +4198,21 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         value: 16
+  - name: optional_ssi_excess_earnings_medicaid_category_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: optional_working_disabled_medicaid_category_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: optional_youth_medicaid_category_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
   - name: qualifying_individual_income_lower_bound_poverty_line_rate
     kind: parameter
     versions:
@@ -4218,6 +4233,37 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         value: 1.2
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1396d/a/i.yaml",
+        """format: rulespec/v1
+rules:
+  - name: default_youth_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 21
+  - name: state_option_youth_age_ceiling_20_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 20
+  - name: state_option_youth_age_ceiling_19_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 19
+  - name: state_option_youth_age_ceiling_18_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 18
+  - name: youth_age_category_for_medical_assistance
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
 """,
     )
     _write_rulespec_file(
@@ -4282,8 +4328,70 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="medicaid")
 
-    assert report["total_outputs"] == 31
-    assert report["status_counts"] == {"known_not_comparable": 31}
+    assert report["total_outputs"] == 39
+    assert report["status_counts"] == {"known_not_comparable": 39}
+    assert report["untested_comparable"] == 0
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
+
+
+def test_policyengine_coverage_classifies_ssi_resource_exclusion_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/42/1382b/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: alaska_native_stock_inalienability_exclusion_period_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 20
+  - name: assistance_resource_exclusion_period_months
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 9
+  - name: prior_underpayment_resource_exclusion_period_months
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 9
+  - name: post_receipt_resource_exclusion_period_months
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 9
+  - name: qualifying_gift_child_age_ceiling_years
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 18
+  - name: annual_cash_gift_resource_exclusion_cap
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 2000
+  - name: life_insurance_face_value_disregard_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        value: 1500
+  - name: life_insurance_policy_counted_resource_value
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: qualifying_cash_gift_excluded_resource_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="ssi")
+
+    assert report["total_outputs"] == 9
+    assert report["status_counts"] == {"known_not_comparable": 9}
     assert report["untested_comparable"] == 0
     assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
     assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
