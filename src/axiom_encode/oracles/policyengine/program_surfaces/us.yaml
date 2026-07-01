@@ -868,10 +868,13 @@ surfaces:
   variable: ak_atap
   source_type: state_implementation
   state: AK
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include an Alaska ATAP FY 2026 program bridge over official DPA adult-included
+    standards and tested 7 AAC 45.280, 45.400, 45.470, 45.485, and 45.525 legal slices. The bridge remains incomplete
+    for earned-income deductions, nonfinancial eligibility, low-shelter-cost reduction, and non-adult-included assistance-unit
+    variants, while PolicyEngine's ak_atap is a final monthly SPM-unit benefit built from PE's simplified ATAP graph; keep
+    as known-not-comparable until the remaining legal gates are encoded and a final adapter matches PE-compatible boundaries.
 - country: us
   program_id: tanf
   program_name: Iowa FIP

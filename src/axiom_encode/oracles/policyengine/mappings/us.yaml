@@ -4073,6 +4073,70 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Arizona Cash Assistance wrapper composes DES FAA5 payment-standard, needy-family, prospective-eligibility, and eligible-no-pay issuance rules, including the under-$10 no-pay boundary. PolicyEngine's az_tanf is a final monthly SPM-unit benefit gated by PE's demographic, immigration, resource, and income graph and does not share the DES eligible-no-pay issuance boundary, so this is not a one-to-one oracle target yet.
 
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_need_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_need_standard
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge exposes the DPA adult-included need-standard table and each-additional amount from the official 2026 standards. PolicyEngine's ak_atap_need_standard also blends the pregnant-woman branch and PE SPM-unit composition, while Axiom has not yet composed all ATAP assistance-unit variants at the program surface, so this is adjacent but not a one-to-one oracle target.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_gross_income_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_gross_income_limit
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge exposes the source table's adult-included 185 percent standard. PolicyEngine derives ak_atap_gross_income_limit from its broader ak_atap_need_standard graph, including PE's pregnant-woman branch and SPM-unit projection, so this bridge output is not yet an exact oracle target.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_maximum_payment
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_maximum_payment
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge exposes the official adult-included maximum-payment table and each-additional amount from Alaska DPA standards. PolicyEngine's ak_atap_maximum_payment uses a simplified dependent-count formula with a separate pregnant-woman branch, so this source-table bridge is adjacent rather than directly comparable.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_resources_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_resources_eligible
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge applies 7 AAC 45.280 resource limits using nonexempt resources valued under the Alaska regulation and the age-60 higher limit. PolicyEngine's resource helper is projected through PE's SPM-unit resource graph, so the bridge remains an adjacent legal eligibility surface until the same resource inputs are wired.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_childcare_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_childcare_deduction
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge encodes 7 AAC 45.485 child and incapacitated-parent care disregards, including the 7 AAC 45.495 and 45.500 exception inputs. PolicyEngine models only a dependent-child childcare-expense cap, so the Axiom output is source-faithful but not a one-to-one oracle target.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_countable_unearned_income
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_countable_unearned_income
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge encodes the 7 AAC 45.400 cash child-support timing, recipient-retention, noncash-payment, repayment, and noncooperation rules. PolicyEngine subtracts a generic child-support exclusion from gross unearned income, so this legal child-support surface is adjacent rather than directly comparable.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap_eligible
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge currently composes 7 AAC 45.470 income eligibility with source-level resource, gross-income, countable-income, and other-eligibility inputs. PolicyEngine's ak_atap_eligible adds PE federal TANF demographic and immigration projections and separate helper tests, so this bridge is not a direct oracle target until those legal gates are encoded and wired.
+
+  - legal_id: us-ak:programs/tanf/fy-2026#ak_atap
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ak_atap
+    candidate_priority: P4
+    rationale: Axiom's Alaska ATAP FY 2026 bridge preserves 7 AAC 45.525 payment mechanics, including low-shelter-cost reduction and the under-$10 payment rule, while the current source set still lacks full earned-income deduction composition, nonfinancial gates, low-shelter calculation, and non-adult-included variants. PolicyEngine's ak_atap omits several Alaska ATAP features and uses PE's SPM-unit graph, so this is progress toward parity but not a one-to-one oracle yet.
+
   - legal_id: us-ks:programs/tanf/fy-2026#ks_tanf_maximum_benefit
     country: us
     program: tanf
