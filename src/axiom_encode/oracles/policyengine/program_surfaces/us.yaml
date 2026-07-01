@@ -1645,10 +1645,12 @@ surfaces:
   variable: ct_ssp
   source_type: state_implementation
   state: CT
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom now encodes Conn. Gen. Stat. § 17b-600, including the statutory 300% SSI income-cap
+    rate mapped to PolicyEngine, but the final monthly Connecticut SSP amount still requires upstream
+    regulation/manual sources for resource limits, living arrangements, income disregards, allowances,
+    and standards before the PE final benefit surface can be compared.
 - country: us
   program_id: ssi_state_supplement
   program_name: Colorado SSP

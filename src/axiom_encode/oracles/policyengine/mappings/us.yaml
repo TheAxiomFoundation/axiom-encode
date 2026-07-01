@@ -1632,6 +1632,65 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the one-time 1983 statutory dollar increase for couple SSI rates; PolicyEngine stores final monthly federal benefit-rate parameters rather than this source-specific transitional increase.
 
+  - legal_id: us-ct:statutes/17b-600#ct_ssp_income_cap_rate
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.eligibility.income_cap_rate
+    period: month
+    unit: /1
+    comparison: numeric
+    rationale: Conn. Gen. Stat. § 17b-600 states the Connecticut optional state supplementation income-cap condition as three hundred percent of the maximum SSI individual benefit; PolicyEngine stores the same 3x monthly income-cap parameter for Connecticut SSP.
+
+  - legal_id: us-ct:statutes/17b-600#ct_ssp_income_cap_multiplier
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source multiplier used to derive the Connecticut SSP income-cap rate. PolicyEngine stores the derived income-cap rate itself, which is mapped separately, and does not expose this source multiplier as a distinct parameter.
+
+  - legal_id: us-ct:statutes/17b-600#extended_ineligibility_uncompensated_value_threshold
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory uncompensated-value threshold for an extended Connecticut SSP transfer-of-assets ineligibility period. PolicyEngine does not model this source-level transfer-of-assets threshold as a one-to-one parameter or variable.
+
+  - legal_id: us-ct:statutes/17b-600#ordinary_transfer_ineligibility_period_months
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the statutory ordinary Connecticut SSP transfer-of-assets ineligibility period. PolicyEngine does not expose Connecticut SSP transfer-of-assets ineligibility periods as one-to-one parameters.
+
+  - legal_id: us-ct:statutes/17b-600#transfer_has_extended_ineligibility_period
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-level predicate for the extended Connecticut SSP transfer-of-assets ineligibility period. PolicyEngine does not expose this transfer predicate as a one-to-one variable.
+
+  - legal_id: us-ct:statutes/17b-600#transfer_ineligibility_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Connecticut SSP transfer-of-assets ineligibility predicate. PolicyEngine does not model this source-level transfer predicate as a one-to-one variable.
+
+  - legal_id: us-ct:statutes/17b-600#transfer_lookback_period_months
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Connecticut SSP statutory transfer lookback period. PolicyEngine does not expose this Connecticut SSP transfer lookback period as a one-to-one parameter.
+
+  - legal_id: us-ct:statutes/17b-600#trust_income_disregard_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Connecticut SSP trust-income disregard predicate for recipients under the statutory income cap. PolicyEngine does not expose this trust-income disregard predicate as a one-to-one variable.
+
   - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_apa_payment_standard
     country: us
     program: ssi_state_supplement
