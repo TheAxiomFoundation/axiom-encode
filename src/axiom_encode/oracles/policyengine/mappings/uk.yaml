@@ -2203,6 +2203,41 @@ mappings:
     candidate_priority: P4
     rationale: The Universal Credit program wrapper computes the WRA 2012 section 8 maximum amount from standard allowance, child, housing, and particular-needs components. PolicyEngine UK exposes adjacent component and maximum-amount variables, but this wrapper output is not currently tested as a one-to-one oracle surface.
 
+  - legal_id: uk:statutes/ukpga/1994/23/2#standard_rate_of_vat
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Value Added Tax Act 1994 section 2 is encoded for Axiom firm-level VAT microsimulation. PolicyEngine UK does not currently expose a firm entity or a registered one-to-one VAT Act oracle surface for this output.
+
+  - legal_id: uk:statutes/ukpga/1994/23/24#output_tax_on_standard_rated_taxable_supplies
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Value Added Tax Act 1994 section 24 output tax is a firm-level VAT accounting helper. PolicyEngine UK does not currently expose a firm entity or a registered one-to-one VAT Act oracle surface for this output.
+
+  - legal_id: uk:statutes/ukpga/1994/23/24#input_tax_on_standard_rated_business_purchases
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Value Added Tax Act 1994 section 24 input tax is a firm-level deductible-purchase helper. PolicyEngine UK does not currently expose a firm entity or a registered one-to-one VAT Act oracle surface for this output.
+
+  - legal_id: uk:statutes/ukpga/1994/23/25#net_vat_liability_after_input_tax_credit
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Value Added Tax Act 1994 section 25 net VAT liability is a firm-level accounting output after input tax credit. PolicyEngine UK does not currently expose a firm entity or a registered one-to-one VAT Act oracle surface for this output.
+
+  - legal_id: uk:statutes/ukpga/1994/23/26#allowable_input_tax_credit
+    country: uk
+    program: vat
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Value Added Tax Act 1994 section 26 allowable input tax credit is a firm-level deductible-input output. PolicyEngine UK does not currently expose a firm entity or a registered one-to-one VAT Act oracle surface for this output.
+
 prefixes:
   - legal_id_prefix: uk:policies/govuk/council-tax-reduction#
     country: uk

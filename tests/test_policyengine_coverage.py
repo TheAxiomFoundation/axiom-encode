@@ -1077,6 +1077,76 @@ def test_policyengine_registry_resolves_wic_and_chip_eligibility_prefixes():
         assert mapping.policyengine_variable == variable
 
 
+def test_policyengine_coverage_classifies_uk_vat_act_firm_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/1994/23/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: standard_rate_of_vat
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 0.20
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/1994/23/24.yaml",
+        """format: rulespec/v1
+rules:
+  - name: output_tax_on_standard_rated_taxable_supplies
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: standard_rated_taxable_supplies_value * standard_rate_of_vat
+  - name: input_tax_on_standard_rated_business_purchases
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: standard_rated_deductible_business_purchase_value * standard_rate_of_vat
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/1994/23/25.yaml",
+        """format: rulespec/v1
+rules:
+  - name: net_vat_liability_after_input_tax_credit
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: output_tax_on_standard_rated_taxable_supplies - allowable_input_tax_credit
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "uk/statutes/ukpga/1994/23/26.yaml",
+        """format: rulespec/v1
+rules:
+  - name: allowable_input_tax_credit
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: input_tax_on_standard_rated_business_purchases * allowable_input_tax_proportion
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="vat")
+
+    assert report["total_outputs"] == 5
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for legal_id in (
+        "uk:statutes/ukpga/1994/23/2#standard_rate_of_vat",
+        "uk:statutes/ukpga/1994/23/24#output_tax_on_standard_rated_taxable_supplies",
+        "uk:statutes/ukpga/1994/23/24#input_tax_on_standard_rated_business_purchases",
+        "uk:statutes/ukpga/1994/23/25#net_vat_liability_after_input_tax_credit",
+        "uk:statutes/ukpga/1994/23/26#allowable_input_tax_credit",
+    ):
+        item = items_by_id[legal_id]
+        assert item["program"] == "vat"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+        assert item["candidate_priority"] == "P4"
+
+
 def test_policyengine_program_surface_local_tax_credit_uses_local_weight(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
