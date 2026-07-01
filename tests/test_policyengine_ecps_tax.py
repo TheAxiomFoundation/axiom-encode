@@ -16,6 +16,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     EITC_OUTPUTS,
     EMPLOYEE_OASDI_BASE,
     EMPLOYEE_OASDI_PROGRAM_PATH,
+    INCOME_TAX_BASE,
+    INCOME_TAX_OUTPUTS,
     NONREFUNDABLE_CREDITS_BASE,
     NONREFUNDABLE_CREDITS_OUTPUTS,
     OASDI_WAGE_BASE_BASE,
@@ -39,6 +41,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     build_contribution_and_benefit_base_request,
     build_ctc_request,
     build_eitc_request,
+    build_income_tax_request,
     build_nonrefundable_credits_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
@@ -66,6 +69,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_relevant_investment_income,
     project_eitc_tax_unit_inputs,
     project_fica_wages,
+    project_income_tax_inputs,
     project_nonrefundable_credits_inputs,
     project_oasdi_wage_base_inputs,
     project_section_32_c_2_tax_unit_inputs,
@@ -1695,6 +1699,79 @@ def test_build_nonrefundable_credits_request_uses_tax_unit_inputs_and_outputs():
             )
         ]
         == "500.0"
+    )
+
+
+def test_project_income_tax_inputs_uses_6401_boundaries():
+    projected = project_income_tax_inputs(
+        row={
+            "income_tax_before_refundable_credits": 1_200,
+            "income_tax_refundable_credits": 300,
+        }
+    )
+
+    assert projected == {
+        "credits_allowable_under_subpart_c_excluding_section_33_for_overpayment": 300,
+        "nonresident_withholding_credit_treated_as_refundable_amount": 0.0,
+        "tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits": 1_200,
+        "amount_paid_as_tax": 0.0,
+        "no_tax_liability_in_respect_of_amount_paid": False,
+    }
+
+
+def test_build_income_tax_request_uses_tax_unit_inputs_and_outputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "income_tax_before_refundable_credits": 1_200,
+                    "income_tax_refundable_credits": 300,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame([]),
+        "tax_unit_ids": [1],
+    }
+
+    request = build_income_tax_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [spec["axiom"] for spec in INCOME_TAX_OUTPUTS.values()],
+        }
+    ]
+    assert request["dataset"]["relations"] == []
+    input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
+    assert (
+        input_values[
+            (
+                f"{INCOME_TAX_BASE}#input."
+                "credits_allowable_under_subpart_c_excluding_section_33_for_overpayment",
+                "tax_unit_1",
+            )
+        ]
+        == "300.0"
+    )
+    assert (
+        input_values[
+            (
+                f"{INCOME_TAX_BASE}#input."
+                "tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits",
+                "tax_unit_1",
+            )
+        ]
+        == "1200.0"
     )
 
 
