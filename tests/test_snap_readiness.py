@@ -153,6 +153,28 @@ def test_snap_readiness_flags_rules_without_policyengine_config(tmp_path):
     )
 
 
+def test_snap_readiness_reports_configured_jurisdiction_missing_program_module(
+    tmp_path,
+):
+    root = tmp_path / "workspace"
+    corpus_root = root / "axiom-corpus"
+    repo = root / "rulespec-us-or"
+    _write_rulespec(repo, "policies/odhs/open/page-274.yaml")
+    _write_corpus_provision(corpus_root, "us-or/manual/odhs/open/page-274")
+
+    report = build_snap_readiness_report(root, corpus_root=corpus_root)
+
+    by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
+    oregon = by_jurisdiction["us-or"]
+    assert oregon["status"] == "missing_program_module"
+    assert oregon["policyengine_populace_configured"] is True
+    assert oregon["program_module"] == (
+        "policies/odhs/open/fy-2026-benefit-calculation.yaml"
+    )
+    assert oregon["program_module_exists"] is False
+    assert "missing configured SNAP program module" in oregon["blockers"]
+
+
 def test_snap_readiness_distinguishes_empty_repo_without_corpus(tmp_path):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"

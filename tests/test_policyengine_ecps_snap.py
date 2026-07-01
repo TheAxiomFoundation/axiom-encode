@@ -1,4 +1,5 @@
 import shutil
+from argparse import ArgumentParser, Namespace
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
     projected_child_support_payment,
     run_axiom_cases,
     set_input_value,
+    uses_household_only_bridge,
 )
 from axiom_encode.oracles.snapscreener import (
     project_payload,
@@ -81,6 +83,40 @@ def test_set_input_value_can_skip_optional_unknown_inputs():
     )
 
 
+def test_optional_household_size_projection_updates_only_when_present():
+    inputs = {
+        "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+        "fy-2026-benefit-calculation#input.na_net_income": 0,
+    }
+
+    set_input_value(inputs, "household_size", 3, required=False)
+
+    assert "household_size" not in inputs
+
+    inputs[
+        "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size"
+    ] = 1
+    set_input_value(inputs, "household_size", 3, required=False)
+
+    assert (
+        inputs[
+            "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size"
+        ]
+        == 3
+    )
+
+
+def test_optional_projection_fields_do_not_create_bare_inputs():
+    inputs = {
+        "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/"
+        "fy-2026-benefit-calculation#input.na_net_income": 0,
+    }
+
+    set_input_value(inputs, "household_shelter_costs_incurred", 1200, required=False)
+
+    assert "household_shelter_costs_incurred" not in inputs
+
+
 def test_all_by_id_requires_every_member_to_hold():
     result = all_by_id(
         [1, 1, 2, 2, 3],
@@ -127,6 +163,31 @@ def test_new_york_projector_uses_repaired_work_disqualification_input():
         ]
         is True
     )
+
+
+def test_oregon_utah_bridge_projector_includes_categorical_minimum_signal():
+    values = {
+        "snap_dependent_care_deduction": [0],
+        "snap_net_income": [800],
+        "is_snap_eligible": [True],
+        "meets_snap_categorical_eligibility": [True],
+        "snap_max_allotment": [546],
+        "snap_min_allotment": [24],
+        "snap_excess_shelter_expense_deduction": [150],
+    }
+
+    projected = project_jurisdiction_household_inputs(
+        JURISDICTION_CONFIGS["us-ut"], values, 0
+    )
+
+    assert projected == {
+        "projected_snap_net_income": 800,
+        "projected_snap_eligible": True,
+        "projected_snap_categorically_eligible": True,
+        "projected_snap_maximum_allotment": 546,
+        "projected_snap_minimum_allotment": 24,
+        "projected_snap_excess_shelter_deduction": 150,
+    }
 
 
 def test_california_projectors_use_california_snap_input_surface():
@@ -237,6 +298,61 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
     assert inputs_by_name["member-input"]["entity"] == "Person"
 
 
+def test_run_axiom_cases_allows_household_only_projection(monkeypatch, tmp_path):
+    runtime_requests = []
+
+    def fake_run(cmd, **kwargs):
+        runtime_requests.append(ecps_snap.json.loads(kwargs["input"]))
+        return ecps_snap.subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=ecps_snap.json.dumps({"results": [{"outputs": {}}]}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(ecps_snap.subprocess, "run", fake_run)
+    period = Period(
+        label="2026-01",
+        year=2026,
+        month=1,
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 31),
+    )
+    config = JURISDICTION_CONFIGS["us-az"]
+
+    run_axiom_cases(
+        binary=tmp_path / "axiom-rules-engine",
+        artifact=tmp_path / "program.json",
+        cases=[
+            ProjectedCase(
+                spm_unit_id=42,
+                household_id=420,
+                inputs={"household-input": 1},
+                member_inputs=[],
+                pe_outputs={},
+            )
+        ],
+        period=period,
+        output_ids=["output-id"],
+        relation_id=config.relation_id,
+        additional_relation_ids=config.additional_relation_ids,
+        member_entity_type=config.member_entity_type,
+        env={},
+    )
+
+    request = runtime_requests[0]
+    assert request["dataset"]["relations"] == []
+    assert request["dataset"]["inputs"] == [
+        {
+            "name": "household-input",
+            "entity": "Household",
+            "entity_id": "spm-42",
+            "interval": {"start": "2026-01-01", "end": "2026-01-31"},
+            "value": {"kind": "integer", "value": 1},
+        }
+    ]
+
+
 def test_common_snap_outputs_track_current_federal_rulespec_surface():
     assert COMMON_AXIOM_OUTPUT_ID_BY_LABEL["snap_gross_monthly_income"] == (
         "us:regulations/7-cfr/273/10#snap_total_gross_income"
@@ -244,6 +360,82 @@ def test_common_snap_outputs_track_current_federal_rulespec_surface():
     assert COMMON_AXIOM_OUTPUT_ID_BY_LABEL["snap_excess_shelter_deduction"] == (
         "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income"
     )
+
+
+def test_snap_ecps_parser_includes_oregon_and_utah():
+    parser = ArgumentParser()
+    ecps_snap.configure_parser(parser)
+
+    parsed = parser.parse_args(["--jurisdiction", "us-or"])
+    assert parsed.jurisdiction == "us-or"
+    parsed = parser.parse_args(["--jurisdiction", "us-ut"])
+    assert parsed.jurisdiction == "us-ut"
+
+
+def test_oregon_and_utah_configs_point_to_expected_program_modules():
+    oregon = JURISDICTION_CONFIGS["us-or"]
+    utah = JURISDICTION_CONFIGS["us-ut"]
+
+    assert oregon.state_code == "OR"
+    assert oregon.repo_name == "rulespec-us-or"
+    assert oregon.program_relative_path.as_posix() == (
+        "policies/odhs/open/fy-2026-benefit-calculation.yaml"
+    )
+    assert oregon.output_id_by_label["snap_regular_month_allotment"] == (
+        "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+        "#snap_regular_month_allotment"
+    )
+    assert utah.state_code == "UT"
+    assert utah.repo_name == "rulespec-us-ut"
+    assert utah.program_relative_path.as_posix() == (
+        "policies/dws/eligibility-manual/fy-2026-benefit-calculation.yaml"
+    )
+    assert utah.output_id_by_label["snap_eligible"] == (
+        "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+        "#snap_eligible"
+    )
+
+
+def test_household_only_snap_bridge_jurisdictions_do_not_project_member_inputs():
+    assert uses_household_only_bridge(JURISDICTION_CONFIGS["us-az"])
+    assert uses_household_only_bridge(JURISDICTION_CONFIGS["us-or"])
+    assert uses_household_only_bridge(JURISDICTION_CONFIGS["us-ut"])
+    assert not uses_household_only_bridge(JURISDICTION_CONFIGS["us-co"])
+    assert not uses_household_only_bridge(JURISDICTION_CONFIGS["us-ny"])
+
+
+def test_snap_ecps_main_fails_before_policyengine_when_program_module_missing(
+    tmp_path,
+):
+    args = Namespace(
+        jurisdiction="us-or",
+        workspace_root=tmp_path,
+        program=None,
+        test_template=None,
+        axiom_binary=None,
+        state=None,
+        year=2026,
+        month=1,
+        sample_size=1,
+        positive_snap_only=False,
+        utility_projection="raw-expenses",
+        tolerance=1.5,
+        max_differences=20,
+        fail_on_mismatch=False,
+        min_match_rate=None,
+        write_csv=None,
+        external_oracle=[],
+        snapscreener_api_js=None,
+        snapscreener_cache_dir=None,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        ecps_snap.main(args)
+
+    message = str(exc_info.value)
+    assert "Oregon SNAP ECPS comparison is configured" in message
+    assert "program module:" in message
+    assert "fy-2026-benefit-calculation.yaml" in message
 
 
 def test_colorado_snap_outputs_use_composed_allotment_and_cfr_net_income():
