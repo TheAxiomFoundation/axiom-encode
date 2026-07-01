@@ -7721,6 +7721,11 @@ class _RulespecRepairDumper(yaml.SafeDumper):
     pass
 
 
+class _RulespecRepairBlockDumper(_RulespecRepairDumper):
+    def increase_indent(self, flow: bool = False, indentless: bool = False):
+        return super().increase_indent(flow, False)
+
+
 def _rulespec_repair_str_representer(
     dumper: yaml.SafeDumper, value: str
 ) -> yaml.nodes.ScalarNode:
@@ -7742,7 +7747,13 @@ def _dump_rulespec_repair_yaml(payload: Any) -> str:
 
 
 def _render_rulespec_rule_block(rule: dict[str, Any]) -> str:
-    rendered = _dump_rulespec_repair_yaml([rule])
+    rendered = yaml.dump(
+        [rule],
+        Dumper=_RulespecRepairBlockDumper,
+        sort_keys=False,
+        allow_unicode=False,
+        width=1000,
+    )
     return "".join(
         f"  {line}" if line.strip() else line
         for line in rendered.splitlines(keepends=True)
