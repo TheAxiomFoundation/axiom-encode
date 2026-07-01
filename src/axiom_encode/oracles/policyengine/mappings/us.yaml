@@ -269,6 +269,27 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output is the lower age threshold for an optional working-disabled pathway. PolicyEngine does not expose that statutory helper separately from final Medicaid eligibility.
 
+  - legal_id: us:statutes/42/1396a/a/10#optional_ssi_excess_earnings_medicaid_category_eligible
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level optional Medicaid category branch under 42 USC 1396a(a)(10)(A)(ii)(XIII). PolicyEngine exposes final Medicaid eligibility and the separate section 1396a(m) optional senior-or-disabled pathway, not this SSI-excess-earnings optional branch as a one-to-one oracle variable.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_working_disabled_medicaid_category_eligible
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level optional Medicaid category branch under 42 USC 1396a(a)(10)(A)(ii)(XV). PolicyEngine exposes final Medicaid eligibility and the section 1396a(m) optional senior-or-disabled pathway, not this working-disabled optional branch as a one-to-one oracle variable.
+
+  - legal_id: us:statutes/42/1396a/a/10#optional_youth_medicaid_category_eligible
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This RuleSpec output is a source-level State-option youth category branch under 42 USC 1396a(a)(10)(A)(ii) and 1396d(a)(i). PolicyEngine exposes final Medicaid eligibility and simplified young-adult category treatment, not this State-election branch as a one-to-one oracle variable.
+
   - legal_id: us:statutes/42/1396a/a/10#qualifying_individual_income_lower_bound_poverty_line_rate
     country: us
     program: medicaid
@@ -19017,6 +19038,13 @@ prefixes:
     candidate_priority: P4
     rationale: High-efficiency electric home rebate outputs not carrying exact parameter mappings are source-level eligible-entity, project, installer-payment, grant-administration, or anti-combination surfaces that PolicyEngine-US does not expose one-to-one.
 
+  - legal_id_prefix: us:statutes/42/1382b/a#
+    country: us
+    program: ssi
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1382b(a) resource-exclusion outputs are source-level SSI resource exclusions and valuation helpers. PolicyEngine US exposes broad SSI countable resources and the final SSI resource test, not these individual statutory exclusion periods, caps, or per-asset valuation predicates as one-to-one oracle variables or parameters.
+
   - legal_id_prefix: us:policies/ed/fsa/2026-27-sai-pell-guide/
     country: us
     program: pell
@@ -20744,6 +20772,13 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: Section 1396a(m) optional senior-or-disabled income-level outputs are federal source-level eligibility, maximum-rate, state-plan, and medical-or-remedial-care methodology helpers. PolicyEngine US does not expose these optional-group statutory helpers as one-to-one Medicaid oracle variables or parameters.
+
+  - legal_id_prefix: us:statutes/42/1396d/a/i#
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1396d(a)(i) outputs encode the federal default and State-option youth age ceilings and the source-level youth medical-assistance category. PolicyEngine US exposes final Medicaid eligibility and simplified young-adult category treatment, not these State-option source helpers as one-to-one oracle variables or parameters.
 
   - legal_id_prefix: us:statutes/42/1396b/f#
     country: us
