@@ -12687,11 +12687,12 @@ def _write_grouped_deterministic_repair_manifests(
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
         for relative_output, group_files in manifest_groups:
-            applied_files = [
-                path for path in group_files if path.resolve() in changed_file_set
-            ]
-            if not applied_files:
+            group_changed = any(
+                path.resolve() in changed_file_set for path in group_files
+            )
+            if not group_changed:
                 continue
+            applied_files = [path for path in group_files if path.exists()]
             generated_output = output_root / "deterministic-repair" / relative_output
             generated_output.parent.mkdir(parents=True, exist_ok=True)
             generated_output.write_text((repo_path / relative_output).read_text())
