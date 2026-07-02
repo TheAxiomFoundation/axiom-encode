@@ -1051,7 +1051,13 @@ class TestSyncAppliedManifestRuns:
         repo = self._write_repo(tmp_path)
         stats = sync_applied_manifest_runs([repo], dry_run=True)
 
-        assert stats == {"total": 2, "synced": 0, "failed": 0, "skipped": 0}
+        assert stats == {
+            "total": 2,
+            "synced": 0,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 0,
+        }
         output = capsys.readouterr().out
         assert "5c8705fb" in output
         assert "aa11bb22" in output
@@ -1061,13 +1067,21 @@ class TestSyncAppliedManifestRuns:
 
         repo = self._write_repo(tmp_path)
         mock_client = MagicMock()
-        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
-            data=[{"id": "x"}]
+        table = mock_client.schema.return_value.table.return_value
+        table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": "x"}])
+        table.select.return_value.neq.return_value.range.return_value.execute.return_value = MagicMock(
+            data=[]
         )
 
         stats = sync_applied_manifest_runs([repo], client=mock_client)
 
-        assert stats == {"total": 2, "synced": 2, "failed": 0, "skipped": 0}
+        assert stats == {
+            "total": 2,
+            "synced": 2,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 0,
+        }
         upsert_calls = mock_client.schema.return_value.table.return_value.upsert.call_args_list
         payloads = [call.args[0] for call in upsert_calls]
         assert {payload["id"] for payload in payloads} == {"5c8705fb", "aa11bb22"}
@@ -1086,6 +1100,32 @@ class TestSyncAppliedManifestRuns:
         assert stats["total"] == 3
         assert stats["skipped"] == 1
         assert "Skipping" in capsys.readouterr().out
+
+    def test_preserves_rows_with_richer_data_sources(self, tmp_path):
+        from axiom_encode.supabase_sync import sync_applied_manifest_runs
+
+        repo = self._write_repo(tmp_path)
+        mock_client = MagicMock()
+        table = mock_client.schema.return_value.table.return_value
+        table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": "x"}])
+        # 5c8705fb already exists as a reviewer_agent run - must not be touched.
+        table.select.return_value.neq.return_value.range.return_value.execute.return_value = MagicMock(
+            data=[{"id": "5c8705fb"}]
+        )
+
+        stats = sync_applied_manifest_runs([repo], client=mock_client)
+
+        assert stats == {
+            "total": 2,
+            "synced": 1,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 1,
+        }
+        upsert_ids = {
+            call.args[0]["id"] for call in table.upsert.call_args_list
+        }
+        assert upsert_ids == {"aa11bb22"}
 
     def test_missing_manifest_dir_is_empty(self, tmp_path):
         from axiom_encode.supabase_sync import find_apply_manifests

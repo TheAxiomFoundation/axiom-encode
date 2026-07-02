@@ -411,7 +411,7 @@ def sync_applied_manifest_runs(
     and upserts one run per manifest with data_source="apply_manifest".
     Idempotent: rows are keyed by the manifest's original run_id.
     """
-    stats = {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
+    stats = {"total": 0, "synced": 0, "failed": 0, "skipped": 0, "preserved": 0}
     runs: list["EncodingRun"] = []
     for repo_path in repo_paths:
         for manifest_path in find_apply_manifests(Path(repo_path)):
@@ -433,12 +433,38 @@ def sync_applied_manifest_runs(
 
     if client is None:
         client = get_supabase_client()
+    # Never overwrite rows that carry richer telemetry than a manifest
+    # reconstruction (e.g. a reviewer_agent run with durations and a session).
+    protected_ids = _non_manifest_run_ids(client)
     for run in runs:
-        if sync_run_to_supabase(run, "apply_manifest", client=client):
+        if run.id in protected_ids:
+            stats["preserved"] += 1
+        elif sync_run_to_supabase(run, "apply_manifest", client=client):
             stats["synced"] += 1
         else:
             stats["failed"] += 1
     return stats
+
+
+def _non_manifest_run_ids(client: Client) -> set[str]:
+    """Ids of encoding_runs whose data_source is anything but apply_manifest."""
+    ids: set[str] = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        result = (
+            client.schema(ENCODINGS_SCHEMA)
+            .table("encoding_runs")
+            .select("id")
+            .neq("data_source", "apply_manifest")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        rows = result.data or []
+        ids.update(row["id"] for row in rows if isinstance(row.get("id"), str))
+        if len(rows) < page_size:
+            return ids
+        offset += page_size
 
 
 def fetch_runs_from_supabase(

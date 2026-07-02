@@ -45070,7 +45070,8 @@ def cmd_sync_applied_runs(args):
 
     print(
         f"manifests={stats['total']} synced={stats['synced']} "
-        f"failed={stats['failed']} skipped={stats['skipped']}"
+        f"failed={stats['failed']} skipped={stats['skipped']} "
+        f"preserved={stats.get('preserved', 0)}"
     )
     if stats["failed"]:
         sys.exit(1)
