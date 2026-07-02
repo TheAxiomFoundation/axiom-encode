@@ -420,7 +420,9 @@ def test_load_populace_dataset_uses_local_engine_dataset_without_populace_data(
     monkeypatch.setenv("AXIOM_POPULACE_US_2024_H5", str(artifact))
     # Matching pin digest keeps the load quiet (no mismatch warning).
     monkeypatch.setattr(
-        population, "file_sha256", lambda path, **_: population.POPULACE_PINS["us"].sha256
+        population,
+        "file_sha256",
+        lambda path, **_: population.POPULACE_PINS["us"].sha256,
     )
     imports: list[str] = []
 
