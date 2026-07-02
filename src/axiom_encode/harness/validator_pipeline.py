@@ -2993,6 +2993,19 @@ def _iter_standalone_fraction_word_matches(
 def _extract_percentage_context_values(text: str) -> set[float]:
     """Return decimal rate equivalents for numbers in percentage table contexts."""
     values: set[float] = set()
+    for match in re.finditer(
+        r"(?:^|(?<=[\s(\[,+\-−*/\"'`“”‘’]))"
+        r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),\d{1,4})"
+        r"\s*(?:%|\b(?:percent|per\s*cent(?:um)?)\b)",
+        text,
+        re.IGNORECASE,
+    ):
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            value = float(raw)
+            values.add(value / 100)
+            values.add(value)
+
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):

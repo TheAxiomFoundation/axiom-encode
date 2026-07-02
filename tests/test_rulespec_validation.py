@@ -5952,6 +5952,26 @@ rules:
     assert 0.7933 in extract_numbers_from_text(source_text)
 
 
+def test_rulespec_grounding_accepts_three_place_european_decimal_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/1
+rules:
+  - name: belgium_pit_autonomy_factor
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2018-01-01'
+        formula: '0.24957'
+"""
+
+    source_text = "Le facteur d'autonomie definitif est determine a 24,957 %."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 24.957 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_does_not_trust_module_summary():
     content = """format: rulespec/v1
 module:
