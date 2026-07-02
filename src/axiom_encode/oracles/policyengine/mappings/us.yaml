@@ -3865,6 +3865,70 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Colorado Works FY 2026 program bridge exposes the encoded basic cash assistance grant before pregnancy allowance. PolicyEngine's co_tanf is a final TANF benefit surface built from PE's own Colorado Works graph, so the bridge is adjacent PE coverage but not a one-to-one oracle until the remaining Colorado Works eligibility, allowance, and procedural gates are composed.
 
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_need_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa_need_standard
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 bridge exposes the Conn. Gen. Stat. 17b-104 standard-of-need rate applied to a source-law family federal-poverty-level input. PolicyEngine's ct_tfa_need_standard projects the value through PE's SPM-unit TANF FPG graph, so this bridge is adjacent but not yet a one-to-one oracle boundary.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_payment_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa_payment_standard
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 bridge composes the statutory 73 percent payment standard from the statutory standard of need. PolicyEngine's ct_tfa_payment_standard also carries historical regional-standard branches and PE SPM-unit projections, so this source-law bridge is adjacent rather than a one-to-one oracle target.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_subsidized_housing_attributed_income
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa
+    candidate_priority: P4
+    rationale: Axiom exposes the Conn. Gen. Stat. 17b-104(d) 8 percent subsidized-housing attributed-income amount as its own legal output. PolicyEngine folds the same concept into the final ct_tfa benefit through a 92 percent adjusted-standard parameter, so this helper is not a one-to-one PE variable.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_payment_standard_after_housing_attribution
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA housing-adjusted payment-standard bridge preserves the statute's 8 percent attributed-income framing before final benefit composition. PolicyEngine embeds the equivalent housing adjustment inside ct_tfa's final graph, so this intermediate output is not directly comparable.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_resources_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa_resources_eligible
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 bridge applies the Conn. Gen. Stat. 17b-112 family asset limit. PolicyEngine's adjacent resource helper is projected through PE's SPM-unit asset graph, so this source-law eligibility output is adjacent until shared TFA resource inputs are wired.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_income_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa_income_eligible
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 bridge composes the statutory recipient gross-earnings rule with an incomplete application-income branch. PolicyEngine separates enrolled-recipient and new-applicant income tests through its own countable-income graph, so this output is not yet a direct oracle target.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa_eligible
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa_eligible
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 wrapper currently composes source-law financial and child-support-cooperation gates. PolicyEngine's ct_tfa_eligible also includes PE demographic and immigration projections, so the wrapper remains incomplete and not one-to-one.
+
+  - legal_id: us-ct:programs/tanf/fy-2026#ct_tfa
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ct_tfa
+    candidate_priority: P4
+    rationale: Axiom's Connecticut TFA FY 2026 bridge composes the 17b-104 payment-standard, housing-attribution, 17b-112 asset, income, child-support, and high-earnings statutory slices, but does not yet encode all demographic, immigration, time-limit, exemption, extension, or application-income mechanics. PolicyEngine's ct_tfa is a final monthly SPM-unit benefit built from PE's own graph, so this is source-faithful progress toward parity but not a one-to-one oracle surface yet.
+
   - legal_id: us-ny:programs/tanf/fy-2026#ny_tanf
     country: us
     program: tanf
