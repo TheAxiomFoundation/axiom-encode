@@ -999,6 +999,15 @@ _SCHEDULE_SPLIT_VALUE_PATTERN = re.compile(
     r"^\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
+_TWO_LINE_TABLE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:allowance|amount|benefit|benefits|deduction|income|limit|payment|"
+    r"rate|standard|standards|threshold)\b",
+    re.IGNORECASE,
+)
+_TWO_LINE_TABLE_ROW_KEY_PATTERN = re.compile(r"^\s*\d{1,3}\s*$")
+_SOURCE_SUBDIVISION_LINE_PATTERN = re.compile(
+    r"^\s*\((?:\d+[A-Za-z]?|[a-z]|[ivxlcdm]+)\)\s*", re.IGNORECASE
+)
 _VALUE_BEARING_TABLE_ROW_PATTERN = re.compile(
     r"^\s*[-*]?\s*[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
@@ -2641,10 +2650,12 @@ def _call_body_contains_any(
 def extract_numbers_from_text(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
     original_text = text
+    two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
     text = _clean_source_text_for_numeric_extraction(text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
     occupied_spans: list[tuple[int, int]] = []
+    numbers.update(two_line_table_occurrences)
     numbers.update(schedule_occurrences)
 
     for match in re.finditer(
@@ -3175,14 +3186,53 @@ def _extract_collapsed_schedule_row_occurrences(
     return occurrences, "\n".join(retained_lines)
 
 
+def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
+    """Extract values from official tables that alternate row key and value lines."""
+    occurrences: list[float] = []
+    table_context_active = False
+    pending_table_key = False
+
+    for line in text.splitlines():
+        stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS).strip()
+        if not stripped:
+            table_context_active = False
+            pending_table_key = False
+            continue
+        if _SOURCE_SUBDIVISION_LINE_PATTERN.match(stripped):
+            table_context_active = False
+            pending_table_key = False
+            continue
+        if _TWO_LINE_TABLE_CONTEXT_PATTERN.search(stripped):
+            table_context_active = True
+
+        if table_context_active and pending_table_key:
+            value_match = _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(stripped)
+            if value_match:
+                with contextlib.suppress(ValueError):
+                    occurrences.append(float(value_match.group(1).replace(",", "")))
+                pending_table_key = False
+                continue
+            pending_table_key = False
+
+        if table_context_active and _TWO_LINE_TABLE_ROW_KEY_PATTERN.fullmatch(stripped):
+            pending_table_key = True
+            continue
+
+        pending_table_key = False
+
+    return occurrences
+
+
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
+    two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
     cleaned = _clean_source_text_for_numeric_extraction(text)
     collapsed_schedule_occurrences, cleaned = (
         _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
-    occurrences: list[float] = list(collapsed_schedule_occurrences)
+    occurrences: list[float] = list(two_line_table_occurrences)
+    occurrences.extend(collapsed_schedule_occurrences)
     spans: list[tuple[int, int]] = []
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
