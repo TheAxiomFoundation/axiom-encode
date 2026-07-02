@@ -25828,6 +25828,13 @@ def _try_repair_generated_source_child_corpus_paths_for_apply(
     issues: list[str],
 ) -> list[str]:
     """Point generated source verification at the matching child corpus row."""
+    repaired_sources = _try_repair_generated_source_subparagraph_rule_sources_for_apply(
+        result,
+        issues=issues,
+    )
+    if repaired_sources:
+        return repaired_sources
+
     literals = _ungrounded_numeric_literal_issue_values(issues)
     if not literals:
         return []
@@ -25884,6 +25891,200 @@ def _try_repair_generated_source_child_corpus_paths_for_apply(
         return []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return [f"{path}->{child_corpus_path}" for path in parent_paths]
+
+
+def _try_repair_generated_source_subparagraph_rule_sources_for_apply(
+    result,
+    *,
+    issues: list[str],
+) -> list[str]:
+    """Add canonical child corpus citations to rules that cover source gaps."""
+    source_gaps = [
+        gap
+        for issue in issues
+        if "Source sub-paragraph coverage missing" in str(issue)
+        for gap in [_parse_source_coverage_gap_issue(str(issue))]
+        if gap is not None
+    ]
+    if not source_gaps:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return []
+
+    repaired: list[str] = []
+    for citation, excerpt in source_gaps:
+        label = _source_coverage_gap_top_level_label(citation)
+        if not label:
+            continue
+        rule = _best_rule_for_source_coverage_gap(
+            rules,
+            label=label,
+            excerpt=excerpt,
+            citation=citation,
+        )
+        if rule is None:
+            continue
+        source = str(rule.get("source") or "").strip()
+        if citation in source:
+            continue
+        rule["source"] = _append_source_citation(source, citation)
+        name = str(rule.get("name") or "rules[]").strip()
+        repaired.append(f"{name}->{citation}")
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _source_coverage_gap_top_level_label(citation: str) -> str:
+    match = re.search(r"\(([A-Za-z0-9]+)\)\s*$", str(citation or ""))
+    return match.group(1).lower() if match is not None else ""
+
+
+def _append_source_citation(source: str, citation: str) -> str:
+    citation = citation.strip()
+    if not source:
+        return citation
+    if source.endswith((".", ";")):
+        return f"{source} {citation}"
+    return f"{source}; {citation}"
+
+
+def _best_rule_for_source_coverage_gap(
+    rules: list[object],
+    *,
+    label: str,
+    excerpt: str,
+    citation: str,
+) -> dict[str, object] | None:
+    best_rule: dict[str, object] | None = None
+    best_score = 0
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        source = str(rule.get("source") or "").strip()
+        if citation in source:
+            continue
+        score = _source_gap_rule_match_score(rule, label=label, excerpt=excerpt)
+        if score > best_score:
+            best_rule = rule
+            best_score = score
+    if best_score <= 0:
+        return None
+    return best_rule
+
+
+_SOURCE_GAP_RULE_MATCH_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "based",
+    "be",
+    "by",
+    "can",
+    "cannot",
+    "each",
+    "for",
+    "from",
+    "has",
+    "if",
+    "in",
+    "is",
+    "it",
+    "level",
+    "monthly",
+    "of",
+    "on",
+    "or",
+    "program",
+    "sets",
+    "size",
+    "standard",
+    "standards",
+    "tanf",
+    "the",
+    "to",
+    "used",
+    "which",
+}
+
+
+def _source_gap_rule_match_score(
+    rule: dict[str, object],
+    *,
+    label: str,
+    excerpt: str,
+) -> int:
+    source = str(rule.get("source") or "")
+    source_lower = source.lower()
+    score = 0
+    if re.search(rf"\({re.escape(label)}\)", source_lower):
+        score += 50
+    if re.search(rf"\(\d+\)\s*\({re.escape(label)}\)", source_lower):
+        score += 20
+
+    excerpt_tokens = _source_gap_match_tokens(excerpt)
+    if not excerpt_tokens:
+        return score
+    name_tokens = _source_gap_match_tokens(str(rule.get("name") or ""))
+    source_tokens = _source_gap_match_tokens(source)
+    metadata_tokens = _source_gap_match_tokens(
+        _rulespec_rule_metadata_search_text(rule)
+    )
+    score += 8 * len(excerpt_tokens & name_tokens)
+    score += 3 * len(excerpt_tokens & source_tokens)
+    score += 2 * len(excerpt_tokens & metadata_tokens)
+    return score
+
+
+def _source_gap_match_tokens(text: str) -> set[str]:
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(text or "").lower())
+        if len(token) > 2 and token not in _SOURCE_GAP_RULE_MATCH_STOPWORDS
+    }
+    if "employment" in tokens or "employed" in tokens:
+        tokens.add("employment")
+    return tokens
+
+
+def _rulespec_rule_metadata_search_text(rule: dict[str, object]) -> str:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, (dict, list)):
+        return ""
+
+    values: list[str] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, str):
+            values.append(value)
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+            return
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(metadata)
+    return " ".join(values)
 
 
 def _relative_output_to_child_corpus_citation_path(
