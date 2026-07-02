@@ -4513,6 +4513,32 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's Arizona Cash Assistance wrapper composes DES FAA5 payment-standard, needy-family, prospective-eligibility, and eligible-no-pay issuance rules, including the under-$10 no-pay boundary. PolicyEngine's az_tanf is a final monthly SPM-unit benefit gated by PE's demographic, immigration, resource, and income graph and does not share the DES eligible-no-pay issuance boundary, so this is not a one-to-one oracle target yet.
 
+  - legal_id: us-al:policies/dhr/public-assistance-payment-manual/appendix-n/section-2/payment-computation#al_tanf_entitlement_amount
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: al_tanf
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: >-
+      Same Alabama DHR payment-manual entitlement calculation for the subset of the legal payment computation
+      PolicyEngine models: monthly payment standard minus countable income, floored at zero, before minimum-grant,
+      sanction, recoupment, and proration adjustments.
+
+  - legal_id: us-al:regulations/alabama-administrative-code/660/2/2/10-amount-of-assistance-payment#al_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: al_tanf
+    candidate_priority: P4
+    rationale: >-
+      Axiom's Alabama Administrative Code assistance-payment output preserves the source-law minimum-grant,
+      recoupment, sanction, and final payment boundaries. PolicyEngine's al_tanf is a simplified DHR payment-manual
+      entitlement amount before those final payment adjustments, so the Admin Code final output is adjacent legal
+      coverage rather than a one-to-one oracle target.
+
   - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_by_family_size
     country: us
     program: tanf
