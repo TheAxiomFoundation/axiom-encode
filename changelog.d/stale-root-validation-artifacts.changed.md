@@ -1,0 +1,1 @@
+Remove stale root-level artifacts: `26_USC_1_VALIDATION_REPORT.md` and `26_usc_1_validation.csv` (marked outdated 2026-04-16; predate the current three-tier validation harness and the live oracle dashboard) and the empty `experiments_export.json` legacy experiment export. Current validation evidence lives in `artifacts/eval-suites/` and the axiom-oracles dashboard.

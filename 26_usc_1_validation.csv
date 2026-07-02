@@ -1,7 +1,0 @@
-test_case,filing_status,income,expected_tax,calculated_tax,status,difference,within_tolerance
-Single Filer Low Income,single,10000,1000,1000,PASS,0,TRUE
-Single Filer Medium Income,single,50000,6750,6750,PASS,0,TRUE
-Married Filing Jointly Low Income,married_filing_jointly,20000,2000,2000,PASS,0,TRUE
-Married Filing Jointly High Income,married_filing_jointly,100000,16750,16750,PASS,0,TRUE
-Head of Household Low Income,head_of_household,15000,1500,1500,PASS,0,TRUE
-Head of Household Medium Income,head_of_household,75000,12500,12500,PASS,0,TRUE
