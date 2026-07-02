@@ -163,6 +163,7 @@ from axiom_encode.cli import (
     _try_repair_generated_source_child_corpus_paths_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
+    _try_repair_generated_test_input_assignments_for_apply,
     _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
@@ -8892,6 +8893,61 @@ rules:
             "later_adjustment_percentage_point_increase[estimated_adjustment_factor_later_band]"
         )
 
+    def test_repair_bare_imported_indexed_parameter_references(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us" / "us-ut"
+        imported_file = (
+            policy_repo
+            / "policies"
+            / "dws"
+            / "eligibility-manual"
+            / "table-1-financial-monthly-income-limits.yaml"
+        )
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: gross_income_test_limit
+  kind: parameter
+  dtype: Money
+  indexed_by: household_size
+  versions:
+  - effective_from: '2024-01-01'
+    values:
+      1: 608
+      3: 1050
+"""
+        )
+        rules_file = (
+            policy_repo / "regulations" / "admin-rules" / "r986" / "200" / "239.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#gross_income_test_limit
+rules:
+- name: ut_fep_gross_income_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: '2024-01-01'
+    formula: 'gross_countable_income <= gross_income_test_limit'
+"""
+        )
+
+        repaired = _repair_bare_indexed_parameter_references(
+            rules_file,
+            policy_repo_path=policy_repo,
+        )
+
+        assert repaired == ["ut_fep_gross_income_eligible"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "gross_countable_income <= gross_income_test_limit[household_size]"
+        )
+
     def test_indexed_parameter_lookup_repair_runs_before_initial_overlay(
         self, capsys, tmp_path
     ):
@@ -14178,6 +14234,102 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_apply_repair_mirrors_imported_index_inputs_to_current_module(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us-ut"
+        imported_file = (
+            policy_repo
+            / "policies"
+            / "dws"
+            / "eligibility-manual"
+            / "table-1-financial-monthly-income-limits.yaml"
+        )
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: gross_income_test_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_size == 3: 1225 else: 0
+"""
+        )
+        output_root = tmp_path / "out"
+        output_file = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "admin-rules"
+            / "r986"
+            / "200"
+            / "239.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#gross_income_test_limit
+rules:
+  - name: ut_fep_gross_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          gross_countable_income <= gross_income_test_limit
+"""
+        )
+        test_file = output_file.with_name("239.test.yaml")
+        test_file.write_text(
+            """- name: size_three_household_uses_imported_threshold
+  period: 2024-01
+  input:
+    us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#input.household_size: 3
+    us-ut:regulations/admin-rules/r986/200/239#input.gross_countable_income: 1000
+  output:
+    us-ut:regulations/admin-rules/r986/200/239#ut_fep_gross_income_eligible: holds
+"""
+        )
+        result = SimpleNamespace(
+            output_file=str(output_file),
+            runner="codex-test-model",
+        )
+
+        repaired = _try_repair_generated_test_input_assignments_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "regulations/admin-rules/r986/200/239.yaml: ci: "
+                "Test case `size_three_household_uses_imported_threshold` "
+                "execution failed: parameter `gross_income_test_limit` "
+                "has no value for key `0` at 2024-01-01"
+            ],
+        )
+
+        assert repaired == ["size_three_household_uses_imported_threshold"]
+        [test_case] = yaml.safe_load(test_file.read_text())
+        assert (
+            test_case["input"][
+                "us-ut:regulations/admin-rules/r986/200/239#input.household_size"
+            ]
+            == 3
+        )
+        assert (
+            test_case["input"][
+                "us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#input.household_size"
+            ]
+            == 3
+        )
 
     def test_encode_apply_auto_repairs_wrong_typed_test_input_values(
         self, capsys, tmp_path

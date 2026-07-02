@@ -22668,6 +22668,7 @@ def cmd_encode(args):
                 _try_repair_generated_indexed_parameter_lookups_for_apply(
                     result,
                     output_root=args.output,
+                    policy_repo_path=policy_repo_path,
                     issues=[],
                 )
             )
@@ -23690,6 +23691,7 @@ def cmd_encode(args):
                     _try_repair_generated_indexed_parameter_lookups_for_apply(
                         result,
                         output_root=args.output,
+                        policy_repo_path=policy_repo_path,
                         issues=apply_issues,
                     )
                 )
@@ -33480,6 +33482,7 @@ def _try_repair_generated_indexed_parameter_lookups_for_apply(
     result,
     *,
     output_root: Path,
+    policy_repo_path: Path | None = None,
     issues: list[str],
 ) -> list[str]:
     """Rewrite bare generated references to indexed parameter tables."""
@@ -33489,7 +33492,10 @@ def _try_repair_generated_indexed_parameter_lookups_for_apply(
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
-    return _repair_bare_indexed_parameter_references(rules_file)
+    return _repair_bare_indexed_parameter_references(
+        rules_file,
+        policy_repo_path=policy_repo_path,
+    )
 
 
 def _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
@@ -33832,7 +33838,11 @@ def _repair_half_unit_add_person_formula_text(formula: str) -> str:
     return pattern.sub(replace, formula)
 
 
-def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
+def _repair_bare_indexed_parameter_references(
+    rules_file: Path,
+    *,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
     if not rules_file.exists():
         return []
     try:
@@ -33845,23 +33855,14 @@ def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
     if not isinstance(rules, list):
         return []
 
-    indexed_parameters: dict[str, str] = {}
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if str(rule.get("kind") or "").strip().lower() != "parameter":
-            continue
-        name = str(rule.get("name") or "").strip()
-        index_name = _single_parameter_index_name(rule)
-        if not name or not index_name:
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list) or not any(
-            isinstance(version, dict) and isinstance(version.get("values"), dict)
-            for version in versions
-        ):
-            continue
-        indexed_parameters[name] = index_name
+    indexed_parameters = _indexed_parameter_reference_selectors_from_payload(payload)
+    if policy_repo_path is not None:
+        indexed_parameters.update(
+            _imported_indexed_parameter_reference_selectors(
+                payload,
+                policy_repo_path=policy_repo_path,
+            )
+        )
     if not indexed_parameters:
         return []
 
@@ -33898,6 +33899,71 @@ def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
     if repaired:
         rules_file.write_text(yaml.safe_dump(payload, sort_keys=False))
     return repaired
+
+
+def _indexed_parameter_reference_selectors_from_payload(
+    payload: dict[str, object],
+) -> dict[str, str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+
+    indexed_parameters: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        index_name = _single_parameter_index_name(rule)
+        if not name or not index_name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not any(
+            isinstance(version, dict) and isinstance(version.get("values"), dict)
+            for version in versions
+        ):
+            continue
+        indexed_parameters[name] = index_name
+    return indexed_parameters
+
+
+def _imported_indexed_parameter_reference_selectors(
+    payload: dict[str, object],
+    *,
+    policy_repo_path: Path,
+) -> dict[str, str]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+
+    indexed_parameters: dict[str, str] = {}
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        imported_name = raw_import.rsplit("#", 1)[1].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", imported_name):
+            continue
+        resolved = _same_repo_import_base_and_file(
+            raw_import,
+            repo_path=policy_repo_path,
+        )
+        if resolved is None:
+            continue
+        _, import_file = resolved
+        try:
+            imported_payload = yaml.safe_load(import_file.read_text()) or {}
+        except (OSError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(imported_payload, dict):
+            continue
+        imported_selectors = _indexed_parameter_reference_selectors_from_payload(
+            imported_payload
+        )
+        index_name = imported_selectors.get(imported_name)
+        if index_name:
+            indexed_parameters[imported_name] = index_name
+    return indexed_parameters
 
 
 def _rewrite_bare_indexed_parameter_reference(
@@ -38420,6 +38486,23 @@ def _try_repair_generated_test_input_assignments_for_apply(
     issues: list[str],
 ) -> list[str]:
     """Fill deterministic explicit defaults for generated tests missing facts."""
+    if _indexed_parameter_key_zero_issue_cases(issues):
+        try:
+            relative_output = _relative_generated_output_path(
+                result, output_root=output_root
+            )
+        except RuntimeError:
+            return []
+        rules_file = Path(str(getattr(result, "output_file", "") or ""))
+        test_file = _rulespec_test_path(rules_file)
+        return _fill_current_index_inputs_from_imported_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            policy_repo_path=policy_repo_path,
+            relative_output=relative_output,
+            case_names=set(_indexed_parameter_key_zero_issue_cases(issues)),
+        )
+
     if not _only_pending_test_input_assignment_issues(issues):
         return []
 
@@ -38445,6 +38528,105 @@ def _only_pending_test_input_assignment_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         "Test input assignment missing:" in str(issue) for issue in issues
     )
+
+
+def _indexed_parameter_key_zero_issue_cases(issues: list[str]) -> list[str]:
+    """Return test cases that failed because an indexed import used default key 0."""
+    case_names: list[str] = []
+    for issue in issues:
+        match = re.search(
+            r"Test case `(?P<case>[^`]+)` execution failed:\s*"
+            r"parameter `[^`]+` has no value for key `0`",
+            str(issue),
+        )
+        if not match:
+            continue
+        case_name = match.group("case").strip()
+        if case_name and case_name not in case_names:
+            case_names.append(case_name)
+    return case_names
+
+
+def _fill_current_index_inputs_from_imported_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    case_names: set[str],
+) -> list[str]:
+    """Mirror imported indexed inputs onto the current module for generated tests."""
+    if not rules_file.exists() or not test_file.exists():
+        return []
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    imported_inputs = _imported_input_refs_by_name(
+        rules_file,
+        repo_path=policy_repo_path,
+    )
+    if not imported_inputs:
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        if case_names and case_name not in case_names:
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        changed = False
+        for input_name, input_refs in sorted(imported_inputs.items()):
+            local_key = f"{anchor}#input.{input_name}"
+            if local_key in inputs:
+                continue
+            value = None
+            for input_ref in input_refs:
+                if input_ref in inputs:
+                    value = inputs[input_ref]
+                    break
+            if value is None:
+                value = _lookup_test_input_by_suffix(inputs, input_name)
+            if value is None:
+                value = _default_generated_test_input_value(
+                    input_name,
+                    rules_payload=rules_payload,
+                    prefer_positive_counts=True,
+                )
+            inputs[local_key] = value
+            changed = True
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
+def _lookup_test_input_by_suffix(
+    inputs: dict[object, object],
+    input_name: str,
+) -> object | None:
+    suffix = f"#input.{input_name}"
+    for key, value in inputs.items():
+        if str(key).endswith(suffix):
+            return value
+    return None
 
 
 def _fill_missing_test_input_assignments(
