@@ -4666,6 +4666,53 @@ mappings:
     candidate_priority: P4
     rationale: Axiom follows Arkansas DHS TEA Manual section 2362 and pays the maximum grant for income-eligible units below the $1,026 gross-income trigger, then rounds the 50% reduced payment at or above the trigger. PolicyEngine's current ar_tea subtracts countable income below the trigger; PolicyEngine/policyengine-us#8841 tracks that source-law review, so compare component parameters and helper predicates separately for now.
 
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_gross_monthly_income_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mt_tanf_gross_income_standard
+    candidate_priority: P4
+    rationale: Axiom exposes ARM 37.78.420's fixed gross monthly income standards table. PolicyEngine derives mt_tanf_gross_income_standard from its Montana TANF State Plan/manual FPG-year, benefit-rate, and net-to-gross parameters, so this regulatory table is not a one-to-one oracle target until the governing source hierarchy is reconciled.
+
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_net_monthly_income_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mt_tanf_net_income_standard
+    candidate_priority: P4
+    rationale: Axiom exposes ARM 37.78.420's fixed net monthly income standards table. PolicyEngine derives mt_tanf_net_income_standard from its State Plan/manual benefit-standard graph and conversion factor rather than exposing this regulatory table as a direct oracle target.
+
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_benefit_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mt_tanf_benefit_standard
+    candidate_priority: P4
+    rationale: Axiom exposes ARM 37.78.420's fixed benefit standards table. PolicyEngine derives mt_tanf_benefit_standard from State Plan/manual FPG-year and percentage parameters, so the encoded regulatory table is adjacent legal coverage rather than a one-to-one PE oracle boundary.
+
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_cash_assistance_payment_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mt_tanf_payment_standard
+    candidate_priority: P4
+    rationale: Axiom exposes ARM 37.78.420's fixed TANF cash assistance payment standards table. PolicyEngine's mt_tanf_payment_standard derives a payment standard from its State Plan/manual FPG-year and percentage parameters, so compare the legal table separately until the regulatory and state-plan sources are reconciled.
+
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_post_employment_payment_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes ARM 37.78.420's separate TANF Cash Assistance Post-Employment Program payment-standard table. PolicyEngine does not model this post-employment payment-standard branch as a distinct Montana TANF oracle surface.
+
+  - legal_id: us-mt:regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420#mt_tanf_payment_standard
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: mt_tanf_payment_standard
+    candidate_priority: P4
+    rationale: Axiom's ARM 37.78.420 output chooses between the fixed cash assistance payment-standard table and the post-employment table. PolicyEngine's mt_tanf_payment_standard uses a State Plan/manual FPG-year/rate formula and does not expose the post-employment branch, so this is not currently a one-to-one comparison target.
+
   - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_by_family_size
     country: us
     program: tanf
