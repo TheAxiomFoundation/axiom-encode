@@ -272,10 +272,7 @@ def test_unpinned_fallback_disabled_by_default_raises_with_278(monkeypatch):
     assert population.ALLOW_UNPINNED_ENV in message
 
 
-def test_unpinned_fallback_allowed_warns_and_loads(monkeypatch):
-    _clear_populace_env(monkeypatch)
-    monkeypatch.setenv(population.ALLOW_UNPINNED_ENV, "1")
-
+def _install_fake_populace(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = ModuleType("populace")
     data_module = ModuleType("populace.data")
 
@@ -286,10 +283,39 @@ def test_unpinned_fallback_allowed_warns_and_loads(monkeypatch):
     monkeypatch.setitem(sys.modules, "populace", fake)
     monkeypatch.setitem(sys.modules, "populace.data", data_module)
 
+
+def test_unpinned_fallback_allowed_warns_and_loads(monkeypatch):
+    _clear_populace_env(monkeypatch)
+    monkeypatch.setenv(population.ALLOW_UNPINNED_ENV, "1")
+    _install_fake_populace(monkeypatch)
+
     provenance: dict[str, object] = {}
     with pytest.warns(UserWarning, match="populace#278"):
         dataset = population.load_populace_dataset(
             "fr",
+            year=2024,
+            command="tax-populace-compare",
+            provenance=provenance,
+        )
+
+    assert dataset.unpinned is True
+    assert provenance["source"] == population.SOURCE_UNPINNED
+
+
+def test_unpinned_escape_hatch_overrides_pin_for_pinned_country(monkeypatch):
+    """The escape hatch is checked *before* the pin, so an operator can force
+    HF-latest even for a country (US) that has a certified pin."""
+    _clear_populace_env(monkeypatch)
+    monkeypatch.setenv(population.ALLOW_UNPINNED_ENV, "1")
+    _install_fake_populace(monkeypatch)
+    # If the pinned path were taken it would import huggingface_hub; make it
+    # absent so a regression that ignores the escape hatch fails loudly.
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+
+    provenance: dict[str, object] = {}
+    with pytest.warns(UserWarning, match="populace#278"):
+        dataset = population.load_populace_dataset(
+            "us",
             year=2024,
             command="tax-populace-compare",
             provenance=provenance,

@@ -127,15 +127,16 @@ def load_populace_dataset(
        compared against the country pin; a mismatch logs a *loud warning* but
        does not fail (local overrides are expected to differ from the pin).
        Recorded as ``source="local-override"``.
-    2. **Pinned Hugging Face download** (the default) — ``hf_hub_download`` at the
+    2. **Unpinned escape hatch** — only when ``AXIOM_POPULACE_ALLOW_UNPINNED`` is
+       set truthy: ``populace.data.load()`` (and, via the cache scan, HF-latest —
+       the sparse #278 artifact for the US dataset). Checked *before* the pin so
+       an operator can deliberately test a new release; emits a warning naming
+       populace#278. Recorded as ``source="unpinned"``. Never reached silently.
+    3. **Pinned Hugging Face download** (the default) — ``hf_hub_download`` at the
        pinned ``revision``, followed by sha256 verification against the pin. A
        mismatch is fatal. Recorded as ``source="pinned"``.
-    3. **Unpinned fallback** — only when ``AXIOM_POPULACE_ALLOW_UNPINNED`` is set
-       truthy: ``populace.data.load()`` then a Hugging Face cache scan, both of
-       which resolve to HF-latest (the sparse #278 artifact for the US dataset).
-       Emits a warning naming populace#278. Recorded as ``source="unpinned"``.
-       Without the escape hatch this path is never taken; the loader fails with
-       a message pointing at the pin and the escape hatch.
+    4. **No pin + no escape hatch** — fails with ``SystemExit`` pointing at the
+       pin and the escape hatch, rather than silently resolving to HF-latest.
 
     When ``provenance`` is a dict it is populated in place with
     ``{source, path, sha256, revision, built_with}`` (``sha256`` truncated to 12
@@ -161,8 +162,27 @@ def load_populace_dataset(
         )
         return _instantiate_dataset(country, local_artifact, command)
 
-    # (2) Pinned Hugging Face download — the default trusted path.
+    # (2) Unpinned escape hatch — opt-in only. Checked before the pin so an
+    # operator can *deliberately* load HF-latest (e.g. to test a new release)
+    # even for a country that has a certified pin. It is never reached silently:
+    # AXIOM_POPULACE_ALLOW_UNPINNED must be set truthy.
     pin = resolve_populace_pin(country)
+    if unpinned_fallback_allowed():
+        warnings.warn(unpinned_fallback_warning(country), stacklevel=2)
+        resolved_year = (
+            year if year is not None else DEFAULT_POPULACE_YEARS.get(country)
+        )
+        dataset = _load_unpinned_populace(country, resolved_year, command)
+        _record_provenance(
+            sink,
+            source=SOURCE_UNPINNED,
+            path=None,
+            revision="latest" if resolved_year is None else str(resolved_year),
+            country=country,
+        )
+        return dataset
+
+    # (3) Pinned Hugging Face download — the default trusted path.
     if pin is not None:
         pinned_path = pinned_populace_download(pin, command=command)
         _record_provenance(
@@ -176,23 +196,9 @@ def load_populace_dataset(
         )
         return _instantiate_dataset(country, pinned_path, command)
 
-    # (3) Unpinned fallback — opt-in escape hatch only.
-    if not unpinned_fallback_allowed():
-        raise SystemExit(unpinned_disallowed_message(country, command))
-    warnings.warn(
-        unpinned_fallback_warning(country),
-        stacklevel=2,
-    )
-    resolved_year = year if year is not None else DEFAULT_POPULACE_YEARS.get(country)
-    dataset = _load_unpinned_populace(country, resolved_year, command)
-    _record_provenance(
-        sink,
-        source=SOURCE_UNPINNED,
-        path=None,
-        revision="latest" if resolved_year is None else str(resolved_year),
-        country=country,
-    )
-    return dataset
+    # (4) No pin for this country and the escape hatch is off — fail loudly
+    # rather than silently resolving to HF-latest.
+    raise SystemExit(unpinned_disallowed_message(country, command))
 
 
 def resolve_populace_pin(country: str) -> PopulacePin | None:
