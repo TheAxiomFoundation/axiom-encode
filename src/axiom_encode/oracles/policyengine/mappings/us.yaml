@@ -4539,6 +4539,133 @@ mappings:
       entitlement amount before those final payment adjustments, so the Admin Code final output is adjacent legal
       coverage rather than a one-to-one oracle target.
 
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/payment-levels#ar_tea_maximum_payment_amount_by_family_size
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.payment_standard.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arkansas DHS TEA maximum-payment family-size table, represented in PolicyEngine as the payment-standard amount parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/payment-levels#ar_tea_maximum_payment_level_open_ended_family_size
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.payment_standard.max_unit_size
+    period: month
+    unit: count
+    comparison: count
+    rationale: Same Arkansas DHS TEA open-ended maximum family-size row, represented in PolicyEngine as the payment-standard maximum unit-size parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/payment-levels#ar_tea_maximum_benefit
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ar_tea_maximum_benefit
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arkansas TEA maximum benefit amount selected from the family-size payment-standard table, before eligibility and gross-income-trigger payment reduction.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/income-eligibility-standard#ar_tea_income_eligibility_standard
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.income.income_limit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arkansas DHS TEA $513 income eligibility standard, represented in PolicyEngine as the income-limit parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/income-eligibility-standard#ar_tea_income_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ar_tea_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the source-law income limit as a TanfUnit amount before applying the income test. PolicyEngine exposes the parameter and the final ar_tea_income_eligible predicate, so compare the encoded income-standard parameter separately.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/income-eligibility-standard#ar_tea_income_eligible
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ar_tea_income_eligible
+    entity: spm_unit
+    period: month
+    comparison: bool
+    rationale: Same Arkansas TEA income-eligibility predicate for countable income at or below the $513 income standard, before final resource and demographic eligibility gates.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/earned-income-deductions#ar_tea_work_related_earned_income_deduction_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.income.work_deduction.expense_rate
+    period: month
+    unit: rate
+    comparison: rate
+    rationale: Same Arkansas DHS TEA 20% work-related earned-income deduction rate, represented in PolicyEngine as the work-deduction expense-rate parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/earned-income-deductions#ar_tea_work_incentive_earned_income_deduction_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.income.work_deduction.incentive_rate
+    period: month
+    unit: rate
+    comparison: rate
+    rationale: Same Arkansas DHS TEA 60% recipient work-incentive earned-income deduction rate, represented in PolicyEngine as the work-deduction incentive-rate parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/resource-eligibility#ar_tea_resource_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.resources.limit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arkansas DHS TEA $3,000 resource limit, represented in PolicyEngine as the resources-limit parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/resource-eligibility#ar_tea_resources_eligible
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ar_tea_resources_eligible
+    entity: spm_unit
+    period: month
+    comparison: bool
+    rationale: Same Arkansas TEA resource-eligibility predicate for countable resources at or below the $3,000 resource limit.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/reduced-payment-gross-income-trigger#ar_tea_reduced_payment_gross_income_trigger
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.payment_standard.trigger.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arkansas DHS TEA gross-income trigger amount for the 50% reduced payment, represented in PolicyEngine as the payment-standard trigger amount parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/reduced-payment-gross-income-trigger#ar_tea_reduced_payment_rate
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ar.dhs.tea.payment_standard.trigger.reduction_rate
+    period: month
+    unit: rate
+    comparison: rate
+    rationale: Same Arkansas DHS TEA 50% reduced-payment rate, represented in PolicyEngine as the payment-standard trigger reduction-rate parameter.
+
+  - legal_id: us-ar:policies/dhs/tea/manual/2024/reduced-payment-gross-income-trigger#ar_tea
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ar_tea
+    candidate_priority: P4
+    rationale: Axiom follows Arkansas DHS TEA Manual section 2362 and pays the maximum grant for income-eligible units below the $1,026 gross-income trigger, then rounds the 50% reduced payment at or above the trigger. PolicyEngine's current ar_tea subtracts countable income below the trigger; PolicyEngine/policyengine-us#8841 tracks that source-law review, so compare component parameters and helper predicates separately for now.
+
   - legal_id: us-ak:policies/dpa/atap/standards/2026/adult-included#adult_included_need_standard_by_family_size
     country: us
     program: tanf
