@@ -37843,6 +37843,10 @@ def _wrong_typed_test_input_replacement(
         if isinstance(value, bool):
             return expected
         return None
+    if isinstance(expected, str):
+        if isinstance(value, bool):
+            return expected
+        return None
     return None
 
 
@@ -39503,13 +39507,47 @@ def _default_generated_test_input_value(
     *,
     rules_payload: dict[str, object],
     prefer_positive_counts: bool = False,
-) -> bool | int:
+) -> bool | int | str:
+    if _factual_input_appears_string_selector(input_name, rules_payload=rules_payload):
+        return ""
     if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
         if prefer_positive_counts and _factual_input_name_looks_positive_count(
             input_name
         ):
             return 1
         return 0
+    return False
+
+
+def _factual_input_appears_string_selector(
+    input_name: str, *, rules_payload: dict[str, object]
+) -> bool:
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+
+    string_comparison = re.compile(
+        rf"""
+        (?:
+            \b{re.escape(input_name)}\b\s*(?:==|!=)\s*(['"])[^'"]*\1
+            |
+            (['"])[^'"]*\2\s*(?:==|!=)\s*\b{re.escape(input_name)}\b
+        )
+        """,
+        re.VERBOSE,
+    )
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, str) and string_comparison.search(formula):
+                return True
     return False
 
 

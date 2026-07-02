@@ -109,6 +109,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "every source-stated amount, rate, threshold, cap, and limit",
         '"per taxpayer per beneficiary"',
         "Do not treat the final interval row as open-ended",
+        "Do not invent synthetic row-number constants for text-label tables",
+        "Do not use an `indexed_by` table with numeric keys merely to encode rows whose",
         "Use a negative sentinel such as `-1`",
         "source text `133%` should be",
         "kind: derived_relation",
