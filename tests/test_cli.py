@@ -14421,6 +14421,117 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_string_selector_test_input_values(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "policies"
+            / "ssa"
+            / "poms"
+            / "dc-ossp-payment-levels.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: dc_ossp_total_payment_level
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if federal_code == "A" and state_os_code == "A":
+              1675
+          else:
+              0
+"""
+        )
+        test_file = output_file.with_name("dc-ossp-payment-levels.test.yaml")
+        test_file.write_text(
+            """- name: auto_zero_dc_ossp_total_payment_level
+  period: 2026-01
+  input:
+    us:policies/ssa/poms/dc-ossp-payment-levels#input.federal_code: false
+    us:policies/ssa/poms/dc-ossp-payment-levels#input.state_os_code: false
+  output:
+    us:policies/ssa/poms/dc-ossp-payment-levels#dc_ossp_total_payment_level: 0
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = (
+            args.policy_repo_path
+            / "policies/ssa/poms/dc-ossp-payment-levels.yaml"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "policies/ssa/poms/dc-ossp-payment-levels.yaml: ci: "
+                            "Test case `auto_zero_dc_ossp_total_payment_level` "
+                            "execution failed: type mismatch: left side of "
+                            "comparison is not numeric"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_wrong_typed_test_inputs:"
+            "auto_zero_dc_ossp_total_payment_level:"
+            "us:policies/ssa/poms/dc-ossp-payment-levels#input.federal_code"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        inputs = test_payload[0]["input"]
+        assert (
+            inputs["us:policies/ssa/poms/dc-ossp-payment-levels#input.federal_code"]
+            == ""
+        )
+        assert (
+            inputs["us:policies/ssa/poms/dc-ossp-payment-levels#input.state_os_code"]
+            == ""
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == [
+            "auto_zero_dc_ossp_total_payment_level:"
+            "us:policies/ssa/poms/dc-ossp-payment-levels#input.federal_code",
+            "auto_zero_dc_ossp_total_payment_level:"
+            "us:policies/ssa/poms/dc-ossp-payment-levels#input.state_os_code",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repairs_self_referential_generated_derived_rules(
         self, capsys, tmp_path
     ):

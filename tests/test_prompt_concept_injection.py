@@ -210,3 +210,36 @@ def test_build_rulespec_eval_prompt_includes_scoped_exception_test_guidance(
     assert "`subject to`" in test_file_rules
     assert "positive/nonzero" in test_file_rules
     assert "toggle each gate at least once" in test_file_rules
+
+
+def test_build_rulespec_eval_prompt_treats_dotted_policyengine_hint_as_oracle_context(
+    tmp_path: Path,
+):
+    source_text = (
+        "Federal Code A and State OS Code A have a State Supplement Level "
+        "of 681.00."
+    )
+    workspace = _minimal_workspace(tmp_path, source_text)
+
+    prompt = _build_rulespec_eval_prompt(
+        citation="us/guidance/ssa/poms/si-01415-058/2026/block-13",
+        mode="repo-augmented",
+        workspace=workspace,
+        context_files=[],
+        target_file_name=(
+            "policies/ssa/poms/si-01415-058/2026/"
+            "dc-ossp-individual-state-supplement-levels.yaml"
+        ),
+        target_ref_prefix=(
+            "us-dc:policies/ssa/poms/si-01415-058/2026/"
+            "dc-ossp-individual-state-supplement-levels"
+        ),
+        include_tests=True,
+        runner_backend="codex",
+        policyengine_rule_hint="gov.states.dc.dhcf.ossp.payment.individual",
+    )
+
+    assert "oracle-semantic hint" in prompt
+    assert "dotted PolicyEngine parameter path" in prompt
+    assert "Never emit a RuleSpec rule whose `name:` is a" in prompt
+    assert "gov.states.dc.dhcf.ossp.payment.individual" in prompt

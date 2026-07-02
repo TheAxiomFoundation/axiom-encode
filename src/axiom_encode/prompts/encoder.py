@@ -308,6 +308,19 @@ _TABLES_PROTOCOL = """- Use `kind: parameter` with `indexed_by` and versioned `v
   `match` arms over the source-stated text labels, or encode source-stated
   boolean predicates for listed categories and combine them. Keep the text
   labels in proof excerpts/tests, not as parameter table keys.
+- Do not invent synthetic row-number constants for text-label tables. If a table
+  row is identified by labels such as "A/A", "D/G", "OS A", "OS B", or similar
+  codes rather than source-stated numeric bands, either return the source-stated
+  amount directly from the text-label branch or use source-named scalar
+  parameters for each row/cell. Do not create helper outputs that assign row
+  labels to ungrounded numeric ids such as 4 or 5 merely to make `indexed_by`
+  work.
+- Do not use an `indexed_by` table with numeric keys merely to encode rows whose
+  source keys are text labels. Integer table keys are acceptable for real
+  numeric bands or explicit source row numbers; they are not acceptable as
+  invented positions for code pairs like Federal Code/State OS Code. For those
+  text-coded tables, branch on the source labels and return named cell
+  parameters directly.
 - For long source-stated text-label lists, do not emit one giant `or` chain or
   one giant `match` with every label. Large nested formula trees can exceed the
   compiled artifact parser's recursion limit. If a category list has more than

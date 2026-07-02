@@ -238,6 +238,10 @@ _RULESPEC_FORMULA_KEYWORDS = frozenset(
 )
 
 
+def _is_rulespec_local_identifier(value: str | None) -> bool:
+    return bool(value and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+
+
 def _matching_numeric_occurrence_count(
     occurrences: Counter[float],
     value: float,
@@ -4641,15 +4645,25 @@ Import and context rules:
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
+    policyengine_hint_is_rulespec_identifier = _is_rulespec_local_identifier(
+        policyengine_rule_hint
+    )
     if include_tests:
         oracle_rule = ""
-        if policyengine_rule_hint:
+        if policyengine_rule_hint and policyengine_hint_is_rulespec_identifier:
             oracle_rule = (
                 "- Every non-empty test `output:` mapping must assert the "
                 f"canonical RuleSpec output whose local name is "
                 f"`{policyengine_rule_hint}`; use its full "
                 "`jurisdiction:path#rule` id when the artifact has a legal "
                 "pointer.\n"
+            )
+        elif policyengine_rule_hint:
+            oracle_rule = (
+                "- Because the PolicyEngine hint is not a valid local RuleSpec "
+                "identifier, tests must assert the source-faithful RuleSpec "
+                "output generated for this file rather than the dotted "
+                f"PolicyEngine path `{policyengine_rule_hint}`.\n"
             )
         canonical_target_rule = ""
         if target_ref_prefix:
@@ -4772,6 +4786,26 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
 
     target_hint = ""
     if policyengine_rule_hint:
+        hinted_output_reference = (
+            f"`{policyengine_rule_hint}`"
+            if policyengine_hint_is_rulespec_identifier
+            else "the source-faithful oracle-facing output"
+        )
+        oracle_test_guidance = (
+            "assert the canonical RuleSpec output whose local name is "
+            f"`{policyengine_rule_hint}` in every non-empty `output:` mapping"
+            if policyengine_hint_is_rulespec_identifier
+            else "assert the generated source-faithful output in every non-empty `output:` mapping"
+        )
+        naming_guidance = (
+            f"- Name the main derived rule `{policyengine_rule_hint}` unless the source clearly defines a different canonical concept."
+            if policyengine_hint_is_rulespec_identifier
+            else (
+                "- Choose a source-faithful snake_case RuleSpec concept name "
+                "for the main output; the provided PolicyEngine hint is not a "
+                "valid local RuleSpec identifier."
+            )
+        )
         policyengine_context_exports_section = (
             _format_policyengine_hint_context_exports(
                 context_files,
@@ -4779,9 +4813,17 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
         )
         target_hint = f"""
 Preferred principal output:
-- Name the main derived rule `{policyengine_rule_hint}` unless the source clearly defines a different canonical concept.
-- Treat `{policyengine_rule_hint}` as a required oracle-facing surface. Do not
-  put `{policyengine_rule_hint}` under `module.deferred_outputs[]` merely
+- Treat the PolicyEngine hint as an oracle-semantic hint, not as a license to
+  copy PolicyEngine internals into RuleSpec. Name the main derived rule
+  `{policyengine_rule_hint}` only when that value is already a valid local
+  RuleSpec identifier. If the hint is a dotted PolicyEngine parameter path,
+  slash path, or other non-RuleSpec identifier, choose a source-faithful
+  snake_case RuleSpec concept name and keep the hinted PolicyEngine path only
+  as oracle/comparison context. Never emit a RuleSpec rule whose `name:` is a
+  dotted path such as `gov.states...`.
+{naming_guidance}
+- Treat the hinted policy surface as a required oracle-facing surface. Do not
+  put the source-faithful output under `module.deferred_outputs[]` merely
   because the source is broad or cites many sibling provisions when an
   executable formula can be composed from source-stated facts, scalar
   parameters, or imported primary-source RuleSpec exports supplied in context.
@@ -4794,8 +4836,8 @@ Preferred principal output:
   output, when the remaining branches are executable and source-grounded.
 - For an aggregate/composite hinted output, first enumerate the executable
   `dtype: Judgment` exports already visible in copied context that match the
-  source's listed categories or branches. Compose `{policyengine_rule_hint}` as
-  a disjunction/conjunction of those imported exports plus only the local
+  source's listed categories or branches. Compose {hinted_output_reference} as a
+  disjunction/conjunction of those imported exports plus only the local
   conditions the current source itself newly states. Do not create broad local
   inputs such as `person_covered_by_*category`,
   `person_covered_by_*subparagraph`, `person_is_described_in_previous_*`,
@@ -4808,7 +4850,7 @@ Preferred principal output:
   rule depend on an aggregate leaf input merely to make the formula executable.
 {policyengine_context_exports_section.rstrip()}
 - Keep oracle-comparable tests at that named semantic level; do not assert only helper parameters or documentary scalars.
-- Keep `.test.yaml` inputs oracle-comparable: prefer the oracle's direct component facts over inverted household proxy inputs, preserve direct component surfaces when available, and assert the canonical RuleSpec output whose local name is `{policyengine_rule_hint}` in every non-empty `output:` mapping.
+- Keep `.test.yaml` inputs oracle-comparable: prefer the oracle's direct component facts over inverted household proxy inputs, preserve direct component surfaces when available, and {oracle_test_guidance}.
 - When PolicyEngine can compare the output but cannot consume the source-level
   legal facts directly, add `oracle_inputs.policyengine` with equivalent
   PolicyEngine-native scenario inputs instead of weakening the RuleSpec `input:`
@@ -4905,7 +4947,7 @@ RuleSpec requirements:
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars when it fits the local schema, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges. The numeric invariant is the named concept: source-stated amounts, rates, thresholds, caps, limits, and table/grid cells should be named so consuming formulas can reference names instead of embedding literals.
 - This numeric invariant applies in mixed deferred or entity-unsupported provisions too. Defer the unsupported output under `module.deferred_outputs[]`, but keep any independent source-stated scalar legal values as `kind: parameter` rules rather than dropping them into prose.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Store source-stated row bounds as private named bound concepts or private indexed table/grid bound columns, and have the selector reference those names while returning integer band ids. If interpolation or clamping needs the active row bounds before native interval-table support exists, store lower/upper bounds as private indexed parameter columns and reference those names in derived formulas; do not repeat bound literals outside the selector. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
-- Indexed parameter `values` keys must be integers. If a source table maps textual labels such as county names, program names, payment codes, provider classes, or other strings to an amount, rate, or numeric classification, do not put those strings under `values:` and do not set `indexed_by` to a text input. Instead encode a `derived` selector/result using string equality or `match` arms over the source-stated text labels, or encode source-stated boolean predicates for listed categories and combine them. Keep the text labels in proof excerpts/tests, not as parameter table keys.
+- Indexed parameter `values` keys must be integers. If a source table maps textual labels such as county names, program names, payment codes, provider classes, or other strings to an amount, rate, or numeric classification, do not put those strings under `values:` and do not set `indexed_by` to a text input. Instead encode a `derived` selector/result using string equality or `match` arms over the source-stated text labels, or encode source-stated boolean predicates for listed categories and combine them. Keep the text labels in proof excerpts/tests, not as parameter table keys. Do not use an `indexed_by` table with numeric keys merely to encode rows whose source keys are text labels; integer table keys are for real numeric bands or explicit source row numbers, not invented positions for code pairs like Federal Code/State OS Code.
 - For long source-stated text-label lists, do not emit one giant `or` chain or one giant `match` with every label. Large nested formula trees can exceed the compiled artifact parser's recursion limit. If a category list has more than about 25 text labels, split it into private source-backed `dtype: Judgment` helper predicates for chunks of that category (for example `zone_3_county_group_1`, `zone_3_county_group_2`), keep each helper formula to at most 25 text comparisons, and make the exported selector combine the helpers with a short conditional.
 - Do not treat the final interval row as open-ended unless the source row is actually open-ended. If the last source row has an upper bound, the selector must return an out-of-table sentinel above that bound and the principal output must handle that sentinel. Include a companion test above the final bounded row so the generated artifact cannot silently extend the table.
 - The out-of-table sentinel is not itself a source table row. Do not add sentinel entries to indexed parameter tables and do not clamp sentinel cases to the final table row's values. Handle the sentinel before table lookups, using the existing target's source-grounded out-of-range branch when repairing an existing artifact. Use a negative sentinel such as `-1`; do not use the next positive band id such as `6` merely because there are six legal rows, because that positive id is not source-stated and will fail numeric grounding.
