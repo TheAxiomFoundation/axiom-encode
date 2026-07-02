@@ -1004,7 +1004,12 @@ _TWO_LINE_TABLE_CONTEXT_PATTERN = re.compile(
     r"rate|standard|standards|threshold)\b",
     re.IGNORECASE,
 )
-_TWO_LINE_TABLE_ROW_KEY_PATTERN = re.compile(r"^\s*\d{1,3}\s*$")
+_TWO_LINE_TABLE_ROW_KEY_PATTERN = re.compile(
+    r"^\s*(?:\d{1,3}|"
+    r"(?:(?:\d{1,3}(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|"
+    r"seventh|eighth|ninth|tenth)\s+[A-Za-z][A-Za-z -]*))\s*$",
+    re.IGNORECASE,
+)
 _SOURCE_SUBDIVISION_LINE_PATTERN = re.compile(
     r"^\s*\((?:\d+[A-Za-z]?|[a-z]|[ivxlcdm]+)\)\s*", re.IGNORECASE
 )

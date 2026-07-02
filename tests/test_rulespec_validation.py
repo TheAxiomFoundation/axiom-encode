@@ -7237,6 +7237,17 @@ rules:
           1: 557
           2: 777
           3: 979
+  - name: tanf_post_employment_payment_standard
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: post_employment_program_month
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 375
+          2: 275
+          3: 175
 """
 
     source_text = """GROSS MONTHLY INCOME STANDARDS (GMI)
@@ -7253,10 +7264,20 @@ $ 557
 979
 (b)
 Net monthly income standards are used to compute gross monthly income standards.
+POST-EMPLOYMENT
+PAYMENT STANDARDS
+1st Month
+$ 375
+2nd Month
+275
+3rd Month
+175
 """
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
-    assert {557.0, 777.0, 979.0}.issubset(extract_numbers_from_text(source_text))
+    assert {557.0, 777.0, 979.0, 375.0, 275.0, 175.0}.issubset(
+        extract_numbers_from_text(source_text)
+    )
 
 
 def test_rulespec_grounding_treats_household_size_match_keys_as_structural():
