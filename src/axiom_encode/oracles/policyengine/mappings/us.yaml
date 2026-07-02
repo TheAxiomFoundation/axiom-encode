@@ -1691,6 +1691,224 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the Connecticut SSP trust-income disregard predicate for recipients under the statutory income cap. PolicyEngine does not expose this trust-income disregard predicate as a one-to-one variable.
 
+  - legal_id: us-ct:policies/dss/upm/4005-10#aabd_maabd_general_one_person_asset_limit
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.eligibility.asset_limit.individual
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut SSP individual AABD/MAABD resource limit from UPM 4005.10, represented by PolicyEngine's CT SSP individual asset-limit parameter.
+
+  - legal_id: us-ct:policies/dss/upm/4005-10#aabd_maabd_general_two_person_asset_limit
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.eligibility.asset_limit.couple
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut SSP two-person AABD/MAABD resource limit from UPM 4005.10, represented by PolicyEngine's CT SSP couple asset-limit parameter.
+
+  - legal_id: us-ct:policies/dss/upm/4005-10#ct_ssp_resource_eligible
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_resource_eligible
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 4005.10 source-level needs-group asset test. PolicyEngine's ct_ssp_resource_eligible is a person-level SSI resource test over personal and marital-unit resources, so compare the encoded asset-limit cells separately.
+
+  - legal_id: us-ct:policies/dss/upm/5030-10#aged_disabled_general_monthly_base_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.disregard.earned.aged_disabled_initial
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut SSP initial earned-income disregard for aged and disabled recipients from UPM 5030.10.
+
+  - legal_id: us-ct:policies/dss/upm/5030-10#disabled_irwe_monthly_base_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.disregard.earned.aged_disabled_initial
+    period: month
+    unit: USD
+    comparison: money
+    rationale: UPM 5030.10 uses the same 65 dollar initial amount for the disabled impairment-related-work-expense branch; PolicyEngine stores the shared aged/disabled initial amount rather than a separate IRWE-specific parameter.
+
+  - legal_id: us-ct:policies/dss/upm/5030-10#blind_monthly_base_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.disregard.earned.blind_initial
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut SSP initial earned-income disregard for blind recipients from UPM 5030.10.
+
+  - legal_id: us-ct:policies/dss/upm/5030-10#remaining_earned_income_disregard_rate
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.disregard.earned.rate
+    period: month
+    unit: /1
+    comparison: numeric
+    rationale: Same Connecticut SSP one-half disregard rate for remaining earned income from UPM 5030.10.
+
+  - legal_id: us-ct:policies/dss/upm/5030-10#ct_ssp_earned_income_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_earned_income_disregard
+    candidate_priority: P4
+    rationale: RuleSpec encodes the source-level assistance-unit branches in UPM 5030.10, including long-term-care full counting and an impairment-related-work-expense branch. PolicyEngine's person-level variable applies the shared aged/disabled or blind initial disregard to SSI earned-income inputs, so compare the encoded parameter cells separately.
+
+  - legal_id: us-ct:policies/dss/upm/5030-15#ct_ssp_unearned_income_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_unearned_income_disregard
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5030.15 base-disregard formula, COLA multiplier, QMB January-through-March branch, and source exceptions. PolicyEngine stores current materialized chart amounts by living arrangement, so compare the current DSS Program Standards chart output separately.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/unearned-disregards#ct_ssp_unearned_income_disregard_by_living_arrangement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ct.dss.ssp.disregard.unearned
+    candidate_priority: P4
+    rationale: RuleSpec represents the current DSS chart unearned-income-disregard table with a source-local numeric living-arrangement index. PolicyEngine stores the same current values in an enum-keyed table, while the final chart selector is mapped to the PolicyEngine variable.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/unearned-disregards#ct_ssp_unearned_income_disregard
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: ct_ssp_unearned_income_disregard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP unearned-income-disregard selector from the DSS Program Standards chart, keyed by CT SSP living arrangement.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_married
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.personal_needs_allowance_married
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP married community personal-needs allowance from the DSS Program Standards chart.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_individual
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.personal_needs_allowance
+    parameter_key: COMMUNITY_ALONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP individual community personal-needs allowance from the DSS Program Standards chart, represented by PolicyEngine's community-alone cell; PolicyEngine uses the same amount for community-shared.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_boarding_home
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.personal_needs_allowance
+    parameter_key: BOARDING_HOME
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP boarding-home personal-needs allowance from the DSS Program Standards chart.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_snf
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.personal_needs_allowance
+    parameter_key: MEDICAID_FACILITY
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP skilled-nursing-facility personal-needs allowance from the DSS Program Standards chart, represented by PolicyEngine's Medicaid-facility cell.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_new_horizons
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ct.dss.ssp.personal_needs_allowance
+    candidate_priority: P4
+    rationale: RuleSpec exposes the DSS chart's New Horizons personal-needs allowance as a source-specific current parameter. PolicyEngine explicitly does not model the New Horizons living arrangement.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance_waiver_w01
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the DSS chart's Waiver W01 personal-needs amount. PolicyEngine's CT SSP surface does not model this waiver-specific PNA parameter.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/personal-needs#ct_ssp_personal_needs_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_personal_needs_allowance
+    candidate_priority: P4
+    rationale: RuleSpec's chart selector includes New Horizons and Waiver W01 branches that PolicyEngine does not model. Compare the overlapping PE table cells separately.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/shelter#ct_ssp_shelter_allowance_community_individual
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.shelter_allowance
+    parameter_key: COMMUNITY_ALONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP community-individual shelter allowance from the DSS Program Standards chart.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/shelter#ct_ssp_shelter_allowance_community_shared
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.shelter_allowance
+    parameter_key: COMMUNITY_SHARED
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP community-shared shelter allowance from the DSS Program Standards chart.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/shelter#ct_ssp_shelter_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_shelter_allowance
+    candidate_priority: P4
+    rationale: RuleSpec's chart selector returns the source maximum shelter allowance. PolicyEngine's ct_ssp_shelter_allowance variable applies rent capped by that parameter table, so compare the encoded shelter-allowance cells separately.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/special-needs#ct_ssp_therapeutic_diet_special_needs_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.special_needs.therapeutic_diet
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same current Connecticut SSP therapeutic-diet special-needs allowance from the DSS Program Standards chart.
+
+  - legal_id: us-ct:policies/dss/program-standards/2026-01-01/special-needs#ct_ssp_special_needs
+    country: us
+    program: ssi_state_supplement
+    mapping_type: direct_variable
+    policyengine_variable: ct_ssp_special_needs
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut SSP therapeutic-diet special-needs selector; both RuleSpec and PolicyEngine multiply the therapeutic-diet indicator by the chart amount.
+
   - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_apa_payment_standard
     country: us
     program: ssi_state_supplement
@@ -21702,6 +21920,12 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: PolicyEngine-US does not model CO agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-ct:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model CT agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-de:"
     country: us
