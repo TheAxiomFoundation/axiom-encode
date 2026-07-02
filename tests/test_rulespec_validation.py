@@ -16999,6 +16999,86 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_combines_current_exact_local_corpus_records(
+    tmp_path,
+    monkeypatch,
+):
+    provisions_dir = tmp_path / "provisions" / "us" / "guidance"
+    provisions_dir.mkdir(parents=True)
+    citation_path = "us/guidance/example/multi-source"
+    (provisions_dir / "test-source.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation_path,
+                        "body": "Older source states the stale amount is $999.",
+                        "ordinal": 1,
+                        "source_as_of": "2025-01-01",
+                        "version": "example",
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "citation_path": citation_path,
+                        "body": "First current source states the amount is $123.",
+                        "ordinal": 1,
+                        "source_as_of": "2026-01-01",
+                        "version": "example",
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "citation_path": citation_path,
+                        "body": "Second current source states the add-on is $456.",
+                        "ordinal": 2,
+                        "source_as_of": "2026-01-01",
+                        "version": "example",
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_ARTIFACT_ROOT", str(tmp_path))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    source_text = validator_pipeline._fetch_local_corpus_source_text(citation_path)
+
+    assert source_text is not None
+    assert "$123" in source_text
+    assert "$456" in source_text
+    assert "$999" not in source_text
+
+    content = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation_path}
+rules:
+  - name: first_current_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '123'
+  - name: second_current_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '456'
+"""
+
+    assert find_ungrounded_numeric_issues(content) == []
+
+
 def test_validator_pipeline_maps_in_memory_source_text_to_declared_corpus_path(
     tmp_path,
     monkeypatch,
