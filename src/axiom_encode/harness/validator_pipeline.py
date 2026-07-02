@@ -2744,6 +2744,17 @@ def _iter_normalized_special_numeric_matches(
     fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
 
     for match in re.finditer(
+        rf"\b(?P<number>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        value = _parse_cardinal_number_words(match.group("number"))
+        if value is None:
+            continue
+        matches.append((match.span(), value / 100))
+
+    for match in re.finditer(
         rf"\b(?:(?P<whole>{_CARDINAL_WORD_SEQUENCE})\s+and\s+)?"
         rf"(?P<fraction>{_FRACTION_WORD_PATTERN})\s+"
         r"(?:percent|per\s*cent(?:um)?)\b",
