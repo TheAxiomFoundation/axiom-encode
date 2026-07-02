@@ -23222,6 +23222,42 @@ rules:
     assert issues == []
 
 
+def test_numeric_grounding_accepts_cardinal_word_percentages_above_one():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ct/statute/17b-112
+rules:
+  - name: tfa_transitional_earnings_disregard_limit_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '2.30'
+  - name: tfa_transitional_reduction_lower_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.71'
+"""
+
+    source_text = (
+        "Earnings shall be disregarded if income is less than or equal to "
+        "two hundred thirty per cent of the federal poverty level. A family "
+        "with earnings over one hundred seventy-one per cent but less than "
+        "or equal to two hundred thirty per cent shall receive a reduction."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 2.30 in source_values
+    assert 1.71 in source_values
+    occurrence_values = extract_numeric_occurrences_from_text(source_text)
+    assert 2.30 in occurrence_values
+    assert 1.71 in occurrence_values
+
+
 def test_numeric_grounding_accepts_fpl_percentage_table_rate_values():
     content = """format: rulespec/v1
 module:
