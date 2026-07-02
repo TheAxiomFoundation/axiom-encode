@@ -152,13 +152,16 @@ def load_populace_dataset(
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
     if local_artifact is not None:
-        _verify_local_override_against_pin(country, local_artifact)
+        # Hash once: verification and provenance share the digest (the artifact
+        # can be multi-GB, so a second full-file read is worth avoiding).
+        local_sha256 = _verify_local_override_against_pin(country, local_artifact)
         _record_provenance(
             sink,
             source=SOURCE_LOCAL_OVERRIDE,
             path=local_artifact,
             revision=None,
             country=country,
+            sha256=local_sha256,
         )
         return _instantiate_dataset(country, local_artifact, command)
 
@@ -214,16 +217,19 @@ def resolve_populace_pin(country: str) -> PopulacePin | None:
     if base is None:
         return None
     token = country.upper().replace("-", "_")
-    revision = os.environ.get(f"AXIOM_POPULACE_{token}_REVISION")
-    sha256 = os.environ.get(f"AXIOM_POPULACE_{token}_SHA256")
+    # Treat whitespace-only overrides as unset so a blank env var can never
+    # collapse the pinned revision/sha to "" (which would resolve to HF-latest
+    # or fail verification). Empty string -> fall back to the baseline field.
+    revision = (os.environ.get(f"AXIOM_POPULACE_{token}_REVISION") or "").strip()
+    sha256 = (os.environ.get(f"AXIOM_POPULACE_{token}_SHA256") or "").strip().lower()
     if not revision and not sha256:
         return base
     return PopulacePin(
         country=base.country,
         repo_id=base.repo_id,
         filename=base.filename,
-        revision=revision.strip() if revision else base.revision,
-        sha256=sha256.strip().lower() if sha256 else base.sha256,
+        revision=revision or base.revision,
+        sha256=sha256 or base.sha256,
         built_with=base.built_with,
         repo_type=base.repo_type,
     )
@@ -302,19 +308,18 @@ def _instantiate_dataset(country: str, path: Path, command: str) -> Any:
         ) from exc
 
 
-def _verify_local_override_against_pin(country: str, path: Path) -> None:
+def _verify_local_override_against_pin(country: str, path: Path) -> str:
     """Warn loudly when a local-override artifact's sha256 differs from the pin.
 
     Local overrides are for experiments, so a mismatch is a warning, not a
     failure. A *matching* digest is silent (the override just re-supplies the
-    pinned artifact).
+    pinned artifact). Returns the computed digest so the caller can reuse it for
+    provenance without re-reading a potentially multi-GB file.
     """
-    pin = resolve_populace_pin(country)
-    if pin is None:
-        return
     actual = file_sha256(path)
-    if actual.lower() == pin.sha256.lower():
-        return
+    pin = resolve_populace_pin(country)
+    if pin is None or actual.lower() == pin.sha256.lower():
+        return actual
     warnings.warn(
         f"Local Populace {country.upper()} override {path} sha256 {actual[:12]} "
         f"does not match the certified pin {pin.sha256[:12]} "
@@ -322,6 +327,7 @@ def _verify_local_override_against_pin(country: str, path: Path) -> None:
         f"will reflect this unpinned artifact, not the certified dataset.",
         stacklevel=3,
     )
+    return actual
 
 
 def _record_provenance(

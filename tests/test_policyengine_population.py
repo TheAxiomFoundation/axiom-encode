@@ -117,6 +117,15 @@ def test_resolve_pin_unknown_country_is_none(monkeypatch):
     assert population.resolve_populace_pin("fr") is None
 
 
+def test_resolve_pin_whitespace_override_is_treated_as_unset(monkeypatch):
+    _clear_populace_env(monkeypatch)
+    monkeypatch.setenv("AXIOM_POPULACE_US_REVISION", "   ")
+    monkeypatch.setenv("AXIOM_POPULACE_US_SHA256", "\t")
+
+    # A blank override must not collapse the pin to "" — it falls back to base.
+    assert population.resolve_populace_pin("us") == population.POPULACE_PINS["us"]
+
+
 # ---------------------------------------------------------------------------
 # Resolution order: local override > pinned download > unpinned fallback
 # ---------------------------------------------------------------------------
