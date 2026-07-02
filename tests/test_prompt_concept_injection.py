@@ -216,8 +216,7 @@ def test_build_rulespec_eval_prompt_treats_dotted_policyengine_hint_as_oracle_co
     tmp_path: Path,
 ):
     source_text = (
-        "Federal Code A and State OS Code A have a State Supplement Level "
-        "of 681.00."
+        "Federal Code A and State OS Code A have a State Supplement Level of 681.00."
     )
     workspace = _minimal_workspace(tmp_path, source_text)
 

@@ -14472,8 +14472,7 @@ rules:
         )
         result.output_file = str(output_file)
         applied_file = (
-            args.policy_repo_path
-            / "policies/ssa/poms/dc-ossp-payment-levels.yaml"
+            args.policy_repo_path / "policies/ssa/poms/dc-ossp-payment-levels.yaml"
         )
 
         with (

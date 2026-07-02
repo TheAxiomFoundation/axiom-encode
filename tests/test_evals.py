@@ -11477,7 +11477,7 @@ rules:
 
         assert "uc_standard_allowance_single_claimant_aged_under_25" in prompt
         assert (
-            "Treat `uc_standard_allowance_single_claimant_aged_under_25` as a required oracle-facing surface"
+            "Treat the hinted policy surface as a required oracle-facing surface"
             in prompt
         )
         assert "Do not" in prompt
