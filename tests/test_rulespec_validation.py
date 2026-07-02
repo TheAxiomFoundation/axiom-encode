@@ -19168,6 +19168,60 @@ rules: []
     )
 
 
+def test_source_subparagraph_coverage_accepts_state_statute_section_rule():
+    source_text = """Temporary family assistance
+(a) Cash assistance benefits shall be provided to a family for not longer than thirty-six months.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ct/statute/17b-112
+  summary: Connecticut temporary family assistance.
+rules:
+  - name: initial_time_limited_benefit_limit_months
+    kind: parameter
+    dtype: Count
+    source: us-ct/statute/17b-112(a)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 36
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=Path("statutes/17b-112.yaml"),
+            source_texts={"us-ct/statute/17b-112": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_accepts_state_statute_section_deferred_output():
+    source_text = """Temporary family assistance
+(f) A family leaving assistance at the end of the time limit shall have a department interview.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ct/statute/17b-112
+  summary: Connecticut temporary family assistance.
+  deferred_outputs:
+    - output: us-ct:statutes/17b-112/f#exit_interview_and_referral_process
+      reason: Administrative workflow is outside the supported benefit computation schema.
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=Path("statutes/17b-112.yaml"),
+            source_texts={"us-ct/statute/17b-112": source_text},
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_accepts_state_policy_corpus_source():
     source_text = """Standard of need
 (g) Regular recurring monthly needs are set by the statewide schedule.
