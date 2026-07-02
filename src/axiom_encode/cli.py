@@ -2466,6 +2466,25 @@ def main():
         help="Sync every local session, including broad agent history",
     )
 
+    sync_applied_parser = subparsers.add_parser(
+        "sync-applied-runs",
+        help=(
+            "Backfill Supabase encoding_runs from applied-rulespec manifests "
+            "committed in rulespec repo checkouts"
+        ),
+    )
+    sync_applied_parser.add_argument(
+        "repos",
+        nargs="+",
+        type=Path,
+        help="Paths to rulespec repo checkouts to scan",
+    )
+    sync_applied_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List the runs that would sync without writing to Supabase",
+    )
+
     args = parser.parse_args()
 
     if args.command == "validate":
@@ -2635,6 +2654,8 @@ def main():
         cmd_transcript_stats(args)
     elif args.command == "sync-agent-sessions":
         cmd_sync_agent_sessions(args)
+    elif args.command == "sync-applied-runs":
+        cmd_sync_applied_runs(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -43514,6 +43535,13 @@ def _sync_run_to_supabase_if_configured(
         os.environ.get("AXIOM_ENCODE_SUPABASE_URL")
         and os.environ.get("AXIOM_ENCODE_SUPABASE_SECRET_KEY")
     ):
+        print(
+            f"WARNING: run {run.id} ({run.citation}) was NOT synced to Supabase; "
+            "it will not appear on the ops dashboard. Set "
+            "AXIOM_ENCODE_SUPABASE_URL and AXIOM_ENCODE_SUPABASE_SECRET_KEY, "
+            "or reconcile later with `axiom-encode sync-applied-runs`.",
+            file=sys.stderr,
+        )
         return {"configured": False, "run": False, "session": False}
     from .supabase_sync import sync_agent_sessions_to_supabase, sync_run_to_supabase
 
@@ -45014,6 +45042,38 @@ def cmd_sync_agent_sessions(args):
             "Set AXIOM_ENCODE_SUPABASE_URL and "
             "AXIOM_ENCODE_SUPABASE_SECRET_KEY environment variables"
         )
+        sys.exit(1)
+
+
+def cmd_sync_applied_runs(args):
+    """Backfill Supabase encoding_runs from applied-rulespec manifests."""
+    from .supabase_sync import sync_applied_manifest_runs
+
+    missing = [repo for repo in args.repos if not Path(repo).is_dir()]
+    if missing:
+        for repo in missing:
+            print(f"Repo checkout not found: {repo}")
+        sys.exit(1)
+
+    try:
+        stats = sync_applied_manifest_runs(
+            [Path(repo) for repo in args.repos],
+            dry_run=getattr(args, "dry_run", False) is True,
+        )
+    except ValueError as e:
+        print(f"Error: {e}")
+        print(
+            "Set AXIOM_ENCODE_SUPABASE_URL and "
+            "AXIOM_ENCODE_SUPABASE_SECRET_KEY environment variables"
+        )
+        sys.exit(1)
+
+    print(
+        f"manifests={stats['total']} synced={stats['synced']} "
+        f"failed={stats['failed']} skipped={stats['skipped']} "
+        f"preserved={stats.get('preserved', 0)}"
+    )
+    if stats["failed"]:
         sys.exit(1)
 
 

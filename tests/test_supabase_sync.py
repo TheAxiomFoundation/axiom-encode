@@ -101,7 +101,13 @@ class TestSyncRunToSupabase:
             sync_run_to_supabase(mock_run, "invalid_source")
 
     def test_valid_data_sources(self):
-        for source in ["reviewer_agent", "ci_only", "mock", "manual_estimate"]:
+        for source in [
+            "reviewer_agent",
+            "ci_only",
+            "mock",
+            "manual_estimate",
+            "apply_manifest",
+        ]:
             mock_run = MagicMock()
             mock_run.id = "test-123"
             mock_run.timestamp = datetime.now()
@@ -945,3 +951,207 @@ class TestGetLocalTranscriptStats:
             assert result["synced"] == 1
             assert "encoder" in result["by_type"]
             assert "reviewer" in result["by_type"]
+
+
+# =========================================================================
+# apply-manifest backfill
+# =========================================================================
+
+
+def _apply_manifest_payload(**overrides) -> dict:
+    payload = {
+        "applied_files": [
+            {"path": "statutes/26/3127.yaml", "sha256": "abc"},
+            {"path": "statutes/26/3127.test.yaml", "sha256": "def"},
+        ],
+        "axiom_encode_version": "0.2.301",
+        "backend": "openai",
+        "citation": "26 USC 3127",
+        "generated_at": "2026-05-26T23:53:33.747249+00:00",
+        "model": "gpt-5.5",
+        "run_id": "5c8705fb",
+        "schema_version": "axiom-encode/applied-rulespec/v1",
+        "tool": "axiom-encode encode --apply",
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestRunFromApplyManifest:
+    def test_reconstructs_run_from_manifest(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        run = run_from_apply_manifest(
+            Path("repo/.axiom/encoding-manifests/statutes/26/3127.json"),
+            _apply_manifest_payload(),
+        )
+
+        assert run.id == "5c8705fb"
+        assert run.citation == "26 USC 3127"
+        assert run.timestamp == datetime.fromisoformat(
+            "2026-05-26T23:53:33.747249+00:00"
+        )
+        assert run.file_path == "statutes/26/3127.yaml"
+        assert run.agent_type == "openai:encoder"
+        assert run.agent_model == "gpt-5.5"
+        assert run.axiom_encode_version == "0.2.301"
+        assert run.session_id is None
+        assert run.success is True
+
+    def test_derives_deterministic_id_when_run_id_missing(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        payload = _apply_manifest_payload(run_id=None)
+        run_a = run_from_apply_manifest(Path("a.json"), dict(payload))
+        run_b = run_from_apply_manifest(Path("a.json"), dict(payload))
+        assert run_a.id == run_b.id
+        assert len(run_a.id) == 8
+
+    def test_rejects_manifest_without_citation(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        with pytest.raises(ValueError, match="no citation"):
+            run_from_apply_manifest(
+                Path("a.json"), _apply_manifest_payload(citation="")
+            )
+
+    def test_rejects_manifest_without_generated_at(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        with pytest.raises(ValueError, match="no generated_at"):
+            run_from_apply_manifest(
+                Path("a.json"), _apply_manifest_payload(generated_at=None)
+            )
+
+
+class TestSyncAppliedManifestRuns:
+    def _write_repo(self, tmp_path: Path) -> Path:
+        import json as json_module
+
+        repo = tmp_path / "rulespec-us"
+        manifest_dir = repo / ".axiom" / "encoding-manifests" / "statutes" / "26"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "3127.json").write_text(
+            json_module.dumps(_apply_manifest_payload())
+        )
+        (manifest_dir / "3111.json").write_text(
+            json_module.dumps(
+                _apply_manifest_payload(
+                    run_id="aa11bb22",
+                    citation="26 USC 3111",
+                    generated_at="2026-06-01T10:00:00+00:00",
+                )
+            )
+        )
+        return repo
+
+    def test_dry_run_counts_without_client(self, tmp_path, capsys):
+        from axiom_encode.supabase_sync import sync_applied_manifest_runs
+
+        repo = self._write_repo(tmp_path)
+        stats = sync_applied_manifest_runs([repo], dry_run=True)
+
+        assert stats == {
+            "total": 2,
+            "synced": 0,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 0,
+        }
+        output = capsys.readouterr().out
+        assert "5c8705fb" in output
+        assert "aa11bb22" in output
+
+    def test_syncs_manifest_runs_with_apply_manifest_source(self, tmp_path):
+        from axiom_encode.supabase_sync import sync_applied_manifest_runs
+
+        repo = self._write_repo(tmp_path)
+        mock_client = MagicMock()
+        table = mock_client.schema.return_value.table.return_value
+        table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": "x"}])
+        table.select.return_value.neq.return_value.range.return_value.execute.return_value = MagicMock(
+            data=[]
+        )
+
+        stats = sync_applied_manifest_runs([repo], client=mock_client)
+
+        assert stats == {
+            "total": 2,
+            "synced": 2,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 0,
+        }
+        upsert_calls = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args_list
+        )
+        payloads = [call.args[0] for call in upsert_calls]
+        assert {payload["id"] for payload in payloads} == {"5c8705fb", "aa11bb22"}
+        assert all(payload["data_source"] == "apply_manifest" for payload in payloads)
+        assert all(payload["has_issues"] is False for payload in payloads)
+
+    def test_skips_unreadable_manifest(self, tmp_path, capsys):
+        from axiom_encode.supabase_sync import sync_applied_manifest_runs
+
+        repo = self._write_repo(tmp_path)
+        bad = repo / ".axiom" / "encoding-manifests" / "bad.json"
+        bad.write_text("{not json")
+
+        stats = sync_applied_manifest_runs([repo], dry_run=True)
+
+        assert stats["total"] == 3
+        assert stats["skipped"] == 1
+        assert "Skipping" in capsys.readouterr().out
+
+    def test_preserves_rows_with_richer_data_sources(self, tmp_path):
+        from axiom_encode.supabase_sync import sync_applied_manifest_runs
+
+        repo = self._write_repo(tmp_path)
+        mock_client = MagicMock()
+        table = mock_client.schema.return_value.table.return_value
+        table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": "x"}])
+        # 5c8705fb already exists as a reviewer_agent run - must not be touched.
+        table.select.return_value.neq.return_value.range.return_value.execute.return_value = MagicMock(
+            data=[{"id": "5c8705fb"}]
+        )
+
+        stats = sync_applied_manifest_runs([repo], client=mock_client)
+
+        assert stats == {
+            "total": 2,
+            "synced": 1,
+            "failed": 0,
+            "skipped": 0,
+            "preserved": 1,
+        }
+        upsert_ids = {call.args[0]["id"] for call in table.upsert.call_args_list}
+        assert upsert_ids == {"aa11bb22"}
+
+    def test_missing_manifest_dir_is_empty(self, tmp_path):
+        from axiom_encode.supabase_sync import find_apply_manifests
+
+        assert find_apply_manifests(tmp_path) == []
+
+    def test_sentinel_run_ids_get_unique_derived_ids(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        run_a = run_from_apply_manifest(
+            Path("repo/.axiom/encoding-manifests/regulations/14/a/1.json"),
+            _apply_manifest_payload(run_id="deterministic-repair"),
+        )
+        run_b = run_from_apply_manifest(
+            Path("repo/.axiom/encoding-manifests/regulations/14/a/5.json"),
+            _apply_manifest_payload(run_id="deterministic-repair"),
+        )
+
+        assert run_a.id != "deterministic-repair"
+        assert run_a.id != run_b.id
+        assert len(run_a.id) == 8
+        # Same manifest re-synced later keeps the same id.
+        run_a_again = run_from_apply_manifest(
+            Path(
+                "/other/host/checkout/.axiom/encoding-manifests/regulations/14/a/1.json"
+            ),
+            _apply_manifest_payload(run_id="deterministic-repair"),
+        )
+        assert run_a_again.id == run_a.id
