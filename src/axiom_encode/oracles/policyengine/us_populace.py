@@ -31,6 +31,7 @@ from .ecps_tax import (
 )
 from .population import (
     DEFAULT_US_POPULACE_YEAR,
+    format_dataset_identity,
     load_populace_dataset,
     population_table,
 )
@@ -125,6 +126,7 @@ class USVariableComparisonReport:
     mismatches: list[USVariableComparisonRow]
     output_summary: list[dict[str, Any]]
     projection_notes: list[str]
+    dataset_identity: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -138,6 +140,7 @@ class USVariableComparisonReport:
             "mismatches": [row.__dict__ for row in self.mismatches],
             "output_summary": self.output_summary,
             "projection_notes": self.projection_notes,
+            "dataset_identity": self.dataset_identity,
         }
 
 
@@ -341,6 +344,7 @@ def compare_us_populace_variables(
         skipped_reasons=data["skipped_reasons"],
         tolerance=tolerance,
         relative_tolerance=relative_tolerance,
+        dataset_identity=data.get("dataset_identity"),
     )
 
 
@@ -441,10 +445,12 @@ def load_policyengine_variable_data(
             "--with populace-data[us] axiom-encode us-populace-compare"
         ) from exc
 
+    dataset_identity: dict[str, Any] = {}
     dataset = load_populace_dataset(
         "us",
         year=populace_year,
         command=US_VARIABLE_COMMAND,
+        provenance=dataset_identity,
     )
     sim = Microsimulation(dataset=dataset)
     persons = population_table(dataset, "person")
@@ -555,7 +561,11 @@ def load_policyengine_variable_data(
             if sample_size and len(cases) >= sample_size:
                 break
         cases_by_variable[variable] = cases
-    return {"cases_by_variable": cases_by_variable, "skipped_reasons": skipped_reasons}
+    return {
+        "cases_by_variable": cases_by_variable,
+        "skipped_reasons": skipped_reasons,
+        "dataset_identity": dataset_identity,
+    }
 
 
 def source_variables_for_adapters(
@@ -713,6 +723,7 @@ def compare_outputs(
     skipped_reasons: dict[str, int],
     tolerance: float,
     relative_tolerance: float,
+    dataset_identity: dict[str, Any] | None = None,
 ) -> USVariableComparisonReport:
     mismatches: list[USVariableComparisonRow] = []
     summary: dict[str, dict[str, Any]] = {}
@@ -822,6 +833,7 @@ def compare_outputs(
             "encoded RuleSpec module covers the post-eligibility grant and cash "
             "issuance calculation.",
         ],
+        dataset_identity=dataset_identity or None,
     )
 
 
@@ -833,6 +845,9 @@ def print_report(
     max_differences: int,
 ) -> None:
     print("PolicyEngine US Populace variable comparison")
+    identity_line = format_dataset_identity(report.dataset_identity)
+    if identity_line:
+        print(identity_line)
     print(f"Variables: {', '.join(report.variables)}")
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared SPM units: {report.compared_spm_units:,}")

@@ -32,6 +32,7 @@ from axiom_encode.harness.validator_pipeline import (
 )
 from axiom_encode.oracles.policyengine.population import (
     DEFAULT_US_POPULACE_YEAR,
+    format_dataset_identity,
     load_populace_dataset,
     populace_data_requirement,
     population_table,
@@ -543,6 +544,7 @@ class TaxComparisonReport:
     mismatches: list[TaxComparisonRow]
     output_summary: list[dict[str, Any]]
     projection_notes: list[str]
+    dataset_identity: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -553,6 +555,7 @@ class TaxComparisonReport:
             "mismatches": [row.__dict__ for row in self.mismatches],
             "output_summary": self.output_summary,
             "projection_notes": self.projection_notes,
+            "dataset_identity": self.dataset_identity,
         }
 
 
@@ -863,10 +866,12 @@ def load_policyengine_tax_data(
     _ = data_folder
     _ = allow_uncertified_policyengine_data
     log(f"Loading PolicyEngine Populace US {populace_year} dataset...")
+    dataset_identity: dict[str, Any] = {}
     dataset = load_populace_dataset(
         "us",
         year=populace_year,
         command="tax-populace-compare",
+        provenance=dataset_identity,
     )
     sim = Microsimulation(dataset=dataset)
     log("Running PolicyEngine tax outputs...")
@@ -921,6 +926,7 @@ def load_policyengine_tax_data(
         "persons": selected_persons,
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
         "person_ids": [int(value) for value in selected_persons["person_id"]],
+        "dataset_identity": dataset_identity,
     }
 
 
@@ -2824,6 +2830,7 @@ def compare_outputs(
         compared_values=compared_values,
         mismatches=mismatches,
         output_summary=list(summary.values()),
+        dataset_identity=pe_data.get("dataset_identity") or None,
         projection_notes=[
             "Current CTC projection uses Populace raw tax-unit membership, age, "
             "student status, separation status, and SSN-card type to reconstruct "
@@ -2893,6 +2900,9 @@ def print_report(
     report: TaxComparisonReport, *, tolerance: float, relative_tolerance: float
 ) -> None:
     print("PolicyEngine tax Populace comparison")
+    identity_line = format_dataset_identity(report.dataset_identity)
+    if identity_line:
+        print(identity_line)
     print(f"Compared tax units: {report.compared_tax_units:,}")
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared values: {report.compared_values:,}")

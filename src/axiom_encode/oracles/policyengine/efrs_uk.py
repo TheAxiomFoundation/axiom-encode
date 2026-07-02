@@ -32,6 +32,7 @@ from .ecps_tax import (
 )
 from .population import (
     DEFAULT_UK_POPULACE_YEAR,
+    format_dataset_identity,
     load_populace_dataset,
     local_dataset_path,
     populace_data_requirement,
@@ -1920,6 +1921,7 @@ class UKEFRSComparisonReport:
     output_summary: list[dict[str, Any]]
     skipped_surfaces: list[dict[str, str]]
     projection_notes: list[str]
+    dataset_identity: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -1933,6 +1935,7 @@ class UKEFRSComparisonReport:
             "output_summary": self.output_summary,
             "skipped_surfaces": self.skipped_surfaces,
             "projection_notes": self.projection_notes,
+            "dataset_identity": self.dataset_identity,
         }
 
 
@@ -2406,13 +2409,15 @@ def load_policyengine_uk_data(
         )
 
     require_policyengine_uk_versions(command="uk-populace-compare")
+    dataset_identity: dict[str, Any] = {}
     pe_dataset = load_populace_dataset(
         "uk",
         year=populace_year,
         command="uk-populace-compare",
+        provenance=dataset_identity,
     )
     log(f"Loading PolicyEngine Populace UK {populace_year} dataset...")
-    return load_policyengine_uk_dataset(
+    pe_data = load_policyengine_uk_dataset(
         pe_dataset=pe_dataset,
         year=year,
         sample_size=sample_size,
@@ -2420,6 +2425,8 @@ def load_policyengine_uk_data(
         person_variables=person_variables,
         benunit_variables=benunit_variables,
     )
+    pe_data["dataset_identity"] = dataset_identity
+    return pe_data
 
 
 def load_local_policyengine_uk_data(
@@ -6723,6 +6730,7 @@ def compare_outputs(
         mismatches=mismatches,
         oracle_divergences=oracle_divergences,
         output_summary=list(summary.values()),
+        dataset_identity=pe_data.get("dataset_identity") or None,
         skipped_surfaces=SKIPPED_SURFACES,
         projection_notes=[
             "Personal allowance projection supplies validation-population adjusted net income "
@@ -7197,6 +7205,9 @@ def print_report(
     relative_tolerance: float,
 ) -> None:
     print("PolicyEngine UK Populace comparison")
+    identity_line = format_dataset_identity(report.dataset_identity)
+    if identity_line:
+        print(identity_line)
     print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared benefit units: {report.compared_benunits:,}")
     print(f"Compared values: {report.compared_values:,}")
