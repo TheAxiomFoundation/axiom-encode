@@ -416,6 +416,14 @@ PE_US_VAR_ADAPTERS = (
         default_state_code="MA",
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("ut_fep_payment_standard",),
+        pe_var="ut_fep_payment_standard",
+        monthly=True,
+        spm=True,
+        annual_direct_spm_overrides=(("assistance_unit_size", "spm_unit_size"),),
+        default_state_code="UT",
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("ma_tafdc_infant_benefit",),
         pe_var="ma_tafdc_infant_benefit",
         boolean_person_inputs=(
