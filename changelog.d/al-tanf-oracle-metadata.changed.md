@@ -1,0 +1,1 @@
+Update Alabama TANF PolicyEngine oracle metadata after source-law encoding, wiring the comparable DHR manual entitlement slice while marking Populace validation blocked pending source-hierarchy review.
