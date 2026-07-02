@@ -575,7 +575,7 @@ SOURCE_TEXT_NUMBER_PATTERN = re.compile(
 )
 EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
-    r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),(?:\d{1,2}|\d{4}))"
+    r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),\d{1,4})"
     r"(?!\d)",
     re.IGNORECASE,
 )
