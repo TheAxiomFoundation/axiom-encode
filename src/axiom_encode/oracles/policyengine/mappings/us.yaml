@@ -20211,7 +20211,35 @@ mappings:
     comparison: money
     rationale: Same Utah DWS FEP/FEP-TP monthly payment standard by assistance-unit size, represented in PolicyEngine as ut_fep_payment_standard.
 
+  - legal_id: us-ut:regulations/admin-rules/r986/200/230#ut_fep_resource_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.dwf.fep.resources.limit.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Utah Administrative Code R986-200-230 $2,000 FEP resource limit, represented in PolicyEngine as the Utah FEP resources-limit amount parameter.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/230#ut_fep_resources_eligible
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ut_fep_resources_eligible
+    entity: spm_unit
+    period: month
+    comparison: bool
+    rationale: Same Utah FEP resource-test eligibility predicate under R986-200-230, represented in PolicyEngine as ut_fep_resources_eligible.
+
 prefixes:
+  - legal_id_prefix: us-ut:regulations/admin-rules/r986/200/204#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_eligible
+    candidate_priority: P4
+    rationale: R986-200-204 outputs are source-level FEP/FEP-TP demographic, application-completion, participation, and disqualification prerequisites. PolicyEngine exposes final ut_fep_eligible/ut_fep results after income, resource, household-composition, and benefit-composition rules are assembled, not these section-204 intermediates one-to-one.
+
   - legal_id_prefix: us:statutes/42/426
     country: us
     program: medicare
