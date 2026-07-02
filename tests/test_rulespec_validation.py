@@ -19280,6 +19280,37 @@ rules:
     )
 
 
+def test_source_subparagraph_coverage_allows_parameter_rule_citing_child():
+    source_text = """Income standards
+(a) The gross monthly income standard sets the level of gross monthly income.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420
+rules:
+  - name: mt_tanf_gross_monthly_income_standard
+    kind: parameter
+    dtype: Money
+    period: Month
+    source: us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(a)
+    versions:
+      - effective_from: '2011-01-28'
+        values:
+          1: 557
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={
+                "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420": source_text
+            },
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_allows_source_relation_citing_child():
     source_text = """Definitions
 (m) American vessel and aircraft For purposes of this chapter, the term American vessel means any vessel documented or numbered under the laws of the United States; and the term American aircraft means an aircraft registered under the laws of the United States.

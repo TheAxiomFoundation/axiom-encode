@@ -20196,6 +20196,77 @@ rules:
         proof_source = payload["rules"][0]["metadata"]["proof"]["steps"][0]["source"]
         assert proof_source["corpus_citation_path"] == "us/statute/42/1396a/xx"
 
+    def test_source_child_corpus_path_repair_adds_rule_source_child_citations(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "deterministic-repair"
+            / "regulations/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_repo = tmp_path / "rulespec-us" / "us-mt"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420
+rules:
+  - name: mt_tanf_gross_monthly_income_standard
+    kind: parameter
+    dtype: Money
+    source: ARM 37.78.420(4)(a), Gross Monthly Income Standards
+    versions:
+      - effective_from: '2011-01-28'
+        formula: 557
+  - name: mt_tanf_post_employment_payment_standard
+    kind: parameter
+    dtype: Money
+    source: ARM 37.78.420(4)(e), Post-Employment Payment Standards
+    versions:
+      - effective_from: '2011-01-28'
+        formula: 375
+"""
+        )
+        result = SimpleNamespace(
+            runner="deterministic-repair",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_source_child_corpus_paths_for_apply(
+            result,
+            output_root=output_root,
+            rules_repo_path=rules_repo,
+            issues=[
+                "ci: Source sub-paragraph coverage missing: "
+                "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(a) "
+                "('The gross monthly income (GMI) standard sets the level of gross monthly income') "
+                "has no rule citing it and no entry in `module.deferred_outputs`.",
+                "ci: Source sub-paragraph coverage missing: "
+                "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(e) "
+                "('The payment standards for the TANF Cash Assistance Post-Employment Program') "
+                "has no rule citing it and no entry in `module.deferred_outputs`.",
+            ],
+        )
+
+        assert repaired == [
+            "mt_tanf_gross_monthly_income_standard->"
+            "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(a)",
+            "mt_tanf_post_employment_payment_standard->"
+            "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(e)",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        sources = {rule["name"]: rule["source"] for rule in payload["rules"]}
+        assert (
+            "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/"
+            "rule-37-78-420(a)" in sources["mt_tanf_gross_monthly_income_standard"]
+        )
+        assert (
+            "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/"
+            "rule-37-78-420(e)" in sources["mt_tanf_post_employment_payment_standard"]
+        )
+
     def test_source_child_corpus_path_repair_requires_grounded_literal(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
