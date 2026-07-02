@@ -384,10 +384,12 @@ surfaces:
   variable: tx_tanf
   source_type: state_implementation
   state: TX
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec repos include a Texas TANF FY 2026 program bridge over the HHSC Texas Works Handbook C-111 payment-standard table,
+    A-1340 grant-amount rule, and C-112 first-month proration. The bridge remains incomplete for nonfinancial eligibility, resource,
+    sanction, time-limit, and full income-budget gates, while PolicyEngine's tx_tanf is a final SPM-unit benefit built from PE's broader
+    TANF graph, so this is source-faithful progress but not a one-to-one oracle target yet.
 - country: us
   program_id: tanf
   program_name: Washington TANF

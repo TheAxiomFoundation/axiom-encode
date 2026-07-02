@@ -2280,6 +2280,22 @@ def test_policyengine_program_surface_marks_alaska_atap_known_not_comparable():
     assert "earned-income deductions" in alaska_atap["rationale"]
 
 
+def test_policyengine_program_surface_marks_texas_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    texas_tanf = items_by_variable["tx_tanf"]
+
+    assert texas_tanf["program_id"] == "tanf"
+    assert texas_tanf["state"] == "TX"
+    assert texas_tanf["axiom_status"] == "known_not_comparable"
+    assert texas_tanf["mapping_count"] == 1
+    assert texas_tanf["comparable_mapping_count"] == 0
+    assert "us-tx:programs/tanf/fy-2026#tx_tanf" in texas_tanf["legal_ids"]
+    assert "Texas TANF FY 2026 program bridge" in texas_tanf["rationale"]
+    assert "C-112 first-month proration" in texas_tanf["rationale"]
+
+
 def test_policyengine_program_surface_marks_massachusetts_tafdc_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
