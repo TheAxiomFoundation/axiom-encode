@@ -2228,6 +2228,22 @@ def test_policyengine_program_surface_marks_colorado_tanf_known_not_comparable()
     assert "before pregnancy allowance" in colorado_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_connecticut_tfa_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    connecticut_tfa = items_by_variable["ct_tfa"]
+
+    assert connecticut_tfa["program_id"] == "tanf"
+    assert connecticut_tfa["state"] == "CT"
+    assert connecticut_tfa["axiom_status"] == "known_not_comparable"
+    assert connecticut_tfa["mapping_count"] >= 1
+    assert connecticut_tfa["comparable_mapping_count"] == 0
+    assert "us-ct:programs/tanf/fy-2026#ct_tfa" in connecticut_tfa["legal_ids"]
+    assert "Connecticut TFA FY 2026 program bridge" in connecticut_tfa["rationale"]
+    assert "time-limit exemptions" in connecticut_tfa["rationale"]
+
+
 def test_policyengine_program_surface_marks_arizona_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="tanf")
 
