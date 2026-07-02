@@ -1645,12 +1645,14 @@ surfaces:
   variable: ct_ssp
   source_type: state_implementation
   state: CT
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: Axiom now encodes Conn. Gen. Stat. § 17b-600, including the statutory 300% SSI income-cap
-    rate mapped to PolicyEngine, but the final monthly Connecticut SSP amount still requires upstream
-    regulation/manual sources for resource limits, living arrangements, income disregards, allowances,
-    and standards before the PE final benefit surface can be compared.
+  rationale: Axiom encodes Conn. Gen. Stat. § 17b-600 plus Connecticut DSS UPM 4005.10, 5030.10,
+    5030.15, 5045.10, 5050.13, 5520.10, 6005, and current Program Standards chart components for
+    resources, income disregards, countable income, income eligibility, benefit calculation, and
+    standards. PolicyEngine's `ct_ssp` is a final SPM-unit amount summed from person-level formulas
+    with different entity and composition boundaries, so compare the mapped legal components
+    separately until Axiom has an equivalent final composition surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Colorado SSP

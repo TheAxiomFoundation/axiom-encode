@@ -1775,6 +1775,117 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec encodes the UPM 5030.15 base-disregard formula, COLA multiplier, QMB January-through-March branch, and source exceptions. PolicyEngine stores current materialized chart amounts by living arrangement, so compare the current DSS Program Standards chart output separately.
 
+  - legal_id: us-ct:policies/dss/upm/5045-10#aabd_maabd_applied_earnings_aged_disabled
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_earned_income_disregard
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5045.10 applied-earnings formula for aged or disabled AABD/MAABD assistance units, including long-term-care exclusion, self-employment expenses, impairment-related expenses, and PASS income. PolicyEngine exposes a person-level earned-income-disregard formula, not this source-level applied-earnings amount.
+
+  - legal_id: us-ct:policies/dss/upm/5045-10#aabd_maabd_applied_earnings_blind
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_earned_income_disregard
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5045.10 blind AABD/MAABD applied-earnings formula with personal-employment expenses, blind-work expenses, and PASS income. PolicyEngine exposes the simplified person-level CT SSP earned-income disregard, so this source-level applied-income branch is not a one-to-one oracle target.
+
+  - legal_id: us-ct:policies/dss/upm/5045-10#aabd_maabd_applied_earnings
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec selects the UPM 5045.10 aged/disabled or blind applied-earnings branch at the assistance-unit level. PolicyEngine combines earned and unearned CT SSP countable-income components at the person level, so compare the underlying disregard parameters and chart components separately.
+
+  - legal_id: us-ct:policies/dss/upm/5045-10#aabd_maabd_applied_unearned_income
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5045.10 applied-unearned-income calculation after the appropriate living-arrangement disregard and self-support-plan expenses. PolicyEngine's CT SSP countable-income variable has different person-level income-source and composition boundaries.
+
+  - legal_id: us-ct:policies/dss/upm/5045-10#aabd_maabd_total_applied_income
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec encodes UPM 5045.10 total applied income as applied earnings plus applied unearned income plus deemed income for an assistance unit. PolicyEngine's CT SSP countable-income surface is person-level and composes SSI income inputs differently, so this is adjacent rather than directly comparable.
+
+  - legal_id: us-ct:policies/dss/upm/5050-13#reduced_va_pension_personal_needs_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the UPM 5050.13 reduced-VA-pension personal-needs allowance. PolicyEngine does not expose this veterans-benefit treatment as a separate CT SSP parameter.
+
+  - legal_id: us-ct:policies/dss/upm/5050-13#reduced_va_pension_personal_needs_allowance_applied
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5050.13 predicate and amount for applying the reduced-VA-pension personal-needs allowance in long-term-care-facility cases. PolicyEngine does not model this source-level veterans-benefit branch as a one-to-one CT SSP variable.
+
+  - legal_id: us-ct:policies/dss/upm/5050-13#aabd_maabd_excluded_surviving_spouse_housebound_veterans_allowance
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5050.13 exclusion for the surviving-spouse housebound veterans allowance. PolicyEngine's CT SSP countable-income formula does not expose this source-specific exclusion as a standalone target.
+
+  - legal_id: us-ct:policies/dss/upm/5050-13#ct_ssp_countable_income
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_countable_income
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5050.13 treatment of Social Security, SSI, veterans' benefits, and veterans-benefit exclusions for AABD/MAABD countable income. PolicyEngine's ct_ssp_countable_income is a broader person-level composition over SSI earned and unearned inputs, so the source-level output is not a one-to-one oracle target.
+
+  - legal_id: us-ct:policies/dss/upm/5520-10#aabd_individual_gross_income_limit_multiplier
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.dss.ssp.eligibility.income_cap_rate
+    period: month
+    unit: /1
+    comparison: numeric
+    rationale: UPM 5520.10 states the same 300 percent individual AABD gross-income limit used by the Connecticut SSP income-cap parameter in PolicyEngine.
+
+  - legal_id: us-ct:policies/dss/upm/5520-10#aabd_spousal_gross_income_limit_multiplier
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ct.dss.ssp.eligibility.income_cap_rate
+    candidate_priority: P4
+    rationale: UPM 5520.10 states a 600 percent spousal-needs-group gross-income limit. PolicyEngine's Connecticut SSP income-cap parameter is the 300 percent individual rate and does not expose this spousal multiplier separately.
+
+  - legal_id: us-ct:policies/dss/upm/5520-10#aabd_individual_gross_monthly_income_limit
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_income_eligible
+    candidate_priority: P4
+    rationale: RuleSpec derives the UPM 5520.10 individual gross monthly income limit from 300 percent of the maximum SSI benefit for an individual in their own home. PolicyEngine's comparable surface is a final person-level income-eligibility predicate, not this source-level limit amount.
+
+  - legal_id: us-ct:policies/dss/upm/5520-10#aabd_spousal_gross_monthly_income_limit
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_income_eligible
+    candidate_priority: P4
+    rationale: RuleSpec derives the UPM 5520.10 spousal gross monthly income limit from 600 percent of the maximum SSI individual benefit. PolicyEngine does not expose this spousal-needs-group limit as a separate CT SSP oracle target.
+
+  - legal_id: us-ct:policies/dss/upm/5520-10#ct_ssp_income_eligible
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_income_eligible
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 5520.10 assistance-unit income-eligibility test, including separate individual and spousal gross-income limits and a strict applied-income less-than-needs test. PolicyEngine's person-level ct_ssp_income_eligible uses a single income-cap parameter and countable-income less-than-or-equal-to need standard, so this needs component comparison rather than direct final-variable comparison.
+
   - legal_id: us-ct:policies/dss/program-standards/2026-01-01/unearned-disregards#ct_ssp_unearned_income_disregard_by_living_arrangement
     country: us
     program: ssi_state_supplement
@@ -1908,6 +2019,50 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same Connecticut SSP therapeutic-diet special-needs selector; both RuleSpec and PolicyEngine multiply the therapeutic-diet indicator by the chart amount.
+
+  - legal_id: us-ct:policies/dss/upm/6005#afdc_fill_the_gap_rate
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Connecticut UPM 6005 AFDC fill-the-gap rate as a source-level TANF/AFDC budgeting scalar. PolicyEngine's TANF surfaces do not expose this Connecticut manual rate as a one-to-one oracle target.
+
+  - legal_id: us-ct:policies/dss/upm/6005#fs_applied_income_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the Connecticut UPM 6005 Food Stamp applied-income rate from a legacy manual section. PolicyEngine's SNAP allotment graph uses federal SNAP excess-shelter and expected-contribution rules rather than this source-local FS budgeting output as a standalone target.
+
+  - legal_id: us-ct:policies/dss/upm/6005#afdc_monthly_benefit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 6005 AFDC monthly benefit formula for the assistance unit. PolicyEngine does not expose a Connecticut AFDC fill-the-gap benefit variable as a one-to-one oracle surface.
+
+  - legal_id: us-ct:policies/dss/upm/6005#aabd_monthly_benefit_determined
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_person
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 6005 AABD benefit determined before the final spousal issuance allocation. PolicyEngine's ct_ssp_person is a person-level final amount after eligibility and need-standard composition, not this source-level assistance-unit calculation step.
+
+  - legal_id: us-ct:policies/dss/upm/6005#ct_ssp_person
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ct_ssp_person
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 6005 AABD benefit issuance rules at the assistance-unit level, including spousal sharing and one-spouse-applying branches. PolicyEngine's ct_ssp_person is a person-level max of need standard minus countable income gated by PE eligibility, so entity and composition boundaries differ.
+
+  - legal_id: us-ct:policies/dss/upm/6005#fs_monthly_benefit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec encodes the UPM 6005 Food Stamp monthly benefit formula from the Connecticut manual. PolicyEngine's SNAP surface is the federal/state SNAP final benefit graph and does not expose this source-local FS output as a direct oracle target.
 
   - legal_id: us-ak:policies/dpa/apa/standards/2026/state-supplement-payment-standard#a_individual_apa_payment_standard
     country: us

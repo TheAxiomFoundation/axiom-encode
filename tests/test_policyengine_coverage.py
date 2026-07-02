@@ -1736,7 +1736,7 @@ def test_policyengine_program_surface_marks_alaska_ssp_known_not_comparable():
     assert "final benefit-composition surface" in ak_ssp["rationale"]
 
 
-def test_policyengine_program_surface_marks_connecticut_ssp_pending_encoding():
+def test_policyengine_program_surface_marks_connecticut_ssp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="ct_ssp")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -1744,9 +1744,11 @@ def test_policyengine_program_surface_marks_connecticut_ssp_pending_encoding():
 
     assert ct_ssp["program_id"] == "ssi_state_supplement"
     assert ct_ssp["state"] == "CT"
-    assert ct_ssp["axiom_status"] == "pending_rulespec_encoding"
+    assert ct_ssp["axiom_status"] == "known_not_comparable"
     assert "Conn. Gen. Stat. § 17b-600" in ct_ssp["rationale"]
-    assert "final monthly Connecticut SSP amount" in ct_ssp["rationale"]
+    assert "5045.10" in ct_ssp["rationale"]
+    assert "6005" in ct_ssp["rationale"]
+    assert "final composition surface" in ct_ssp["rationale"]
 
 
 def test_policyengine_coverage_maps_connecticut_ssp_income_cap_rate(tmp_path):
@@ -1789,6 +1791,34 @@ rules:
         == "gov.states.ct.dss.ssp.eligibility.income_cap_rate"
     )
     assert income_cap["tested"] is True
+
+
+def test_policyengine_registry_classifies_connecticut_ssp_upm_components():
+    registry = load_policyengine_registry()
+
+    income_limit_multiplier = registry.mapping_for_legal_id(
+        "us-ct:policies/dss/upm/5520-10#aabd_individual_gross_income_limit_multiplier",
+        country="us",
+    )
+    assert income_limit_multiplier is not None
+    assert income_limit_multiplier.mapping_type == "parameter_value"
+    assert (
+        income_limit_multiplier.policyengine_parameter
+        == "gov.states.ct.dss.ssp.eligibility.income_cap_rate"
+    )
+
+    not_comparable_targets = {
+        "us-ct:policies/dss/upm/5045-10#aabd_maabd_total_applied_income": "ct_ssp_countable_income",
+        "us-ct:policies/dss/upm/5050-13#ct_ssp_countable_income": "ct_ssp_countable_income",
+        "us-ct:policies/dss/upm/5520-10#ct_ssp_income_eligible": "ct_ssp_income_eligible",
+        "us-ct:policies/dss/upm/6005#ct_ssp_person": "ct_ssp_person",
+    }
+    for legal_id, policyengine_variable in not_comparable_targets.items():
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping is not None
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.policyengine_variable == policyengine_variable
+        assert mapping.candidate_priority == "P4"
 
 
 def test_policyengine_coverage_maps_alabama_ssp_amount_cells(tmp_path):
