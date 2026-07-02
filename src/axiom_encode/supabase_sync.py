@@ -376,7 +376,9 @@ def run_from_apply_manifest(manifest_path: Path, payload: dict) -> "EncodingRun"
             file_path = str(first.get("path") or "")
 
     backend = payload.get("backend")
-    agent_type = f"{backend}:encoder" if isinstance(backend, str) and backend else "encoder"
+    agent_type = (
+        f"{backend}:encoder" if isinstance(backend, str) and backend else "encoder"
+    )
 
     encoder_version = payload.get("axiom_encode_version")
     if not isinstance(encoder_version, str):

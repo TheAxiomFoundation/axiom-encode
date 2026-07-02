@@ -1082,7 +1082,9 @@ class TestSyncAppliedManifestRuns:
             "skipped": 0,
             "preserved": 0,
         }
-        upsert_calls = mock_client.schema.return_value.table.return_value.upsert.call_args_list
+        upsert_calls = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args_list
+        )
         payloads = [call.args[0] for call in upsert_calls]
         assert {payload["id"] for payload in payloads} == {"5c8705fb", "aa11bb22"}
         assert all(payload["data_source"] == "apply_manifest" for payload in payloads)
@@ -1122,9 +1124,7 @@ class TestSyncAppliedManifestRuns:
             "skipped": 0,
             "preserved": 1,
         }
-        upsert_ids = {
-            call.args[0]["id"] for call in table.upsert.call_args_list
-        }
+        upsert_ids = {call.args[0]["id"] for call in table.upsert.call_args_list}
         assert upsert_ids == {"aa11bb22"}
 
     def test_missing_manifest_dir_is_empty(self, tmp_path):
@@ -1149,7 +1149,9 @@ class TestSyncAppliedManifestRuns:
         assert len(run_a.id) == 8
         # Same manifest re-synced later keeps the same id.
         run_a_again = run_from_apply_manifest(
-            Path("/other/host/checkout/.axiom/encoding-manifests/regulations/14/a/1.json"),
+            Path(
+                "/other/host/checkout/.axiom/encoding-manifests/regulations/14/a/1.json"
+            ),
             _apply_manifest_payload(run_id="deterministic-repair"),
         )
         assert run_a_again.id == run_a.id
