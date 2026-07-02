@@ -865,8 +865,9 @@ surfaces:
   state: UT
   axiom_status: pending_rulespec_encoding
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom has a source-backed Utah DWS Table 1 payment-standard encoding and oracle mapping for
+    ut_fep_payment_standard. Final ut_fep parity still requires encoding the remaining income, eligibility, assistance-unit,
+    and benefit-composition rules from Utah's upstream R986-200/DWS sources before claiming full program parity.
 - country: us
   program_id: tanf
   program_name: Kentucky K-TAP

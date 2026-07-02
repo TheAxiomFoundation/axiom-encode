@@ -20176,6 +20176,41 @@ mappings:
     comparison: money
     rationale: Same Minnesota monthly MFIP cash-benefit surface after subtracting the food portion from the total MFIP grant, which is the boundary PolicyEngine exposes as mn_mfip.
 
+  - legal_id: us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#gross_income_test_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_gross_income_eligible
+    candidate_priority: P4
+    rationale: Utah DWS Table 1 exposes the monthly gross-income-test dollar threshold as a source-table value. PolicyEngine's ut_fep_gross_income_eligible computes a boolean eligibility predicate from standard-needs-budget and gross-income-limit parameters, not this source-table dollar row as a one-to-one oracle output.
+
+  - legal_id: us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#net_income_test_snb
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_net_income_eligible
+    candidate_priority: P4
+    rationale: Utah DWS Table 1 exposes the standard-needs-budget net-income-test dollar row. PolicyEngine's ut_fep_net_income_eligible exposes the downstream boolean eligibility predicate, so the raw source-table dollar row is adjacent legal coverage rather than a one-to-one oracle target.
+
+  - legal_id: us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#fep_fep_tp_max_assistance
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_payment_standard
+    candidate_priority: P4
+    rationale: Utah DWS Table 1's FEP/FEP-TP maximum-assistance column is the raw source table used by the executable ut_fep_payment_standard output. Compare the derived payment-standard legal output to PolicyEngine, rather than treating the raw table column as a second independent oracle surface.
+
+  - legal_id: us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#ut_fep_payment_standard
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ut_fep_payment_standard
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Utah DWS FEP/FEP-TP monthly payment standard by assistance-unit size, represented in PolicyEngine as ut_fep_payment_standard.
+
 prefixes:
   - legal_id_prefix: us:statutes/42/426
     country: us

@@ -40,6 +40,30 @@ rules:
         formula: tanf_basic_allowance + tanf_shelter_allowance
 """
 
+_UT_FEP_TABLE_RULESPEC = """format: rulespec/v1
+rules:
+  - name: gross_income_test_limit
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 927
+  - name: net_income_test_snb
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 796
+  - name: fep_fep_tp_max_assistance
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 531
+  - name: ut_fep_payment_standard
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fep_fep_tp_max_assistance
+"""
+
 _UNMAPPED_UK_RULESPEC = """format: rulespec/v1
 rules:
   - name: brand_new_local_helper_xyz
@@ -176,6 +200,54 @@ def test_kansas_tanf_keesm_prefix_is_classified_not_comparable(tmp_path):
     assert item["status"] == "known_not_comparable"
     assert item["mapping_type"] == "not_comparable"
     assert item["policyengine_variable"] == "ks_tanf_maximum_benefit"
+
+
+def test_utah_fep_payment_standard_is_comparable_but_table_rows_are_not(tmp_path):
+    """Utah DWS Table 1 has one PE oracle surface and three raw table rows."""
+    root = tmp_path / "rulespec-us"
+    rulespec_path = (
+        root
+        / "us-ut"
+        / "policies"
+        / "dws"
+        / "eligibility-manual"
+        / "table-1-financial-monthly-income-limits.yaml"
+    )
+    _write(rulespec_path, _UT_FEP_TABLE_RULESPEC)
+    _write(
+        rulespec_path.with_name("table-1-financial-monthly-income-limits.test.yaml"),
+        """- name: Utah FEP payment standard size two
+  period: 2026-01
+  input:
+    us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#input.assistance_unit_size: 2
+  output:
+    us-ut:policies/dws/eligibility-manual/table-1-financial-monthly-income-limits#ut_fep_payment_standard: 531
+""",
+    )
+
+    report = build_policyengine_coverage_report(root, program="tanf")
+    items_by_rule = {item["rule_name"]: item for item in report["items"]}
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 3,
+    }
+
+    payment_standard = items_by_rule["ut_fep_payment_standard"]
+    assert payment_standard["status"] == "comparable"
+    assert payment_standard["mapping_type"] == "direct_variable"
+    assert payment_standard["policyengine_variable"] == "ut_fep_payment_standard"
+    assert payment_standard["tested"] is True
+    assert payment_standard["test_output_count"] == 1
+
+    for rule_name in (
+        "gross_income_test_limit",
+        "net_income_test_snb",
+        "fep_fep_tp_max_assistance",
+    ):
+        item = items_by_rule[rule_name]
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
 
 
 def test_medicaid_emergency_exact_mapping_overrides_source_prefix(tmp_path):
