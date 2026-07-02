@@ -53,8 +53,21 @@ axiom-encode encode "26 USC 32(a)(1)" --output /tmp/axiom-encode-encodings
 ```
 
 The command prints `supabase_sync=run+session` when both records are uploaded.
-Use `axiom-encode sync-agent-sessions --session encode-<run_id>` to replay a
+If the credentials are missing, a `WARNING: run ... was NOT synced` line goes to
+stderr — the run will not appear on the ops dashboard until reconciled. Use
+`axiom-encode sync-agent-sessions --session encode-<run_id>` to replay a
 single local session sync.
+
+Because automation often runs in throwaway checkouts (where the local encoding
+DB is deleted with the workspace), the signed apply manifests committed under
+`.axiom/encoding-manifests/` in each rulespec repo are the durable record of
+applied encodings. Reconcile Supabase with them at any time — the sync is
+idempotent (rows are keyed by the manifest's original run id) and uses
+`data_source=apply_manifest`:
+
+```bash
+axiom-encode sync-applied-runs ~/rulespec-us ~/rulespec-us-co  # add --dry-run to preview
+```
 
 Failed encode runs write a sibling `*.repair.json` file next to the generated
 RuleSpec candidate. That manifest includes the run ID, session ID, citation,

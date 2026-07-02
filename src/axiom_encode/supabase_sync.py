@@ -4,8 +4,10 @@ Supabase sync for axiom_encode encoding runs.
 Syncs local SQLite encoding DB to Supabase for the public dashboard.
 """
 
+import hashlib
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,6 +16,25 @@ from supabase import Client, create_client
 
 ENCODINGS_SCHEMA = "encodings"
 TELEMETRY_SCHEMA = "telemetry"
+
+# Where a run's scores/telemetry came from. Kept as a hard allowlist to
+# prevent fake data from reaching the dashboard:
+#   reviewer_agent - scores from actual reviewer agent runs
+#   ci_only        - only CI tests ran, no reviewer scores
+#   mock           - fake/placeholder data for testing
+#   manual_estimate- human-estimated scores (NOT from agents)
+#   apply_manifest - reconstructed from a signed applied-rulespec manifest
+#                    committed in a rulespec repo (real applied encoding;
+#                    session-level telemetry was not captured)
+VALID_DATA_SOURCES = {
+    "reviewer_agent",
+    "ci_only",
+    "mock",
+    "manual_estimate",
+    "apply_manifest",
+}
+
+APPLY_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
 
 
 def _review_results_to_scores(review_results) -> dict:
@@ -86,7 +107,7 @@ def sync_run_to_supabase(
     """
 
     # Validate data_source - this is a hard requirement to prevent fake data
-    valid_sources = {"reviewer_agent", "ci_only", "mock", "manual_estimate"}
+    valid_sources = VALID_DATA_SOURCES
     if data_source not in valid_sources:
         raise ValueError(
             f"data_source must be one of {valid_sources}, got: {data_source}"
@@ -297,6 +318,127 @@ def sync_all_runs(
         "synced": synced,
         "failed": failed,
     }
+
+
+def _manifest_rel_key(manifest_path: Path) -> str:
+    """Machine-independent identity for a manifest: its path below the
+    encoding-manifests directory (absolute checkout paths differ per host)."""
+    parts = list(Path(manifest_path).parts)
+    if "encoding-manifests" in parts:
+        index = parts.index("encoding-manifests")
+        return "/".join(parts[index + 1 :])
+    return Path(manifest_path).name
+
+
+def find_apply_manifests(repo_path: Path) -> list[Path]:
+    """List applied-rulespec manifests committed in a rulespec repo checkout."""
+    manifest_root = Path(repo_path) / APPLY_MANIFEST_DIR
+    if not manifest_root.is_dir():
+        return []
+    return sorted(manifest_root.rglob("*.json"))
+
+
+def run_from_apply_manifest(manifest_path: Path, payload: dict) -> "EncodingRun":
+    """
+    Reconstruct an EncodingRun from a signed applied-rulespec manifest.
+
+    Apply manifests are the durable record of encodings that landed in a
+    rulespec repo. Reusing the manifest's original run_id keeps the sync
+    idempotent and lets a later, richer sync of the same run (from a local
+    encodings.db) upsert over the reconstruction.
+    """
+    from .harness.encoding_db import EncodingRun, Iteration
+
+    citation = payload.get("citation")
+    generated_at = payload.get("generated_at")
+    if not isinstance(citation, str) or not citation:
+        raise ValueError(f"{manifest_path}: manifest has no citation")
+    if not isinstance(generated_at, str) or not generated_at:
+        raise ValueError(f"{manifest_path}: manifest has no generated_at")
+
+    # Only trust run_id as an upsert key when it looks like a real per-run id
+    # (uuid4 prefix). Repair tools stamp shared sentinels like
+    # "deterministic-repair" into every manifest they touch, which would make
+    # those rows overwrite each other.
+    run_id = payload.get("run_id")
+    if not (isinstance(run_id, str) and re.fullmatch(r"[0-9a-f]{8}", run_id)):
+        digest_source = (
+            f"apply-manifest:{citation}:{generated_at}:"
+            f"{_manifest_rel_key(manifest_path)}:{run_id or ''}"
+        )
+        run_id = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:8]
+
+    applied_files = payload.get("applied_files")
+    file_path = ""
+    if isinstance(applied_files, list) and applied_files:
+        first = applied_files[0]
+        if isinstance(first, dict):
+            file_path = str(first.get("path") or "")
+
+    backend = payload.get("backend")
+    agent_type = f"{backend}:encoder" if isinstance(backend, str) and backend else "encoder"
+
+    encoder_version = payload.get("axiom_encode_version")
+    if not isinstance(encoder_version, str):
+        encoder_version = ""
+
+    return EncodingRun(
+        id=run_id,
+        timestamp=datetime.fromisoformat(generated_at),
+        citation=citation,
+        file_path=file_path,
+        iterations=[Iteration(attempt=1, duration_ms=0, errors=[], success=True)],
+        total_duration_ms=0,
+        agent_type=agent_type,
+        agent_model=str(payload.get("model") or ""),
+        axiom_encode_version=encoder_version,
+        # The manifest is only written for encodings that applied cleanly.
+        outcome={"final_success": True, "status": "applied"},
+        session_id=None,
+    )
+
+
+def sync_applied_manifest_runs(
+    repo_paths: list[Path],
+    *,
+    client: Optional[Client] = None,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Backfill encodings.encoding_runs from applied-rulespec manifests.
+
+    Scans each rulespec repo checkout for .axiom/encoding-manifests/**/*.json
+    and upserts one run per manifest with data_source="apply_manifest".
+    Idempotent: rows are keyed by the manifest's original run_id.
+    """
+    stats = {"total": 0, "synced": 0, "failed": 0, "skipped": 0}
+    runs: list["EncodingRun"] = []
+    for repo_path in repo_paths:
+        for manifest_path in find_apply_manifests(Path(repo_path)):
+            stats["total"] += 1
+            try:
+                payload = json.loads(manifest_path.read_text())
+                runs.append(run_from_apply_manifest(manifest_path, payload))
+            except Exception as e:
+                print(f"Skipping {manifest_path}: {e}")
+                stats["skipped"] += 1
+
+    if dry_run:
+        for run in runs:
+            print(
+                f"would sync {run.id} {run.timestamp.isoformat()} "
+                f"{run.citation} [{run.agent_type} {run.agent_model}]"
+            )
+        return stats
+
+    if client is None:
+        client = get_supabase_client()
+    for run in runs:
+        if sync_run_to_supabase(run, "apply_manifest", client=client):
+            stats["synced"] += 1
+        else:
+            stats["failed"] += 1
+    return stats
 
 
 def fetch_runs_from_supabase(
@@ -611,6 +753,7 @@ if __name__ == "__main__":  # pragma: no cover
         print("  ci_only         - Only CI tests ran, no reviewer scores")
         print("  mock            - Fake/placeholder data for testing")
         print("  manual_estimate - Human-estimated scores (NOT from agents)")
+        print("  apply_manifest  - Reconstructed from signed apply manifests")
         sys.exit(1)
 
     cmd = sys.argv[1]
