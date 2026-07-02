@@ -5234,6 +5234,14 @@ mappings:
     candidate_priority: P4
     rationale: The Kansas TANF program wrapper composes KEESM 7411 maximum benefit with KEESM 7401/7402 cash proration and rounding, but does not yet encode countable income, income/resource eligibility, demographic eligibility, or immigration eligibility. PolicyEngine-US ks_tanf applies those PE graph gates and a maximum-benefit-minus-countable-income formula, so this surface is currently known not comparable.
 
+  - legal_id: us-tx:programs/tanf/fy-2026#tx_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: tx_tanf
+    candidate_priority: P4
+    rationale: The Texas TANF program wrapper composes the HHSC Texas Works Handbook C-111 payment-standard table, A-1340 grant calculation, and C-112 first-month proration, but does not yet encode nonfinancial eligibility, resources, sanctions, time limits, or the full income-budget path. PolicyEngine-US tx_tanf applies PE's broader SPM-unit TANF graph, so this bridge is source-faithful progress but not a one-to-one oracle target.
+
   - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_thirty_dollar_earned_income_disregard
     country: us
     program: tanf
