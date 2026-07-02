@@ -292,6 +292,83 @@ JURISDICTION_CONFIGS = {
             "ny_snap_categorical_member_of_household",
         ),
     ),
+    "us-or": JurisdictionConfig(
+        jurisdiction="us-or",
+        state_code="OR",
+        repo_name="rulespec-us-or",
+        program_relative_path=Path(
+            "policies/odhs/open/fy-2026-benefit-calculation.yaml"
+        ),
+        output_id_by_label={
+            "snap_regular_month_allotment": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+                "#snap_regular_month_allotment"
+            ),
+            "snap_gross_monthly_income": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+                "#snap_gross_monthly_income"
+            ),
+            "snap_net_income": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+                "#snap_net_income"
+            ),
+            "snap_eligible": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_maximum_allotment": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+                "#snap_maximum_allotment"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-or:policies/odhs/open/fy-2026-benefit-calculation"
+                "#snap_excess_shelter_deduction"
+            ),
+        },
+        utility_allowance_labels=(),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Person",
+        temp_prefix="or-snap-pe-ecps-",
+        display_name="Oregon SNAP",
+    ),
+    "us-ut": JurisdictionConfig(
+        jurisdiction="us-ut",
+        state_code="UT",
+        repo_name="rulespec-us-ut",
+        program_relative_path=Path(
+            "policies/dws/eligibility-manual/fy-2026-benefit-calculation.yaml"
+        ),
+        output_id_by_label={
+            "snap_regular_month_allotment": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_regular_month_allotment"
+            ),
+            "snap_gross_monthly_income": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_gross_monthly_income"
+            ),
+            "snap_net_income": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_net_income"
+            ),
+            "snap_eligible": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_eligible"
+            ),
+            "snap_maximum_allotment": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_maximum_allotment"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-ut:policies/dws/eligibility-manual/fy-2026-benefit-calculation"
+                "#snap_excess_shelter_deduction"
+            ),
+        },
+        utility_allowance_labels=(),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Person",
+        temp_prefix="ut-snap-pe-ecps-",
+        display_name="Utah SNAP",
+    ),
 }
 AXIOM_MEMBER_INPUT_ID_BY_LABEL = {
     "snap_member_is_elderly_or_disabled": (
@@ -738,6 +815,29 @@ def resolve_test_template_path(program: Path, override: Path | None) -> Path:
     return program.with_name(f"{program.stem}.test.yaml")
 
 
+def validate_comparison_files(
+    config: JurisdictionConfig,
+    *,
+    program: Path,
+    test_template: Path,
+) -> None:
+    missing: list[str] = []
+    if not program.exists():
+        missing.append(f"program module: {program}")
+    if not test_template.exists():
+        missing.append(f"test template: {test_template}")
+    if not missing:
+        return
+    details = "\n  - ".join(missing)
+    raise SystemExit(
+        f"{config.display_name} ECPS comparison is configured, but required "
+        f"RuleSpec file(s) are missing:\n  - {details}\n"
+        "Create the configured SNAP benefit-calculation composition and companion "
+        "test template, or pass --program and --test-template to compare a "
+        "different executable module."
+    )
+
+
 def resolve_axiom_binary(workspace_root: Path, override: Path | None) -> Path:
     if override is not None:
         return override.resolve()
@@ -927,7 +1027,7 @@ def project_income_resource_inputs(
                 values["meets_snap_categorical_eligibility"][idx]
             ),
         }
-    if config.jurisdiction == "us-az":
+    if config.jurisdiction in {"us-az", "us-or", "us-ut"}:
         return {
             "snap_gross_monthly_earned_income": earned_income,
             "snap_total_monthly_unearned_income": unearned_income,
@@ -1259,7 +1359,6 @@ def load_policyengine_cases(
         inputs = dict(base_inputs)
         projected_inputs = {
             **project_income_resource_inputs(config, values, idx),
-            "household_size": int(values["snap_unit_size"][idx]),
             "household_shelter_costs_incurred": money(values["housing_cost"][idx]),
             "household_lives_in_application_state": True,
             "household_in_project_area_solely_for_vacation": False,
@@ -1275,7 +1374,13 @@ def load_policyengine_cases(
             **utility_inputs,
         }
         for input_name, value in projected_inputs.items():
-            set_input_value(inputs, input_name, value)
+            set_input_value(inputs, input_name, value, required=False)
+        set_input_value(
+            inputs,
+            "household_size",
+            int(values["snap_unit_size"][idx]),
+            required=False,
+        )
         set_input_value(
             inputs,
             "snap_claimed_homeless_shelter_deduction",
@@ -1315,17 +1420,20 @@ def load_policyengine_cases(
         pe_outputs["all_members_receive_ssi"] = bool(
             all_members_receive_ssi_by_spm.get(spm_id, False)
         )
+        projected_member_inputs = [
+            legalize_inputs(
+                member_inputs,
+                member_input_ref_by_name,
+            )
+        ]
+        if uses_household_only_bridge(config):
+            projected_member_inputs = []
         cases.append(
             ProjectedCase(
                 spm_unit_id=spm_id,
                 household_id=int(household_ids[idx]),
                 inputs=legalize_inputs(inputs, household_input_ref_by_name),
-                member_inputs=[
-                    legalize_inputs(
-                        member_inputs,
-                        member_input_ref_by_name,
-                    )
-                ],
+                member_inputs=projected_member_inputs,
                 pe_outputs=pe_outputs,
             )
         )
@@ -1369,6 +1477,23 @@ def project_jurisdiction_household_inputs(
                 values["snap_excess_shelter_expense_deduction"][idx]
             ),
         }
+    if config.jurisdiction in {"us-or", "us-ut"}:
+        return {
+            "projected_snap_net_income": money(values["snap_net_income"][idx]),
+            "projected_snap_eligible": bool(values["is_snap_eligible"][idx]),
+            "projected_snap_categorically_eligible": bool(
+                values["meets_snap_categorical_eligibility"][idx]
+            ),
+            "projected_snap_maximum_allotment": money(
+                values["snap_max_allotment"][idx]
+            ),
+            "projected_snap_minimum_allotment": money(
+                values["snap_min_allotment"][idx]
+            ),
+            "projected_snap_excess_shelter_deduction": money(
+                values["snap_excess_shelter_expense_deduction"][idx]
+            ),
+        }
     return {}
 
 
@@ -1384,6 +1509,10 @@ def project_jurisdiction_member_inputs(config: JurisdictionConfig) -> dict[str, 
             f"{base}member_family_assistance_or_nonemergency_safety_net_grant_amount": 0,
         }
     return {}
+
+
+def uses_household_only_bridge(config: JurisdictionConfig) -> bool:
+    return config.jurisdiction in {"us-az", "us-or", "us-ut"}
 
 
 def projected_child_support_payment(values: dict[str, Any], idx: int) -> float:
@@ -1936,6 +2065,7 @@ def main(args: argparse.Namespace | None = None) -> int:
     workspace_root = resolve_workspace_root(args.workspace_root)
     program = resolve_program_path(config, workspace_root, args.program)
     test_template = resolve_test_template_path(program, args.test_template)
+    validate_comparison_files(config, program=program, test_template=test_template)
     axiom_binary = resolve_axiom_binary(workspace_root, args.axiom_binary)
     state = (args.state or config.state_code).upper()
     env = axiom_rules_env(program, workspace_root)

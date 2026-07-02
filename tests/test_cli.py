@@ -35,6 +35,7 @@ from axiom_encode.cli import (
     _complete_missing_imported_test_inputs,
     _convert_indexed_parameter_values_to_derived_formulas,
     _convert_versioned_boolean_parameters_to_indicators,
+    _default_eval_suite_output_path,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -115,6 +116,7 @@ from axiom_encode.cli import (
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
+    _resolve_eval_suite_output_path,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
@@ -472,6 +474,35 @@ class TestRunnerOverrides:
         ]
 
 
+class TestEvalSuiteOutputPaths:
+    def test_default_eval_suite_output_path_is_durable(self):
+        output = _default_eval_suite_output_path(Path("benchmarks/snap suite.yaml"))
+
+        assert output == Path("artifacts/eval-suites/work/snap-suite").resolve()
+
+    def test_resolve_eval_suite_output_rejects_system_temp(self):
+        args = SimpleNamespace(
+            manifest=Path("benchmarks/snap.yaml"),
+            output=Path(tempfile.gettempdir()) / "axiom-suite",
+            allow_ephemeral_output=False,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            _resolve_eval_suite_output_path(args)
+
+        assert exc_info.value.code == 2
+
+    def test_resolve_eval_suite_output_allows_explicit_ephemeral_opt_in(self):
+        output = Path(tempfile.gettempdir()) / "axiom-suite"
+        args = SimpleNamespace(
+            manifest=Path("benchmarks/snap.yaml"),
+            output=output,
+            allow_ephemeral_output=True,
+        )
+
+        assert _resolve_eval_suite_output_path(args) == output
+
+
 class TestMain:
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
@@ -705,6 +736,7 @@ class TestCmdEvalSuite:
             resume=False,
             auto_resume_attempts=0,
             auto_resume_delay_seconds=0,
+            allow_ephemeral_output=True,
         )
         args.axiom_rules_path.mkdir()
         args.corpus_path.mkdir()
@@ -786,6 +818,7 @@ class TestCmdEvalSuite:
             resume=True,
             auto_resume_attempts=0,
             auto_resume_delay_seconds=0,
+            allow_ephemeral_output=True,
         )
         args.axiom_rules_path.mkdir()
         args.corpus_path.mkdir()
@@ -861,6 +894,7 @@ class TestCmdEvalSuite:
             resume=False,
             auto_resume_attempts=1,
             auto_resume_delay_seconds=0,
+            allow_ephemeral_output=True,
         )
         args.axiom_rules_path.mkdir()
         args.corpus_path.mkdir()
@@ -942,6 +976,7 @@ class TestCmdEvalSuite:
             resume=False,
             auto_resume_attempts=2,
             auto_resume_delay_seconds=0,
+            allow_ephemeral_output=True,
         )
         args.axiom_rules_path.mkdir()
         args.corpus_path.mkdir()

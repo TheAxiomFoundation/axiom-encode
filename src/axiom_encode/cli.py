@@ -2242,8 +2242,16 @@ def main():
     eval_suite_parser.add_argument(
         "--output",
         type=Path,
-        default=Path("/tmp/axiom_encode-suite-evals"),
-        help="Directory for suite artifacts and traces",
+        default=None,
+        help=(
+            "Directory for suite artifacts and traces "
+            "(defaults to artifacts/eval-suites/work/<manifest-stem>)"
+        ),
+    )
+    eval_suite_parser.add_argument(
+        "--allow-ephemeral-output",
+        action="store_true",
+        help="Allow eval-suite output under the system temp directory",
     )
     eval_suite_parser.add_argument(
         "--resume",
@@ -43944,6 +43952,39 @@ def _suite_auto_resume_reason(state: dict | None, total_cases: int) -> str | Non
     return status or "incomplete state"
 
 
+def _default_eval_suite_output_path(manifest_path: Path) -> Path:
+    """Return a durable default output path for an eval-suite run."""
+    root = _default_eval_suite_archive_root() / "work"
+    manifest_stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", manifest_path.stem).strip("-")
+    return root / (manifest_stem or "eval-suite")
+
+
+def _is_system_temp_path(path: Path) -> bool:
+    """Return True when `path` resolves inside the system temp directory."""
+    resolved = Path(path).expanduser().resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    return resolved == temp_root or temp_root in resolved.parents
+
+
+def _resolve_eval_suite_output_path(args) -> Path:
+    """Resolve and guard the eval-suite output directory."""
+    output = args.output or _default_eval_suite_output_path(args.manifest)
+    output = Path(output).expanduser()
+    allow_ephemeral = bool(getattr(args, "allow_ephemeral_output", False)) or bool(
+        os.environ.get("AXIOM_ENCODE_ALLOW_EPHEMERAL_EVAL_SUITE_OUTPUT")
+    )
+    if _is_system_temp_path(output) and not allow_ephemeral:
+        print(
+            "Refusing eval-suite output under the system temp directory: "
+            f"{output}\n"
+            "Use a durable path under artifacts/eval-suites, or pass "
+            "--allow-ephemeral-output for an intentionally disposable run.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return output
+
+
 def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
@@ -43952,6 +43993,7 @@ def cmd_eval_suite(args):
         "axiom-rules-engine"
     )
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
+    output_root = _resolve_eval_suite_output_path(args)
 
     if not axiom_rules_path.exists():
         print(f"axiom-rules-engine repo not found: {axiom_rules_path}")
@@ -43973,7 +44015,7 @@ def cmd_eval_suite(args):
         try:
             results = run_eval_suite(
                 manifest=manifest,
-                output_root=args.output,
+                output_root=output_root,
                 axiom_rules_path=axiom_rules_path,
                 corpus_path=corpus_path if has_corpus_case else None,
                 runner_specs=effective_runners,
@@ -43998,7 +44040,7 @@ def cmd_eval_suite(args):
             continue
 
         auto_resume_reason = _suite_auto_resume_reason(
-            _load_eval_suite_run_state(args.output),
+            _load_eval_suite_run_state(output_root),
             total_cases=len(manifest.cases),
         )
         if auto_resume_reason and recovery_count < auto_resume_attempts:
@@ -44031,9 +44073,9 @@ def cmd_eval_suite(args):
         readiness=readiness,
         all_ready=all_ready,
     )
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "results.json").write_text(json.dumps(payload, indent=2) + "\n")
-    (args.output / "summary.json").write_text(
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "results.json").write_text(json.dumps(payload, indent=2) + "\n")
+    (output_root / "summary.json").write_text(
         json.dumps(
             {
                 "manifest": payload["manifest"],
@@ -44051,7 +44093,7 @@ def cmd_eval_suite(args):
 
     print(f"Manifest: {manifest.path}")
     print(f"Suite: {manifest.name}")
-    print(f"Output root: {args.output}")
+    print(f"Output root: {output_root}")
     print(f"Runners: {', '.join(effective_runners)}")
     print(f"Axiom rules engine: {axiom_rules_path}")
     if has_corpus_case:
