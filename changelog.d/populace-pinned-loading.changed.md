@@ -1,0 +1,1 @@
+Pin PolicyEngine Populace loading to verified dense certified artifacts (US populace-us-2024-f0af251, UK populace-uk-2023-dd68c73) with sha256 verification, gate the unpinned HF-latest fallback behind AXIOM_POPULACE_ALLOW_UNPINNED (populace#278 sparse artifact), and record dataset identity (source/path/sha256/revision) in every populace-compare result.

@@ -33,6 +33,7 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
 )
 from axiom_encode.oracles.policyengine.population import (
     DEFAULT_US_POPULACE_YEAR,
+    format_dataset_identity,
     load_populace_dataset,
     populace_data_requirement,
 )
@@ -735,6 +736,7 @@ def load_policyengine_cases(
     pre_sample_households_count: int | None,
     positive_only: bool,
     populace_year: int,
+    provenance: dict[str, Any] | None = None,
 ) -> list[PersonCase]:
     try:
         from policyengine_us import Microsimulation
@@ -746,6 +748,7 @@ def load_policyengine_cases(
         "us",
         year=populace_year,
         command="medicaid-populace-compare",
+        provenance=provenance,
     )
     if pre_sample_households_count is not None:
         dataset = pre_sample_households(
@@ -1159,6 +1162,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     period = month_period(args.year, args.month)
     base_inputs = load_base_inputs(test_template)
+    dataset_identity: dict[str, Any] = {}
     cases = load_policyengine_cases(
         base_inputs=base_inputs,
         period=period,
@@ -1167,7 +1171,11 @@ def main(args: argparse.Namespace | None = None) -> None:
         pre_sample_households_count=args.pre_sample_households,
         positive_only=args.positive_only,
         populace_year=args.populace_year,
+        provenance=dataset_identity,
     )
+    identity_line = format_dataset_identity(dataset_identity)
+    if identity_line:
+        print(identity_line, flush=True)
     env = axiom_rules_env(program, workspace_root)
     with tempfile.TemporaryDirectory(prefix="medicaid-pe-populace-") as tmp_dir:
         artifact = Path(tmp_dir) / "program.bin"
@@ -1221,6 +1229,14 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args.write_csv is not None:
         write_csv(args.write_csv, rows)
         print(f"Wrote {args.write_csv}", flush=True)
+        if dataset_identity:
+            identity_path = args.write_csv.with_suffix(
+                args.write_csv.suffix + ".dataset_identity.json"
+            )
+            identity_path.write_text(
+                json.dumps(dataset_identity, indent=2, sort_keys=True)
+            )
+            print(f"Wrote {identity_path}", flush=True)
 
     if args.min_match_rate is not None and match_rate < args.min_match_rate:
         raise SystemExit(

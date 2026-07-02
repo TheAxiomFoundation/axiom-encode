@@ -34,6 +34,7 @@ import yaml
 from axiom_encode.oracles import snapscreener
 from axiom_encode.oracles.policyengine.population import (
     DEFAULT_US_POPULACE_YEAR,
+    format_dataset_identity,
     load_populace_dataset,
     populace_data_requirement,
 )
@@ -1108,6 +1109,7 @@ def load_policyengine_cases(
     positive_snap_only: bool,
     utility_projection: str,
     populace_year: int,
+    provenance: dict[str, Any] | None = None,
 ) -> list[ProjectedCase]:
     try:
         from policyengine_us import Microsimulation
@@ -1123,6 +1125,7 @@ def load_policyengine_cases(
         "us",
         year=populace_year,
         command="snap-populace-compare",
+        provenance=provenance,
     )
     sim = Microsimulation(dataset=dataset)
 
@@ -1944,6 +1947,7 @@ def main(args: argparse.Namespace | None = None) -> int:
     print(f"Jurisdiction: {config.jurisdiction}")
     print(f"Program: {program}")
     print(f"Utility projection: {args.utility_projection}")
+    dataset_identity: dict[str, Any] = {}
     cases = load_policyengine_cases(
         config=config,
         base_inputs=base_inputs,
@@ -1953,7 +1957,11 @@ def main(args: argparse.Namespace | None = None) -> int:
         positive_snap_only=args.positive_snap_only,
         utility_projection=args.utility_projection,
         populace_year=args.populace_year,
+        provenance=dataset_identity,
     )
+    identity_line = format_dataset_identity(dataset_identity)
+    if identity_line:
+        print(identity_line)
     if not cases:
         print("No matching Populace SPM units.")
         return 1
@@ -2007,6 +2015,14 @@ def main(args: argparse.Namespace | None = None) -> int:
     if args.write_csv is not None:
         write_csv(args.write_csv, rows)
         print(f"Wrote {args.write_csv}")
+        if dataset_identity:
+            identity_path = args.write_csv.with_suffix(
+                args.write_csv.suffix + ".dataset_identity.json"
+            )
+            identity_path.write_text(
+                json.dumps(dataset_identity, indent=2, sort_keys=True)
+            )
+            print(f"Wrote {identity_path}")
 
     match_rate = sum(1 for row in rows if row["match"]) / len(rows) if rows else 0
     if args.min_match_rate is not None and match_rate < args.min_match_rate:
