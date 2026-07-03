@@ -2420,6 +2420,296 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes a source-local selector over attachment 660-2-4-.19a Maximum Budgeted amounts. PolicyEngine's Alabama SSP surface does not expose that separate maximum-budgeted column.
 
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_a_individual_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code A as a source-table input to the DC OSSP payment level. PolicyEngine's DC OSSP surface stores District supplement amounts separately from federal SSI rates.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_b_individual_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code B FBR-less-VTR amount as a source-table input. PolicyEngine's DC OSSP parameter stores the state supplement by living arrangement and does not expose this federal SSI source-table column.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_c_individual_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code C as a source-table input. PolicyEngine's DC OSSP surface stores District supplement amounts separately from federal SSI rates.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_d_individual_title_xix_payment_cap
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code D Title XIX payment cap column as a source-table input. PolicyEngine's DC OSSP parameter stores the District supplement amount, not this federal payment cap.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#adult_foster_care_small_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.individual
+    parameter_key: OS_A
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_state_supplement_level
+    rationale: Same DC OSSP monthly individual state supplement for State OS Code A, represented by PolicyEngine's individual OS_A payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#adult_foster_care_large_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.individual
+    parameter_key: OS_B
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_state_supplement_level
+    rationale: Same DC OSSP monthly individual state supplement for State OS Code B, represented by PolicyEngine's individual OS_B payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#no_supplement_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.individual
+    parameter_key: NONE
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_state_supplement_level
+    rationale: Same zero DC OSSP monthly individual supplement for State OS Code Z/no qualifying facility, represented by PolicyEngine's individual NONE payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#title_xix_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.individual
+    parameter_key: OS_G
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_state_supplement_level
+    rationale: Same DC OSSP monthly individual state supplement for State OS Code G, represented by PolicyEngine's individual OS_G payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#adult_foster_care_small_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 total payment level, which sums the federal payment column and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#adult_foster_care_large_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 total payment level, which sums the federal payment column and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_a_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code A. PolicyEngine's DC OSSP parameter stores only the District supplement amount, so the separate federal-payment total is not a DC OSSP oracle target.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_b_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code B. PolicyEngine's DC OSSP parameter stores only the District supplement amount, so the separate federal-payment total is not a DC OSSP oracle target.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_c_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code C. PolicyEngine's DC OSSP parameter stores only the District supplement amount, so the separate federal-payment total is not a DC OSSP oracle target.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#title_xix_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Title XIX total payment level, which sums the payment cap and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the POMS SI 01415.058 block 13 federal payment column. PolicyEngine's DC OSSP surface stores District supplement amounts separately from federal SSI rates.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.individual
+    parameter_key_input: state_os_code
+    parameter_key_map:
+      A: OS_A
+      B: OS_B
+      G: OS_G
+      Z: NONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same source-level DC OSSP individual state supplement selected by POMS State OS Code, represented by PolicyEngine's individual payment table keyed by living arrangement.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#dc_ossp_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 13 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_a_couple_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 federal SSI couple FBR column for Federal Code A as a source-table input to the DC OSSP payment level. PolicyEngine's DC OSSP surface stores District supplement amounts separately from federal SSI rates.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_b_couple_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code B couple FBR-less-VTR amount as a source-table input. PolicyEngine's DC OSSP parameter stores the state supplement by living arrangement and does not expose this federal SSI source-table column.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_d_couple_title_xix_payment_cap
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code D Title XIX couple payment cap column as a source-table input. PolicyEngine's DC OSSP parameter stores the District supplement amount, not this federal payment cap.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#adult_foster_care_small_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.couple
+    parameter_key: OS_A
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_state_supplement_level
+    rationale: Same DC OSSP monthly couple state supplement for State OS Code A, represented by PolicyEngine's couple OS_A payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#adult_foster_care_large_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.couple
+    parameter_key: OS_B
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_state_supplement_level
+    rationale: Same DC OSSP monthly couple state supplement for State OS Code B, represented by PolicyEngine's couple OS_B payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#no_supplement_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.couple
+    parameter_key: NONE
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_state_supplement_level
+    rationale: Same zero DC OSSP monthly couple supplement for State OS Code Z/no qualifying facility, represented by PolicyEngine's couple NONE payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#title_xix_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.couple
+    parameter_key: OS_G
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_state_supplement_level
+    rationale: Same DC OSSP monthly couple state supplement for State OS Code G, represented by PolicyEngine's couple OS_G payment cell.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#adult_foster_care_small_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 total payment level, which sums the federal payment column and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#adult_foster_care_large_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 total payment level, which sums the federal payment column and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_a_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code A. PolicyEngine's DC OSSP parameter stores only the District supplement amount, so the separate federal-payment total is not a DC OSSP oracle target.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_b_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code B. PolicyEngine's DC OSSP parameter stores only the District supplement amount, so the separate federal-payment total is not a DC OSSP oracle target.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#title_xix_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Title XIX total payment level, which sums the payment cap and District supplement column. PolicyEngine's DC OSSP parameter stores only the District supplement amount.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the POMS SI 01415.058 block 14 federal payment column. PolicyEngine's DC OSSP surface stores District supplement amounts separately from federal SSI rates.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.dc.dhcf.ossp.payment.couple
+    parameter_key_input: state_os_code
+    parameter_key_map:
+      A: OS_A
+      B: OS_B
+      G: OS_G
+      Z: NONE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same source-level DC OSSP couple state supplement selected by POMS State OS Code, represented by PolicyEngine's couple payment table keyed by living arrangement.
+
+  - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#dc_ossp_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 14 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
     program: ssi_state_supplement
