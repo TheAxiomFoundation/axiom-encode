@@ -767,6 +767,80 @@ surfaces:
     ] == pytest.approx(15.65)
 
 
+def test_policyengine_program_surface_registry_mapping_overrides_stale_pending_status(
+    tmp_path,
+):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: ssi_state_supplement
+    program_name: DC OSSP
+    category: Benefits
+    policyengine_status: complete
+    coverage: DC
+    variable: dc_ossp
+    source_type: state_implementation
+    state: DC
+    axiom_status: deferred_jurisdiction
+    priority: P1
+    rationale: Stale jurisdiction bootstrap status.
+  - country: us
+    program_id: tanf
+    program_name: Vermont Reach Up
+    category: Benefits
+    policyengine_status: complete
+    coverage: VT
+    variable: vt_reach_up
+    source_type: state_implementation
+    state: VT
+    axiom_status: pending_rulespec_encoding
+    priority: P1
+    rationale: Stale encoding status.
+""",
+        encoding="utf-8",
+    )
+    registry = _ProgramSurfaceRegistry(
+        {
+            "dc_ossp": [
+                PolicyEngineMapping(
+                    legal_id="us-dc:programs/ssi-state-supplement/fy-2026#dc_ossp",
+                    country="us",
+                    mapping_type="direct_variable",
+                    policyengine_variable="dc_ossp",
+                )
+            ],
+            "vt_reach_up": [
+                PolicyEngineMapping(
+                    legal_id="us-vt:statutes/title-33/chapter-11#reach_up_amount",
+                    country="us",
+                    mapping_type="not_comparable",
+                    policyengine_variable="vt_reach_up",
+                    rationale="Encoded source slice is not PE's final benefit surface.",
+                )
+            ],
+        }
+    )
+
+    report = build_policyengine_program_surface_report(
+        manifest_path=manifest,
+        registry=registry,
+    )
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    assert items_by_variable["dc_ossp"]["axiom_status"] == "wired"
+    assert items_by_variable["dc_ossp"]["mapping_count"] == 1
+    assert items_by_variable["dc_ossp"]["comparable_mapping_count"] == 1
+    assert items_by_variable["vt_reach_up"]["axiom_status"] == "known_not_comparable"
+    assert items_by_variable["vt_reach_up"]["mapping_count"] == 1
+    assert items_by_variable["vt_reach_up"]["comparable_mapping_count"] == 0
+    assert report["active_pending_surfaces"] == 0
+
+
 def test_policyengine_program_surface_report_accepts_populace_validation_metadata(
     tmp_path,
 ):
@@ -1233,7 +1307,7 @@ surfaces:
     category: Benefits
     policyengine_status: complete
     coverage: AZ
-    variable: az_ccap
+    variable: az_source_ingestion_fixture
     source_type: state_implementation
     state: AZ
     axiom_status: pending_source_ingestion
@@ -1245,7 +1319,7 @@ surfaces:
     category: Benefits
     policyengine_status: complete
     coverage: AL
-    variable: al_tanf
+    variable: al_tanf_fixture
     source_type: state_implementation
     state: AL
     axiom_status: pending_rulespec_encoding
@@ -1303,18 +1377,18 @@ surfaces:
     assert "repo:rulespec-us" in new_tax_surface["lock_scopes"]
     assert new_tax_surface["oracle_expectation"].startswith("encode source-law output")
 
-    al_tanf = items_by_variable["al_tanf"]
+    al_tanf = items_by_variable["al_tanf_fixture"]
     assert al_tanf["action"] == "encode_rulespec"
     assert al_tanf["target_repo"] == "rulespec-us"
     assert al_tanf["target_prefix"] == "us-al"
     assert "repo:rulespec-us" in al_tanf["lock_scopes"]
     assert "target-prefix:us-al" in al_tanf["lock_scopes"]
 
-    az_ccap = items_by_variable["az_ccap"]
+    az_ccap = items_by_variable["az_source_ingestion_fixture"]
     assert az_ccap["action"] == "ingest_source"
     assert az_ccap["target_repo"] == "axiom-corpus"
     assert az_ccap["target_prefix"] == "us-az"
-    assert "corpus-source:us:ccdf:az_ccap" in az_ccap["lock_scopes"]
+    assert "corpus-source:us:ccdf:az_source_ingestion_fixture" in az_ccap["lock_scopes"]
 
 
 def test_policyengine_cloud_queue_can_include_deferred_jurisdictions(tmp_path):
