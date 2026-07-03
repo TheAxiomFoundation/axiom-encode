@@ -21010,12 +21010,21 @@ prefixes:
     candidate_priority: P4
     rationale: Hawaii HAR §17-680-12 outputs decompose the source-level monthly assistance payment, initial-month proration, quotient truncation, whole-dollar rounding, and no-payment thresholds. PolicyEngine-US exposes hi_tanf as a final SPM-unit TANF benefit built from its own eligibility, income, and maximum-benefit graph; it does not expose this section's source-specific payment-determination helpers as one-to-one oracle variables.
 
+  - legal_id: us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: de_tanf
+    candidate_priority: P1
+    rationale: Axiom's Delaware TANF output follows 16 DE Admin. Code 4008.1.2's income test, earned-income deductions, 50 percent deficit remainder, and payment-standard cap using source-local standard-of-need and payment-standard inputs. PolicyEngine's de_tanf is a final monthly SPM-unit benefit gated by PE demographic, immigration, resource, standard/payment, and income helper graphs, so this source slice is adjacent rather than a one-to-one final-benefit oracle.
+
   - legal_id_prefix: us-ia:regulations/iac/441/41/41/28#
     country: us
     program: tanf
     mapping_type: not_comparable
+    policyengine_variable: ia_fip
     candidate_priority: P4
-    rationale: Iowa IAC 441-41.28 outputs decompose Family Investment Program basic-needs, living-cost, special-needs, school-expense, guardian-fee, and related need-standard source mechanics. PolicyEngine-US does not currently expose an Iowa FIP/TANF final benefit surface or these source-specific Iowa regulation helpers as one-to-one oracle variables.
+    rationale: Iowa IAC 441-41.28 outputs decompose Family Investment Program basic-needs, living-cost, special-needs, school-expense, guardian-fee, and related need-standard source mechanics. PolicyEngine-US exposes ia_fip as a final SPM-unit benefit built from PE eligibility, countable-income, payment-standard, and standard-of-need graphs, not these source-specific Iowa regulation helpers as one-to-one oracle variables.
 
   - legal_id_prefix: us-ks:policies/dcf/keesm/keesm7410#
     country: us

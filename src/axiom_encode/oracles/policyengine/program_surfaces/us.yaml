@@ -634,10 +634,12 @@ surfaces:
   variable: de_tanf
   source_type: state_implementation
   state: DE
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes 16 DE Admin. Code 4008.1.2's TANF gross-income, countable-income, deficit-remainder,
+    and grant-cap mechanics as a source-local legal output. PolicyEngine's de_tanf is a final monthly SPM-unit benefit
+    gated by PE demographic, immigration, resource, standard-of-need, payment-standard, and income helper graphs, so
+    this Delaware source slice is adjacent progress rather than a one-to-one final-benefit oracle.
 - country: us
   program_id: tanf
   program_name: Oregon TANF
@@ -948,10 +950,12 @@ surfaces:
   variable: ia_fip
   source_type: state_implementation
   state: IA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes Iowa IAC 441-41.28 Family Investment Program need-standard components from the primary
+    regulation. PolicyEngine's ia_fip is a final monthly SPM-unit benefit using PE eligibility, countable-income,
+    payment-standard, and standard-of-need graphs, so the encoded Iowa source mechanics are adjacent coverage rather
+    than a one-to-one final-benefit oracle.
 - country: us
   program_id: tanf
   program_name: Louisiana FITAP
