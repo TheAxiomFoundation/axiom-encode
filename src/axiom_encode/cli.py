@@ -15359,7 +15359,7 @@ rules:
               corpus_citation_path: us/statute/26/85
               excerpt: unemployment compensation received by the taxpayer as does not exceed $10,200
     versions:
-      - effective_from: '2020-01-01'
+      - effective_from: '1990-01-01'
         formula: |-
           min(
               max(0, unemployment_compensation),
@@ -15381,16 +15381,13 @@ rules:
             source:
               corpus_citation_path: us/statute/26/85
               excerpt: gross income includes unemployment compensation
-          - path: versions[1].formula
+          - path: versions[0].formula
             kind: formula
             source:
               corpus_citation_path: us/statute/26/85
               excerpt: in the case of a joint return, the unemployment compensation received by each spouse
     versions:
       - effective_from: '1990-01-01'
-        formula: |-
-          0
-      - effective_from: '2020-01-01'
         formula: |-
           if taxable_year_begins_in_temporary_unemployment_exclusion_year and adjusted_gross_income_for_temporary_unemployment_exclusion < temporary_unemployment_exclusion_adjusted_gross_income_threshold:
               sum_where(
