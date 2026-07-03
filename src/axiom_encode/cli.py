@@ -1528,6 +1528,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_section_85_unemployment_parser = subparsers.add_parser(
+        "repair-section-85-unemployment",
+        help="Apply signed deterministic repairs for 26 USC 85 unemployment compensation",
+    )
+    repair_section_85_unemployment_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_section_85_unemployment_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_85_unemployment_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_colorado_tax_validation_parser = subparsers.add_parser(
         "repair-colorado-tax-validation",
         help="Apply signed deterministic repairs for Colorado tax validation drift",
@@ -2582,6 +2604,8 @@ def main():
         cmd_repair_section_911_a_1_exclusion(args)
     elif args.command == "repair-section-63-f-stale-test-inputs":
         cmd_repair_section_63_f_stale_test_inputs(args)
+    elif args.command == "repair-section-85-unemployment":
+        cmd_repair_section_85_unemployment(args)
     elif args.command == "repair-colorado-tax-validation":
         cmd_repair_colorado_tax_validation(args)
     elif args.command == "repair-imported-test-inputs":
@@ -15211,6 +15235,386 @@ def cmd_repair_oracle_parameter_tests(args):
         f"{relative_output}: {', '.join(covered_test_cases)}"
     )
     print(changed_message)
+    print(f"manifest={manifest_path}")
+
+
+SECTION_85_UNEMPLOYMENT_REPAIR_MODEL = "section-85-unemployment-v1"
+SECTION_85_UNEMPLOYMENT_REPAIR_TOOL = "axiom-encode repair-section-85-unemployment"
+
+
+def _section_85_unemployment_rulespec_content() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/85
+  summary: |-
+    Section 85 includes unemployment compensation in gross income for an
+    individual. Unemployment compensation is any amount received under a law of
+    the United States or of a State that is in the nature of unemployment
+    compensation. For taxable years beginning in 2020, if the taxpayer's
+    adjusted gross income determined under section 85(c)(1) is less than
+    $150,000, gross income excludes up to $10,200 of unemployment compensation
+    received by the taxpayer and, on a joint return, up to $10,200 received by
+    each spouse.
+rules:
+  - name: section_85_unemployment_compensation_recipient_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: section_85_unemployment_compensation_recipient_of_tax_unit
+      arity: 2
+      arguments:
+        - TaxUnit
+        - Person
+
+  - name: temporary_unemployment_exclusion_adjusted_gross_income_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: adjusted gross income of the taxpayer for such taxable year is less than $150,000
+    versions:
+      - effective_from: '2020-01-01'
+        formula: |-
+          150000
+
+  - name: temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: as does not exceed $10,200
+    versions:
+      - effective_from: '2020-01-01'
+        formula: |-
+          10200
+
+  - name: unemployment_compensation
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 85(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: any amount received under a law of the United States or of a State which is in the nature of unemployment compensation
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation
+
+  - name: section_85_unemployment_compensation_recipient_has_unemployment_compensation
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: unemployment compensation received by the taxpayer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          unemployment_compensation > 0
+
+  - name: temporary_unemployment_compensation_exclusion_for_recipient
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: unemployment compensation received by the taxpayer as does not exceed $10,200
+    versions:
+      - effective_from: '2020-01-01'
+        formula: |-
+          min(
+              max(0, unemployment_compensation),
+              temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse
+          )
+
+  - name: temporary_unemployment_compensation_exclusion
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: in the case of a joint return, the unemployment compensation received by each spouse
+    versions:
+      - effective_from: '2020-01-01'
+        formula: |-
+          if taxable_year_begins_in_temporary_unemployment_exclusion_year and adjusted_gross_income_for_temporary_unemployment_exclusion < temporary_unemployment_exclusion_adjusted_gross_income_threshold:
+              sum_where(
+                  section_85_unemployment_compensation_recipient_of_tax_unit,
+                  temporary_unemployment_compensation_exclusion_for_recipient,
+                  section_85_unemployment_compensation_recipient_has_unemployment_compensation
+              )
+          else:
+              0
+
+  - name: unemployment_compensation_included_in_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 85(a), 26 USC 85(c)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/85
+              excerpt: gross income includes unemployment compensation
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              sum_where(
+                  section_85_unemployment_compensation_recipient_of_tax_unit,
+                  unemployment_compensation,
+                  section_85_unemployment_compensation_recipient_has_unemployment_compensation
+              ) - temporary_unemployment_compensation_exclusion
+          )
+"""
+
+
+def _section_85_unemployment_test_content() -> str:
+    return """- name: unemployment_compensation_definition_amount_received
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 15000
+  output:
+    us:statutes/26/85#unemployment_compensation: 15000
+- name: temporary_2020_exclusion_caps_single_recipient
+  period:
+    period_kind: tax_year
+    start: '2020-01-01'
+    end: '2020-12-31'
+  input:
+    us:statutes/26/85#input.taxable_year_begins_in_temporary_unemployment_exclusion_year: true
+    us:statutes/26/85#input.adjusted_gross_income_for_temporary_unemployment_exclusion: 50000
+    us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit:
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 15000
+  output:
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 10200
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 4800
+- name: temporary_2020_exclusion_applies_per_spouse_on_joint_return
+  period:
+    period_kind: tax_year
+    start: '2020-01-01'
+    end: '2020-12-31'
+  input:
+    us:statutes/26/85#input.taxable_year_begins_in_temporary_unemployment_exclusion_year: true
+    us:statutes/26/85#input.adjusted_gross_income_for_temporary_unemployment_exclusion: 120000
+    us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit:
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 12000
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 13000
+  output:
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 20400
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 4600
+- name: temporary_2020_exclusion_denied_at_threshold
+  period:
+    period_kind: tax_year
+    start: '2020-01-01'
+    end: '2020-12-31'
+  input:
+    us:statutes/26/85#input.taxable_year_begins_in_temporary_unemployment_exclusion_year: true
+    us:statutes/26/85#input.adjusted_gross_income_for_temporary_unemployment_exclusion: 150000
+    us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit:
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 9000
+  output:
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 0
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 9000
+- name: non_temporary_year_includes_unemployment_compensation
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us:statutes/26/85#input.taxable_year_begins_in_temporary_unemployment_exclusion_year: false
+    us:statutes/26/85#input.adjusted_gross_income_for_temporary_unemployment_exclusion: 50000
+    us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit:
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 7000
+  output:
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 0
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 7000
+"""
+
+
+def cmd_repair_section_85_unemployment(args):
+    """Apply signed deterministic repairs for 26 USC 85 unemployment compensation."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        repo_relative = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+    manifest_relative_output = _deterministic_repair_manifest_relative_output(
+        rules_file,
+        repo_path,
+    )
+    if manifest_relative_output != Path("statutes/26/85.yaml"):
+        print(
+            "Section 85 unemployment repair only applies to "
+            f"statutes/26/85.yaml; got {repo_relative}"
+        )
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content = _section_85_unemployment_rulespec_content()
+    repaired_test_content = _section_85_unemployment_test_content()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        if _applied_manifest_matches_current_deterministic_repair(
+            repo_path=repo_path,
+            relative_output=manifest_relative_output,
+            applied_files=[rules_file, test_file],
+            model=SECTION_85_UNEMPLOYMENT_REPAIR_MODEL,
+            axiom_encode_git=axiom_encode_git,
+            signing_key=signing_key,
+        ):
+            print("No section 85 unemployment repairs found.")
+            return
+
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    rules_file.write_text(repaired_content)
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text(repaired_test_content)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        if original_test_content is None:
+            with contextlib.suppress(FileNotFoundError):
+                test_file.unlink()
+        else:
+            test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original section 85 files.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    test_issues = _companion_test_issues(
+        test_files=[test_file],
+        repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+    )
+    if test_issues:
+        rules_file.write_text(original_content)
+        if original_test_content is None:
+            with contextlib.suppress(FileNotFoundError):
+                test_file.unlink()
+        else:
+            test_file.write_text(original_test_content)
+        print("Repair failed companion tests; restored original section 85 files.")
+        for issue in test_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = (
+            output_root / "deterministic-repair" / manifest_relative_output
+        )
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model=SECTION_85_UNEMPLOYMENT_REPAIR_MODEL,
+            tool=SECTION_85_UNEMPLOYMENT_REPAIR_TOOL,
+            citation=_rulespec_anchor_base_for_output(
+                repo_path,
+                manifest_relative_output,
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=manifest_relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(f"Applied section 85 unemployment repair to {repo_relative}")
     print(f"manifest={manifest_path}")
 
 

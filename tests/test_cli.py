@@ -210,6 +210,7 @@ from axiom_encode.cli import (
     cmd_repair_proof_import_hashes,
     cmd_repair_same_section_subsection_imports,
     cmd_repair_section_63_f_stale_test_inputs,
+    cmd_repair_section_85_unemployment,
     cmd_repair_section_172_c_capacity,
     cmd_repair_section_911_a_1_exclusion,
     cmd_repair_snap_273_9_income_eligibility,
@@ -27361,6 +27362,82 @@ rules:
         assert payload["tool"] == "axiom-encode repair-tax-filing-status-branches"
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/3101/b/2.yaml"
+        ]
+
+    def test_repair_section_85_unemployment_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/85.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/26/85#temporary_unemployment_compensation_exclusion
+rules:
+  - name: unemployment_compensation
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation
+"""
+        )
+        test_file = policy_repo / "statutes/26/85.test.yaml"
+        test_file.write_text("[]\n")
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/85.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_85_unemployment(args)
+
+        content = target.read_text()
+        assert "deferred_outputs" not in content
+        assert "section_85_unemployment_compensation_recipient_of_tax_unit" in content
+        assert "sum_where(" in content
+        assert "temporary_unemployment_compensation_exclusion" in content
+        assert "unemployment_compensation_included_in_gross_income" in content
+        test_content = test_file.read_text()
+        assert "temporary_2020_exclusion_applies_per_spouse_on_joint_return" in (
+            test_content
+        )
+        assert (
+            "us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit"
+            in test_content
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/85.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "section-85-unemployment-v1"
+        assert payload["tool"] == "axiom-encode repair-section-85-unemployment"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/85.yaml",
+            "statutes/26/85.test.yaml",
         ]
 
     def test_repair_tax_filing_status_branches_routes_joint_only_status_four_to_other(
