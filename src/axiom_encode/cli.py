@@ -15432,6 +15432,8 @@ def _section_85_unemployment_test_content() -> str:
     us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 15000
   output:
     us:statutes/26/85#unemployment_compensation: 15000
+    us:statutes/26/85#section_85_unemployment_compensation_recipient_has_unemployment_compensation: holds
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion_for_recipient: 10200
 - name: temporary_2020_exclusion_caps_single_recipient
   period:
     period_kind: tax_year
