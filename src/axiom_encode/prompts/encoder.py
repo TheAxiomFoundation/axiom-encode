@@ -211,6 +211,10 @@ Hard requirements:
   RuleSpec target that was checked, and `rationale` explaining why the lower
   source is still used. If no higher-authority check is available, stop and
   emit a typed request `upstream_source_check_required` instead of encoding.
+- When higher-authority context is supplied through copied JSONL, inventory, or
+  ingest-run files, cite the embedded corpus `citation_path` values in
+  `checked_paths` and proof atoms. Do not cite the copied `external/...`
+  workspace filename as legal authority.
 - If accepted source claims are supplied, include their IDs under
   `module.source_claims`; do not inline claim bodies, values, formulas,
   evidence, or review metadata in RuleSpec.

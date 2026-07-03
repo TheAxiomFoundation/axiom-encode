@@ -5043,6 +5043,10 @@ RuleSpec requirements:
   RuleSpec target that was checked, and `rationale` explaining why the lower
   source is still used. If no higher-authority check is available, stop and
   emit a typed request `upstream_source_check_required` instead of encoding.
+- When higher-authority context is supplied through copied JSONL, inventory, or
+  ingest-run files, cite the embedded corpus `citation_path` values in
+  `checked_paths` and proof atoms. Do not cite the copied `external/...`
+  workspace filename as legal authority.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
   `derived_relation` rule. Each atom
