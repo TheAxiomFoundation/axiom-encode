@@ -3672,6 +3672,33 @@ def test_policyengine_registry_includes_minnesota_msa_assistance_standard_mappin
 def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
     registry = load_policyengine_registry()
 
+    living_arrangement_threshold = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-living-arrangement-variations"
+        "#adult_foster_care_home_os_code_resident_threshold",
+        country="us",
+    )
+    assert living_arrangement_threshold.mapping_type == "not_comparable"
+    assert living_arrangement_threshold.candidate_priority == "P4"
+
+    living_arrangement_selector = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-living-arrangement-variations"
+        "#dc_ossp_living_arrangement_os_code",
+        country="us",
+    )
+    assert living_arrangement_selector.mapping_type == "not_comparable"
+    assert living_arrangement_selector.match_type == "prefix"
+    assert living_arrangement_selector.candidate_priority == "P4"
+
+    statute_component = registry.mapping_for_legal_id(
+        "us-dc:statutes/4/4-205/49#small_residence_base_total_payment_amount",
+        country="us",
+    )
+    assert statute_component.mapping_type == "not_comparable"
+    assert statute_component.match_type == "prefix"
+    assert statute_component.candidate_priority == "P4"
+
     individual_selector = registry.mapping_for_legal_id(
         "us-dc:policies/ssa/poms/si-01415-058/2026/"
         "dc-ossp-individual-state-supplement-levels"
