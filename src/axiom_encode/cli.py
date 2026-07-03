@@ -41017,6 +41017,43 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            if target_validation is not None:
+                zero_branch_issues = _zero_branch_coverage_issues_for_files(
+                    rules_file=overlay_target,
+                    test_file=target_test_path,
+                )
+                if not zero_branch_issues:
+                    zero_branch_issues = [
+                        result.error
+                        for result in target_validation.results.values()
+                        if result.error
+                        and "Zero branch test coverage missing: " in result.error
+                    ]
+                zero_branch_repairs = _append_generated_zero_branch_tests_if_missing(
+                    rules_file=overlay_target,
+                    test_file=target_test_path,
+                    repo_path=overlay_repo,
+                    relative_output=relative_output,
+                    issues=zero_branch_issues,
+                    valid_output_names=_compiled_rulespec_test_output_names(
+                        pipeline,
+                        overlay_target,
+                        relative_output=relative_output,
+                    ),
+                )
+                if zero_branch_repairs:
+                    supplemental_files[
+                        _relative_to_rulespec_apply_content_root(
+                            target_test_path, overlay_repo
+                        )
+                    ] = target_test_path.read_text()
+                    validations = _validate_overlay_files(
+                        pipeline,
+                        dependent_pipeline=dependent_pipeline,
+                        overlay_target=overlay_target,
+                        dependents=dependents,
+                    )
+                    continue
             removed_invalid_inputs = _remove_invalid_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,

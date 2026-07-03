@@ -25677,6 +25677,86 @@ rules: []
         assert issues == []
         assert supplemental == {}
 
+    def test_apply_overlay_validation_repairs_generated_zero_branch_tests(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        generated_test = generated.with_name("151.test.yaml")
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir()
+        generated.write_text(
+            """format: rulespec/v1
+rules:
+  - name: section_151_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if amount_allowed:
+              amount
+          else:
+              0
+"""
+        )
+        generated_test.write_text(
+            """- name: positive_amount
+  period: 2026
+  input:
+    us:statutes/26/151#input.amount_allowed: true
+    us:statutes/26/151#input.amount: 5
+  output:
+    us:statutes/26/151#section_151_amount: 5
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        validation_attempts: list[str] = []
+
+        class FakePipeline:
+            policy_repo_path = policy_repo
+
+            def __init__(self, **kwargs):
+                self.policy_repo_path = Path(kwargs["policy_repo_path"])
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                test_content = Path(path).with_name("151.test.yaml").read_text()
+                validation_attempts.append(test_content)
+                if "auto_zero_section_151_amount" in test_content:
+                    return SimpleNamespace(all_passed=True, results={})
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            error=(
+                                "Zero branch test coverage missing: "
+                                "`section_151_amount` has a formula branch that "
+                                "returns 0."
+                            )
+                        )
+                    },
+                )
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert len(validation_attempts) == 2
+        updated = supplemental[Path("statutes/26/151.test.yaml")]
+        assert "auto_zero_section_151_amount" in updated
+        assert "us:statutes/26/151#input.amount_allowed: false" in updated
+        assert "us:statutes/26/151#section_151_amount: 0" in updated
+
     def test_apply_overlay_validation_skips_sibling_with_active_canonical_name(
         self, tmp_path
     ):
