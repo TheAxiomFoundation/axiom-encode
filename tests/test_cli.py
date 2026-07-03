@@ -12945,6 +12945,55 @@ rules:
         assert "auto_zero_compiled_zero_branch_amount" in test_content
         assert "auto_zero_hidden_zero_branch_amount" not in test_content
 
+    def test_zero_branch_repair_uses_country_relative_anchor_for_be_repo(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-be"
+        rules_file = repo / "be" / "statutes" / "family_benefits" / "routing.yaml"
+        test_file = rules_file.with_name("routing.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: belgium_family_benefits_selected_monthly_amount
+    kind: derived
+    entity: Child
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if belgium_family_benefits_region == 1:
+              selected_amount
+          else:
+              0
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("be/statutes/family_benefits/routing.yaml"),
+            issues=[
+                "Zero branch test coverage missing: "
+                "`belgium_family_benefits_selected_monthly_amount` "
+                "has a formula branch that returns 0."
+            ],
+        )
+
+        assert repaired == ["auto_zero_belgium_family_benefits_selected_monthly_amount"]
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "be:statutes/family_benefits/routing#input.belgium_family_benefits_region": 0,
+            "be:statutes/family_benefits/routing#input.selected_amount": 0,
+        }
+        assert cases[0]["output"] == {
+            "be:statutes/family_benefits/routing#belgium_family_benefits_selected_monthly_amount": 0
+        }
+        assert "be:be/" not in test_file.read_text()
+
     def test_repair_zero_branch_tests_keeps_unmasked_legacy_issues(
         self, capsys, tmp_path
     ):
