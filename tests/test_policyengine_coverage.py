@@ -111,6 +111,102 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_section_85_unemployment_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us" / "statutes" / "26" / "85.yaml",
+        """format: rulespec/v1
+rules:
+  - name: temporary_unemployment_exclusion_adjusted_gross_income_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2020-01-01'
+        value: 150000
+  - name: temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse
+    kind: parameter
+    versions:
+      - effective_from: '2020-01-01'
+        value: 10200
+  - name: unemployment_compensation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: reported_unemployment_compensation
+  - name: section_85_unemployment_compensation_recipient_has_unemployment_compensation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: unemployment_compensation > 0
+  - name: temporary_unemployment_compensation_exclusion_for_recipient
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(unemployment_compensation, temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse)
+  - name: temporary_unemployment_compensation_exclusion
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: temporary_unemployment_compensation_exclusion_for_recipient
+  - name: unemployment_compensation_included_in_gross_income
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: unemployment_compensation - temporary_unemployment_compensation_exclusion
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "us" / "statutes" / "26" / "85.test.yaml",
+        """- name: section_85_temporary_exclusion
+  period: 2020
+  output:
+    us:statutes/26/85#unemployment_compensation: 15000
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion_for_recipient: 10200
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 10200
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 4800
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 7
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 3,
+    }
+    assert report["untested_comparable"] == 0
+    assert report["status_counts"].get("unmapped", 0) == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id["us:statutes/26/85#unemployment_compensation"][
+            "policyengine_variable"
+        ]
+        == "unemployment_compensation"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/85#unemployment_compensation_included_in_gross_income"
+        ]["policyengine_variable"]
+        == "tax_unit_taxable_unemployment_compensation"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/85#temporary_unemployment_exclusion_adjusted_gross_income_threshold"
+        ]["policyengine_parameter"]
+        == "gov.irs.unemployment_compensation.exemption.cutoff"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/85#temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse"
+        ]["policyengine_parameter"]
+        == "gov.irs.unemployment_compensation.exemption.amount"
+    )
+    assert (
+        items_by_id["us:statutes/26/85#temporary_unemployment_compensation_exclusion"][
+            "status"
+        ]
+        == "known_not_comparable"
+    )
+
+
 def test_direct_policyengine_mapping_with_upstream_placeholders_is_incomplete(
     tmp_path,
 ):

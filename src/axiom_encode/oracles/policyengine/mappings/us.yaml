@@ -10041,6 +10041,58 @@ mappings:
     comparison: money
     rationale: Same federal taxable income after exemptions and taxable-income deductions.
 
+  - legal_id: us:statutes/26/85#temporary_unemployment_exclusion_adjusted_gross_income_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.unemployment_compensation.exemption.cutoff
+    parameter_keys:
+      - SINGLE
+      - JOINT
+      - SEPARATE
+      - HEAD_OF_HOUSEHOLD
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us:statutes/26/85#temporary_unemployment_compensation_exclusion
+    rationale: Same section 85(c)(1) temporary unemployment-compensation exclusion AGI threshold; PolicyEngine stores the uniform statutory threshold as filing-status-keyed parameter cells.
+
+  - legal_id: us:statutes/26/85#temporary_unemployment_exclusion_cap_per_taxpayer_or_spouse
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.unemployment_compensation.exemption.amount
+    period: year
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us:statutes/26/85#temporary_unemployment_compensation_exclusion_for_recipient
+    rationale: Same section 85(c)(1) $10,200 temporary unemployment-compensation exclusion cap per taxpayer or spouse.
+
+  - legal_id: us:statutes/26/85#unemployment_compensation
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: unemployment_compensation
+    entity: person
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 85(b) unemployment compensation amount received by a person.
+
+  - legal_id: us:statutes/26/85#unemployment_compensation_included_in_gross_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: tax_unit_taxable_unemployment_compensation
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 85(a) unemployment compensation included in gross income after applying the temporary section 85(c) exclusion.
+
   - legal_id: us:statutes/26/68/b#section_68_applied_after_other_itemized_deduction_limitations
     country: us
     program: tax
@@ -22244,6 +22296,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 63(f) aged-or-blind additional-standard-deduction outputs are statutory parameters and predicates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/85#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 85 unemployment-compensation outputs are statutory temporary-exclusion predicates, helper amounts, and recipient relations unless an exact PolicyEngine mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/86#
     country: us
