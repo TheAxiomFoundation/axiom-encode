@@ -13217,6 +13217,56 @@ rules:
     )
 
 
+def test_upstream_placement_ignores_nested_axiom_dependency_in_git_monorepo(tmp_path):
+    repo_parent = tmp_path / "repos"
+    checkout = repo_parent / "rulespec-us"
+    subprocess.run(["git", "init", checkout], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=checkout,
+        check=True,
+        capture_output=True,
+    )
+    duplicate_content = """format: rulespec/v1
+rules:
+  - name: federal_code_a_individual_fbr
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '994'
+"""
+    rules_file = _write_rulespec_file(
+        checkout
+        / "us-de"
+        / "policies/ssa/poms/si-01415-058/2026/de-ssp-individual.yaml",
+        duplicate_content,
+    )
+    _write_rulespec_file(
+        checkout
+        / "_axiom"
+        / "rulespec-us"
+        / "us-dc"
+        / "policies/ssa/poms/si-01415-058/2026/dc-ossp-individual.yaml",
+        duplicate_content,
+    )
+
+    assert (
+        find_upstream_placement_issues(
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
+        )
+        == []
+    )
+
+
 def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
