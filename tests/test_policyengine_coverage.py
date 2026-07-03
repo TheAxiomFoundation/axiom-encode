@@ -2210,6 +2210,25 @@ def test_policyengine_program_surface_marks_iowa_fip_known_not_comparable():
     assert "final monthly SPM-unit benefit" in iowa_fip["rationale"]
 
 
+def test_policyengine_program_surface_marks_idaho_tafi_source_conflict_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="id_tafi")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    idaho_tafi = items_by_variable["id_tafi"]
+
+    assert idaho_tafi["program_id"] == "tanf"
+    assert idaho_tafi["state"] == "ID"
+    assert idaho_tafi["axiom_status"] == "known_not_comparable"
+    assert idaho_tafi["mapping_count"] == 0
+    assert idaho_tafi["comparable_mapping_count"] == 0
+    assert "source-hierarchy conflict" in idaho_tafi["rationale"]
+    assert (
+        "historical Cornell pages for IDAPA 16.03.08.248-.252"
+        in idaho_tafi["rationale"]
+    )
+    assert "official current IDAPA 16.03.08 PDF" in idaho_tafi["rationale"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",
