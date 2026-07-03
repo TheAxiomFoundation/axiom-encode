@@ -1494,15 +1494,17 @@ def _program_surface_item_from_payload(
         if not mapping.comparable and mapping.candidate_priority != "P4"
     )
     manifest_status = str(payload["axiom_status"])
-    if manifest_status in PENDING_PROGRAM_SURFACE_STATUSES:
-        axiom_status = manifest_status
-    elif comparable_mapping_count:
+    if comparable_mapping_count:
         axiom_status = "wired"
     elif final_non_comparable_mapping_count and manifest_status in {
         "pending_oracle_mapping",
         "pending_rulespec_encoding",
+        "pending_source_ingestion",
+        "deferred_jurisdiction",
     }:
         axiom_status = "known_not_comparable"
+    elif manifest_status in PENDING_PROGRAM_SURFACE_STATUSES:
+        axiom_status = manifest_status
     else:
         axiom_status = manifest_status
     legal_ids = tuple(mapping.legal_id for mapping in mappings)
