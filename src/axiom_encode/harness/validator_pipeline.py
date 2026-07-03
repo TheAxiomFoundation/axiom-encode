@@ -2976,6 +2976,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    for span, value in _iter_cardinal_word_number_matches(text, compound_only=True):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_french_cardinal_phrase_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -3205,11 +3210,15 @@ def _parse_cardinal_word_sequence(text: str) -> float | None:
 
 def _iter_cardinal_word_number_matches(
     text: str,
+    *,
+    compound_only: bool = False,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
     for match in _CARDINAL_NUMBER_WORD_PATTERN.finditer(text):
         phrase = match.group(0)
+        if compound_only and not re.search(r"[-\s]", phrase):
+            continue
         split_values = _split_flat_coordinated_cardinal_phrase(
             phrase, offset=match.start()
         )
@@ -3906,6 +3915,13 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
 
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
+
+    for span, value in _iter_cardinal_word_number_matches(cleaned, compound_only=True):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
+        spans.append(span)
 
     for span, value in _iter_french_cardinal_phrase_matches(cleaned):
         if _span_overlaps(span, spans):
