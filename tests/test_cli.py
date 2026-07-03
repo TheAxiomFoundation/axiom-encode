@@ -115,6 +115,7 @@ from axiom_encode.cli import (
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
+    _resolve_policy_repo_for_corpus_source,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
@@ -254,6 +255,56 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
+
+
+def test_resolve_policy_repo_for_state_corpus_source_uses_country_content_root(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    country_root = repo / "us"
+    country_root.mkdir(parents=True)
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        repo,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == country_root.resolve()
+    assert not (repo / "us-ia").exists()
+
+
+def test_resolve_policy_repo_for_state_corpus_source_keeps_country_content_override(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    country_root = repo / "us"
+    country_root.mkdir(parents=True)
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        country_root,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == country_root.resolve()
+    assert not (country_root / "us-ia").exists()
+
+
+def test_resolve_policy_repo_for_state_corpus_source_preserves_legacy_fallback(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        repo,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == (repo / "us-ia").resolve()
+    assert (repo / "us-ia").is_dir()
 
 
 def test_package_version_metadata_matches_pyproject():
@@ -4029,7 +4080,7 @@ class TestCmdEncode:
             == args.axiom_rules_path
         )
 
-    def test_encode_routes_state_corpus_citation_to_monorepo_jurisdiction_dir(
+    def test_encode_routes_state_corpus_citation_to_country_content_root(
         self, capsys, tmp_path
     ):
         policy_repo_path = tmp_path / "rulespec-us"
@@ -4044,9 +4095,9 @@ class TestCmdEncode:
         mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
 
         assert exit_code == 0
-        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-co"
+        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us"
 
-    def test_encode_creates_missing_state_monorepo_jurisdiction_dir(
+    def test_encode_uses_existing_country_root_for_missing_state_dir(
         self, capsys, tmp_path
     ):
         policy_repo_path = tmp_path / "rulespec-us"
@@ -4060,8 +4111,8 @@ class TestCmdEncode:
         mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
 
         assert exit_code == 0
-        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-ks"
-        assert (policy_repo_path / "us-ks").is_dir()
+        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us"
+        assert not (policy_repo_path / "us-ks").exists()
 
     def test_encode_passes_skip_reviewers_to_model_eval(self, capsys, tmp_path):
         args = self._make_args(tmp_path, skip_reviewers=True)
