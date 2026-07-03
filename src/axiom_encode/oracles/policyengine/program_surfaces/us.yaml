@@ -1777,10 +1777,15 @@ surfaces:
   variable: dc_ossp
   source_type: state_implementation
   state: DC
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: >-
+    Axiom encodes POMS SI 01415.058 2026 District payment-level tables and living-arrangement OS-code rules, with
+    upstream source checks against D.C. Code § 4-205.49 and current DC DHCF OSSP payment-level guidance. The encoded
+    RuleSpec outputs map exact monthly state-supplement parameter cells to PolicyEngine, but PolicyEngine's final
+    `dc_ossp` person surface also composes eligibility, living arrangement, countable-income reduction, and person-level
+    couple allocation, so compare encoded payment-level cells separately until Axiom has equivalent final benefit
+    composition.
 - country: us
   program_id: ssi_state_supplement
   program_name: Delaware SSP
