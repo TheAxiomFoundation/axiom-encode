@@ -20536,6 +20536,14 @@ prefixes:
     candidate_priority: P4
     rationale: RuleSpec exposes the D.C. Code § 4-205.49 source authority, payment components, residence-size thresholds, and statutory allocation formulas. PolicyEngine's DC OSSP surface stores current POMS payment table cells separately by OS code and does not expose these statute-level authority and composition boundaries as one-to-one parameters or variables.
 
+  - legal_id_prefix: us-dc:statutes/4/4-205/52#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: dc_tanf
+    candidate_priority: P4
+    rationale: RuleSpec exposes the D.C. Code § 4-205.52 source-law standard and assistance payment tables, historical adjustment rates, and time-limit reduction parameters. PolicyEngine's dc_tanf surface is the final monthly benefit after current DHS/state-plan/DCMR payment standards, countable income, eligibility, enrollment, and work-sanction gates are composed, so these statutory source parameters are not one-to-one oracle targets.
+
   - legal_id_prefix: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-living-arrangement-variations#
     country: us
     program: ssi_state_supplement

@@ -275,10 +275,12 @@ surfaces:
   variable: dc_tanf
   source_type: state_implementation
   state: DC
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has D.C. Code § 4-205.52 source-law coverage for statutory payment tables, adjustment rates,
+    and time-limit reduction parameters. PolicyEngine's dc_tanf remains a composed final monthly benefit surface that
+    also depends on current DHS/state-plan/DCMR payment standards, countable income, eligibility, enrollment, and
+    work-sanction gates; keep known-not-comparable until those current-source components are ingested and composed.
 - country: us
   program_id: tanf
   program_name: Illinois TANF
