@@ -1,0 +1,1 @@
+Classify the Delaware TANF 16 DE Admin. Code 4008.1.2 grant-calculation RuleSpec output against the PolicyEngine oracle registry and mark the `de_tanf` program surface as reviewed but not one-to-one comparable yet.

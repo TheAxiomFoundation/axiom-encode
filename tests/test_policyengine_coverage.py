@@ -2581,6 +2581,62 @@ def test_policyengine_program_surface_marks_kansas_tanf_known_not_comparable():
     assert "countable income" in kansas_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_delaware_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    delaware_tanf = items_by_variable["de_tanf"]
+
+    assert delaware_tanf["program_id"] == "tanf"
+    assert delaware_tanf["state"] == "DE"
+    assert delaware_tanf["axiom_status"] == "known_not_comparable"
+    assert delaware_tanf["mapping_count"] == 1
+    assert delaware_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf"
+        in delaware_tanf["legal_ids"]
+    )
+    assert "16 DE Admin. Code 4008.1.2" in delaware_tanf["rationale"]
+    assert (
+        "payment-standard values supplied as legal inputs" in delaware_tanf["rationale"]
+    )
+
+
+def test_policyengine_coverage_classifies_delaware_tanf_grant_calculation(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-de"
+        / "regulations/title-16/4000-financial-responsibility/4008/1/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: de_tanf
+    kind: derived
+    entity: TanfUnit
+    dtype: Money
+    unit: USD
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["program"] == "tanf"
+    assert item["mapping_type"] == "not_comparable"
+    assert item["policyengine_variable"] == "de_tanf"
+    assert item["candidate_priority"] == "P4"
+    assert "4008.1.2 output calculates the recipient grant" in item["rationale"]
+
+
 def test_policyengine_program_surface_marks_minnesota_mfip_wired_and_populace_validated():
     report = build_policyengine_program_surface_report(program="tanf")
 

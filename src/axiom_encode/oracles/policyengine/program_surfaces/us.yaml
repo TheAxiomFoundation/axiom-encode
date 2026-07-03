@@ -634,10 +634,12 @@ surfaces:
   variable: de_tanf
   source_type: state_implementation
   state: DE
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Current RuleSpec encodes the official 16 DE Admin. Code 4008.1.2 recipient grant calculation, with applicable
+    standard-of-need and payment-standard values supplied as legal inputs. PolicyEngine's de_tanf is a final monthly TANF
+    benefit surface over PE's broader eligibility, income, standard, and payment graph, so this is source-faithful progress
+    but not a one-to-one oracle target until the remaining Delaware TANF legal components are composed.
 - country: us
   program_id: tanf
   program_name: Oregon TANF

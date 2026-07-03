@@ -5539,6 +5539,14 @@ mappings:
     candidate_priority: P4
     rationale: The Texas TANF program wrapper composes the HHSC Texas Works Handbook C-111 payment-standard table, A-1340 grant calculation, and C-112 first-month proration, but does not yet encode nonfinancial eligibility, resources, sanctions, time limits, or the full income-budget path. PolicyEngine-US tx_tanf applies PE's broader SPM-unit TANF graph, so this bridge is source-faithful progress but not a one-to-one oracle target.
 
+  - legal_id: us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: de_tanf
+    candidate_priority: P4
+    rationale: Axiom's 16 DE Admin. Code 4008.1.2 output calculates the recipient grant after the gross-income screen, earned-income disregards, child-care deduction, net-income test, 50% deficit step, and payment-standard cap. PolicyEngine's de_tanf is a final monthly TANF benefit surface over PE's broader eligibility, income, standard, and payment graph, while this legal slice still takes the applicable standard of need and payment standard as inputs, so it is not a one-to-one oracle target until the remaining Delaware TANF components are composed.
+
   - legal_id: us-in:policies/dfr/snap-tanf-program-policy-manual/3450-35-05-benefit-calculation#tanf_thirty_dollar_earned_income_disregard
     country: us
     program: tanf
