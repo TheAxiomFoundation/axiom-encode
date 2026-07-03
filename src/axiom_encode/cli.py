@@ -7164,10 +7164,7 @@ def cmd_repair_nonnegative_floors(args):
             backend="deterministic",
             model="nonnegative-floor-v1",
             tool="axiom-encode repair-nonnegative-floors",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -10250,10 +10247,7 @@ def cmd_repair_current_year_final_amounts(args):
             backend="deterministic",
             model="current-year-final-amount-v1",
             tool="axiom-encode repair-current-year-final-amounts",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -10566,10 +10560,7 @@ def cmd_repair_zero_branch_tests(args):
             backend="deterministic",
             model="zero-branch-test-v1",
             tool="axiom-encode repair-zero-branch-tests",
-            citation=(
-                f"{_repo_jurisdiction_prefix(repo_path)}:"
-                f"{_relative_rulespec_import_target(relative_output)}"
-            ),
+            citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
             generation_prompt_sha256=None,
             trace_file=None,
             context_manifest_file=None,
@@ -19515,10 +19506,7 @@ def _append_generic_zero_branch_tests_if_missing(
         and str(rule.get("kind") or "").strip().lower() in {"derived", "parameter"}
         and str(rule.get("name") or "").strip()
     }
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
+    target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
     input_defaults = {
         f"{target_base}#input.{input_name}": _default_generated_test_input_value(
