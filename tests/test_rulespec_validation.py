@@ -5859,6 +5859,53 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_decimal_place_scale_derivation():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-hi/regulation/har/17/680/page-12
+rules:
+  - name: quotient_decimal_place_scale
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2006-11-09'
+        formula: '10000'
+"""
+
+    source_text = (
+        "Drop the remaining decimals and make the quotient to an accuracy of "
+        "four decimal places."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_rejects_unrelated_power_of_ten():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-hi/regulation/har/17/680/page-12
+rules:
+  - name: quotient_decimal_place_scale
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2006-11-09'
+        formula: '10000'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="The amount is rounded down to the next lower whole dollar.",
+    )
+
+    assert issues == [
+        "Ungrounded generated numeric literal: 10000 does not appear as a "
+        "substantive numeric value in the source text."
+    ]
+
+
 def test_rulespec_grounding_accepts_textual_half_across_line_break():
     content = """format: rulespec/v1
 module:
