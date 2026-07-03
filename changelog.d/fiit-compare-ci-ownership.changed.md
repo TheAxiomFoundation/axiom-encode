@@ -1,0 +1,1 @@
+Document that `tax-populace-compare` (alias `tax-ecps-compare`) is deprecated for CI/weekly FIIT reporting — that comparison is now owned by the axiom-oracles standard runner — while remaining supported for local development and residual triage.

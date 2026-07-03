@@ -202,6 +202,24 @@ one is available, including cached `policyengine/populace-*` snapshots. Set
 `AXIOM_POPULACE_DATASET`, or `AXIOM_POPULACE_DATA_PATH` to pin validation to a
 specific local artifact.
 
+### CI ownership of the federal income tax (FIIT) comparison
+
+`axiom-encode tax-populace-compare` (and its `tax-ecps-compare` alias) is the
+FIIT comparison harness. As of the A9 runner unification it is **deprecated for
+CI / weekly reporting**: the reported FIIT number and its dashboard artifact are
+produced by `axiom-oracles`, which wraps this command in its standard
+comparison runner (`comparisons/fiit-ecps.yaml` → `scripts/run_comparison.py`),
+normalizes the `--json` output — including the `dataset_identity` provenance
+block — into the `axiom.comparison_report.v2` schema, and refreshes it through
+the weekly matrix. The ~17k LOC oracle bridge stays here in `axiom-encode`; only
+the run/report entry point moved.
+
+Invoking `tax-populace-compare` directly is still fully supported and is the
+right tool for **local development and residual triage** (e.g. a quick `--json`
+dump or a `--tax-unit-id` re-check). Just don't wire it into CI or treat its
+output as the reported comparison — run `run_comparison.py fiit-ecps` in
+`axiom-oracles` for that.
+
 ```bash
 axiom-encode oracle-coverage \
   --root /path/to/workspace \
