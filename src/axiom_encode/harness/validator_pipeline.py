@@ -89,6 +89,50 @@ DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
 )
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """PyYAML safe loader that rejects duplicate mapping keys."""
+
+
+def _construct_mapping_without_duplicate_keys(
+    loader: yaml.SafeLoader,
+    node: yaml.nodes.MappingNode,
+    deep: bool = False,
+) -> dict[Any, Any]:
+    loader.flatten_mapping(node)
+    seen: set[Any] = set()
+    for key_node, _value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            key = repr(key)
+            duplicate = key in seen
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_without_duplicate_keys,
+)
+
+
+def _safe_load_unique_keys(content: str) -> Any:
+    """Load YAML with duplicate mapping keys treated as parse errors."""
+    return yaml.load(content, Loader=_UniqueKeySafeLoader)
+
+
+def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
+    return f"{path.name} YAML parse failed: {exc}"
+
+
 def run_claude_code(
     prompt: str,
     model: str = REVIEWER_CLI_MODEL,
@@ -20756,10 +20800,22 @@ class ValidatorPipeline:
         ):
             return False
         try:
-            payload = yaml.safe_load(rules_file.read_text())
+            payload = _safe_load_unique_keys(rules_file.read_text())
         except (OSError, yaml.YAMLError, ValueError):
             return False
         return isinstance(payload, dict) and payload.get("format") == "rulespec/v1"
+
+    def _rulespec_yaml_preflight_issue(self, rules_file: Path) -> str | None:
+        """Return a parse/shape issue before invoking compile or CI validators."""
+        try:
+            payload = _safe_load_unique_keys(rules_file.read_text())
+        except OSError as exc:
+            return f"RuleSpec YAML read failed: {exc}"
+        except (yaml.YAMLError, ValueError) as exc:
+            return _yaml_parse_issue(rules_file, exc)
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            return "RuleSpec YAML artifacts are required."
+        return None
 
     def _rulespec_test_path(self, rules_file: Path) -> Path:
         """Return the companion RuleSpec test file path."""
@@ -20862,12 +20918,13 @@ class ValidatorPipeline:
 
     def _run_compile_check(self, rulespec_file: Path) -> ValidationResult:
         """Tier 0: Compile check against the Axiom rules engine RuleSpec."""
-        if not self._is_rulespec_file(rulespec_file):
+        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+        if yaml_issue:
             return ValidationResult(
                 validator_name="compile",
                 passed=False,
-                issues=["RuleSpec YAML artifacts are required."],
-                error="RuleSpec YAML artifacts are required",
+                issues=[yaml_issue],
+                error=yaml_issue,
             )
 
         return self._run_rulespec_compile_check(rulespec_file)
@@ -22097,9 +22154,9 @@ class ValidatorPipeline:
         test_path = self._rulespec_test_path(rules_file)
         if test_path.exists():
             try:
-                payload = yaml.safe_load(test_path.read_text())
+                payload = _safe_load_unique_keys(test_path.read_text())
             except (yaml.YAMLError, ValueError) as exc:
-                issues.append(f"Test YAML parse failed: {exc}")
+                issues.append(_yaml_parse_issue(test_path, exc))
             else:
                 if payload in (None, ""):
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
@@ -22193,12 +22250,13 @@ class ValidatorPipeline:
 
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
-        if not self._is_rulespec_file(rulespec_file):
+        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+        if yaml_issue:
             return ValidationResult(
                 validator_name="ci",
                 passed=False,
-                issues=["RuleSpec YAML artifacts are required."],
-                error="RuleSpec YAML artifacts are required",
+                issues=[yaml_issue],
+                error=yaml_issue,
             )
         return self._run_rulespec_ci(rulespec_file)
 

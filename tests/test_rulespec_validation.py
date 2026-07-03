@@ -117,6 +117,45 @@ AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
 AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
 
 
+def test_validator_rejects_duplicate_rulespec_mapping_keys(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = (
+        repo / "us-ia" / "regulations" / "iac" / "441" / "41" / "41" / "28.yaml"
+    )
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: shelter_basic_needs_component
+    kind: parameter
+    entity: Household
+    dtype: Money
+    period: Month
+    values:
+      10: 20.58
+      10: 20.58
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo / "us-ia",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    result = pipeline.validate(rules_file, skip_reviewers=True)
+
+    assert result.all_passed is False
+    assert any(
+        "duplicate key" in issue and "10" in issue
+        for issue in result.results["compile"].issues
+    )
+    assert any(
+        "duplicate key" in issue and "10" in issue
+        for issue in result.results["ci"].issues
+    )
+
+
 def test_rulespec_numeric_output_comparison_tolerates_decimal_residue(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path / "rulespec-us",
