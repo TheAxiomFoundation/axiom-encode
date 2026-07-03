@@ -5920,6 +5920,51 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_english_compound_cardinal_words():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/example/compound-cardinals
+rules:
+  - name: month_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '36'
+  - name: middle_credit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '600'
+  - name: high_credit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1200'
+"""
+
+    source_text = (
+        "benefits shall be provided for not longer than thirty-six months. "
+        "The middle credit amount is Six hundred dollars. "
+        "The high credit amount is one thousand two hundred dollars."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words():
+    assert 36.0 in extract_numbers_from_text("not longer than thirty-six months")
+    assert 600.0 in extract_numbers_from_text("The amount is Six hundred dollars")
+    assert 1200.0 in extract_numeric_occurrences_from_text(
+        "One thousand two hundred dollars"
+    )
+
+
 def test_rulespec_grounding_rejects_unrelated_power_of_ten():
     content = """format: rulespec/v1
 module:
