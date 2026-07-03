@@ -1,0 +1,1 @@
+Classify Belgium RuleSpec legal-ID prefixes as PolicyEngine non-comparable so Belgium uses EUROMOD/FANTASI household-level oracle coverage instead of failing the PolicyEngine registry gate as unmapped.

@@ -73,6 +73,15 @@ rules:
         formula: local_input
 """
 
+_BELGIUM_RULESPEC = """format: rulespec/v1
+rules:
+  - name: household_benefit_amount
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: household_income * 0
+"""
+
 _UK_VAT_RULESPEC = """format: rulespec/v1
 rules:
   - name: vat_registration_threshold
@@ -358,6 +367,36 @@ def test_uk_vat_policy_outputs_are_classified_not_comparable(tmp_path):
         assert item["program"] == "vat"
         assert item["status"] == "known_not_comparable"
         assert item["mapping_type"] == "not_comparable"
+
+
+def test_belgium_outputs_are_policyengine_non_comparable(tmp_path):
+    """Belgium uses EUROMOD/FANTASI household oracles, not PolicyEngine."""
+    root = tmp_path / "mono" / "rulespec-be"
+    jurisdictions = {
+        "be": "statutes/cir-92/article-1.yaml",
+        "be-bru": "regulations/housing/example.yaml",
+        "be-dg": "regulations/family/example.yaml",
+        "be-vlg": "regulations/social-protection/example.yaml",
+        "be-wal": "regulations/housing/example.yaml",
+    }
+    for prefix, relative in jurisdictions.items():
+        _write(root / prefix / relative, _BELGIUM_RULESPEC)
+
+    report = build_policyengine_coverage_report(root.parent)
+
+    assert report["total_outputs"] == 5
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for prefix, relative in jurisdictions.items():
+        legal_id = (
+            f"{prefix}:{Path(relative).with_suffix('').as_posix()}"
+            "#household_benefit_amount"
+        )
+        item = items_by_id[legal_id]
+        assert item["repo"] == f"rulespec-{prefix}"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+        assert item["candidate_priority"] == "P4"
 
 
 def test_monorepo_program_directory_is_not_a_jurisdiction(tmp_path):
