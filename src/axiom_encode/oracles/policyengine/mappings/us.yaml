@@ -2576,8 +2576,9 @@ mappings:
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 13 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+    policyengine_variable: dc_ossp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 block 13 individual total payment levels. PolicyEngine's final `dc_ossp` person amount composes the District payment standard with eligibility and SSI countable-income offset logic, and does not expose the POMS federal-plus-District total column as the final benefit amount.
 
   - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_a_couple_fbr
     country: us
@@ -2714,8 +2715,9 @@ mappings:
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 14 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+    policyengine_variable: dc_ossp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 block 14 couple total payment levels. PolicyEngine's final `dc_ossp` person amount composes the District payment standard with eligibility, SSI countable-income offset, and person-level couple allocation logic, and does not expose the POMS federal-plus-District total column as the final benefit amount.
 
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us

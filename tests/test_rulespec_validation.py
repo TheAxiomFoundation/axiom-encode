@@ -3803,7 +3803,17 @@ def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
         country="us",
     )
     assert total_column.mapping_type == "not_comparable"
-    assert total_column.candidate_priority == "P4"
+    assert total_column.policyengine_variable == "dc_ossp"
+    assert total_column.candidate_priority == "P2"
+
+    couple_total_column = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-couple-state-supplement-levels#dc_ossp_couple_total_payment_level",
+        country="us",
+    )
+    assert couple_total_column.mapping_type == "not_comparable"
+    assert couple_total_column.policyengine_variable == "dc_ossp"
+    assert couple_total_column.candidate_priority == "P2"
 
 
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
