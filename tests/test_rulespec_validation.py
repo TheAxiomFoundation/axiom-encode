@@ -7462,6 +7462,358 @@ rules:
     assert 180 in extract_numbers_from_text(source_text)
 
 
+def test_rulespec_grounding_accepts_belgian_money_and_direct_percent_formats():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/5
+rules:
+  - name: belgium_direct_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 150000
+  - name: belgium_direct_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.03
+  - name: belgium_bracketed_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 7872.29
+"""
+
+    source_text = (
+        "Le tarif applicable est 150.000 EUR 3 %. "
+        "Le montant vise par l'article est [5 7 872,29] 5 EUR."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 150000 in source_values
+    assert 0.03 in source_values
+    assert 7872.29 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_ratio_parts():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/36
+rules:
+  - name: belgium_company_car_catalog_value_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 6 / 7
+"""
+
+    source_text = "L'avantage imposable est calcule a 6/7 de la valeur catalogue."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 6 in source_values
+    assert 7 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_cardinal_and_week_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/6
+rules:
+  - name: belgium_twelve_month_condition
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+  - name: belgium_six_week_condition_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 42
+  - name: belgium_dutch_age_condition
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 25
+  - name: belgium_dutch_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 40
+"""
+
+    source_text = (
+        "La condition est de douze mois et six semaines. "
+        "De leeftijdsvoorwaarde bedraagt vijfentwintig jaar en veertig euro."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert {12, 25, 40, 42}.issubset(source_values)
+
+
+def test_rulespec_grounding_accepts_french_hundreds_and_year_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/8
+rules:
+  - name: belgium_part_time_waiting_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 800
+  - name: belgium_reference_extension_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 180
+"""
+
+    source_text = (
+        "Le travailleur accomplit huit cents heures de travail. "
+        "Cette prolongation ne peut depasser quinze ans."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 800 in source_values
+    assert 180 in source_values
+
+
+def test_rulespec_grounding_accepts_fully_hyphenated_french_180_days():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/114
+rules:
+  - name: belgium_stillbirth_minimum_gestation_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 180
+"""
+
+    source_text = "La grossesse a dure un minimum de cent-quatre-vingts jours."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 180 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_hyphenated_month_count():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/203
+rules:
+  - name: belgium_part_time_max_reference_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 36
+"""
+
+    source_text = "La periode de reference est prolongee jusqu'a trente-six mois."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 36 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_belgian_waiting_stage_cardinals():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/203-1
+rules:
+  - name: belgium_waiting_stage_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 120
+  - name: belgium_reentry_part_time_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 67
+  - name: belgium_transfer_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 90
+  - name: belgium_reentry_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 60
+  - name: belgium_short_interruption_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 30
+  - name: belgium_reentry_part_time_three_month_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 200
+"""
+
+    source_text = (
+        "Le stage exige cent vingt jours de travail. "
+        "Le stage reduit exige soixante-sept heures. "
+        "Le transfert exige nonante jours. "
+        "Le nouveau stage exige soixante jours et deux cents heures. "
+        "Une interruption de trente jours est admise."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert {30, 60, 67, 90, 120, 200}.issubset(
+        extract_numbers_from_text(source_text)
+    )
+
+
+def test_rulespec_grounding_accepts_dutch_cardinal_thousands():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-vlg/statute/example/article/23501
+rules:
+  - name: flanders_biv_natural_gas_reduction_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 4000
+"""
+
+    source_text = "De belasting wordt verminderd met vierduizend euro."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 4000 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_vehicle_tax_fiscal_power_table_cells():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-wal/statute/example/vehicle-tax
+rules:
+  - name: wallonia_circulation_tax_cv_5
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 5
+  - name: wallonia_circulation_tax_cv_15
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 15
+"""
+
+    source_text = (
+        "Chevaux fiscaux (CV) Taxe de circulation en EUR "
+        "751 - 950 5 134,11 EUR 2.751 - 3.050 15 1.075,54 EUR"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 5 in extract_numbers_from_text(source_text)
+    assert 15 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_ordinal_week_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/8
+rules:
+  - name: belgium_single_birth_prenatal_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 42
+"""
+
+    source_text = "Le repos prenatal debute a partir de la sixieme semaine."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 42 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_centime_and_annual_unit_conventions():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/9
+rules:
+  - name: belgium_centime_divisor
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 100
+  - name: belgium_months_in_annual_amount
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+"""
+
+    source_text = (
+        "La commune peut etablir des centimes additionnels. "
+        "Le montant immunise est fixe par an."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 100 in source_values
+    assert 12 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_dotted_date_years():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/7
+rules:
+  - name: wallonia_deferred_effective_year
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2028
+"""
+
+    source_text = "Cette disposition produit ses effets le 01.01.2028."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 2028 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_coordinated_cardinal_age_bounds():
     content = """format: rulespec/v1
 rules:
@@ -7871,9 +8223,21 @@ def test_numeric_occurrence_extraction_accepts_spaced_european_decimal_money():
 
 
 def test_numeric_occurrence_extraction_accepts_french_cardinal_180_days():
-    text = "grossesse d'au moins cent quatre-vingts jours."
+    text = "grossesse d'au moins cent-quatre-vingts jours."
 
     assert extract_numeric_occurrences_from_text(text) == [180.0]
+
+
+def test_numeric_occurrence_extraction_accepts_french_hyphenated_month_count():
+    text = "La periode de reference est prolongee jusqu'a trente-six mois."
+
+    assert 36 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_cardinal_30_days():
+    text = "Une interruption de trente jours est admise."
+
+    assert extract_numeric_occurrences_from_text(text) == [30.0]
 
 
 def test_numeric_occurrence_extraction_accepts_european_decimal_money_table_cell():
@@ -7896,6 +8260,59 @@ def test_numeric_occurrence_extraction_accepts_four_place_european_decimal_money
     text = "Le droit d'accise est 0,7933 EUR par hectolitre-degre Plato."
 
     assert extract_numeric_occurrences_from_text(text) == [0.7933]
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_footnoted_money():
+    text = "Le montant vise par l'article est [5 7 872,29] 5 EUR."
+
+    assert 7872.29 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_space_before_european_decimal_comma():
+    text = "Elle percoit une allocation qui s'eleve a [ 3 7.872 ,29 EUR] 3."
+
+    assert 7872.29 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_direct_percent():
+    text = "Le tarif applicable est 150.000 EUR 3 %."
+
+    values = extract_numeric_occurrences_from_text(text)
+
+    assert 150000 in values
+    assert 0.03 in values
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_week_duration_days():
+    text = "La periode de protection est de six semaines."
+
+    assert 42 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_ordinal_week_duration_days():
+    text = "Le repos prenatal debute a partir de la sixieme semaine."
+
+    assert 42 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_year_duration_months():
+    text = "Cette prolongation ne peut depasser quinze ans."
+
+    assert 180 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_hundreds():
+    text = "Le stage est accompli avec huit cents heures de travail."
+
+    assert 800 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_dotted_date_year():
+    text = "Cette disposition produit ses effets le 01.01.2028."
+
+    values = extract_numeric_occurrences_from_text(text)
+
+    assert values == [2028.0]
 
 
 def test_numeric_occurrence_extraction_ignores_section_symbol_reference():
