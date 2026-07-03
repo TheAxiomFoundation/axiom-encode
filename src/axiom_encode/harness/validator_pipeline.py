@@ -19303,10 +19303,10 @@ def _local_corpus_provisions_roots() -> tuple[Path, ...]:
     seen: set[Path] = set()
     for root in roots:
         for candidate in (
-            root,
-            root / "provisions",
-            root / "data" / "corpus",
             root / "data" / "corpus" / "provisions",
+            root / "data" / "corpus",
+            root / "provisions",
+            root,
         ):
             provisions_root = (
                 candidate
@@ -19382,9 +19382,7 @@ def _read_local_corpus_provision_file(
 def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | None:
     """Select the best body when local corpus files contain duplicate citations."""
     body_records = [
-        record
-        for record in records
-        if isinstance(record.get("body"), str) and record["body"].strip()
+        record for record in records if _local_corpus_record_text(record) is not None
     ]
     if not body_records:
         return None
@@ -19397,7 +19395,16 @@ def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | Non
         return (source_as_of, official_source, version)
 
     selected = max(body_records, key=record_key)
-    return str(selected["body"])
+    return _local_corpus_record_text(selected)
+
+
+def _local_corpus_record_text(record: dict[str, Any]) -> str | None:
+    """Return local corpus provision text across supported row schemas."""
+    for key in ("body", "text"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _read_local_corpus_descendant_text(
@@ -19424,7 +19431,7 @@ def _read_local_corpus_descendant_text(
         record_path = str(record.get("citation_path") or "")
         if not record_path.startswith(child_prefix):
             continue
-        body = record.get("body")
+        body = _local_corpus_record_text(record)
         if body is None:
             continue
         descendants.append(
@@ -19432,7 +19439,7 @@ def _read_local_corpus_descendant_text(
                 int(record.get("level") or 0),
                 int(record.get("ordinal") or 0),
                 str(record.get("heading") or "") or None,
-                str(body),
+                body,
             )
         )
 
