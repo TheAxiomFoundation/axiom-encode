@@ -888,10 +888,15 @@ surfaces:
   variable: ky_ktap
   source_type: state_implementation
   state: KY
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    Current upstream Kentucky law supports encoding 921 KAR 2:016 and KRS 205.200(2), but PolicyEngine's active 2025
+    ky_ktap payment maximums are sourced from KY FACES rather than a regulatory instrument. Current 921 KAR 2:016 Section
+    9(2)(a) lists payment maximums of $372, $450, $524, $656, $766, $864, and $964 for one through seven-or-more eligible
+    persons, while PE applies lower 2025 values of $242, $293, $341, $426, $498, $562, and $627 from a KY FACES table
+    labeled by number of children. Treat this as a source-hierarchy conflict rather than an encodeable parity gap until
+    the legal authority for the 2025 reduction or the PE implementation is reconciled.
 - country: us
   program_id: tanf
   program_name: Alabama TANF

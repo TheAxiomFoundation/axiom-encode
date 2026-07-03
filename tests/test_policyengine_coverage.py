@@ -2229,6 +2229,23 @@ def test_policyengine_program_surface_marks_idaho_tafi_source_conflict_known_not
     assert "official current IDAPA 16.03.08 PDF" in idaho_tafi["rationale"]
 
 
+def test_policyengine_program_surface_marks_kentucky_ktap_source_conflict_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ky_ktap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    kentucky_ktap = items_by_variable["ky_ktap"]
+
+    assert kentucky_ktap["program_id"] == "tanf"
+    assert kentucky_ktap["state"] == "KY"
+    assert kentucky_ktap["axiom_status"] == "known_not_comparable"
+    assert kentucky_ktap["mapping_count"] == 0
+    assert kentucky_ktap["comparable_mapping_count"] == 0
+    assert "source-hierarchy conflict" in kentucky_ktap["rationale"]
+    assert "Current upstream Kentucky law" in kentucky_ktap["rationale"]
+    assert "921 KAR 2:016 Section 9(2)(a)" in kentucky_ktap["rationale"]
+    assert "KY FACES table labeled by number of children" in kentucky_ktap["rationale"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",
