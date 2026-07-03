@@ -242,6 +242,11 @@ def _resolve_policy_repo_for_corpus_source(
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
     if override is not None:
         override = Path(override)
+        country_content_root = _country_content_root_for_corpus_jurisdiction(
+            override, jurisdiction
+        )
+        if country_content_root is not None:
+            return country_content_root.resolve()
         content_root = jurisdiction_content_dir(override, jurisdiction)
         if (
             create_missing_monorepo_content_root
@@ -252,6 +257,24 @@ def _resolve_policy_repo_for_corpus_source(
             content_root.mkdir(parents=True, exist_ok=True)
         return content_root.resolve()
     return _resolve_policy_repo_for_prefix(jurisdiction)
+
+
+def _country_content_root_for_corpus_jurisdiction(
+    override: Path, jurisdiction: str
+) -> Path | None:
+    """Return a country content root for subdivision corpus sources when present."""
+    country = jurisdiction.split("-", 1)[0]
+    if country == jurisdiction:
+        return None
+    repo_name = canonical_rulespec_repo_name(override) or override.name
+    if repo_name != monorepo_checkout_name(jurisdiction):
+        return None
+    if override.name == country:
+        return override
+    content_root = override / country
+    if content_root.is_dir():
+        return content_root
+    return None
 
 
 def _override_is_country_monorepo_for_jurisdiction(
