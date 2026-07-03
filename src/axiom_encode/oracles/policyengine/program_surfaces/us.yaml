@@ -574,10 +574,13 @@ surfaces:
   variable: me_tanf
   source_type: state_implementation
   state: ME
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has source-level Maine TANF Rule 125A coverage for current FFY 2022-2026 adult-included
+    and child-only standard-of-need and maximum-grant table mechanics. PolicyEngine's me_tanf is a final SPM-unit
+    benefit graph with older Rule 121A parameter references and no separate child-only/adult-included table boundary,
+    so keep it known-not-comparable until the remaining eligibility, income, resource, and final-benefit graph is
+    encoded and PE exposes or updates matching current-source boundaries.
 - country: us
   program_id: tanf
   program_name: Nevada TANF
