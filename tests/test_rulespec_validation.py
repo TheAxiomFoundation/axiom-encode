@@ -3669,6 +3669,77 @@ def test_policyengine_registry_includes_minnesota_msa_assistance_standard_mappin
     assert assistance_standard_mapping.candidate_priority == "P4"
 
 
+def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
+    registry = load_policyengine_registry()
+
+    individual_selector = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-individual-state-supplement-levels"
+        "#dc_ossp_individual_state_supplement_level",
+        country="us",
+    )
+    assert individual_selector.mapping_type == "parameter_value"
+    assert (
+        individual_selector.policyengine_parameter
+        == "gov.states.dc.dhcf.ossp.payment.individual"
+    )
+    assert individual_selector.parameter_key_input == "state_os_code"
+    assert individual_selector.parameter_key_map == {
+        "A": "OS_A",
+        "B": "OS_B",
+        "G": "OS_G",
+        "Z": "NONE",
+    }
+
+    individual_cell = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-individual-state-supplement-levels"
+        "#adult_foster_care_small_individual_state_supplement_level",
+        country="us",
+    )
+    assert individual_cell.mapping_type == "parameter_value"
+    assert (
+        individual_cell.policyengine_parameter
+        == "gov.states.dc.dhcf.ossp.payment.individual"
+    )
+    assert individual_cell.parameter_key == "OS_A"
+    assert individual_cell.tested_by_legal_ids == (
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-individual-state-supplement-levels"
+        "#dc_ossp_individual_state_supplement_level",
+    )
+
+    couple_selector = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-couple-state-supplement-levels"
+        "#dc_ossp_couple_state_supplement_level",
+        country="us",
+    )
+    assert couple_selector.mapping_type == "parameter_value"
+    assert (
+        couple_selector.policyengine_parameter
+        == "gov.states.dc.dhcf.ossp.payment.couple"
+    )
+    assert couple_selector.parameter_key_input == "state_os_code"
+
+    federal_column = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-couple-state-supplement-levels#federal_code_a_couple_fbr",
+        country="us",
+    )
+    assert federal_column.mapping_type == "not_comparable"
+    assert federal_column.candidate_priority == "P4"
+
+    total_column = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-individual-state-supplement-levels"
+        "#dc_ossp_individual_total_payment_level",
+        country="us",
+    )
+    assert total_column.mapping_type == "not_comparable"
+    assert total_column.candidate_priority == "P4"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 
