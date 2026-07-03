@@ -22886,6 +22886,12 @@ prefixes:
     candidate_priority: P4
     rationale: PolicyEngine-US does not model NH agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
+  - legal_id_prefix: "us-nj:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model NJ agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
   - legal_id_prefix: "us-ny:"
     country: us
     mapping_type: not_comparable

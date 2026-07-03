@@ -372,10 +372,12 @@ surfaces:
   variable: nj_wfnj
   source_type: state_implementation
   state: NJ
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has current N.J.A.C. 10:90 source-regulation coverage for WFNJ financial eligibility, payment
+    standards, income exclusions, disregards, and resource-limit slices. PolicyEngine's nj_wfnj is a final SPM-unit
+    benefit variable with its own graph and composition boundaries, so keep this source-regulation coverage known-not-comparable
+    until a full legal WFNJ program bridge composes the final benefit and any exact PE helper mappings are reconciled.
 - country: us
   program_id: tanf
   program_name: Texas TANF
