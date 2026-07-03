@@ -2175,6 +2175,41 @@ def test_policyengine_program_surface_marks_indiana_tanf_known_not_comparable():
     assert "source-local monthly benefit entitlement" in indiana_tanf["rationale"]
 
 
+def test_policyengine_program_surface_marks_delaware_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="de_tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    delaware_tanf = items_by_variable["de_tanf"]
+
+    assert delaware_tanf["program_id"] == "tanf"
+    assert delaware_tanf["state"] == "DE"
+    assert delaware_tanf["axiom_status"] == "known_not_comparable"
+    assert delaware_tanf["mapping_count"] >= 1
+    assert delaware_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf"
+        in delaware_tanf["legal_ids"]
+    )
+    assert "16 DE Admin. Code 4008.1.2" in delaware_tanf["rationale"]
+    assert "final monthly SPM-unit benefit" in delaware_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_iowa_fip_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ia_fip")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    iowa_fip = items_by_variable["ia_fip"]
+
+    assert iowa_fip["program_id"] == "tanf"
+    assert iowa_fip["state"] == "IA"
+    assert iowa_fip["axiom_status"] == "known_not_comparable"
+    assert iowa_fip["mapping_count"] >= 1
+    assert iowa_fip["comparable_mapping_count"] == 0
+    assert "us-ia:regulations/iac/441/41/41/28#" in iowa_fip["legal_ids"]
+    assert "Iowa IAC 441-41.28" in iowa_fip["rationale"]
+    assert "final monthly SPM-unit benefit" in iowa_fip["rationale"]
+
+
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ga" / "policies/dfcs/medicaid/2578.yaml",
