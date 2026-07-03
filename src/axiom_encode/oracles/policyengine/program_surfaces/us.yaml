@@ -478,10 +478,13 @@ surfaces:
   variable: md_tca
   source_type: state_implementation
   state: MD
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Primary-source review found that current COMAR 07.03.03.17 still carries the stale November 2013 grant schedule,
+    while PolicyEngine's 2025 benefit table is sourced to Maryland DHS FIA Information Memo 25-12 and Maryland DHS has since
+    published IM 26-13 as a superseding 2026 TCA/TDAP benefit-increase memo. Axiom has ingested the governing Maryland Human
+    Services Article provisions and COMAR 07.03.03, but should not encode current TCA amounts until DHS IM 26-13, IM 25-12 for
+    PE's historical 2025 table, or an equivalent official schedule is ingested through axiom-corpus.
 - country: us
   program_id: tanf
   program_name: South Dakota TANF
