@@ -5993,6 +5993,29 @@ rules:
     assert 5110 in extract_numbers_from_text(source_text)
 
 
+def test_rulespec_grounding_accepts_dot_thousands_table_value_without_unit():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/guidance/example/page-3
+rules:
+  - name: belgium_company_car_minimum_annual_benefit
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1690'
+"""
+
+    source_text = (
+        "Exercice d'imposition Montant indexe 2025 1.600 2026 1.650 2027 1.690"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 1690 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_spaced_thousands_separator_money():
     content = """format: rulespec/v1
 module:
@@ -6033,6 +6056,29 @@ rules:
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
     assert 6765.89 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_spaced_european_decimal_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/6
+rules:
+  - name: belgium_guaranteed_family_benefits_resource_base_quarterly_ceiling
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2002-01-01'
+        formula: '3079.06'
+"""
+
+    source_text = (
+        "Les ressources ne depassent pas le montant de 3 079,06 euros par trimestre."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 3079.06 in extract_numbers_from_text(source_text)
 
 
 def test_rulespec_grounding_accepts_european_decimal_money_table_cell():
@@ -6097,6 +6143,49 @@ rules:
     assert 0.7933 in extract_numbers_from_text(source_text)
 
 
+def test_rulespec_grounding_preserves_bracketed_justel_decimal_amount():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/214
+rules:
+  - name: belgium_incapacity_minimum_daily_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '45.6685'
+"""
+
+    source_text = (
+        "le montant journalier minimum est egal [ 5 a [ 7 45,6685] 7 euros] 5 ;"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 45.6685 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_three_place_european_decimal_coefficient():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-vlg/statute/example/article/2-3-4-2
+rules:
+  - name: flemish_vehicle_tax_dual_fuel_factor
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.744'
+"""
+
+    source_text = "f = 0,744 voor wegvoertuigen die aangedreven worden door aardgas."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.744 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_three_place_european_decimal_percentage():
     content = """format: rulespec/v1
 module:
@@ -6115,6 +6204,61 @@ rules:
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
     assert 24.957 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_three_place_p_c_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/219bis
+rules:
+  - name: belgium_maternity_indemnity_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.78237'
+"""
+
+    source_text = (
+        "l'indemnite de maternite est fixee a 78,237 p.c. de la remuneration perdue."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert any(
+        math.isclose(value, 0.78237) for value in extract_numbers_from_text(source_text)
+    )
+
+
+def test_rulespec_grounding_accepts_over_100_percent_ranges_as_coefficients():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-bru/regulation/example/article/61
+rules:
+  - name: brussels_social_housing_normal_rental_value_minimum_coefficient
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1.10'
+  - name: brussels_social_housing_normal_rental_value_maximum_coefficient
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '3.00'
+"""
+
+    source_text = (
+        "Le coefficient applique au loyer de base varie entre 110 et 300 % "
+        "du montant de ce loyer."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    numbers = extract_numbers_from_text(source_text)
+    assert 1.1 in numbers
+    assert 3.0 in numbers
 
 
 def test_rulespec_grounding_does_not_trust_module_summary():
@@ -7256,6 +7400,29 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_french_cardinal_180_days():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/5
+rules:
+  - name: belgium_guaranteed_family_benefits_birth_stillbirth_min_pregnancy_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1972-01-01'
+        formula: 180
+"""
+
+    source_text = (
+        "L'allocation de naissance est accordee si est survenue une fausse "
+        "couche apres une grossesse d'au moins cent quatre-vingts jours."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 180 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_coordinated_cardinal_age_bounds():
     content = """format: rulespec/v1
 rules:
@@ -7653,6 +7820,21 @@ def test_numeric_occurrence_extraction_accepts_european_decimal_money():
     )
 
     assert extract_numeric_occurrences_from_text(text) == [6765.89]
+
+
+def test_numeric_occurrence_extraction_accepts_spaced_european_decimal_money():
+    text = (
+        "Le montant trimestriel est 3 079,06 euros. "
+        "Dotted legal reference 4.304.3 remains a citation."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [3079.06]
+
+
+def test_numeric_occurrence_extraction_accepts_french_cardinal_180_days():
+    text = "grossesse d'au moins cent quatre-vingts jours."
+
+    assert extract_numeric_occurrences_from_text(text) == [180.0]
 
 
 def test_numeric_occurrence_extraction_accepts_european_decimal_money_table_cell():
