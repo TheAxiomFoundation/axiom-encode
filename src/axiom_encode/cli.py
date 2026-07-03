@@ -10485,12 +10485,13 @@ def cmd_repair_zero_branch_tests(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
-    initial_validation = ValidatorPipeline(
+    pipeline = ValidatorPipeline(
         policy_repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
         require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
+    )
+    initial_validation = pipeline.validate(rules_file, skip_reviewers=True)
     initial_issues = [
         result.error for result in initial_validation.results.values() if result.error
     ]
@@ -10513,6 +10514,11 @@ def cmd_repair_zero_branch_tests(args):
         repo_path=repo_path,
         relative_output=relative_output,
         issues=zero_branch_issues,
+        valid_output_names=_compiled_rulespec_test_output_names(
+            pipeline,
+            rules_file,
+            relative_output=relative_output,
+        ),
     )
     if not repaired_test_cases:
         print("No zero-branch test repairs found.")
@@ -10521,12 +10527,7 @@ def cmd_repair_zero_branch_tests(args):
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
-    validation = ValidatorPipeline(
-        policy_repo_path=repo_path,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=False,
-        require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
+    validation = pipeline.validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
         issues = [
             result.error for result in validation.results.values() if result.error
@@ -16273,60 +16274,70 @@ def cmd_repair_embedded_scalar_literals(args):
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
     original_content = rules_file.read_text()
-    before_validation = ValidatorPipeline(
+    pipeline = ValidatorPipeline(
         policy_repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
         require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
-    before_issues = [
-        result.error for result in before_validation.results.values() if result.error
-    ]
-    before_scalar_keys = _embedded_scalar_literal_issue_keys(before_issues)
-    if not before_scalar_keys:
-        print("No embedded scalar literal repairs found.")
-        return
-
-    repaired_content, repaired_rules = _repair_embedded_scalar_literals(
-        original_content,
-        relative_output=relative_output,
-        policy_repo_path=repo_path,
-        issues=before_issues,
     )
-    if repaired_content == original_content:
+    validation = pipeline.validate(rules_file, skip_reviewers=True)
+    pending_issues = [
+        result.error for result in validation.results.values() if result.error
+    ]
+    scalar_keys = _embedded_scalar_literal_issue_keys(pending_issues)
+    if not scalar_keys:
         print("No embedded scalar literal repairs found.")
         return
 
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
-    rules_file.write_text(repaired_content)
-    after_validation = ValidatorPipeline(
-        policy_repo_path=repo_path,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=False,
-        require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
-    after_issues = [
-        result.error for result in after_validation.results.values() if result.error
-    ]
-    after_scalar_keys = _embedded_scalar_literal_issue_keys(after_issues)
-    repaired_scalar_keys = before_scalar_keys - after_scalar_keys
-    if not repaired_scalar_keys:
-        rules_file.write_text(original_content)
-        print("Repair failed validation; restored original file.")
-        print(
-            "- Embedded scalar repair did not clear any reported scalar literal issues."
+    repaired_rules: list[str] = []
+    seen_scalar_keys: set[tuple[str, str, str]] = set()
+    while scalar_keys:
+        if scalar_keys <= seen_scalar_keys:
+            rules_file.write_text(original_content)
+            print("Repair failed validation; restored original file.")
+            print(
+                "- Embedded scalar repair did not make progress on reported "
+                "scalar literal issues."
+            )
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+        seen_scalar_keys.update(scalar_keys)
+
+        current_content = rules_file.read_text()
+        repaired_content, repaired_now = _repair_embedded_scalar_literals(
+            current_content,
+            relative_output=relative_output,
+            policy_repo_path=repo_path,
+            issues=pending_issues,
         )
-        for issue in after_issues:
-            print(f"- {issue}")
-        sys.exit(1)
+        if repaired_content == current_content or not repaired_now:
+            rules_file.write_text(original_content)
+            print("Repair failed validation; restored original file.")
+            print("- Embedded scalar repair could not rewrite reported issues.")
+            for issue in pending_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        rules_file.write_text(repaired_content)
+        for rule_name in repaired_now:
+            if rule_name not in repaired_rules:
+                repaired_rules.append(rule_name)
+
+        validation = pipeline.validate(rules_file, skip_reviewers=True)
+        pending_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        scalar_keys = _embedded_scalar_literal_issue_keys(pending_issues)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
         generated_output = output_root / "deterministic-repair" / relative_output
         generated_output.parent.mkdir(parents=True, exist_ok=True)
-        generated_output.write_text(repaired_content)
+        generated_output.write_text(rules_file.read_text())
         result = argparse.Namespace(
             output_file=str(generated_output),
             runner="deterministic-repair",
@@ -16356,8 +16367,10 @@ def cmd_repair_embedded_scalar_literals(args):
         "Applied embedded scalar literal repair to "
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
-    if after_issues:
-        print(f"Pending validation issues remain for later repair: {len(after_issues)}")
+    if pending_issues:
+        print(
+            f"Pending validation issues remain for later repair: {len(pending_issues)}"
+        )
     print(f"manifest={manifest_path}")
 
 
@@ -19413,6 +19426,7 @@ def _append_generated_zero_branch_tests_if_missing(
     repo_path: Path,
     relative_output: Path,
     issues: list[str] | None = None,
+    valid_output_names: set[str] | None = None,
 ) -> list[str]:
     return _append_generic_zero_branch_tests_if_missing(
         rules_file=rules_file,
@@ -19420,7 +19434,50 @@ def _append_generated_zero_branch_tests_if_missing(
         repo_path=repo_path,
         relative_output=relative_output,
         issues=issues or [],
+        valid_output_names=valid_output_names,
     )
+
+
+def _compiled_rulespec_test_output_names(
+    pipeline: Any,
+    rules_file: Path,
+    *,
+    relative_output: Path,
+) -> set[str] | None:
+    """Return local output names accepted by compact tests for a compiled module."""
+    compile_fn = getattr(pipeline, "_compile_rulespec_to_artifact", None)
+    maps_fn = getattr(pipeline, "_rulespec_program_maps", None)
+    policy_repo_path = getattr(pipeline, "policy_repo_path", None)
+    if not callable(compile_fn) or not callable(maps_fn) or policy_repo_path is None:
+        return None
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "compiled.json"
+            result, payload = compile_fn(rules_file, output_path)
+    except Exception:
+        return None
+    if getattr(result, "returncode", 1) != 0 or not isinstance(payload, dict):
+        return None
+
+    derived_by_key, parameter_by_key = maps_fn(payload)
+    target_base = _rulespec_anchor_base_for_output(
+        Path(policy_repo_path),
+        relative_output,
+    )
+    output_names: set[str] = set()
+    for key in {*derived_by_key, *parameter_by_key}:
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        if key_text.startswith(f"{target_base}#"):
+            output_names.add(key_text.split("#", 1)[1])
+            continue
+        if "#" in key_text:
+            output_names.add(key_text.split("#", 1)[1])
+            continue
+        output_names.add(key_text)
+    return output_names
 
 
 def _append_generic_zero_branch_tests_if_missing(
@@ -19430,6 +19487,7 @@ def _append_generic_zero_branch_tests_if_missing(
     repo_path: Path,
     relative_output: Path,
     issues: list[str],
+    valid_output_names: set[str] | None = None,
 ) -> list[str]:
     """Append deterministic zero-output tests named by validator issues."""
     if not issues or not test_file.exists() or not rules_file.exists():
@@ -19453,7 +19511,9 @@ def _append_generic_zero_branch_tests_if_missing(
     rule_names = {
         str(rule.get("name") or "").strip()
         for rule in rules
-        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower() in {"derived", "parameter"}
+        and str(rule.get("name") or "").strip()
     }
     target_base = (
         f"{_repo_jurisdiction_prefix(repo_path)}:"
@@ -19476,6 +19536,8 @@ def _append_generic_zero_branch_tests_if_missing(
     }
     for output_name in output_names:
         if output_name not in rule_names:
+            continue
+        if valid_output_names is not None and output_name not in valid_output_names:
             continue
         target = f"{target_base}#{output_name}"
         if _has_zero_output_test(test_payload, target):

@@ -12874,6 +12874,77 @@ rules:
             "statutes/26/151.test.yaml",
         ]
 
+    def test_repair_zero_branch_tests_skips_noncompiled_outputs(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes" / "26" / "151.yaml"
+        test_file = repo / "statutes" / "26" / "151.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: compiled_zero_branch_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if compiled_condition:
+              amount
+          else:
+              0
+  - name: hidden_zero_branch_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if hidden_condition:
+              amount
+          else:
+              0
+"""
+        )
+        test_file.write_text(
+            """- name: positive_compiled
+  period: 2026
+  input:
+    us:statutes/26/151#input.compiled_condition: true
+    us:statutes/26/151#input.amount: 5
+  output:
+    us:statutes/26/151#compiled_zero_branch_amount: 5
+- name: positive_hidden
+  period: 2026
+  input:
+    us:statutes/26/151#input.hidden_condition: true
+    us:statutes/26/151#input.amount: 5
+  output:
+    us:statutes/26/151#hidden_zero_branch_amount: 5
+"""
+        )
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("statutes/26/151.yaml"),
+            issues=[
+                "Zero branch test coverage missing: "
+                "`compiled_zero_branch_amount` has a formula branch that returns 0.",
+                "Zero branch test coverage missing: "
+                "`hidden_zero_branch_amount` has a formula branch that returns 0.",
+            ],
+            valid_output_names={"compiled_zero_branch_amount"},
+        )
+
+        assert repaired == ["auto_zero_compiled_zero_branch_amount"]
+        test_content = test_file.read_text()
+        assert "auto_zero_compiled_zero_branch_amount" in test_content
+        assert "auto_zero_hidden_zero_branch_amount" not in test_content
+
     def test_repair_zero_branch_tests_keeps_unmasked_legacy_issues(
         self, capsys, tmp_path
     ):
@@ -30110,6 +30181,9 @@ rules:
             "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
             in content
         )
+        assert "snap_contract_income_annualized_under_4_402_2_scalar_limit" in content
+        assert "annual_self_employment_income / 12" not in content
+        assert "annual_contract_income / 12" not in content
         manifest = (
             policy_repo
             / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.402.2.json"
