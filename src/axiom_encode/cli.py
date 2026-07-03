@@ -15380,8 +15380,16 @@ rules:
             kind: formula
             source:
               corpus_citation_path: us/statute/26/85
+              excerpt: gross income includes unemployment compensation
+          - path: versions[1].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/85
               excerpt: in the case of a joint return, the unemployment compensation received by each spouse
     versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0
       - effective_from: '2020-01-01'
         formula: |-
           if taxable_year_begins_in_temporary_unemployment_exclusion_year and adjusted_gross_income_for_temporary_unemployment_exclusion < temporary_unemployment_exclusion_adjusted_gross_income_threshold:
@@ -15433,7 +15441,6 @@ def _section_85_unemployment_test_content() -> str:
   output:
     us:statutes/26/85#unemployment_compensation: 15000
     us:statutes/26/85#section_85_unemployment_compensation_recipient_has_unemployment_compensation: holds
-    us:statutes/26/85#temporary_unemployment_compensation_exclusion_for_recipient: 10200
 - name: temporary_2020_exclusion_caps_single_recipient
   period:
     period_kind: tax_year
@@ -15474,6 +15481,19 @@ def _section_85_unemployment_test_content() -> str:
   output:
     us:statutes/26/85#temporary_unemployment_compensation_exclusion: 0
     us:statutes/26/85#unemployment_compensation_included_in_gross_income: 9000
+- name: pre_temporary_year_includes_unemployment_compensation
+  period:
+    period_kind: tax_year
+    start: '2019-01-01'
+    end: '2019-12-31'
+  input:
+    us:statutes/26/85#input.taxable_year_begins_in_temporary_unemployment_exclusion_year: false
+    us:statutes/26/85#input.adjusted_gross_income_for_temporary_unemployment_exclusion: 50000
+    us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit:
+    - us:statutes/26/85#input.amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation: 8000
+  output:
+    us:statutes/26/85#temporary_unemployment_compensation_exclusion: 0
+    us:statutes/26/85#unemployment_compensation_included_in_gross_income: 8000
 - name: non_temporary_year_includes_unemployment_compensation
   period:
     period_kind: tax_year

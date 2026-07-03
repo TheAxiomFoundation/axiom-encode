@@ -27426,6 +27426,7 @@ rules:
         assert "temporary_2020_exclusion_applies_per_spouse_on_joint_return" in (
             test_content
         )
+        assert "pre_temporary_year_includes_unemployment_compensation" in test_content
         assert (
             "us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit"
             in test_content
