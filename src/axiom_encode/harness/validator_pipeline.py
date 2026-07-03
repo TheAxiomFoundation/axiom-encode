@@ -579,10 +579,28 @@ EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
     r"(?!\d)",
     re.IGNORECASE,
 )
+SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN = re.compile(
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
+    r"(-?\d{1,3}(?: \d{3})+,\d{1,4})"
+    r"(?=\s*(?:euro|euros|eur\b|€))",
+    re.IGNORECASE,
+)
+EUROPEAN_LEADING_ZERO_DECIMAL_NUMBER_PATTERN = re.compile(
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/=<>\"'`“”‘’]))"
+    r"(-?0,\d{3,4})"
+    r"(?!\d)",
+    re.IGNORECASE,
+)
 EUROPEAN_THOUSANDS_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?\d{1,3}(?:[.\u00a0\u202f ]\d{3})+)"
     r"(?=\s*(?:euro|euros|eur\b|€|\bchildren?\b|\bpersons?\b|\bhouseholds?\b))",
+    re.IGNORECASE,
+)
+EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN = re.compile(
+    r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
+    r"(-?[1-9]\d{0,2}(?:\.\d{3})+)"
+    r"(?![\d,])",
     re.IGNORECASE,
 )
 SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
@@ -1172,6 +1190,21 @@ _CARDINAL_VALUE_WORDS = {
     for word, value in _CARDINAL_WORD_VALUES.items()
     if float(value).is_integer()
 }
+_FRENCH_CARDINAL_PHRASE_VALUES = {
+    "cent quatre vingts": 180.0,
+    "cent quatre vingt": 180.0,
+    "cent quatre-vingts": 180.0,
+    "cent quatre-vingt": 180.0,
+}
+_FRENCH_CARDINAL_PHRASE_PATTERN = re.compile(
+    r"\b("
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(_FRENCH_CARDINAL_PHRASE_VALUES, key=len, reverse=True)
+    )
+    + r")\b",
+    re.IGNORECASE,
+)
 _CARDINAL_WORD_SEQUENCE = (
     r"(?:"
     + "|".join(re.escape(word) for word in _CARDINAL_WORD_VALUES)
@@ -2688,14 +2721,42 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    for span, value in _iter_french_cardinal_phrase_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
+
+    for match in SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN.finditer(text):
+        span = match.span(1)
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+            occupied_spans.append(span)
 
     for match in EUROPEAN_DECIMAL_NUMBER_PATTERN.finditer(text):
+        span = match.span(1)
         raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+            occupied_spans.append(span)
+
+    for match in EUROPEAN_LEADING_ZERO_DECIMAL_NUMBER_PATTERN.finditer(text):
+        span = match.span(1)
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+            occupied_spans.append(span)
+
+    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(text):
+        if _span_overlaps(match.span(1), occupied_spans):
+            continue
+        raw = _normalize_grouped_thousands_number(match.group(1))
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
             occupied_spans.append(match.span(1))
 
-    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(text):
+    for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
         raw = _normalize_grouped_thousands_number(match.group(1))
@@ -2892,6 +2953,19 @@ def _iter_cardinal_word_number_matches(
     return matches
 
 
+def _iter_french_cardinal_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _FRENCH_CARDINAL_PHRASE_PATTERN.finditer(text):
+        normalized = re.sub(r"\s+", " ", match.group(1).strip().lower())
+        value = _FRENCH_CARDINAL_PHRASE_VALUES.get(normalized)
+        if value is None:
+            continue
+        matches.append((match.span(1), value))
+    return matches
+
+
 def _split_flat_coordinated_cardinal_phrase(
     phrase: str,
     *,
@@ -2993,10 +3067,29 @@ def _iter_standalone_fraction_word_matches(
 def _extract_percentage_context_values(text: str) -> set[float]:
     """Return decimal rate equivalents for numbers in percentage table contexts."""
     values: set[float] = set()
+    percentage_number = (
+        r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
+        r"(?:,\d{1,4})?"
+    )
+    range_separator = (
+        "(?:and|to|through|thru|et|\\u00e0|a|tot|bis|en|[-\\u2010-\\u2015])"
+    )
+    for match in re.finditer(
+        rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        text,
+        re.IGNORECASE,
+    ):
+        for raw in match.groups():
+            normalized = _normalize_european_decimal_number(raw)
+            with contextlib.suppress(ValueError):
+                value = float(normalized)
+                values.add(value / 100)
+
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[,+\-−*/\"'`“”‘’]))"
-        r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),\d{1,4})"
-        r"\s*(?:%|\b(?:percent|per\s*cent(?:um)?)\b)",
+        r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
         text,
         re.IGNORECASE,
     ):
@@ -3124,6 +3217,8 @@ def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
     """Drop superseded bracketed numerics but preserve bracketed formulas."""
     bracketed = match.group(0)
     inner = bracketed[1:-1]
+    if re.search(r"\d+,\d+", inner):
+        return bracketed
     if re.search(r"[+\-−*/]", inner) or re.search(r"[A-Za-z_]", inner):
         return bracketed
     return " "
@@ -3274,6 +3369,14 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         occurrences.append(value)
         spans.append(span)
 
+    for match in SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        with contextlib.suppress(ValueError):
+            occurrences.append(
+                float(_normalize_european_decimal_number(match.group(1)))
+            )
+            spans.append(span)
+
     for match in EUROPEAN_DECIMAL_NUMBER_PATTERN.finditer(cleaned):
         span = match.span(1)
         if _span_overlaps(span, spans):
@@ -3328,6 +3431,14 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
             continue
         if value not in GROUNDING_ALLOWED_VALUES:
             occurrences.append(value)
+        spans.append(span)
+
+    for span, value in _iter_french_cardinal_phrase_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
+        spans.append(span)
 
     occurrence_counts = Counter(occurrences)
     normalized: list[float] = []
