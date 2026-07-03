@@ -21050,6 +21050,14 @@ prefixes:
     candidate_priority: P4
     rationale: Louisiana FITAP B-640 outputs decompose source-local income-limit, flat-grant, 18+ household, minimum-payment, and rounded-deficit grant rules. PolicyEngine-US exposes la_fitap as a final monthly benefit surface, but currently omits the B-640 rounded-down deficit and under-$10 no-payment rules, so these source-faithful RuleSpec outputs are not one-to-one comparable.
 
+  - legal_id_prefix: us-me:regulations/dhhs/ofi/chapter-331/tanf-rule-125a/maximum-benefit-and-standard-of-need#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: me_tanf
+    candidate_priority: P4
+    rationale: Maine TANF Rule 125A outputs expose the FFY 2022-2026 Adult Included and Child Only standard-of-need and maximum-grant table, add-member rows, and special-need housing addition as source-level legal table mechanics. PolicyEngine's me_tanf surface is a final SPM-unit benefit graph with older 2024 Rule 121A parameter references and no separate child-only/adult-included table boundary, so these current Rule 125A outputs are adjacent coverage rather than one-to-one oracle targets.
+
   - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#tanf_minimum_issuable_benefit
     country: us
     program: tanf

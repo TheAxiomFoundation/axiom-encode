@@ -3976,6 +3976,124 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_maine_tanf_rule_125a_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-me"
+        / "regulations/dhhs/ofi/chapter-331/tanf-rule-125a"
+        / "maximum-benefit-and-standard-of-need.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tanf_table_max_household_size
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 8
+  - name: special_need_housing_addition
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 300
+  - name: adult_included_standard_of_need_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 362
+  - name: adult_included_maximum_grant_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 298
+  - name: child_only_standard_of_need_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 214
+  - name: child_only_maximum_grant_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 178
+  - name: adult_included_standard_of_need_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 195
+  - name: adult_included_maximum_grant_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 160
+  - name: child_only_standard_of_need_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 195
+  - name: child_only_maximum_grant_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 160
+  - name: adult_included_standard_of_need
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: adult_included_standard_of_need_base
+  - name: adult_included_maximum_grant
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: adult_included_maximum_grant_base
+  - name: child_only_standard_of_need
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: child_only_standard_of_need_base
+  - name: child_only_maximum_grant
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: child_only_maximum_grant_base
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["total_outputs"] == 14
+    assert report["status_counts"] == {"known_not_comparable": 14}
+    assert report["untested_comparable"] == 0
+    assert {item["program"] for item in report["items"]} == {"tanf"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {"me_tanf"}
+    assert all(
+        "Maine TANF Rule 125A outputs expose the FFY 2022-2026"
+        in str(item["rationale"])
+        for item in report["items"]
+    )
+
+
+def test_policyengine_program_surface_marks_maine_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    maine_tanf = items_by_variable["me_tanf"]
+
+    assert maine_tanf["program_id"] == "tanf"
+    assert maine_tanf["state"] == "ME"
+    assert maine_tanf["axiom_status"] == "known_not_comparable"
+    assert maine_tanf["mapping_count"] == 1
+    assert maine_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-me:regulations/dhhs/ofi/chapter-331/tanf-rule-125a/"
+        "maximum-benefit-and-standard-of-need#" in maine_tanf["legal_ids"]
+    )
+    assert "Rule 125A coverage" in maine_tanf["rationale"]
+    assert "older Rule 121A parameter references" in maine_tanf["rationale"]
+
+
 def test_policyengine_coverage_infers_health_programs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "regulations/hcpf/health-coverage.yaml",
