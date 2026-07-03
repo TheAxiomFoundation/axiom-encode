@@ -3413,6 +3413,31 @@ def extract_embedded_source_text(content: str) -> str:
     return ""
 
 
+_DECIMAL_PLACE_SCALE_SOURCE_PATTERN = re.compile(
+    r"\b(?:to\s+)?(?:an?\s+)?(?:accuracy\s+of\s+)?"
+    rf"(?P<places>\d+|{_CARDINAL_WORD_SEQUENCE})\s+"
+    r"decimal\s+places?\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _decimal_place_scale_values_from_source(source: str) -> set[float]:
+    """Return integer scales implied by source phrases like four decimal places."""
+    values: set[float] = set()
+    for match in _DECIMAL_PLACE_SCALE_SOURCE_PATTERN.finditer(source):
+        raw_places = match.group("places")
+        places: int | None = None
+        if raw_places.isdigit():
+            places = int(raw_places)
+        else:
+            parsed = _parse_cardinal_number_words(raw_places)
+            if parsed is not None and parsed.is_integer():
+                places = int(parsed)
+        if places is not None and 1 <= places <= 12:
+            values.add(float(10**places))
+    return values
+
+
 def find_ungrounded_numeric_issues(
     content: str,
     source_text: str | None = None,
@@ -3435,9 +3460,20 @@ def find_ungrounded_numeric_issues(
         ]
 
     source_numbers = extract_numbers_from_text(source)
+    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
     issues: list[str] = []
     for _, raw, value in grounding_values:
         if numeric_value_is_grounded(value, source_numbers):
+            continue
+        if any(
+            math.isclose(
+                value,
+                decimal_place_scale_value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            )
+            for decimal_place_scale_value in decimal_place_scale_values
+        ):
             continue
         display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
         issues.append(

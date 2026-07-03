@@ -158,10 +158,10 @@ def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
     _assert_encoder_prompt_topics(ENCODER_PROMPT)
     _assert_encoder_prompt_topics(prompt)
     assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
-    assert (
-        "Include `module.source_verification.corpus_citation_path: us/statute/26/63` exactly."
-        in prompt
-    )
+    normalized_prompt = " ".join(prompt.split())
+    assert "Include `us/statute/26/63` in `module.source_verification`." in prompt
+    assert "primary row is split by a page break" in normalized_prompt
+    assert "supplied adjacent source context" in normalized_prompt
     assert "Target citation/source id: 26 USC 63(c)(5)" in prompt
     assert "Expected output path: statutes/26/63/c/5.yaml" in prompt
 

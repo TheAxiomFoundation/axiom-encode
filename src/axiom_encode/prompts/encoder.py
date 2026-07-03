@@ -1634,7 +1634,13 @@ def get_encoder_prompt(
     if corpus_citation_path:
         corpus_section = f"""
 Corpus source path: {corpus_citation_path}
-Include `module.source_verification.corpus_citation_path: {corpus_citation_path}` exactly.
+Include `{corpus_citation_path}` in `module.source_verification`.
+Use `module.source_verification.corpus_citation_path: {corpus_citation_path}`
+when the primary corpus row fully states the encoded source slice. If the
+primary row is split by a page break or otherwise continues in supplied
+adjacent source context for the same legal provision, use
+`module.source_verification.corpus_citation_paths` and include both the primary
+path and each continuation corpus path that grounds executable rules.
 """
 
     return f"""{ENCODER_PROMPT}

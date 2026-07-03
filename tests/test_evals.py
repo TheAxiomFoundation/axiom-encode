@@ -2959,6 +2959,69 @@ def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_pa
     assert "Do not narrate your plan" in retry_prompt
 
 
+def test_run_source_eval_appends_primary_source_continuation_context(tmp_path):
+    policy_repo_root = tmp_path / "axiom-rules-engine"
+    policy_repo_root.mkdir()
+    continuation = tmp_path / "continuation.txt"
+    continuation.write_text(
+        "Primary source continuation for sample.\n"
+        "Corpus citation path: us/regulation/example/page-2\n\n"
+        "The amount shall be rounded down to the next lower whole dollar.\n"
+    )
+    response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_paths:\n"
+            "      - us/regulation/example/page-1\n"
+            "      - us/regulation/example/page-2\n"
+            "  summary: source states 451.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=10,
+        trace={},
+    )
+
+    with (
+        patch("axiom_encode.harness.evals._run_prompt_eval", return_value=response),
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+    ):
+        [result] = run_source_eval(
+            source_id="sample",
+            source_text="Primary page text ends mid-sentence.",
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            source_metadata_payload={
+                "corpus_citation_path": "us/regulation/example/page-1"
+            },
+            extra_context_paths=[continuation],
+            mode="cold",
+        )
+
+    manifest = json.loads(Path(result.context_manifest_file).read_text())
+    source_text = (
+        Path(result.context_manifest_file).parent / manifest["source_text_file"]
+    ).read_text()
+    assert "Primary page text ends mid-sentence." in source_text
+    assert "Primary source continuation: us/regulation/example/page-2" in source_text
+    assert "rounded down to the next lower whole dollar" in source_text
+    assert manifest["source_metadata"]["corpus_citation_paths"] == [
+        "us/regulation/example/page-1",
+        "us/regulation/example/page-2",
+    ]
+    assert manifest["source_metadata"]["primary_source_continuations"] == [
+        {
+            "context_path": str(continuation),
+            "corpus_citation_path": "us/regulation/example/page-2",
+        }
+    ]
+
+
 def test_empty_artifact_retry_prompt_uses_minimal_source_scope_protocol():
     from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 
