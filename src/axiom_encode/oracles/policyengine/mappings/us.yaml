@@ -21002,6 +21002,14 @@ prefixes:
     candidate_priority: P4
     rationale: Georgia DFCS TANF manual outputs decompose source-level assistance standards, gross and net income tests, countable-income construction, work and dependent-care deductions, resource/income eligibility, and cash-assistance benefit slices. PolicyEngine-US exposes ga_tanf as a final monthly SPM-unit benefit built from PE's own eligibility graph and parameter tables, so these legal outputs are adjacent TANF coverage but not one-to-one oracle targets unless a narrower exact mapping overrides this prefix.
 
+  - legal_id_prefix: us-hi:regulations/har/17/680/17-680-12#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: hi_tanf
+    candidate_priority: P4
+    rationale: Hawaii HAR §17-680-12 outputs decompose the source-level monthly assistance payment, initial-month proration, quotient truncation, whole-dollar rounding, and no-payment thresholds. PolicyEngine-US exposes hi_tanf as a final SPM-unit TANF benefit built from its own eligibility, income, and maximum-benefit graph; it does not expose this section's source-specific payment-determination helpers as one-to-one oracle variables.
+
   - legal_id_prefix: us-ks:policies/dcf/keesm/keesm7410#
     country: us
     program: tanf
