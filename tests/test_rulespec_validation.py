@@ -7500,6 +7500,77 @@ rules:
     assert 7872.29 in source_values
 
 
+def test_rulespec_grounding_keeps_integer_value_also_seen_as_percent():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/company-car
+rules:
+  - name: belgium_company_car_catalog_age_percentage
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.70
+  - name: belgium_company_car_reference_co2
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 70
+"""
+
+    source_text = (
+        'A partir de 61 mois 70 %. La colonne essence est completee par "70 g/km".'
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 0.70 in source_values
+    assert 70 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_table_range_endpoint_before_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-bru/guidance/example/vehicle-tax
+rules:
+  - name: brussels_entry_into_service_tax_thermal_power_band_max_kw
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-07-01'
+        values:
+          2: 100
+"""
+
+    source_text = "2 - 2,1 11 86 à 100 634,89 € 571,40 €"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 100 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_quarter_phrase():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/property-tax
+rules:
+  - name: belgium_immovable_withholding_quarter_reduction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.25
+"""
+
+    source_text = "Il est accorde une reduction d'un quart du precompte immobilier."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.25 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_belgian_ratio_parts():
     content = """format: rulespec/v1
 module:
@@ -7688,9 +7759,7 @@ rules:
     )
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
-    assert {30, 60, 67, 90, 120, 200}.issubset(
-        extract_numbers_from_text(source_text)
-    )
+    assert {30, 60, 67, 90, 120, 200}.issubset(extract_numbers_from_text(source_text))
 
 
 def test_rulespec_grounding_accepts_dutch_cardinal_thousands():
@@ -8281,6 +8350,7 @@ def test_numeric_occurrence_extraction_accepts_belgian_direct_percent():
 
     assert 150000 in values
     assert 0.03 in values
+    assert 150.0 not in values
 
 
 def test_numeric_occurrence_extraction_accepts_belgian_week_duration_days():
