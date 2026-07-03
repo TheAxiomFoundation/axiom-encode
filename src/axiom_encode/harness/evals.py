@@ -737,6 +737,15 @@ class CorpusSourceUnit:
     source: Literal["local", "supabase"]
 
 
+@dataclass(frozen=True)
+class PrimarySourceContinuation:
+    """A context file that explicitly continues the primary source text."""
+
+    source_path: Path
+    corpus_citation_path: str | None
+    body: str
+
+
 @dataclass
 class EvalPromptResponse:
     """Raw model output and trace from a prompt-only eval run."""
@@ -936,6 +945,14 @@ def run_source_eval(
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one corpus-backed source unit."""
     results: list[EvalResult] = []
+    continuations = _primary_source_continuations_from_context_paths(
+        extra_context_paths or []
+    )
+    source_text = _append_primary_source_continuations(source_text, continuations)
+    source_metadata_payload = _source_metadata_with_continuations(
+        source_metadata_payload,
+        continuations,
+    )
 
     for runner in [parse_runner_spec(spec) for spec in runner_specs]:
         results.append(
@@ -990,6 +1007,100 @@ def _sum_token_usage(
         reasoning_output_tokens=(left.reasoning_output_tokens if left else 0)
         + (right.reasoning_output_tokens if right else 0),
     )
+
+
+_PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN = re.compile(
+    r"^\s*Primary source continuation\b",
+    flags=re.IGNORECASE,
+)
+_CORPUS_CITATION_PATH_LINE_PATTERN = re.compile(
+    r"^\s*Corpus citation path:\s*(?P<path>\S+)\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _primary_source_continuations_from_context_paths(
+    extra_context_paths: Sequence[Path],
+) -> list[PrimarySourceContinuation]:
+    """Return explicit primary-source continuations supplied as context files."""
+    continuations: list[PrimarySourceContinuation] = []
+    for raw_path in extra_context_paths:
+        path = Path(raw_path)
+        if not path.is_file():
+            continue
+        try:
+            raw_text = path.read_text()
+        except OSError:
+            continue
+        lines = raw_text.splitlines()
+        first_nonempty = next((line for line in lines if line.strip()), "")
+        if not _PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN.match(first_nonempty):
+            continue
+
+        corpus_citation_path: str | None = None
+        body_lines: list[str] = []
+        for line in lines:
+            if _PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN.match(line):
+                continue
+            citation_match = _CORPUS_CITATION_PATH_LINE_PATTERN.match(line)
+            if citation_match:
+                corpus_citation_path = citation_match.group("path").strip()
+                continue
+            body_lines.append(line)
+        body = "\n".join(body_lines).strip()
+        if body:
+            continuations.append(
+                PrimarySourceContinuation(
+                    source_path=path,
+                    corpus_citation_path=corpus_citation_path,
+                    body=body,
+                )
+            )
+    return continuations
+
+
+def _append_primary_source_continuations(
+    source_text: str,
+    continuations: Sequence[PrimarySourceContinuation],
+) -> str:
+    if not continuations:
+        return source_text
+    parts = [source_text.strip()]
+    for continuation in continuations:
+        label = continuation.corpus_citation_path or continuation.source_path.as_posix()
+        parts.append(f"[Primary source continuation: {label}]\n{continuation.body}")
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def _source_metadata_with_continuations(
+    source_metadata_payload: dict[str, object] | None,
+    continuations: Sequence[PrimarySourceContinuation],
+) -> dict[str, object] | None:
+    if not continuations:
+        return source_metadata_payload
+
+    metadata = dict(source_metadata_payload or {})
+    citation_paths: list[str] = []
+    raw_paths = metadata.get("corpus_citation_paths")
+    if isinstance(raw_paths, list):
+        citation_paths.extend(str(item) for item in raw_paths if str(item).strip())
+    raw_path = metadata.get("corpus_citation_path")
+    if isinstance(raw_path, str) and raw_path.strip():
+        citation_paths.append(raw_path.strip())
+
+    continuation_records: list[dict[str, str]] = []
+    for continuation in continuations:
+        record = {"context_path": str(continuation.source_path)}
+        if continuation.corpus_citation_path:
+            citation_paths.append(continuation.corpus_citation_path)
+            record["corpus_citation_path"] = continuation.corpus_citation_path
+        continuation_records.append(record)
+
+    deduped_paths = list(dict.fromkeys(citation_paths))
+    if deduped_paths:
+        metadata["corpus_citation_paths"] = deduped_paths
+    metadata["primary_source_continuations"] = continuation_records
+    return metadata
 
 
 def _combine_retry_response(
@@ -3915,8 +4026,21 @@ def _run_single_eval(
     policyengine_rule_hint: str | None = None,
 ) -> EvalResult:
     source_unit = resolve_corpus_source_unit(citation, corpus_path)
+    continuations = _primary_source_continuations_from_context_paths(
+        extra_context_paths
+    )
     source_text = source_unit.body
+    source_text = _append_primary_source_continuations(source_text, continuations)
     prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
+    source_metadata_payload = _source_metadata_with_continuations(
+        {
+            "corpus_citation_path": prompt_corpus_citation_path,
+            "corpus_source": source_unit.source,
+            "requested_source": source_unit.requested,
+            "resolved_corpus_citation_path": source_unit.citation_path,
+        },
+        continuations,
+    )
 
     workspace = prepare_eval_workspace(
         citation=citation,
@@ -3925,12 +4049,7 @@ def _run_single_eval(
         source_text=source_text,
         axiom_rules_path=policy_path,
         mode=mode,
-        source_metadata_payload={
-            "corpus_citation_path": prompt_corpus_citation_path,
-            "corpus_source": source_unit.source,
-            "requested_source": source_unit.requested,
-            "resolved_corpus_citation_path": source_unit.citation_path,
-        },
+        source_metadata_payload=source_metadata_payload,
         extra_context_paths=extra_context_paths,
     )
 
