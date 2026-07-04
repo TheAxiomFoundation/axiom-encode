@@ -3816,6 +3816,71 @@ def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
     assert couple_total_column.candidate_priority == "P2"
 
 
+def test_policyengine_registry_includes_delaware_ssp_payment_level_mappings():
+    registry = load_policyengine_registry()
+
+    living_arrangement = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-living-arrangement-variations#de_ssp_living_arrangement",
+        country="us",
+    )
+    assert living_arrangement.mapping_type == "not_comparable"
+    assert living_arrangement.policyengine_variable == "de_ssp_living_arrangement"
+    assert living_arrangement.candidate_priority == "P4"
+
+    individual_amount = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels"
+        "#certified_care_individual_state_supplement_level",
+        country="us",
+    )
+    assert individual_amount.mapping_type == "parameter_value"
+    assert (
+        individual_amount.policyengine_parameter
+        == "gov.states.de.dhss.ssp.amount.individual"
+    )
+    assert individual_amount.period == "month"
+    assert individual_amount.unit == "USD"
+    assert individual_amount.comparison == "money"
+    assert individual_amount.tested_by_legal_ids == (
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp",
+    )
+
+    couple_amount = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-couple-state-supplement-levels"
+        "#certified_care_couple_state_supplement_level",
+        country="us",
+    )
+    assert couple_amount.mapping_type == "parameter_value"
+    assert (
+        couple_amount.policyengine_parameter
+        == "gov.states.de.dhss.ssp.amount.couple"
+    )
+    assert couple_amount.period == "month"
+    assert couple_amount.unit == "USD"
+    assert couple_amount.comparison == "money"
+
+    final_individual_selector = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp",
+        country="us",
+    )
+    assert final_individual_selector.mapping_type == "not_comparable"
+    assert final_individual_selector.policyengine_variable == "de_ssp"
+    assert final_individual_selector.candidate_priority == "P2"
+
+    couple_total = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-couple-state-supplement-levels#de_ssp_couple_total_payment_level",
+        country="us",
+    )
+    assert couple_total.mapping_type == "not_comparable"
+    assert couple_total.policyengine_variable == "de_ssp"
+    assert couple_total.candidate_priority == "P2"
+
+
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
     registry = load_policyengine_registry()
 
