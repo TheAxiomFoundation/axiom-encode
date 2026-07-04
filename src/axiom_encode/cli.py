@@ -12133,13 +12133,25 @@ _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_IMPORTS = {
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
         "#federal_code_a_individual_fbr"
     ),
+    "federal_code_a_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_a_no_supplement_individual_total_payment_level"
+    ),
     "federal_code_b_individual_fbr_less_vtr": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
         "#federal_code_b_individual_fbr_less_vtr"
     ),
+    "federal_code_b_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_no_supplement_individual_total_payment_level"
+    ),
     "federal_code_c_individual_fbr": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
         "#federal_code_c_individual_fbr"
+    ),
+    "federal_code_c_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_c_no_supplement_individual_total_payment_level"
     ),
     "federal_code_d_individual_title_xix_payment_cap": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
@@ -12148,9 +12160,17 @@ _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_IMPORTS = {
     "federal_code_a_couple_fbr": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}#federal_code_a_couple_fbr"
     ),
+    "federal_code_a_no_supplement_couple_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_a_no_supplement_couple_total_payment_level"
+    ),
     "federal_code_b_couple_fbr_less_vtr": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
         "#federal_code_b_couple_fbr_less_vtr"
+    ),
+    "federal_code_b_no_supplement_couple_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_no_supplement_couple_total_payment_level"
     ),
     "federal_code_d_couple_title_xix_payment_cap": (
         f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
@@ -12193,8 +12213,11 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
                 ),
                 {
                     "federal_code_a_individual_fbr",
+                    "federal_code_a_no_supplement_individual_total_payment_level",
                     "federal_code_b_individual_fbr_less_vtr",
+                    "federal_code_b_no_supplement_individual_total_payment_level",
                     "federal_code_c_individual_fbr",
+                    "federal_code_c_no_supplement_individual_total_payment_level",
                     "federal_code_d_individual_title_xix_payment_cap",
                 },
             ),
@@ -12205,7 +12228,9 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
                 ),
                 {
                     "federal_code_a_couple_fbr",
+                    "federal_code_a_no_supplement_couple_total_payment_level",
                     "federal_code_b_couple_fbr_less_vtr",
+                    "federal_code_b_no_supplement_couple_total_payment_level",
                     "federal_code_d_couple_title_xix_payment_cap",
                 },
             ),
@@ -12225,8 +12250,11 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
                 ),
                 {
                     "federal_code_a_individual_fbr",
+                    "federal_code_a_no_supplement_individual_total_payment_level",
                     "federal_code_b_individual_fbr_less_vtr",
+                    "federal_code_b_no_supplement_individual_total_payment_level",
                     "federal_code_c_individual_fbr",
+                    "federal_code_c_no_supplement_individual_total_payment_level",
                     "federal_code_d_individual_title_xix_payment_cap",
                 },
             ),
@@ -12237,7 +12265,9 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
                 ),
                 {
                     "federal_code_a_couple_fbr",
+                    "federal_code_a_no_supplement_couple_total_payment_level",
                     "federal_code_b_couple_fbr_less_vtr",
+                    "federal_code_b_no_supplement_couple_total_payment_level",
                     "federal_code_d_couple_title_xix_payment_cap",
                 },
             ),
@@ -12325,7 +12355,7 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
                     relative_output=relative_output,
                     rules_file=rules_file,
                     test_file=test_file if test_file.exists() else None,
-                    model="ssa-poms-optional-supplement-common-v2",
+                    model="ssa-poms-optional-supplement-common-v3",
                     tool=("axiom-encode repair-ssa-poms-optional-supplement-common"),
                     signing_key=signing_key,
                     axiom_encode_git=axiom_encode_git,
@@ -12469,12 +12499,20 @@ def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
                 "optional supplementary payment programs: OS code Y applies "
                 "when a recipient eligible for an optional supplement waives the "
                 "supplement, the 2026 Federal Code A individual FBR is 994.00, "
+                "the 2026 Federal Code A individual no-supplement total "
+                "payment level is 994.00, "
                 "the 2026 Federal Code B individual FBR less the VTR reduction "
-                "is 662.67, the 2026 Federal Code C individual FBR is 994.00, "
+                "is 662.67, the 2026 Federal Code B individual no-supplement "
+                "total payment level is 662.67, the 2026 Federal Code C "
+                "individual FBR is 994.00, the 2026 Federal Code C individual "
+                "no-supplement total payment level is 994.00, "
                 "the 2026 Federal Code D individual Title XIX payment cap is "
                 "30.00, the 2026 Federal Code A couple FBR is 1491.00, "
+                "the 2026 Federal Code A couple no-supplement total payment "
+                "level is 1491.00, "
                 "the 2026 Federal Code B couple FBR less the VTR reduction is "
-                "994.00, and the 2026 Federal Code D couple Title XIX payment "
+                "994.00, the 2026 Federal Code B couple no-supplement total "
+                "payment level is 994.00, and the 2026 Federal Code D couple Title XIX payment "
                 "cap is 60.00."
             ),
         },
@@ -12539,6 +12577,33 @@ def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
                 "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
             },
             {
+                "name": "federal_code_a_no_supplement_individual_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code A / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
                 "name": "federal_code_b_individual_fbr_less_vtr",
                 "kind": "parameter",
                 "dtype": "Money",
@@ -12567,7 +12632,61 @@ def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
                 "versions": [{"effective_from": "2026-01-01", "formula": "662.67"}],
             },
             {
+                "name": "federal_code_b_no_supplement_individual_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code B / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "B Z All 662.67 1 0.00 662.67",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "662.67"}],
+            },
+            {
                 "name": "federal_code_c_individual_fbr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code C / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "C Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_c_no_supplement_individual_total_payment_level",
                 "kind": "parameter",
                 "dtype": "Money",
                 "unit": "USD",
@@ -12647,6 +12766,33 @@ def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
                 "versions": [{"effective_from": "2026-01-01", "formula": "1491.00"}],
             },
             {
+                "name": "federal_code_a_no_supplement_couple_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code A / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "Z All 1491.00 0.00 1491.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "1491.00"}],
+            },
+            {
                 "name": "federal_code_b_couple_fbr_less_vtr",
                 "kind": "parameter",
                 "dtype": "Money",
@@ -12667,6 +12813,33 @@ def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
                                         "2026/block-14"
                                     ),
                                     "excerpt": "B Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_b_no_supplement_couple_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code B / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "B Z All 994.00 1 0.00 994.00",
                                 },
                             }
                         ]
@@ -12719,11 +12892,26 @@ def _ssa_poms_optional_supplement_common_tests() -> list[dict[str, object]]:
             "input": {},
             "output": {
                 f"{target}#federal_code_a_individual_fbr": 994.0,
+                f"{target}#federal_code_a_no_supplement_individual_total_payment_level": (
+                    994.0
+                ),
                 f"{target}#federal_code_b_individual_fbr_less_vtr": 662.67,
+                f"{target}#federal_code_b_no_supplement_individual_total_payment_level": (
+                    662.67
+                ),
                 f"{target}#federal_code_c_individual_fbr": 994.0,
+                f"{target}#federal_code_c_no_supplement_individual_total_payment_level": (
+                    994.0
+                ),
                 f"{target}#federal_code_d_individual_title_xix_payment_cap": 30.0,
                 f"{target}#federal_code_a_couple_fbr": 1491.0,
+                f"{target}#federal_code_a_no_supplement_couple_total_payment_level": (
+                    1491.0
+                ),
                 f"{target}#federal_code_b_couple_fbr_less_vtr": 994.0,
+                f"{target}#federal_code_b_no_supplement_couple_total_payment_level": (
+                    994.0
+                ),
                 f"{target}#federal_code_d_couple_title_xix_payment_cap": 60.0,
             },
         },
