@@ -3855,8 +3855,7 @@ def test_policyengine_registry_includes_delaware_ssp_payment_level_mappings():
     )
     assert couple_amount.mapping_type == "parameter_value"
     assert (
-        couple_amount.policyengine_parameter
-        == "gov.states.de.dhss.ssp.amount.couple"
+        couple_amount.policyengine_parameter == "gov.states.de.dhss.ssp.amount.couple"
     )
     assert couple_amount.period == "month"
     assert couple_amount.unit == "USD"
