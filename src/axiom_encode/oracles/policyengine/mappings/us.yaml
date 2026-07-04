@@ -20673,6 +20673,51 @@ mappings:
     comparison: bool
     rationale: Same Utah FEP resource-test eligibility predicate under R986-200-230, represented in PolicyEngine as ut_fep_resources_eligible.
 
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#gross_countable_income_snb_percentage_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.dwf.fep.income.gross_income_limit.rate
+    period: month
+    comparison: rate
+    rationale: Same Utah Administrative Code R986-200-239 gross-income limit rate of 185% of the Standard Needs Budget, represented in PolicyEngine as the Utah FEP gross-income-limit rate parameter.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#financial_assistance_gross_countable_income_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_gross_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the source-level dollar gross-income limit equal to 185% of the household-size Standard Needs Budget. PolicyEngine uses the same rate and SNB table inside ut_fep_gross_income_eligible, but does not expose this calculated threshold as a one-to-one oracle variable.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#financial_assistance_gross_countable_income_eligible
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ut_fep_gross_income_eligible
+    entity: spm_unit
+    period: month
+    comparison: bool
+    rationale: Same Utah FEP gross-income eligibility predicate under R986-200-239, represented in PolicyEngine as ut_fep_gross_income_eligible.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#work_expense_allowance_per_employed_person
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.dwf.fep.income.deductions.work_expense_allowance.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Utah Administrative Code R986-200-239 $100 work-expense allowance per employed person, represented in PolicyEngine as the Utah FEP work-expense allowance parameter.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#work_expense_allowance_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_earned_income_after_work_expense
+    candidate_priority: P4
+    rationale: Axiom exposes the household-level work-expense allowance deduction allowed by R986-200-239 when the gross-income test is satisfied. PolicyEngine exposes person-level earned income after the work-expense allowance, not this household aggregate deduction as a one-to-one oracle target.
+
 prefixes:
   - legal_id_prefix: us-dc:statutes/4/4-205/49#
     country: us
