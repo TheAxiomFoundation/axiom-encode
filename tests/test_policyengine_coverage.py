@@ -2249,6 +2249,20 @@ def test_policyengine_program_surface_marks_idaho_aabd_pending_rulespec_encoding
     assert "IDAPA 16.03.05" in id_aabd["rationale"]
 
 
+def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="in_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    in_ssp = items_by_variable["in_ssp"]
+
+    assert in_ssp["program_id"] == "ssi_state_supplement"
+    assert in_ssp["state"] == "IN"
+    assert in_ssp["axiom_status"] == "pending_rulespec_encoding"
+    assert in_ssp["mapping_count"] == 0
+    assert "Indiana Code" in in_ssp["rationale"]
+    assert "FSSA Medicaid Policy Manual Chapter 5000" in in_ssp["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 
