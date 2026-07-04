@@ -2978,6 +2978,7 @@ def test_policyengine_registry_is_legal_id_keyed():
         "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months",
         "us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate",
         "us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate",
+        "us:statutes/42/1397ll/d/2#within_pregnancy_or_applicable_postpartum_period",
         "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman",
     ]
     for legal_id in pregnant_chip_definition_mappings:
