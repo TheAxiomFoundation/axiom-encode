@@ -1152,7 +1152,7 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 
     assert chip["program_id"] == "chip"
-    assert chip["axiom_status"] == "known_not_comparable"
+    assert chip["axiom_status"] == "pending_rulespec_encoding"
     assert chip["policybench_output"] == "person_level_chip_eligibility"
     assert chip["policybench_household_weight"] == pytest.approx(0.18)
 
@@ -1190,23 +1190,32 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["actionable_surfaces"] == []
 
 
-def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():
+def test_policyengine_program_surface_marks_wic_final_eligibility_known_not_comparable():
     report = build_policyengine_program_surface_report()
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
     wic = items_by_variable["is_wic_eligible"]
-    chip = items_by_variable["is_chip_eligible"]
     assert wic["axiom_status"] == "known_not_comparable"
     assert wic["mapping_count"] >= 1
     assert wic["comparable_mapping_count"] == 0
     assert "us:regulations/7-cfr/246/7/" in wic["legal_ids"]
-    assert chip["axiom_status"] == "known_not_comparable"
+    assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
+        {"is_wic_eligible"}
+    )
+
+
+def test_policyengine_program_surface_marks_chip_final_eligibility_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report()
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    chip = items_by_variable["is_chip_eligible"]
+    assert chip["axiom_status"] == "pending_rulespec_encoding"
     assert chip["mapping_count"] >= 1
     assert chip["comparable_mapping_count"] == 0
     assert "us:statutes/42/1397jj/b/1#" in chip["legal_ids"]
-    assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
-        {"is_wic_eligible", "is_chip_eligible"}
-    )
+    assert "is_chip_eligible" in {
+        item["variable"] for item in report["actionable_surfaces"]
+    }
 
 
 def test_policyengine_program_surface_marks_medicare_proxy_known_not_comparable():
