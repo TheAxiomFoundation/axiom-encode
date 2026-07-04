@@ -9319,6 +9319,16 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 unit_relation_aggregate_helper_names=unit_relation_aggregate_helper_names,
             ):
                 continue
+            if source_unit_entity is not None:
+                issues.append(
+                    "Source scope mismatch: "
+                    f"`{name}` is declared on `Person`, but the embedded source "
+                    f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
+                    "unit-scoped test. Encode the rule at the source-stated "
+                    "unit scope or cite source text that states the person-level "
+                    "test."
+                )
+                continue
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `Person`, but the embedded source "

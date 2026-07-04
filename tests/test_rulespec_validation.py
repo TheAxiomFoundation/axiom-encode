@@ -2973,6 +2973,21 @@ def test_policyengine_registry_is_legal_id_keyed():
         assert mapping.program == "chip"
         assert mapping.candidate_priority == "P4"
         assert mapping.policyengine_variable == "is_chip_eligible_child"
+    pregnant_chip_definition_mappings = [
+        "us:statutes/42/1397ll/d/2#standard_postpartum_period_days",
+        "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months",
+        "us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate",
+        "us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate",
+        "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman",
+    ]
+    for legal_id in pregnant_chip_definition_mappings:
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.program == "chip"
+        assert mapping.candidate_priority == "P4"
+        assert (
+            mapping.policyengine_variable == "is_chip_eligible_standard_pregnant_person"
+        )
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",
@@ -17309,7 +17324,7 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `snap_member_resource_eligible` is declared on "
-        "`Person`, but the embedded source states a household/unit-scoped test. "
+        "`Person`, but the embedded source states a `Household` unit-scoped test. "
         "Encode the rule at the source-stated unit scope or cite source text "
         "that states the person-level test."
     ]
@@ -17385,9 +17400,9 @@ rules:
     assert issues == [
         "Source scope mismatch: "
         "`t_snap_member_snap_ineligibility_criterion` is declared on `Person`, "
-        "but the embedded source states a household/unit-scoped test. Encode "
-        "the rule at the source-stated unit scope or cite source text that "
-        "states the person-level test."
+        "but the embedded source states a `Household` unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
     ]
 
 
@@ -17435,9 +17450,9 @@ rules:
     assert issues == [
         "Source scope mismatch: "
         "`t_snap_member_snap_ineligibility_criterion` is declared on `Person`, "
-        "but the embedded source states a household/unit-scoped test. Encode "
-        "the rule at the source-stated unit scope or cite source text that "
-        "states the person-level test."
+        "but the embedded source states a `Household` unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
     ]
 
 
@@ -18048,9 +18063,9 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `adult_group_resource_eligible` is declared "
-        "on `Person`, but the embedded source states a household/unit-scoped "
-        "test. Encode the rule at the source-stated unit scope or cite source "
-        "text that states the person-level test."
+        "on `Person`, but the embedded source states a `Household` "
+        "unit-scoped test. Encode the rule at the source-stated unit scope or "
+        "cite source text that states the person-level test."
     ]
 
 
@@ -18169,6 +18184,36 @@ rules:
     ]
 
 
+def test_source_scope_consistency_names_family_unit_for_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Family income eligibility requires family income to exceed the lower floor
+    and not exceed the State child health plan income eligibility level.
+rules:
+  - name: targeted_low_income_pregnant_woman
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Day
+    source: 42 USC 1397ll(d)(2)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          family_income > pregnant_woman_income_floor
+          and family_income <= state_child_health_plan_income_level
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `targeted_low_income_pregnant_woman` is "
+        "declared on `Person`, but the embedded source states a `Family` "
+        "unit-scoped test. Encode the rule at the source-stated unit scope or "
+        "cite source text that states the person-level test."
+    ]
+
+
 def test_source_scope_consistency_accepts_federal_tax_taxpayer_as_taxunit_rule():
     content = """format: rulespec/v1
 module:
@@ -18279,7 +18324,7 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `taxpayer_is_applicable_taxpayer` is declared "
-        "on `Person`, but the embedded source states a household/unit-scoped "
+        "on `Person`, but the embedded source states a `TaxUnit` unit-scoped "
         "test. Encode the rule at the source-stated unit scope or cite source "
         "text that states the person-level test."
     ]

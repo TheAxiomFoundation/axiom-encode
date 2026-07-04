@@ -34339,7 +34339,8 @@ _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
 )
 _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN = re.compile(
     r"Source scope mismatch: `([^`]+)` is declared on `Person`, but the "
-    r"embedded source states a household/unit-scoped test\."
+    r"embedded source states (?:a `([^`]+)` unit-scoped|a household/unit-scoped) "
+    r"test\."
 )
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
@@ -37030,6 +37031,7 @@ def _try_repair_generated_unit_scoped_person_definition_for_apply(
     return _repair_unit_scoped_person_definition_entities(
         rules_file=rules_file,
         target_names=target_names,
+        unit_entities_by_name=_unit_scoped_person_definition_issue_units(issues),
     )
 
 
@@ -37042,10 +37044,32 @@ def _unit_scoped_person_definition_issue_names(issues: list[str]) -> list[str]:
     return names
 
 
+def _unit_scoped_person_definition_issue_units(
+    issues: list[str],
+) -> dict[str, str]:
+    canonical = {
+        "family": "Family",
+        "household": "Household",
+        "snapunit": "SnapUnit",
+        "spmunit": "SPMUnit",
+        "taxunit": "TaxUnit",
+    }
+    units: dict[str, str] = {}
+    for issue in issues:
+        match = _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN.search(str(issue))
+        if match is None:
+            continue
+        unit = str(match.group(2) or "").replace("_", "").lower()
+        if unit in canonical:
+            units[match.group(1)] = canonical[unit]
+    return units
+
+
 def _repair_unit_scoped_person_definition_entities(
     *,
     rules_file: Path,
     target_names: list[str],
+    unit_entities_by_name: dict[str, str] | None = None,
 ) -> list[str]:
     if not rules_file.exists():
         return []
@@ -37072,7 +37096,10 @@ def _repair_unit_scoped_person_definition_entities(
         target_rule = by_name.get(target_name)
         if not isinstance(target_rule, dict):
             continue
-        if _set_rule_entity_to_unit(target_rule, unit_entity=unit_entity):
+        target_unit_entity = (unit_entities_by_name or {}).get(
+            target_name
+        ) or unit_entity
+        if _set_rule_entity_to_unit(target_rule, unit_entity=target_unit_entity):
             repaired.append(target_name)
 
     if not repaired:
