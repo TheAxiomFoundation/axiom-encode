@@ -11,7 +11,10 @@ from axiom_encode.harness.validator_pipeline import (
     _candidate_rulespec_repo_roots,
     _canonical_rulespec_compile_path,
 )
-from axiom_encode.repo_routing import canonical_rulespec_repo_name
+from axiom_encode.repo_routing import (
+    candidate_jurisdiction_content_dirs,
+    canonical_rulespec_repo_name,
+)
 
 
 def _init_checkout(path: Path, origin: str) -> None:
@@ -32,6 +35,21 @@ def test_canonical_rulespec_repo_name_uses_origin_for_temp_checkout_name(tmp_pat
     assert canonical_rulespec_repo_name(checkout) == "rulespec-us"
     assert canonical_rulespec_repo_name(checkout / "statutes" / "26") == "rulespec-us"
     assert jurisdiction_prefix(checkout) == "us"
+
+
+def test_axiom_workspace_inside_monorepo_is_not_canonical_checkout(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    (checkout / "us").mkdir()
+    (checkout / "us-dc").mkdir()
+    axiom_workspace = checkout / "_axiom"
+    (axiom_workspace / "rulespec-us" / "us").mkdir(parents=True)
+
+    assert canonical_rulespec_repo_name(axiom_workspace) is None
+    assert candidate_jurisdiction_content_dirs(axiom_workspace, "us") == [
+        axiom_workspace / "rulespec-us" / "us",
+        axiom_workspace / "rulespec-us",
+    ]
 
 
 def test_candidate_roots_include_temp_checkout_when_origin_matches(tmp_path):

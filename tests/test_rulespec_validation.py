@@ -3803,7 +3803,17 @@ def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
         country="us",
     )
     assert total_column.mapping_type == "not_comparable"
-    assert total_column.candidate_priority == "P4"
+    assert total_column.policyengine_variable == "dc_ossp"
+    assert total_column.candidate_priority == "P2"
+
+    couple_total_column = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-couple-state-supplement-levels#dc_ossp_couple_total_payment_level",
+        country="us",
+    )
+    assert couple_total_column.mapping_type == "not_comparable"
+    assert couple_total_column.policyengine_variable == "dc_ossp"
+    assert couple_total_column.candidate_priority == "P2"
 
 
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
@@ -13196,6 +13206,56 @@ rules:
         / "rulespec-us"
         / "policies/example/fy-2026.yaml",
         canonical_content,
+    )
+
+    assert (
+        find_upstream_placement_issues(
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
+        )
+        == []
+    )
+
+
+def test_upstream_placement_ignores_nested_axiom_dependency_in_git_monorepo(tmp_path):
+    repo_parent = tmp_path / "repos"
+    checkout = repo_parent / "rulespec-us"
+    subprocess.run(["git", "init", checkout], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=checkout,
+        check=True,
+        capture_output=True,
+    )
+    duplicate_content = """format: rulespec/v1
+rules:
+  - name: federal_code_a_individual_fbr
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '994'
+"""
+    rules_file = _write_rulespec_file(
+        checkout
+        / "us-de"
+        / "policies/ssa/poms/si-01415-058/2026/de-ssp-individual.yaml",
+        duplicate_content,
+    )
+    _write_rulespec_file(
+        checkout
+        / "_axiom"
+        / "rulespec-us"
+        / "us-dc"
+        / "policies/ssa/poms/si-01415-058/2026/dc-ossp-individual.yaml",
+        duplicate_content,
     )
 
     assert (

@@ -1921,6 +1921,25 @@ def test_policyengine_program_surface_marks_connecticut_ssp_known_not_comparable
     assert "final composition surface" in ct_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_dc_ossp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="dc_ossp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    dc_ossp = items_by_variable["dc_ossp"]
+
+    assert dc_ossp["program_id"] == "ssi_state_supplement"
+    assert dc_ossp["state"] == "DC"
+    assert dc_ossp["axiom_status"] == "known_not_comparable"
+    assert dc_ossp["mapping_count"] >= 1
+    assert dc_ossp["comparable_mapping_count"] == 0
+    assert (
+        "us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels"
+        "#dc_ossp_individual_total_payment_level" in dc_ossp["legal_ids"]
+    )
+    assert "POMS SI 01415.058" in dc_ossp["rationale"]
+    assert "final benefit composition" in dc_ossp["rationale"]
+
+
 def test_policyengine_coverage_maps_connecticut_ssp_income_cap_rate(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ct" / "statutes/17b-600.yaml",
