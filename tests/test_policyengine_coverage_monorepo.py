@@ -64,6 +64,56 @@ rules:
         formula: fep_fep_tp_max_assistance
 """
 
+_UT_FEP_R986_239_RULESPEC = """format: rulespec/v1
+rules:
+  - name: gross_countable_income_snb_percentage_limit
+    kind: parameter
+    dtype: Rate
+    period: Month
+    versions:
+      - effective_from: '2022-10-24'
+        formula: |-
+          1.85
+  - name: work_expense_allowance_per_employed_person
+    kind: parameter
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2022-10-24'
+        formula: |-
+          100
+  - name: financial_assistance_gross_countable_income_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2022-10-24'
+        formula: |-
+          gross_countable_income_snb_percentage_limit * standard_needs_budget_for_household_size
+  - name: financial_assistance_gross_countable_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2022-10-24'
+        formula: |-
+          household_gross_countable_income <= financial_assistance_gross_countable_income_limit
+  - name: work_expense_allowance_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2022-10-24'
+        formula: |-
+          if financial_assistance_gross_countable_income_eligible: work_expense_allowance_per_employed_person * employed_person_count_in_household_unit else: 0
+"""
+
 _UNMAPPED_UK_RULESPEC = """format: rulespec/v1
 rules:
   - name: brand_new_local_helper_xyz
@@ -253,6 +303,71 @@ def test_utah_fep_payment_standard_is_comparable_but_table_rows_are_not(tmp_path
         "gross_income_test_limit",
         "net_income_test_snb",
         "fep_fep_tp_max_assistance",
+    ):
+        item = items_by_rule[rule_name]
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+
+
+def test_utah_fep_r986_200_239_gross_income_and_work_expense_mappings(tmp_path):
+    """R986-200-239 maps exact PE parameters/predicates and classifies helpers."""
+    root = tmp_path / "rulespec-us"
+    rulespec_path = (
+        root / "us-ut" / "regulations" / "admin-rules" / "r986" / "200" / "239.yaml"
+    )
+    _write(rulespec_path, _UT_FEP_R986_239_RULESPEC)
+    _write(
+        rulespec_path.with_name("239.test.yaml"),
+        """- name: Utah FEP gross-income limit rate
+  period: 2024-01
+  input:
+    us-ut:regulations/admin-rules/r986/200/239#input.standard_needs_budget_for_household_size: 1000
+    us-ut:regulations/admin-rules/r986/200/239#input.household_gross_countable_income: 1850
+    us-ut:regulations/admin-rules/r986/200/239#input.employed_person_count_in_household_unit: 2
+  output:
+    us-ut:regulations/admin-rules/r986/200/239#gross_countable_income_snb_percentage_limit: 1.85
+    us-ut:regulations/admin-rules/r986/200/239#financial_assistance_gross_countable_income_eligible: holds
+    us-ut:regulations/admin-rules/r986/200/239#work_expense_allowance_per_employed_person: 100
+""",
+    )
+
+    report = build_policyengine_coverage_report(root, program="tanf")
+    items_by_rule = {item["rule_name"]: item for item in report["items"]}
+
+    assert report["status_counts"] == {
+        "comparable": 3,
+        "known_not_comparable": 2,
+    }
+
+    gross_rate = items_by_rule["gross_countable_income_snb_percentage_limit"]
+    assert gross_rate["status"] == "comparable"
+    assert gross_rate["mapping_type"] == "parameter_value"
+    assert (
+        gross_rate["policyengine_parameter"]
+        == "gov.states.ut.dwf.fep.income.gross_income_limit.rate"
+    )
+    assert gross_rate["tested"] is True
+
+    gross_eligible = items_by_rule[
+        "financial_assistance_gross_countable_income_eligible"
+    ]
+    assert gross_eligible["status"] == "comparable"
+    assert gross_eligible["mapping_type"] == "direct_variable"
+    assert gross_eligible["policyengine_variable"] == "ut_fep_gross_income_eligible"
+    assert gross_eligible["tested"] is True
+
+    work_allowance = items_by_rule["work_expense_allowance_per_employed_person"]
+    assert work_allowance["status"] == "comparable"
+    assert work_allowance["mapping_type"] == "parameter_value"
+    assert (
+        work_allowance["policyengine_parameter"]
+        == "gov.states.ut.dwf.fep.income.deductions.work_expense_allowance.amount"
+    )
+    assert work_allowance["tested"] is True
+
+    for rule_name in (
+        "financial_assistance_gross_countable_income_limit",
+        "work_expense_allowance_deduction",
     ):
         item = items_by_rule[rule_name]
         assert item["status"] == "known_not_comparable"
