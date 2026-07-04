@@ -2975,6 +2975,7 @@ def test_policyengine_registry_is_legal_id_keyed():
         assert mapping.policyengine_variable == "is_chip_eligible_child"
     pregnant_chip_definition_mappings = [
         "us:statutes/42/1397ll/d/2#standard_postpartum_period_days",
+        "us:statutes/42/1397ll/d/2#extended_postpartum_period_months",
         "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months",
         "us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate",
         "us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate",

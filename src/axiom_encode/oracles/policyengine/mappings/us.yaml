@@ -396,6 +396,14 @@ mappings:
     policyengine_variable: is_chip_eligible_standard_pregnant_person
     rationale: This RuleSpec output is a federal postpartum-period scalar inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing helper as a one-to-one variable or parameter.
 
+  - legal_id: us:statutes/42/1397ll/d/2#extended_postpartum_period_months
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal extended postpartum period scalar inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing helper as a one-to-one variable or parameter.
+
   - legal_id: us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months
     country: us
     program: chip
