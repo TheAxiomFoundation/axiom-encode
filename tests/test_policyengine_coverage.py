@@ -2001,7 +2001,7 @@ def test_policyengine_program_surface_marks_dc_ossp_known_not_comparable():
     assert "final benefit composition" in dc_ossp["rationale"]
 
 
-def test_policyengine_program_surface_marks_delaware_ssp_pending_rulespec_encoding():
+def test_policyengine_program_surface_marks_delaware_ssp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="de_ssp")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2009,12 +2009,17 @@ def test_policyengine_program_surface_marks_delaware_ssp_pending_rulespec_encodi
 
     assert de_ssp["program_id"] == "ssi_state_supplement"
     assert de_ssp["state"] == "DE"
-    assert de_ssp["axiom_status"] == "pending_rulespec_encoding"
-    assert de_ssp["mapping_count"] == 0
+    assert de_ssp["axiom_status"] == "known_not_comparable"
+    assert de_ssp["mapping_count"] >= 1
+    assert de_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp" in de_ssp["legal_ids"]
+    )
     assert "Delaware Code Title 31 Chapter 5" in de_ssp["rationale"]
     assert "DSSM 13000" in de_ssp["rationale"]
     assert "POMS SI 01415.058" in de_ssp["rationale"]
-    assert "de_ssp" in {item["variable"] for item in report["actionable_surfaces"]}
+    assert "final benefit composition" in de_ssp["rationale"]
 
 
 def test_policyengine_coverage_maps_connecticut_ssp_income_cap_rate(tmp_path):

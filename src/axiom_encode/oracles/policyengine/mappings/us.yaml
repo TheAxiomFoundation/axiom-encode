@@ -2810,6 +2810,165 @@ mappings:
     candidate_priority: P2
     rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 block 14 couple total payment levels. PolicyEngine's final `dc_ossp` person amount composes the District payment standard with eligibility, SSI countable-income offset, and person-level couple allocation logic, and does not expose the POMS federal-plus-District total column as the final benefit amount.
 
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#adult_residential_care_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A residential-care predicate. PolicyEngine's Delaware SSP surface stores a household living-arrangement input and final person-level payment formula rather than exposing this source-specific OS-code predicate as a one-to-one variable.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#assisted_living_facility_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A assisted-living predicate. PolicyEngine's Delaware SSP surface does not expose this OS-code predicate separately from the living-arrangement input and final payment formula.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#adult_foster_care_home_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A adult-foster-care predicate. PolicyEngine's Delaware SSP surface does not expose this source-specific OS-code predicate as a one-to-one oracle target.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#os_code_a_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level Delaware State OS Code A selector over certified residential care settings. PolicyEngine uses a broader Delaware SSP living-arrangement input and final eligibility/payment graph, not this POMS selector as a standalone output.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#no_supplement_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level Delaware State OS Code Z/no-supplement selector. PolicyEngine represents no-supplement cases through its living-arrangement input and final eligibility/payment graph rather than a separate OS Code Z oracle variable.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#de_ssp_living_arrangement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp_living_arrangement
+    candidate_priority: P4
+    rationale: RuleSpec emits the POMS State OS Code value A, Y, or Z. PolicyEngine's Delaware SSP living-arrangement input is a simplified household enum with RESIDENTIAL_CARE and NONE, so the source OS-code string is adjacent but not a one-to-one oracle output.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#certified_care_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.de.dhss.ssp.amount.individual
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp
+    rationale: Same Delaware monthly individual state supplement for POMS Federal Code A / State OS Code A certified-care cases, represented by PolicyEngine's Delaware individual SSP amount parameter.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#no_supplement_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS State OS Code Z individual supplement cell. PolicyEngine's Delaware SSP parameter table stores only the positive certified-care amount; zero no-supplement cases are represented through final eligibility and living-arrangement logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#title_xix_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS Title XIX institution individual supplement cell. PolicyEngine's Delaware SSP amount parameter stores the positive certified-care supplement rather than separate zero source-table cells.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#certified_care_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware total payment level, which sums the federal SSI FBR and Delaware supplement. PolicyEngine's Delaware SSP parameter stores only the state supplement amount, not the federal-plus-state total.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#title_xix_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS Title XIX individual total payment cap. PolicyEngine's Delaware SSP surface stores state supplement amounts and final offset logic separately from federal SSI institution payment caps.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp_individual_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the Delaware POMS federal SSI payment column. PolicyEngine's Delaware SSP variable models only the state supplementary payment amount after eligibility and SSI offset logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware individual state supplement selector. PolicyEngine's final `de_ssp` person amount composes SSP eligibility, individual-vs-couple payment selection, SSI countable-income offset, and person-level couple allocation, so the POMS individual selector is not a one-to-one final benefit oracle.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 Delaware individual total payment levels. PolicyEngine's final `de_ssp` person amount is the state supplement after eligibility, SSI offset, and couple allocation, not the federal-plus-state total payment column.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#certified_care_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.de.dhss.ssp.amount.couple
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Delaware monthly couple state supplement for POMS Federal Code A / State OS Code A certified-care cases, represented by PolicyEngine's Delaware couple SSP amount parameter.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#no_supplement_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS State OS Code Z couple supplement cell. PolicyEngine's Delaware SSP parameter table stores only the positive certified-care couple amount; zero no-supplement cases are represented through final eligibility and living-arrangement logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#title_xix_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS Title XIX institution couple supplement cell. PolicyEngine's Delaware SSP amount parameter stores the positive certified-care couple supplement rather than separate zero source-table cells.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#certified_care_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware couple total payment level, which sums the federal SSI couple FBR and Delaware supplement. PolicyEngine's Delaware SSP parameter stores only the state supplement amount.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#title_xix_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS Title XIX couple total payment cap. PolicyEngine's Delaware SSP surface stores state supplement amounts and final offset logic separately from federal SSI institution payment caps.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#de_ssp_couple_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the Delaware POMS federal SSI couple payment column. PolicyEngine's Delaware SSP variable models only the state supplementary payment amount after eligibility and SSI offset logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#de_ssp_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 Delaware couple total payment levels. PolicyEngine's final `de_ssp` person amount composes the Delaware couple payment standard with eligibility, SSI countable-income offset, and person-level couple allocation, and does not expose the POMS federal-plus-state total column as the final benefit amount.
+
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
     program: ssi_state_supplement

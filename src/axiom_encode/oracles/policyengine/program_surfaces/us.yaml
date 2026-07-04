@@ -1802,12 +1802,14 @@ surfaces:
   variable: de_ssp
   source_type: state_implementation
   state: DE
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: Axiom corpus now includes upstream Delaware Code Title 31 Chapter 5 authority, Delaware DSSM 13000 state
-    supplement administration rules, and SSA POMS SI 01415.058 Delaware 2026 optional-supplement payment levels.
-    No Delaware SSP RuleSpec output has been generated yet; schedule source-backed encoding rather than deferring the
-    jurisdiction.
+  rationale: Axiom encodes SSA POMS SI 01415.058 2026 Delaware payment-level tables and living-arrangement OS-code
+    rules, with upstream source context from Delaware Code Title 31 Chapter 5 and Delaware DSSM 13000 state supplement
+    administration rules. The encoded RuleSpec outputs map exact monthly individual and couple state-supplement
+    parameter cells to PolicyEngine, but PolicyEngine's final `de_ssp` person surface also composes eligibility,
+    individual-vs-couple payment selection, SSI countable-income reduction, and person-level couple allocation, so compare
+    encoded payment-level cells separately until Axiom has equivalent final benefit composition.
 - country: us
   program_id: ssi_state_supplement
   program_name: Florida OSS
