@@ -388,6 +388,46 @@ mappings:
     policyengine_variable: is_chip_eligible_child
     rationale: This RuleSpec output is the federal uncovered-child definition. PolicyEngine exposes final CHIP eligibility and insurance-status inputs, not this statutory prerequisite as a standalone oracle variable.
 
+  - legal_id: us:statutes/42/1397ll/d/2#standard_postpartum_period_days
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is a federal postpartum-period scalar inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing helper as a one-to-one variable or parameter.
+
+  - legal_id: us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output imports the federal extended postpartum coverage period used by the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory period helper as a standalone oracle target.
+
+  - legal_id: us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal lower income floor for targeted low-income pregnant women. PolicyEngine uses state effective CHIP pregnant income limits in final eligibility, not this federal source-level floor as a one-to-one parameter.
+
+  - legal_id: us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output selects the higher of the statutory 185 percent floor and the subsection (b)(1)(A) floor. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory income-floor helper as a standalone oracle variable.
+
+  - legal_id: us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal source-level targeted-low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility after state limits and other category assembly, not this statutory prerequisite as a one-to-one oracle variable.
+
   - legal_id: us:statutes/8/1612/b/2/G#paragraph_1_nonapplication_exception_applies
     country: us
     program: medicaid

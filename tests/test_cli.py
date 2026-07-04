@@ -172,6 +172,7 @@ from axiom_encode.cli import (
     _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply,
     _try_repair_generated_upstream_placement_duplicates_for_apply,
     _unit_scoped_person_definition_issue_names,
+    _unit_scoped_person_definition_issue_units,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     _write_overlay_eval_source_metadata_for_generated_output,
@@ -9474,6 +9475,22 @@ rules:
         assert _unit_scoped_person_definition_issue_names(issues) == [
             "llc_or_s_corporation_owner_earned_income"
         ]
+        assert _unit_scoped_person_definition_issue_units(issues) == {}
+
+    def test_unit_scoped_person_definition_issue_units_captures_source_unit(self):
+        issues = [
+            "Source scope mismatch: `targeted_low_income_pregnant_woman` "
+            "is declared on `Person`, but the embedded source states a "
+            "`Family` unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the person-level test."
+        ]
+
+        assert _unit_scoped_person_definition_issue_names(issues) == [
+            "targeted_low_income_pregnant_woman"
+        ]
+        assert _unit_scoped_person_definition_issue_units(issues) == {
+            "targeted_low_income_pregnant_woman": "Family"
+        }
 
     def test_repair_unit_scoped_person_definition_entities_uses_dominant_unit(
         self, tmp_path
@@ -9513,6 +9530,35 @@ rules:
             "Household",
             "Household",
         ]
+
+    def test_repair_unit_scoped_person_definition_entities_uses_explicit_source_unit(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "statutes/42/1397ll/d/2.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: targeted_low_income_pregnant_woman
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Day
+  versions:
+  - effective_from: '1974-01-01'
+    formula: family_income > pregnant_woman_income_floor
+"""
+        )
+
+        repaired = _repair_unit_scoped_person_definition_entities(
+            rules_file=rules_file,
+            target_names=["targeted_low_income_pregnant_woman"],
+            unit_entities_by_name={"targeted_low_income_pregnant_woman": "Family"},
+        )
+
+        assert repaired == ["targeted_low_income_pregnant_woman"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["entity"] == "Family"
 
     def test_inline_medicaid_magi_income_helpers_removes_one_use_income_helper(
         self, tmp_path
