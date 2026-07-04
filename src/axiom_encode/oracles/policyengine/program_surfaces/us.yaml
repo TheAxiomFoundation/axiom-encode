@@ -1802,10 +1802,12 @@ surfaces:
   variable: de_ssp
   source_type: state_implementation
   state: DE
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom corpus now includes upstream Delaware Code Title 31 Chapter 5 authority, Delaware DSSM 13000 state
+    supplement administration rules, and SSA POMS SI 01415.058 Delaware 2026 optional-supplement payment levels.
+    No Delaware SSP RuleSpec output has been generated yet; schedule source-backed encoding rather than deferring the
+    jurisdiction.
 - country: us
   program_id: ssi_state_supplement
   program_name: Florida OSS
