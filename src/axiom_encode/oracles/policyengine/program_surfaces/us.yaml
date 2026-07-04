@@ -358,10 +358,13 @@ surfaces:
   variable: nc_tanf
   source_type: state_implementation
   state: NC
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine models this program variable. Axiom now has an official NCDHHS Work First Manual 114 corpus slice
+    for the operational payment calculation, but the upstream statute source, N.C. Gen. Stat. 108A-27.01, is still blocked
+    from unattended ingestion by HTTP 403 on the official NC General Assembly endpoint. Do not encode this surface from the
+    manual alone; first ingest the primary-official statute or approve an official-source workaround, then encode the full
+    Work First benefit graph and add legal-ID oracle mappings.
 - country: us
   program_id: tanf
   program_name: New Jersey WFNJ
