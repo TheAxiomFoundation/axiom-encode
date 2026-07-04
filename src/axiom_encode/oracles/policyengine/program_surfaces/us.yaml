@@ -884,11 +884,14 @@ surfaces:
   variable: ut_fep
   source_type: state_implementation
   state: UT
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: Axiom has a source-backed Utah DWS Table 1 payment-standard encoding and oracle mapping for
-    ut_fep_payment_standard. Final ut_fep parity still requires encoding the remaining income, eligibility, assistance-unit,
-    and benefit-composition rules from Utah's upstream R986-200/DWS sources before claiming full program parity.
+  rationale: >-
+    Axiom has a source-backed Utah DWS Table 1 payment-standard encoding and oracle mapping for
+    ut_fep_payment_standard. Final ut_fep parity still requires R986-200-239 income and work-expense RuleSpec, but
+    the current Utah Administrative Code R986-200-239 source is not yet present in the local corpus and direct official
+    Utah admin-rules endpoints were inaccessible during source-first verification. Ingest the maximally upstream current
+    Utah source before encoding the remaining income, eligibility, assistance-unit, and benefit-composition rules.
 - country: us
   program_id: tanf
   program_name: Kentucky K-TAP
