@@ -68,7 +68,7 @@ CLOUD_QUEUE_STATUS_ACTIONS = {
     "pending_oracle_mapping": "wire_oracle_mapping",
     "pending_rulespec_encoding": "encode_rulespec",
     "pending_source_ingestion": "ingest_source",
-    "deferred_jurisdiction": "bootstrap_jurisdiction",
+    "deferred_jurisdiction": "ingest_source",
 }
 _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
@@ -788,17 +788,14 @@ def _cloud_queue_oracle_expectation(action: str) -> str:
         return "ingest source before scheduling RuleSpec encoding"
     if action == "wire_oracle_mapping":
         return "classify existing legal outputs in the oracle registry"
-    if action == "bootstrap_jurisdiction":
-        return "prepare jurisdiction repo/source routing before encoding"
     return "classify outcome before merge"
 
 
 def _cloud_queue_action_rank(action: str) -> int:
     return {
         "ingest_source": 0,
-        "bootstrap_jurisdiction": 1,
-        "encode_rulespec": 2,
-        "wire_oracle_mapping": 3,
+        "encode_rulespec": 1,
+        "wire_oracle_mapping": 2,
     }.get(action, 99)
 
 

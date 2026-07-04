@@ -884,7 +884,7 @@ surfaces:
     state: DC
     axiom_status: deferred_jurisdiction
     priority: P1
-    rationale: Stale jurisdiction bootstrap status.
+    rationale: Stale deferred-jurisdiction status.
   - country: us
     program_id: tanf
     program_name: Vermont Reach Up
@@ -1468,9 +1468,8 @@ surfaces:
     )
     assert report["total_items"] == 4
     assert report["action_counts"] == {
-        "bootstrap_jurisdiction": 1,
         "encode_rulespec": 2,
-        "ingest_source": 1,
+        "ingest_source": 2,
     }
     assert [item["policyengine_variable"] for item in report["items"]] == [
         "new_tax_surface",
@@ -1483,7 +1482,8 @@ surfaces:
     }
 
     mt_snap = items_by_variable["mt_snap"]
-    assert mt_snap["action"] == "bootstrap_jurisdiction"
+    assert mt_snap["action"] == "ingest_source"
+    assert mt_snap["target_repo"] == "axiom-corpus"
     assert mt_snap["policybench_output"] == "snap"
     assert mt_snap["policybench_household_weight"] == pytest.approx(4.15)
 
@@ -1547,8 +1547,8 @@ surfaces:
 
     assert report["total_items"] == 1
     item = report["items"][0]
-    assert item["action"] == "bootstrap_jurisdiction"
-    assert item["target_repo"] == "rulespec-us"
+    assert item["action"] == "ingest_source"
+    assert item["target_repo"] == "axiom-corpus"
     assert item["target_prefix"] == "us-mt"
 
 
