@@ -2420,6 +2420,41 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes a source-local selector over attachment 660-2-4-.19a Maximum Budgeted amounts. PolicyEngine's Alabama SSP surface does not expose that separate maximum-budgeted column.
 
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#optional_supplement_waived_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 11 source-level OS Code Y waived-optional-supplement predicate used to select state payment-table rows. PolicyEngine's state SSP surfaces store payment amounts and final benefit composition, not this POMS row-selection predicate as a one-to-one oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_individual_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_individual_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code B FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_couple_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 federal SSI couple FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_couple_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code B couple FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
+
   - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_a_individual_fbr
     country: us
     program: ssi_state_supplement
