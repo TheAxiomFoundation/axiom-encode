@@ -1466,19 +1466,35 @@ surfaces:
         report["run_artifact_schema"]
         == "axiom-encode/policyengine-cloud-run-artifact/v1"
     )
-    assert report["total_items"] == 3
+    assert report["total_items"] == 4
     assert report["action_counts"] == {
+        "bootstrap_jurisdiction": 1,
         "encode_rulespec": 2,
         "ingest_source": 1,
     }
+    assert [item["policyengine_variable"] for item in report["items"]] == [
+        "new_tax_surface",
+        "mt_snap",
+        "al_tanf_fixture",
+        "az_source_ingestion_fixture",
+    ]
     items_by_variable = {
         item["policyengine_variable"]: item for item in report["items"]
     }
+
+    mt_snap = items_by_variable["mt_snap"]
+    assert mt_snap["action"] == "bootstrap_jurisdiction"
+    assert mt_snap["policybench_output"] == "snap"
+    assert mt_snap["policybench_household_weight"] == pytest.approx(4.15)
 
     new_tax_surface = items_by_variable["new_tax_surface"]
     assert new_tax_surface["action"] == "encode_rulespec"
     assert new_tax_surface["target_repo"] == "rulespec-us"
     assert new_tax_surface["target_prefix"] == "us"
+    assert new_tax_surface["policybench_output"] == (
+        "federal_tax_before_refundable_credits"
+    )
+    assert new_tax_surface["policybench_household_weight"] == pytest.approx(19.14)
     assert "repo:rulespec-us" in new_tax_surface["lock_scopes"]
     assert new_tax_surface["oracle_expectation"].startswith("encode source-law output")
 
@@ -1486,6 +1502,8 @@ surfaces:
     assert al_tanf["action"] == "encode_rulespec"
     assert al_tanf["target_repo"] == "rulespec-us"
     assert al_tanf["target_prefix"] == "us-al"
+    assert al_tanf["policybench_output"] == "tanf"
+    assert al_tanf["policybench_household_weight"] == pytest.approx(0.26)
     assert "repo:rulespec-us" in al_tanf["lock_scopes"]
     assert "target-prefix:us-al" in al_tanf["lock_scopes"]
 
@@ -1493,10 +1511,12 @@ surfaces:
     assert az_ccap["action"] == "ingest_source"
     assert az_ccap["target_repo"] == "axiom-corpus"
     assert az_ccap["target_prefix"] == "us-az"
+    assert az_ccap["policybench_output"] is None
+    assert az_ccap["policybench_household_weight"] is None
     assert "corpus-source:us:ccdf:az_source_ingestion_fixture" in az_ccap["lock_scopes"]
 
 
-def test_policyengine_cloud_queue_can_include_deferred_jurisdictions(tmp_path):
+def test_policyengine_cloud_queue_includes_deferred_jurisdictions_by_default(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
         """source:
@@ -1523,7 +1543,6 @@ surfaces:
     report = build_policyengine_cloud_queue_report(
         tmp_path,
         manifest_path=manifest,
-        include_deferred_jurisdictions=True,
     )
 
     assert report["total_items"] == 1
@@ -1531,6 +1550,39 @@ surfaces:
     assert item["action"] == "bootstrap_jurisdiction"
     assert item["target_repo"] == "rulespec-us"
     assert item["target_prefix"] == "us-mt"
+
+
+def test_policyengine_cloud_queue_can_exclude_deferred_jurisdictions(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: snap
+    program_name: Montana SNAP
+    category: Benefits
+    policyengine_status: complete
+    coverage: MT
+    variable: mt_snap
+    source_type: state_implementation
+    state: MT
+    axiom_status: deferred_jurisdiction
+    priority: P2
+    rationale: Needs jurisdiction setup.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_cloud_queue_report(
+        tmp_path,
+        manifest_path=manifest,
+        include_deferred_jurisdictions=False,
+    )
+
+    assert report["total_items"] == 0
 
 
 def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_not_comparable():

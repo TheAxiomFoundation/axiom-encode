@@ -270,9 +270,11 @@ Each item includes:
 - `oracle_expectation`: what a successful worker should prove or classify
 
 By default the queue includes `pending_source_ingestion`,
-`pending_rulespec_encoding`, and `pending_oracle_mapping` surfaces. Add
-`--include-deferred-jurisdictions` when planning repo/bootstrap work for
-jurisdictions that do not have a ready RuleSpec target yet.
+`pending_rulespec_encoding`, `pending_oracle_mapping`, and
+`deferred_jurisdiction` surfaces. Deferred jurisdiction surfaces are still
+PolicyEngine-modeled parity gaps and should not be hidden unless a caller is
+explicitly planning only ready-to-encode work. Use
+`--exclude-deferred-jurisdictions` to omit repo/bootstrap tasks.
 
 Cloud workers should emit artifacts using the companion run-artifact schema:
 

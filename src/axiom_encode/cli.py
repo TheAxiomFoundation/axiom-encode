@@ -869,7 +869,15 @@ def main():
     cloud_queue_parser.add_argument(
         "--include-deferred-jurisdictions",
         action="store_true",
-        help="Include repo/bootstrap tasks for deferred jurisdictions",
+        help=(
+            "Deprecated compatibility flag; deferred jurisdiction surfaces are "
+            "included by default because they are actionable PE-parity work."
+        ),
+    )
+    cloud_queue_parser.add_argument(
+        "--exclude-deferred-jurisdictions",
+        action="store_true",
+        help="Exclude deferred jurisdiction bootstrap tasks from the queue",
     )
     cloud_queue_parser.add_argument(
         "--limit",
@@ -4260,7 +4268,7 @@ def cmd_cloud_queue(args):
         root,
         country=args.country,
         program=args.program,
-        include_deferred_jurisdictions=args.include_deferred_jurisdictions,
+        include_deferred_jurisdictions=not args.exclude_deferred_jurisdictions,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
