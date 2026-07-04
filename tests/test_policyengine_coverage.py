@@ -2236,6 +2236,19 @@ def test_policyengine_program_surface_marks_alabama_ssp_known_not_comparable():
     assert "final `al_ssp` surface" in al_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_idaho_aabd_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="id_aabd")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    id_aabd = items_by_variable["id_aabd"]
+
+    assert id_aabd["program_id"] == "ssi_state_supplement"
+    assert id_aabd["state"] == "ID"
+    assert id_aabd["axiom_status"] == "pending_rulespec_encoding"
+    assert id_aabd["mapping_count"] == 0
+    assert "IDAPA 16.03.05" in id_aabd["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 

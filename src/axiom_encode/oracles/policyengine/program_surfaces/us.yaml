@@ -1852,10 +1852,11 @@ surfaces:
   variable: id_aabd
   source_type: state_implementation
   state: ID
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Official Idaho IDAPA 16.03.05 AABD administrative-rule corpus artifacts are ingested from the Idaho
+    administrative rules source. Encode the source-law AABD eligibility and payment calculation before classifying
+    comparability with PolicyEngine's final `id_aabd` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Indiana SSP
