@@ -877,7 +877,7 @@ def main():
     cloud_queue_parser.add_argument(
         "--exclude-deferred-jurisdictions",
         action="store_true",
-        help="Exclude deferred jurisdiction bootstrap tasks from the queue",
+        help="Exclude deferred jurisdiction source-ingestion tasks from the queue",
     )
     cloud_queue_parser.add_argument(
         "--limit",

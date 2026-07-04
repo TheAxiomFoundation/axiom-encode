@@ -259,8 +259,8 @@ axiom-encode/policyengine-cloud-queue/v1
 
 Each item includes:
 
-- `action`: one of `ingest_source`, `encode_rulespec`, `wire_oracle_mapping`, or
-  `bootstrap_jurisdiction`
+- `action`: one of `ingest_source`, `encode_rulespec`, or
+  `wire_oracle_mapping`
 - `priority`: the program-surface priority such as `P1` or `P2`
 - `target_repo` and `target_prefix`: where generated RuleSpec or source work
   should eventually land
@@ -273,8 +273,10 @@ By default the queue includes `pending_source_ingestion`,
 `pending_rulespec_encoding`, `pending_oracle_mapping`, and
 `deferred_jurisdiction` surfaces. Deferred jurisdiction surfaces are still
 PolicyEngine-modeled parity gaps and should not be hidden unless a caller is
-explicitly planning only ready-to-encode work. Use
-`--exclude-deferred-jurisdictions` to omit repo/bootstrap tasks.
+explicitly planning only ready-to-encode work. Because Axiom now uses
+country-level RuleSpec repositories, deferred jurisdiction surfaces queue as
+source-ingestion work rather than repo bootstrap work. Use
+`--exclude-deferred-jurisdictions` to omit those source-ingestion tasks.
 
 Cloud workers should emit artifacts using the companion run-artifact schema:
 
