@@ -212,12 +212,12 @@ surfaces:
   coverage: US
   variable: is_chip_eligible
   source_type: eligibility
-  axiom_status: known_not_comparable
+  axiom_status: pending_rulespec_encoding
   priority: P1
-  rationale: PolicyBench scores this direct person-level CHIP eligibility variable. Axiom encodes federal CHIP child and
-    targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available; PolicyEngine's
-    is_chip_eligible is a final category aggregate over child, standard pregnant, and FCEP paths, so the currently encoded
-    legal outputs are adjacent rather than a one-to-one oracle target.
+  rationale: PolicyBench scores this direct person-level CHIP eligibility variable, and it is an appropriate final oracle
+    target once Axiom assembles the upstream CHIP category graph. Axiom currently encodes federal CHIP child and
+    targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available, but still
+    needs RuleSpec coverage for the child, standard pregnant, FCEP, and aggregate category paths before Populace comparison.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
