@@ -2434,6 +2434,13 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
 
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code A as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
   - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_individual_fbr_less_vtr
     country: us
     program: ssi_state_supplement
@@ -2441,12 +2448,26 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code B FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
 
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code B as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
   - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_c_individual_fbr
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code C as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_c_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code C as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
 
   - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_d_individual_title_xix_payment_cap
     country: us
@@ -2462,12 +2483,26 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes the POMS SI 01415.058 block 14 federal SSI couple FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
 
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code A as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
   - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_couple_fbr_less_vtr
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code B couple FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code B as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
 
   - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_d_couple_title_xix_payment_cap
     country: us
