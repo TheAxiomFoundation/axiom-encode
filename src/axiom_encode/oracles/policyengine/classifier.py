@@ -31,6 +31,7 @@ from axiom_encode.oracles.policyengine.adapters import (
     PE_US_VAR_ADAPTERS,
     PolicyEngineUSVarAdapter,
 )
+from axiom_encode.oracles.policyengine.registry import load_policyengine_registry
 
 # RuleSpec dtypes that align with money-amount PolicyEngine variables.
 _MONEY_DTYPES = frozenset({"Money", "USD", "Integer", "Decimal", "Number"})
@@ -142,6 +143,29 @@ def _classify_one(
             return _not_comparable(legal_id, rule_name, source_text)
 
     entity, period = _adapter_entity_period(adapter)
+    registry_mapping = load_policyengine_registry().mapping_for_legal_id(
+        legal_id, country="us"
+    )
+    if (
+        registry_mapping is not None
+        and registry_mapping.mapping_type == "not_comparable"
+        and registry_mapping.policyengine_variable == adapter.pe_var
+    ):
+        return Classification(
+            legal_id=legal_id,
+            mapping_type="not_comparable",
+            policyengine_variable=adapter.pe_var,
+            entity=None,
+            period=None,
+            unit=None,
+            comparison=None,
+            rationale=registry_mapping.rationale
+            or (
+                f"Registry classifies `{legal_id}` as not comparable to "
+                f"`{adapter.pe_var}` despite the matching rule name."
+            ),
+            matched_adapter=rule_name,
+        )
 
     return Classification(
         legal_id=legal_id,

@@ -303,6 +303,70 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
     assert [c.legal_id.split("#")[1] for c in aca_only] == ["aca_ptc"]
 
 
+def test_classify_respects_not_comparable_prefix_for_matching_pe_name(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    source_dir = repo / "statutes" / "42" / "1397jj" / "b"
+    source_dir.mkdir(parents=True)
+    (source_dir / "1.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "is_chip_eligible",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A generated source-level CHIP child prerequisite.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+    program_dir = repo / "programs" / "chip"
+    program_dir.mkdir(parents=True)
+    (program_dir / "fy-2026.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "is_chip_eligible",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A composed CHIP program eligibility output.",
+                        "versions": [
+                            {"effective_from": "2026-01-01", "formula": "true"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    classifications = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us",
+        program="chip",
+    )
+
+    by_legal_id = {c.legal_id: c for c in classifications}
+    source_claim = by_legal_id["us:statutes/42/1397jj/b/1#is_chip_eligible"]
+    assert source_claim.mapping_type == "not_comparable"
+    assert source_claim.policyengine_variable == "is_chip_eligible"
+    assert "source-level CHIP eligibility prerequisites" in source_claim.rationale
+
+    program_claim = by_legal_id["us:programs/chip/fy-2026#is_chip_eligible"]
+    assert program_claim.mapping_type == "direct_variable"
+    assert program_claim.policyengine_variable == "is_chip_eligible"
+
+
 def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
     tmp_path: Path,
 ) -> None:
