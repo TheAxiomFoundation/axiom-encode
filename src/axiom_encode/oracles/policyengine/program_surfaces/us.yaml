@@ -1985,10 +1985,11 @@ surfaces:
   variable: ks_sspp
   source_type: state_implementation
   state: KS
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Official Kansas K.S.A. 39-972 statute corpus artifacts and KHPA Policy No. 2007-05-01 SSPP guidance corpus
+    artifacts are ingested from Kansas Revisor and KDHE official sources. Encode the source-law institutional SSI recipient
+    eligibility and payment rules before classifying comparability with PolicyEngine's final `ks_sspp` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Louisiana OSS
