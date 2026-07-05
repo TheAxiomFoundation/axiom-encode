@@ -151,6 +151,69 @@ rules:
         formula: standard_rate_output_vat - recoverable_input_vat
 """
 
+_UK_COMPANIES_ACT_SMALL_COMPANY_RULESPEC = """format: rulespec/v1
+rules:
+  - name: small_company_annual_turnover_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2025-04-06'
+        formula: 15
+  - name: small_company_qualifying_conditions_met
+    kind: derived
+    versions:
+      - effective_from: '2025-04-06'
+        formula: small_company_turnover_condition_met and small_company_balance_sheet_total_condition_met
+  - name: company_qualifies_as_small
+    kind: derived
+    versions:
+      - effective_from: '2025-04-06'
+        formula: company_is_in_first_financial_year and small_company_qualifying_conditions_met
+"""
+
+_UK_DPA_2018_S157_RULESPEC = """format: rulespec/v1
+rules:
+  - name: uk_gdpr_higher_maximum_fixed_penalty_amount
+    kind: parameter
+    versions:
+      - effective_from: '2018-05-25'
+        formula: 17500000
+  - name: uk_gdpr_higher_maximum_penalty_amount
+    kind: derived
+    versions:
+      - effective_from: '2018-05-25'
+        formula: max(uk_gdpr_higher_maximum_fixed_penalty_amount, uk_gdpr_higher_maximum_turnover_amount)
+  - name: uk_gdpr_higher_maximum_turnover_amount
+    kind: derived
+    versions:
+      - effective_from: '2018-05-25'
+        formula: undertaking_total_worldwide_annual_turnover * uk_gdpr_higher_maximum_turnover_percentage
+  - name: uk_gdpr_higher_maximum_turnover_percentage
+    kind: parameter
+    versions:
+      - effective_from: '2018-05-25'
+        formula: 0.04
+  - name: uk_gdpr_standard_maximum_fixed_penalty_amount
+    kind: parameter
+    versions:
+      - effective_from: '2018-05-25'
+        formula: 8700000
+  - name: uk_gdpr_standard_maximum_penalty_amount
+    kind: derived
+    versions:
+      - effective_from: '2018-05-25'
+        formula: max(uk_gdpr_standard_maximum_fixed_penalty_amount, uk_gdpr_standard_maximum_turnover_amount)
+  - name: uk_gdpr_standard_maximum_turnover_amount
+    kind: derived
+    versions:
+      - effective_from: '2018-05-25'
+        formula: undertaking_total_worldwide_annual_turnover * uk_gdpr_standard_maximum_turnover_percentage
+  - name: uk_gdpr_standard_maximum_turnover_percentage
+    kind: parameter
+    versions:
+      - effective_from: '2018-05-25'
+        formula: 0.02
+"""
+
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -480,6 +543,61 @@ def test_uk_vat_policy_outputs_are_classified_not_comparable(tmp_path):
         item = items_by_id[legal_id]
         assert item["repo"] == "rulespec-uk"
         assert item["program"] == "vat"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+
+
+def test_uk_companies_act_small_company_outputs_are_not_comparable(tmp_path):
+    """Companies Act firm-accounting outputs are outside PolicyEngine UK."""
+    root = tmp_path / "mono"
+    _write(
+        root / "rulespec-uk" / "uk" / "statutes" / "ukpga" / "2006" / "46" / "382.yaml",
+        _UK_COMPANIES_ACT_SMALL_COMPANY_RULESPEC,
+    )
+
+    report = build_policyengine_coverage_report(root)
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for legal_id in (
+        "uk:statutes/ukpga/2006/46/382#small_company_annual_turnover_threshold",
+        "uk:statutes/ukpga/2006/46/382#small_company_qualifying_conditions_met",
+        "uk:statutes/ukpga/2006/46/382#company_qualifies_as_small",
+    ):
+        item = items_by_id[legal_id]
+        assert item["repo"] == "rulespec-uk"
+        assert item["program"] == "companies_act"
+        assert item["status"] == "known_not_comparable"
+        assert item["mapping_type"] == "not_comparable"
+
+
+def test_uk_dpa_2018_s157_penalty_cap_outputs_are_not_comparable(tmp_path):
+    """UK GDPR enforcement-penalty caps are outside PolicyEngine UK."""
+    root = tmp_path / "mono"
+    _write(
+        root / "rulespec-uk" / "uk" / "statutes" / "ukpga" / "2018" / "12" / "157.yaml",
+        _UK_DPA_2018_S157_RULESPEC,
+    )
+
+    report = build_policyengine_coverage_report(root)
+
+    assert report["total_outputs"] == 8
+    assert report["status_counts"] == {"known_not_comparable": 8}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    for rule_name in (
+        "uk_gdpr_higher_maximum_fixed_penalty_amount",
+        "uk_gdpr_higher_maximum_penalty_amount",
+        "uk_gdpr_higher_maximum_turnover_amount",
+        "uk_gdpr_higher_maximum_turnover_percentage",
+        "uk_gdpr_standard_maximum_fixed_penalty_amount",
+        "uk_gdpr_standard_maximum_penalty_amount",
+        "uk_gdpr_standard_maximum_turnover_amount",
+        "uk_gdpr_standard_maximum_turnover_percentage",
+    ):
+        item = items_by_id[f"uk:statutes/ukpga/2018/12/157#{rule_name}"]
+        assert item["repo"] == "rulespec-uk"
+        assert item["program"] == "data_protection"
         assert item["status"] == "known_not_comparable"
         assert item["mapping_type"] == "not_comparable"
 
