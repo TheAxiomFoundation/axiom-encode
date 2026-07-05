@@ -4765,8 +4765,7 @@ rules:
                 policy_repo_root=tmp_path,
                 axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
-                    "Household Size Allowable TCA Monthly Payment "
-                    "1 $348 2 $612 3 $773"
+                    "Household Size Allowable TCA Monthly Payment 1 $348 2 $612 3 $773"
                 ),
             )
 
