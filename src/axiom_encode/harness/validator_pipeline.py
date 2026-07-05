@@ -1266,6 +1266,11 @@ _CARDINAL_NUMBER_WORD_PATTERN = re.compile(
     + r"))*\b",
     re.IGNORECASE,
 )
+_DIGIT_SCALE_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.])(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s+"
+    r"(?P<scale>thousands?|millions?|billions?)\b",
+    re.IGNORECASE,
+)
 _CARDINAL_VALUE_WORDS = {
     int(value): word
     for word, value in _CARDINAL_WORD_VALUES.items()
@@ -2981,6 +2986,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    for span, value in _iter_digit_scale_number_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_french_cardinal_phrase_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -3229,6 +3239,22 @@ def _iter_cardinal_word_number_matches(
         if value is None:
             continue
         matches.append((match.span(), value))
+    return matches
+
+
+def _iter_digit_scale_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return numeric scale phrases such as "20 million" or "10.2 million"."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _DIGIT_SCALE_NUMBER_PATTERN.finditer(text):
+        scale_word = match.group("scale").lower().removesuffix("s")
+        scale = _CARDINAL_SCALE_WORD_VALUES.get(scale_word)
+        if scale is None:
+            continue
+        with contextlib.suppress(ValueError):
+            number = float(match.group("number").replace(",", ""))
+            matches.append((match.span(), number * scale))
     return matches
 
 
@@ -3857,6 +3883,13 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
                 float(_normalize_grouped_thousands_number(match.group(1)))
             )
             spans.append(span)
+
+    for span, value in _iter_digit_scale_number_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
+        spans.append(span)
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
         span = match.span(1)
