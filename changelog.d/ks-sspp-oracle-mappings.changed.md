@@ -1,0 +1,1 @@
+Recognize Kansas SSPP oracle mappings: map the SSPP minimum-age parameter to PolicyEngine as a comparable value, and mark the final `ks_sspp` benefit and the 2007 monthly-payment amount known-not-comparable because the corpus substantiates the 20.00 dollar 2006-2007 amount while PolicyEngine pays a later administrative value of 32.
