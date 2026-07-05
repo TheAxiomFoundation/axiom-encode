@@ -2277,7 +2277,7 @@ def test_policyengine_registry_maps_idaho_aabd_514_maximum_payment_parameters():
         assert mapping.parameter_key == parameter_key
 
 
-def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encoding():
+def test_policyengine_program_surface_marks_indiana_ssp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="in_ssp")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2285,10 +2285,49 @@ def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encodin
 
     assert in_ssp["program_id"] == "ssi_state_supplement"
     assert in_ssp["state"] == "IN"
-    assert in_ssp["axiom_status"] == "pending_rulespec_encoding"
-    assert in_ssp["mapping_count"] == 0
+    assert in_ssp["axiom_status"] == "known_not_comparable"
+    assert in_ssp["mapping_count"] >= 1
+    assert in_ssp["comparable_mapping_count"] == 0
+    assert "us-in:statutes/12-15-32-6/5#in_ssp_sapn" in in_ssp["legal_ids"]
     assert "Indiana Code" in in_ssp["rationale"]
     assert "FSSA Medicaid Policy Manual Chapter 5000" in in_ssp["rationale"]
+    assert "RCAP" in in_ssp["rationale"]
+    assert in_ssp["populace_validation_status"] == "pending_validator"
+
+
+def test_policyengine_registry_maps_indiana_sapn_parameters():
+    registry = load_policyengine_registry()
+
+    pna = registry.mapping_for_legal_id(
+        "us-in:statutes/12-15-32-6#medicaid_facility_resident_personal_allowance_amount",
+        country="us",
+    )
+    assert pna is not None
+    assert pna.program == "ssi_state_supplement"
+    assert pna.mapping_type == "parameter_value"
+    assert (
+        pna.policyengine_parameter == "gov.states.in.fssa.ssp.personal_needs_allowance"
+    )
+
+    maximum = registry.mapping_for_legal_id(
+        "us-in:policies/fssa/medicaid-policy-manual/chapter-5000/5005/05/00#sapn_maximum_benefit_amount",
+        country="us",
+    )
+    assert maximum is not None
+    assert maximum.program == "ssi_state_supplement"
+    assert maximum.mapping_type == "parameter_value"
+    assert (
+        maximum.policyengine_parameter
+        == "gov.states.in.fssa.ssp.sapn.amount.individual"
+    )
+
+    benefit = registry.mapping_for_legal_id(
+        "us-in:policies/fssa/medicaid-policy-manual/chapter-5000/5005/05/00#sapn_benefit_amount",
+        country="us",
+    )
+    assert benefit is not None
+    assert benefit.mapping_type == "not_comparable"
+    assert benefit.policyengine_variable == "in_ssp_sapn"
 
 
 def test_policyengine_program_surface_marks_kansas_sspp_pending_rulespec_encoding():

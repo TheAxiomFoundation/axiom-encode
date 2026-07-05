@@ -1868,12 +1868,17 @@ surfaces:
   variable: in_ssp
   source_type: state_implementation
   state: IN
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: Indiana Code is already available through the source-first Indiana Code corpus release, and official Indiana
-    FSSA Medicaid Policy Manual Chapter 5000 SAPN corpus artifacts are ingested from the FSSA OMPP source. Encode the
-    source-law SAPN eligibility and benefit-calculation rules before classifying comparability with PolicyEngine's final
-    `in_ssp` person-level surface.
+  rationale: Axiom encodes the Indiana Code SAPN personal-needs allowance and facility-resident supplement framework,
+    plus FSSA Medicaid Policy Manual Chapter 5000 SAPN eligibility and benefit-calculation rules. PolicyEngine's final
+    `in_ssp` person-level surface also composes RCAP, and its SAPN subformula uses PolicyEngine SSI/countable-income
+    proxies rather than the manual's budgeted earned and unearned income inputs, so the final aggregate is reviewed but
+    not a one-to-one oracle target.
+  populace_validation:
+    status: pending_validator
+    rationale: Needs either RCAP RuleSpec coverage plus a final `in_ssp` composition, or a narrower Populace adapter for
+      the SAPN source-law budgeted-income inputs before a meaningful full-surface comparison can run.
 - country: us
   program_id: ssi_state_supplement
   program_name: Massachusetts SSP

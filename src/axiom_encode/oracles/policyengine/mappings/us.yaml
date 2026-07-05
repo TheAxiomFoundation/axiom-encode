@@ -26162,6 +26162,42 @@ mappings:
     candidate_priority: P2
     rationale: RuleSpec encodes IDAPA 16.03.05.514 as a source-level AABD cash-payment rule at the cash-payment-unit level, using financial need, countable income, next-dollar rounding, and source-law couple-level maximums. PolicyEngine's final `id_aabd` variable is a person-level surface that additionally computes financial need from IDAPA 16.03.05.501 and .512 allowances, uses `ssi_countable_income`, applies living-arrangement exclusions, and divides the couple amount per person, so it is reviewed but not one-to-one.
 
+  - legal_id: us-in:statutes/12-15-32-6#medicaid_facility_resident_personal_allowance_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.in.fssa.ssp.personal_needs_allowance
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Indiana monthly personal-needs allowance amount for Medicaid facility residents.
+
+  - legal_id: us-in:policies/fssa/medicaid-policy-manual/chapter-5000/5005/05/00#sapn_maximum_benefit_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.in.fssa.ssp.sapn.amount.individual
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same FSSA Chapter 5000 individual SAPN maximum payment amount of $22 per month.
+
+  - legal_id: us-in:policies/fssa/medicaid-policy-manual/chapter-5000/5005/05/00#sapn_benefit_amount
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: in_ssp_sapn
+    candidate_priority: P3
+    rationale: RuleSpec encodes the FSSA Chapter 5000 SAPN source-law benefit calculation from budgeted earned and unearned income, bounded by the manual's $1-to-$22 range. PolicyEngine's `in_ssp_sapn` uses SSI payment and SSI countable income as a proxy for that budgeted-income calculation and includes marital-unit couple handling, so this is adjacent but not a one-to-one oracle comparison.
+
+  - legal_id: us-in:statutes/12-15-32-6/5#in_ssp_sapn
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: in_ssp
+    candidate_priority: P2
+    rationale: RuleSpec encodes the Indiana Code facility-resident supplement payment as a source-level SAPN component. PolicyEngine's final `in_ssp` surface adds RCAP and relies on the FSSA manual SAPN calculation, so the statute-level SAPN component is reviewed but not one-to-one with the final aggregate variable.
+
   - legal_id: us-al:regulations/660-4/1/03/block-1#first_violation_minimum_disqualification_months
     country: us
     program: snap
