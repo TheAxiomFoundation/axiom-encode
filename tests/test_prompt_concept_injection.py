@@ -242,3 +242,37 @@ def test_build_rulespec_eval_prompt_treats_dotted_policyengine_hint_as_oracle_co
     assert "dotted PolicyEngine parameter path" in prompt
     assert "Never emit a RuleSpec rule whose `name:` is a" in prompt
     assert "gov.states.dc.dhcf.ossp.payment.individual" in prompt
+
+
+def test_build_rulespec_eval_prompt_scopes_multi_column_tables_to_hint(
+    tmp_path: Path,
+):
+    source_text = (
+        "Household Size Allowable TCA Monthly Payment Used for Stepparent "
+        "Deemed Income 50% of the Monthly Poverty Level Total Children with "
+        "One Caretaker 1 $348 $665 0 3 $773 $1,138 2"
+    )
+    workspace = _minimal_workspace(tmp_path, source_text)
+
+    prompt = _build_rulespec_eval_prompt(
+        citation=(
+            "us-md/guidance/dhs/fia/im-26-13/2026-tca-tdap-benefit-increase/"
+            "fip-schedule-effective-2026-01-01"
+        ),
+        mode="repo-augmented",
+        workspace=workspace,
+        context_files=[],
+        target_file_name="allowable-tca-monthly-payment.yaml",
+        target_ref_prefix=(
+            "us-md:policies/dhs/fia/im-26-13/2026-tca-tdap-benefit-increase/"
+            "allowable-tca-monthly-payment"
+        ),
+        include_tests=True,
+        runner_backend="codex",
+        policyengine_rule_hint="md_tca_maximum_benefit",
+    )
+
+    assert "multiple independent table columns" in prompt
+    assert "encode only the column" in prompt
+    assert "Do not create executable rules for unrelated sibling" in prompt
+    assert "deemed-income amounts" in prompt
