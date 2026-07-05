@@ -229,6 +229,7 @@ from axiom_encode.cli import (
     cmd_session_start,
     cmd_session_stats,
     cmd_sessions,
+    cmd_sign_applied_files,
     cmd_stats,
     cmd_sync_agent_sessions,
     cmd_sync_transcripts,
@@ -23359,6 +23360,43 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_country_prefixed_existing_rulespec_in_all_mode(self, tmp_path):
+        rule = tmp_path / "us-ga/policies/example.yaml"
+        test = tmp_path / "us-ga/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/us-ga/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "us-ga/policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "us-ga/policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("policies",),
+                all_files=True,
+            )
+
+        assert issues == []
+
     def test_accepts_monorepo_existing_rulespec_with_nested_manifest_in_all_mode(
         self, tmp_path
     ):
@@ -33776,3 +33814,197 @@ class TestCmdCalibrationEdgeCases:
         cmd_calibration(args)
         captured = capsys.readouterr()
         assert "Calibration Report" in captured.out
+
+
+class TestSignAppliedFiles:
+    def _repo_with_unmanifested_encodings(self, tmp_path: Path) -> tuple[Path, str]:
+        repo = tmp_path / "rulespec-ca"
+        _init_test_git_repo(repo)
+        (repo / "README.md").write_text("# rulespec-ca\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "initial")
+        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        rule = repo / "policies/cra/t4127-2026/claim-codes.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test = repo / "policies/cra/t4127-2026/claim-codes.test.yaml"
+        test.write_text("cases: []\n")
+        statute = repo / "statutes/ita/117.yaml"
+        statute.parent.mkdir(parents=True)
+        statute.write_text("format: rulespec/v1\nrules: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "encode without manifests")
+        return repo, base_sha
+
+    def _country_repo_with_unmanifested_encodings(
+        self, tmp_path: Path
+    ) -> tuple[Path, str]:
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        (repo / "README.md").write_text("# rulespec-us\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "initial")
+        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        rule = repo / "us-ga/policies/dfcs/snap/3617.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test = repo / "us-ga/policies/dfcs/snap/3617.test.yaml"
+        test.write_text("cases: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "encode country-prefixed rule without manifest")
+        return repo, base_sha
+
+    def _provenance_stub(self) -> dict:
+        return {
+            "commit": "a" * 40,
+            "dirty_tracked": False,
+            "root": "/tmp/axiom-encode",
+            "version": "0.0.0",
+            "version_commit": "a" * 40,
+        }
+
+    def test_signs_changed_files_and_passes_guard(self, tmp_path, capsys):
+        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value=self._provenance_stub(),
+            ),
+        ):
+            cmd_sign_applied_files(
+                SimpleNamespace(
+                    repo=repo,
+                    base_ref=base_sha,
+                    head_ref="HEAD",
+                    dry_run=False,
+                )
+            )
+
+        output = capsys.readouterr().out
+        assert "guard passes with the new manifests included" in output
+
+        rule_manifest = json.loads(
+            (
+                repo
+                / ".axiom/encoding-manifests/policies/cra/t4127-2026/claim-codes.json"
+            ).read_text()
+        )
+        assert {item["path"] for item in rule_manifest["applied_files"]} == {
+            "policies/cra/t4127-2026/claim-codes.yaml",
+            "policies/cra/t4127-2026/claim-codes.test.yaml",
+        }
+        assert rule_manifest["tool"] == "axiom-encode sign-applied-files"
+        assert rule_manifest["backend"] == "manual"
+        assert rule_manifest["citation"] == "ca:policies/cra/t4127-2026/claim-codes"
+        assert (
+            _applied_encoding_manifest_signature_issue(
+                rule_manifest, TEST_APPLY_SIGNING_KEY
+            )
+            is None
+        )
+
+        statute_manifest = json.loads(
+            (repo / ".axiom/encoding-manifests/statutes/ita/117.json").read_text()
+        )
+        assert [item["path"] for item in statute_manifest["applied_files"]] == [
+            "statutes/ita/117.yaml"
+        ]
+
+        # Commit the manifests the way the real flow does, so the CI-style
+        # diff against the base includes them.
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "attest encodings")
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
+        assert issues == []
+
+    def test_signs_country_prefixed_files_and_passes_guard(self, tmp_path, capsys):
+        repo, base_sha = self._country_repo_with_unmanifested_encodings(tmp_path)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value=self._provenance_stub(),
+            ),
+        ):
+            cmd_sign_applied_files(
+                SimpleNamespace(
+                    repo=repo,
+                    base_ref=base_sha,
+                    head_ref="HEAD",
+                    dry_run=False,
+                )
+            )
+
+        output = capsys.readouterr().out
+        assert "guard passes with the new manifests included" in output
+
+        manifest = json.loads(
+            (
+                repo / ".axiom/encoding-manifests/us-ga/policies/dfcs/snap/3617.json"
+            ).read_text()
+        )
+        assert {item["path"] for item in manifest["applied_files"]} == {
+            "us-ga/policies/dfcs/snap/3617.yaml",
+            "us-ga/policies/dfcs/snap/3617.test.yaml",
+        }
+        assert manifest["citation"] == "us-ga:policies/dfcs/snap/3617"
+
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "attest country-prefixed encoding")
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
+        assert issues == []
+
+    def test_dry_run_writes_nothing(self, tmp_path, capsys):
+        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
+
+        cmd_sign_applied_files(
+            SimpleNamespace(repo=repo, base_ref=base_sha, head_ref="HEAD", dry_run=True)
+        )
+
+        output = capsys.readouterr().out
+        assert "would sign policies/cra/t4127-2026/claim-codes.yaml" in output
+        assert not (repo / ".axiom/encoding-manifests").exists()
+
+    def test_reports_when_nothing_changed(self, tmp_path, capsys):
+        repo, _base_sha = self._repo_with_unmanifested_encodings(tmp_path)
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        cmd_sign_applied_files(
+            SimpleNamespace(repo=repo, base_ref=head, head_ref="HEAD", dry_run=False)
+        )
+
+        assert "No protected RuleSpec changes to attest." in capsys.readouterr().out
+
+    def test_rejects_companion_test_without_main_file(self, tmp_path, capsys):
+        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
+        orphan = repo / "policies/cra/orphan.test.yaml"
+        orphan.write_text("cases: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "orphan test")
+
+        with pytest.raises(SystemExit):
+            cmd_sign_applied_files(
+                SimpleNamespace(
+                    repo=repo, base_ref=base_sha, head_ref="HEAD", dry_run=False
+                )
+            )
+        assert "main RuleSpec file is missing" in capsys.readouterr().out

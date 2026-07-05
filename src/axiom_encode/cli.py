@@ -2540,6 +2540,39 @@ def main():
         help="List the runs that would sync without writing to Supabase",
     )
 
+    sign_applied_files_parser = subparsers.add_parser(
+        "sign-applied-files",
+        help=(
+            "Write signed apply manifests attesting existing RuleSpec files "
+            "changed vs a base ref - key-holder attestation for encodings "
+            "that were committed without the encode --apply flow"
+        ),
+    )
+    sign_applied_files_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Path to the rulespec repo checkout",
+    )
+    sign_applied_files_parser.add_argument(
+        "--base-ref",
+        default=None,
+        help=(
+            "Git base ref to diff against (e.g. origin/main); defaults to "
+            "uncommitted changes against HEAD"
+        ),
+    )
+    sign_applied_files_parser.add_argument(
+        "--head-ref",
+        default="HEAD",
+        help="Git head ref for the diff (default: HEAD)",
+    )
+    sign_applied_files_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List the manifests that would be written without signing",
+    )
+
     args = parser.parse_args()
 
     if args.command == "validate":
@@ -2715,6 +2748,8 @@ def main():
         cmd_sync_agent_sessions(args)
     elif args.command == "sync-applied-runs":
         cmd_sync_applied_runs(args)
+    elif args.command == "sign-applied-files":
+        cmd_sign_applied_files(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -23346,9 +23381,13 @@ def _all_protected_rulespec_yaml_paths(
     repo_path: Path, *, roots: tuple[str, ...]
 ) -> list[str]:
     paths: set[str] = set()
-    for root in roots:
-        base = repo_path / root
-        if not base.exists():
+    base_dirs: set[Path] = set()
+    for parent in [repo_path, *[path for path in repo_path.iterdir() if path.is_dir()]]:
+        if parent.name in {".git", ".axiom", ".venv", "__pycache__"}:
+            continue
+        base_dirs.update(parent / root for root in roots)
+    for base in sorted(base_dirs):
+        if not base.exists() or not base.is_dir():
             continue
         for suffix in ("*.yaml", "*.yml"):
             for path in base.rglob(suffix):
@@ -23424,13 +23463,26 @@ def _git_changed_files(
     return sorted(set(changed))
 
 
-def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+def _protected_rulespec_root_index(path: Path, *, roots: tuple[str, ...]) -> int | None:
     parts = path.parts
     if len(parts) < 2:
-        return False
+        return None
     if parts[0] not in roots:
-        return False
-    return path.suffix in {".yaml", ".yml"}
+        if (
+            len(parts) >= 3
+            and parts[1] in roots
+            and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+        ):
+            return 1
+        return None
+    return 0
+
+
+def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+    return (
+        path.suffix in {".yaml", ".yml"}
+        and _protected_rulespec_root_index(path, roots=roots) is not None
+    )
 
 
 def _is_applied_encoding_manifest_path(path: Path, *, roots: tuple[str, ...]) -> bool:
@@ -47005,6 +47057,126 @@ def cmd_sync_applied_runs(args):
     )
     if stats["failed"]:
         sys.exit(1)
+
+
+def cmd_sign_applied_files(args):
+    """Write signed apply manifests attesting existing RuleSpec files.
+
+    For encodings that were committed directly (outside the
+    ``encode --apply`` flow), a signing-key holder can attest the exact
+    file contents after review. Writes one manifest per encoding (main
+    file plus its companion test) covering the files changed against
+    ``--base-ref``, mirroring the deterministic repair commands' use of
+    ``_write_applied_encoding_manifest`` — the guard verifies the
+    signature and file hashes either way.
+    """
+    repo_path = Path(args.repo).resolve()
+    if not (repo_path / ".git").exists():
+        print(f"Not a git checkout: {repo_path}")
+        sys.exit(1)
+
+    try:
+        changed = _git_changed_files(
+            repo_path, base_ref=args.base_ref, head_ref=args.head_ref
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    roots = tuple(sorted(RULESPEC_SOURCE_ROOTS))
+    protected = [
+        path
+        for path in changed
+        if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+        and (repo_path / path).exists()
+    ]
+    if not protected:
+        print("No protected RuleSpec changes to attest.")
+        return
+
+    groups: dict[str, list[str]] = {}
+    for path in protected:
+        main_rel = (
+            f"{path[: -len('.test.yaml')]}.yaml"
+            if path.endswith(".test.yaml")
+            else path
+        )
+        groups.setdefault(main_rel, []).append(path)
+
+    missing_main = sorted(
+        main_rel for main_rel in groups if not (repo_path / main_rel).exists()
+    )
+    if missing_main:
+        for main_rel in missing_main:
+            print(
+                f"Cannot attest {main_rel}: companion test changed but the main RuleSpec file is missing"
+            )
+        sys.exit(1)
+
+    if getattr(args, "dry_run", False) is True:
+        for main_rel in sorted(groups):
+            print(f"would sign {main_rel} covering {sorted(groups[main_rel])}")
+        print(f"{len(groups)} manifest(s) for {len(protected)} file(s)")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    manifest_paths: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for main_rel in sorted(groups):
+            relative_output = Path(main_rel)
+            generated_output = output_root / "sign-applied-files" / relative_output
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text((repo_path / relative_output).read_text())
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="manual-attestation",
+                backend="manual",
+                model="",
+                tool="axiom-encode sign-applied-files",
+                citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_paths.append(
+                _write_applied_encoding_manifest(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=repo_path,
+                    relative_output=relative_output,
+                    applied_files=[
+                        repo_path / path for path in sorted(groups[main_rel])
+                    ],
+                    run_id=None,
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+
+    for manifest_path in manifest_paths:
+        print(f"signed {manifest_path.relative_to(repo_path).as_posix()}")
+
+    issues = guard_generated_change_issues(
+        repo_path,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        changed_files=sorted(
+            set(changed)
+            | {path.relative_to(repo_path).as_posix() for path in manifest_paths}
+        ),
+    )
+    if issues:
+        print("Guard would still fail after signing:")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+    print(
+        f"{len(manifest_paths)} manifest(s) attest {len(protected)} file(s); "
+        "guard passes with the new manifests included"
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
