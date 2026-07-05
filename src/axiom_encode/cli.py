@@ -8858,9 +8858,7 @@ def _cms_chip_fcep_text_segments(body: str) -> list[str]:
     segments: list[str] = []
     for part in re.split(r"(?<=[.;])\s+", normalized):
         if len(part) > 900:
-            segments.extend(
-                re.split(r"(?=\d+\.\d+(?:\.\d+)?(?:-[A-Z]+)?\s)", part)
-            )
+            segments.extend(re.split(r"(?=\d+\.\d+(?:\.\d+)?(?:-[A-Z]+)?\s)", part))
         else:
             segments.append(part)
     return [segment.strip() for segment in segments if segment.strip()]
@@ -8890,8 +8888,10 @@ def _cms_chip_fcep_segment_score(
     if "/summary/block-" in citation_path:
         score += 230
     page_number = metadata.get("page_number")
-    if isinstance(page_number, int) and page_number <= 2 and any(
-        marker in lowered for marker in ("approved", "amendment", "spa")
+    if (
+        isinstance(page_number, int)
+        and page_number <= 2
+        and any(marker in lowered for marker in ("approved", "amendment", "spa"))
     ):
         score += 170
 
@@ -8942,9 +8942,7 @@ def _cms_chip_fcep_segment_score(
         score += 25
     if "title xxi" in lowered or "chip" in lowered:
         score += 15
-    if any(
-        marker in lowered for marker in ("premium", "copayment", "cost sharing")
-    ):
+    if any(marker in lowered for marker in ("premium", "copayment", "cost sharing")):
         score -= 55
     if any(
         marker in lowered
@@ -9314,12 +9312,9 @@ def _cms_chip_build_composition_file(
             "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
             f"and medicaid_income_level <= {fcep_effective_limit}"
         )
-        fcep_atoms = (
-            fcep_source_atom
-            + _cms_chip_formula_source_atom(
-                corpus_citation_path=CMS_CHIP_FCEP_FORMULA_CORPUS_PATH,
-                excerpt="through the application of sections 457.10",
-            )
+        fcep_atoms = fcep_source_atom + _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_CHIP_FCEP_FORMULA_CORPUS_PATH,
+            excerpt="through the application of sections 457.10",
         )
         rules.append(
             _cms_chip_composition_rule_block(

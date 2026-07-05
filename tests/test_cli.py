@@ -11588,9 +11588,7 @@ rules:
             "medicaid_income_level <= colorado_fcep_effective_fpl_limit"
             in rules_content
         )
-        assert (
-            "It also applies the CMS CHIP FCEP SPA source" in rules_content
-        )
+        assert "It also applies the CMS CHIP FCEP SPA source" in rules_content
 
         test_content = test_file.read_text()
         assert (
