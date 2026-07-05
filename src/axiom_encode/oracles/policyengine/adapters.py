@@ -791,6 +791,13 @@ PE_US_CHIP_VAR_ADAPTERS = (
         comparison="decision",
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_eligible_standard_pregnant_person",),
+        pe_var="is_chip_eligible_standard_pregnant_person",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("is_chip_fcep_eligible_person",),
         pe_var="is_chip_fcep_eligible_person",
         entity="person",

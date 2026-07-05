@@ -2018,6 +2018,43 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    generate_cms_chip_composition_parser = subparsers.add_parser(
+        "generate-cms-chip-eligibility-composition",
+        help=(
+            "Generate signed state CHIP eligibility composition RuleSpec "
+            "files from federal CHIP law and CMS eligibility-level modules"
+        ),
+    )
+    generate_cms_chip_composition_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    generate_cms_chip_composition_parser.add_argument(
+        "--state",
+        dest="states",
+        action="append",
+        default=[],
+        help=(
+            "State name or postal abbreviation to generate; may be repeated. "
+            "Defaults to every existing state CMS eligibility-level file."
+        ),
+    )
+    generate_cms_chip_composition_parser.add_argument(
+        "--overwrite-existing",
+        action="store_true",
+        help="Replace existing state CHIP eligibility composition files",
+    )
+    generate_cms_chip_composition_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_medicaid_optional_parser = subparsers.add_parser(
         "repair-medicaid-optional-senior-composition",
         help="Apply signed deterministic Medicaid optional senior/disabled composition repairs",
@@ -2839,6 +2876,8 @@ def main():
         cmd_repair_cms_effective_magi_limits(args)
     elif args.command == "generate-cms-medicaid-chip-eligibility-levels":
         cmd_generate_cms_medicaid_chip_eligibility_levels(args)
+    elif args.command == "generate-cms-chip-eligibility-composition":
+        cmd_generate_cms_chip_eligibility_composition(args)
     elif args.command == "repair-medicaid-optional-senior-composition":
         cmd_repair_medicaid_optional_senior_composition(args)
     elif args.command == "repair-medicaid-primary-category-composition":
@@ -8122,6 +8161,12 @@ class _CmsGeneratedEligibilityFile(NamedTuple):
     output_values: dict[str, str]
 
 
+class _CmsGeneratedChipCompositionFile(NamedTuple):
+    relative_output: Path
+    rules_content: str
+    test_content: str
+
+
 class _CmsEligibilityHtmlTableParser(HTMLParser):
     """Extract the first HTML table while ignoring footnote superscripts."""
 
@@ -8200,6 +8245,11 @@ def _cms_file_slug(state: str) -> str:
 
 def _cms_yaml_double(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _indent_block(value: str, spaces: int) -> str:
+    prefix = " " * spaces
+    return "\n".join(f"{prefix}{line}" if line else prefix for line in value.splitlines())
 
 
 def _cms_rate_from_table_cell(cell: str) -> Decimal | None:
@@ -8590,6 +8640,395 @@ def _rulespec_rule_names(content: str) -> set[str]:
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+
+
+CMS_CHIP_COMPOSITION_MODEL = "cms-chip-eligibility-composition-v1"
+CMS_CHIP_CHILD_SOURCE_RELATIVE = Path("us") / "statutes" / "42" / "1397jj" / "c" / "1.yaml"
+CMS_CHIP_CHILD_TARGET = "us:statutes/42/1397jj/c/1#child"
+
+
+def _cms_state_code_aliases() -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for state, code in CMS_MEDICAID_CHIP_STATE_CODES.items():
+        aliases[code.lower()] = code
+        aliases[state.lower()] = code
+        aliases[_cms_state_slug(state)] = code
+        aliases[_cms_state_slug(state).replace("_", "-")] = code
+    return aliases
+
+
+def _cms_state_name_from_code(code: str) -> str:
+    for state, candidate_code in CMS_MEDICAID_CHIP_STATE_CODES.items():
+        if candidate_code == code:
+            return state
+    return code
+
+
+def _cms_state_slug_from_rules(
+    *,
+    rules_by_name: dict[str, dict[str, Any]],
+    relative_output: Path,
+) -> str:
+    suffixes = [
+        "children_medicaid_ages_0_to_1_fpl_limit",
+        "children_separate_chip_fpl_limit",
+        "pregnant_women_chip_fpl_limit",
+        "adult_medicaid_expansion_available",
+    ]
+    for rule_name in sorted(rules_by_name):
+        for suffix in suffixes:
+            tail = f"_{suffix}"
+            if rule_name.endswith(tail):
+                return rule_name[: -len(tail)]
+    stem = relative_output.stem.removesuffix("-medicaid-chip-bhp-eligibility-levels")
+    return stem.replace("-", "_")
+
+
+def _cms_state_code_from_relative_output(relative_output: Path) -> str:
+    prefix = relative_output.parts[0]
+    if not prefix.startswith("us-"):
+        raise RuntimeError(f"CMS state file must be under us-XX: {relative_output}")
+    return prefix.removeprefix("us-").upper()
+
+
+def _cms_chip_composition_relative_output(cms_relative_output: Path) -> Path:
+    stem = cms_relative_output.stem.removesuffix(
+        "-medicaid-chip-bhp-eligibility-levels"
+    )
+    return cms_relative_output.with_name(f"{stem}-chip-eligibility.yaml")
+
+
+def _cms_existing_state_eligibility_files(repo_path: Path) -> list[Path]:
+    return sorted(
+        path.relative_to(repo_path)
+        for path in repo_path.glob(
+            "us-*/policies/cms/*-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+    )
+
+
+def _cms_requested_state_codes_for_existing_files(raw_states: list[str]) -> set[str] | None:
+    if not raw_states:
+        return None
+    aliases = _cms_state_code_aliases()
+    requested: set[str] = set()
+    unknown: list[str] = []
+    for raw in raw_states:
+        code = aliases.get(raw.strip().lower())
+        if code is None:
+            unknown.append(raw)
+        else:
+            requested.add(code)
+    if unknown:
+        raise RuntimeError(f"Unknown CMS table state(s): {', '.join(unknown)}")
+    return requested
+
+
+def _cms_rule_names_by_name(content: str) -> dict[str, dict[str, Any]]:
+    payload = yaml.safe_load(content) or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError("CMS eligibility-level RuleSpec file is not a mapping")
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        raise RuntimeError("CMS eligibility-level RuleSpec file has no rules list")
+    by_name: dict[str, dict[str, Any]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            by_name[name] = rule
+    return by_name
+
+
+def _cms_chip_import_atom(
+    *,
+    target: str,
+    output: str,
+    digest: str,
+) -> str:
+    return f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: {target}
+              output: {output}
+              hash: sha256:{digest}
+"""
+
+
+def _cms_chip_formula_source_atom(*, corpus_citation_path: str, excerpt: str) -> str:
+    return f"""          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {corpus_citation_path}
+              excerpt: {_cms_yaml_double(excerpt)}
+"""
+
+
+def _cms_chip_composition_rule_block(
+    *,
+    name: str,
+    source: str,
+    proof_atoms: str,
+    formula: str,
+) -> str:
+    return f"""  - name: {name}
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: {source}
+    metadata:
+      proof:
+        atoms:
+{proof_atoms.rstrip()}
+    versions:
+      - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
+        formula: |-
+{_indent_block(formula, 10)}
+"""
+
+
+def _cms_chip_build_composition_file(
+    *,
+    repo_path: Path,
+    cms_relative_output: Path,
+) -> _CmsGeneratedChipCompositionFile:
+    cms_file = repo_path / cms_relative_output
+    rules_by_name = _cms_rule_names_by_name(cms_file.read_text())
+    state_code = _cms_state_code_from_relative_output(cms_relative_output)
+    state_name = _cms_state_name_from_code(state_code)
+    state_slug = _cms_state_slug_from_rules(
+        rules_by_name=rules_by_name,
+        relative_output=cms_relative_output,
+    )
+    relative_output = _cms_chip_composition_relative_output(cms_relative_output)
+    citation = _rulespec_anchor_base_for_output(repo_path, relative_output)
+    cms_target = _rulespec_anchor_base_for_output(repo_path, cms_relative_output)
+    cms_hash = _sha256_file(cms_file)
+    child_hash = _sha256_file(repo_path / CMS_CHIP_CHILD_SOURCE_RELATIVE)
+
+    child_limit = f"{state_slug}_children_separate_chip_effective_fpl_limit"
+    child_availability = f"{state_slug}_separate_chip_child_eligibility_available"
+    pregnant_limit = f"{state_slug}_pregnant_women_chip_fpl_limit"
+    pregnant_availability = f"{state_slug}_standard_pregnant_chip_eligibility_available"
+
+    imports = [CMS_CHIP_CHILD_TARGET]
+    if child_limit in rules_by_name:
+        imports.append(f"{cms_target}#{child_limit}")
+    source_child_availability = f"{state_slug}_children_separate_chip_available"
+    if child_limit not in rules_by_name and source_child_availability in rules_by_name:
+        imports.append(f"{cms_target}#{source_child_availability}")
+    if pregnant_limit in rules_by_name:
+        imports.append(f"{cms_target}#{pregnant_limit}")
+    source_pregnant_availability = f"{state_slug}_pregnant_women_chip_available"
+    if pregnant_limit not in rules_by_name and source_pregnant_availability in rules_by_name:
+        imports.append(f"{cms_target}#{source_pregnant_availability}")
+
+    rules: list[str] = []
+    if child_limit in rules_by_name:
+        child_available_formula = "true"
+        child_available_atoms = _cms_chip_import_atom(
+            target=f"{cms_target}#{child_limit}",
+            output=child_limit,
+            digest=cms_hash,
+        )
+        child_formula = (
+            f"{child_availability}\n"
+            "and child\n"
+            "and person_meets_chip_immigration_requirement\n"
+            "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
+            f"and medicaid_income_level <= {child_limit}"
+        )
+        child_atoms = (
+            _cms_chip_import_atom(
+                target=CMS_CHIP_CHILD_TARGET,
+                output="child",
+                digest=child_hash,
+            )
+            + _cms_chip_import_atom(
+                target=f"{cms_target}#{child_limit}",
+                output=child_limit,
+                digest=cms_hash,
+            )
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path="us/statute/42/1397jj/b/1",
+                excerpt="not found eligible for medical assistance under subchapter XIX",
+            )
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+                excerpt="Children Separate CHIP",
+            )
+        )
+    elif source_child_availability in rules_by_name:
+        child_available_formula = source_child_availability
+        child_available_atoms = _cms_chip_import_atom(
+            target=f"{cms_target}#{source_child_availability}",
+            output=source_child_availability,
+            digest=cms_hash,
+        )
+        child_formula = child_availability
+        child_atoms = child_available_atoms
+    else:
+        child_available_formula = "false"
+        child_available_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Children Separate CHIP",
+        )
+        child_formula = child_availability
+        child_atoms = child_available_atoms
+
+    rules.append(
+        _cms_chip_composition_rule_block(
+            name=child_availability,
+            source=f"CMS Medicaid, CHIP and BHP Eligibility Levels table, {state_name} row",
+            proof_atoms=child_available_atoms,
+            formula=child_available_formula,
+        )
+    )
+    rules.append(
+        _cms_chip_composition_rule_block(
+            name="is_chip_eligible_child",
+            source="42 USC 1397jj(b)(1), 42 USC 1397jj(c)(1), and CMS state CHIP eligibility levels",
+            proof_atoms=child_atoms,
+            formula=child_formula,
+        )
+    )
+
+    if pregnant_limit in rules_by_name:
+        pregnant_available_formula = "true"
+        pregnant_available_atoms = _cms_chip_import_atom(
+            target=f"{cms_target}#{pregnant_limit}",
+            output=pregnant_limit,
+            digest=cms_hash,
+        )
+        pregnant_formula = (
+            f"{pregnant_availability}\n"
+            "and person_is_pregnant\n"
+            "and person_meets_chip_immigration_requirement\n"
+            "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
+            f"and medicaid_income_level <= {pregnant_limit}"
+        )
+        pregnant_atoms = (
+            _cms_chip_import_atom(
+                target=f"{cms_target}#{pregnant_limit}",
+                output=pregnant_limit,
+                digest=cms_hash,
+            )
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path="us/statute/42/1397ll/d/2",
+                excerpt="targeted low-income pregnant woman",
+            )
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+                excerpt="Pregnant Women CHIP",
+            )
+        )
+    elif source_pregnant_availability in rules_by_name:
+        pregnant_available_formula = source_pregnant_availability
+        pregnant_available_atoms = _cms_chip_import_atom(
+            target=f"{cms_target}#{source_pregnant_availability}",
+            output=source_pregnant_availability,
+            digest=cms_hash,
+        )
+        pregnant_formula = pregnant_availability
+        pregnant_atoms = pregnant_available_atoms
+    else:
+        pregnant_available_formula = "false"
+        pregnant_available_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Pregnant Women CHIP",
+        )
+        pregnant_formula = pregnant_availability
+        pregnant_atoms = pregnant_available_atoms
+
+    rules.append(
+        _cms_chip_composition_rule_block(
+            name=pregnant_availability,
+            source=f"CMS Medicaid, CHIP and BHP Eligibility Levels table, {state_name} row",
+            proof_atoms=pregnant_available_atoms,
+            formula=pregnant_available_formula,
+        )
+    )
+    rules.append(
+        _cms_chip_composition_rule_block(
+            name="is_chip_eligible_standard_pregnant_person",
+            source="42 USC 1397ll(d)(2) and CMS state CHIP eligibility levels",
+            proof_atoms=pregnant_atoms,
+            formula=pregnant_formula,
+        )
+    )
+
+    rules_content = (
+        "format: rulespec/v1\n"
+        "imports:\n"
+        + "".join(f"  - {target}\n" for target in imports)
+        + "module:\n"
+        + "  proof_validation:\n"
+        + "    required: true\n"
+        + "  source_verification:\n"
+        + f"    corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}\n"
+        + f"{CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK}"
+        + "  summary: |-\n"
+        + f"    {state_name} CHIP eligibility composition applies the federal CHIP child and standard-pregnant eligibility framework to the CMS state eligibility-level outputs. It intentionally does not encode FCEP state income limits until primary state-plan or CMS source coverage is available.\n"
+        + "rules:\n"
+        + "\n".join(rule.rstrip() for rule in rules)
+        + "\n"
+    )
+
+    common_true_inputs = {
+        f"{citation}#input.person_meets_chip_immigration_requirement": "true",
+        f"{citation}#input.found_eligible_for_medical_assistance_under_subchapter_xix": "false",
+    }
+    test_lines = [
+        f"- name: {state_slug}_chip_child_eligible_under_cms_limit",
+        "  period:",
+        "    period_kind: custom",
+        "    name: calendar_year",
+        "    start: '2026-01-01'",
+        "    end: '2026-12-31'",
+        "  input:",
+        f"    {CMS_CHIP_CHILD_TARGET.removesuffix('#child')}#input.age: 10",
+        f"    {citation}#input.medicaid_income_level: 0",
+    ]
+    for key, value in common_true_inputs.items():
+        test_lines.append(f"    {key}: {value}")
+    if child_limit in rules_by_name:
+        test_lines[-(len(common_true_inputs) + 1)] = (
+            f"    {citation}#input.medicaid_income_level: 2.00"
+        )
+    test_lines.extend(
+        [
+            "  output:",
+            f"    {citation}#is_chip_eligible_child: "
+            + ("holds" if child_limit in rules_by_name else "not_holds"),
+            "",
+            f"- name: {state_slug}_standard_pregnant_chip_eligible_under_cms_limit",
+            "  period:",
+            "    period_kind: custom",
+            "    name: calendar_year",
+            "    start: '2026-01-01'",
+            "    end: '2026-12-31'",
+            "  input:",
+            f"    {citation}#input.person_is_pregnant: true",
+            f"    {citation}#input.medicaid_income_level: 2.00",
+        ]
+    )
+    for key, value in common_true_inputs.items():
+        test_lines.append(f"    {key}: {value}")
+    test_lines.extend(
+        [
+            "  output:",
+            f"    {citation}#is_chip_eligible_standard_pregnant_person: "
+            + ("holds" if pregnant_limit in rules_by_name else "not_holds"),
+        ]
+    )
+
+    return _CmsGeneratedChipCompositionFile(
+        relative_output=relative_output,
+        rules_content=rules_content,
+        test_content="\n".join(test_lines) + "\n",
+    )
 
 
 def _georgia_cms_medicaid_availability_rule_block(rule: dict[str, str]) -> str:
@@ -10521,6 +10960,196 @@ def cmd_generate_cms_medicaid_chip_eligibility_levels(args):
             changed_outputs.append(generated.relative_output)
 
     print("Generated CMS Medicaid/CHIP eligibility-level RuleSpec files")
+    for relative_output in skipped_existing:
+        print(f"skipped_existing={relative_output}")
+    for relative_output in changed_outputs:
+        print(f"changed={relative_output}")
+        print(f"changed={_rulespec_test_path(relative_output)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def cmd_generate_cms_chip_eligibility_composition(args):
+    """Generate signed state CHIP eligibility composition files."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "generate-cms-chip-eligibility-composition must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    try:
+        requested_codes = _cms_requested_state_codes_for_existing_files(
+            list(args.states or [])
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    child_source = repo_path / CMS_CHIP_CHILD_SOURCE_RELATIVE
+    if not child_source.exists():
+        print(f"Required CHIP child statute RuleSpec file not found: {child_source}")
+        sys.exit(1)
+
+    cms_state_files = _cms_existing_state_eligibility_files(repo_path)
+    selected = [
+        relative
+        for relative in cms_state_files
+        if requested_codes is None
+        or _cms_state_code_from_relative_output(relative) in requested_codes
+    ]
+    if not selected:
+        print("No matching CMS Medicaid/CHIP eligibility-level files found.")
+        sys.exit(1)
+
+    try:
+        generated_files = [
+            _cms_chip_build_composition_file(
+                repo_path=repo_path,
+                cms_relative_output=relative,
+            )
+            for relative in selected
+        ]
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    planned: list[tuple[_CmsGeneratedChipCompositionFile, Path, Path]] = []
+    skipped_existing: list[Path] = []
+    for generated in generated_files:
+        rules_file = repo_path / generated.relative_output
+        test_file = _rulespec_test_path(rules_file)
+        if (rules_file.exists() or test_file.exists()) and not getattr(
+            args, "overwrite_existing", False
+        ):
+            skipped_existing.append(generated.relative_output)
+            continue
+        planned.append((generated, rules_file, test_file))
+
+    if not planned:
+        print("No CMS CHIP eligibility composition files to generate.")
+        for relative_output in skipped_existing:
+            print(f"skipped_existing={relative_output}")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [
+            (generated.relative_output, [rules_file, test_file])
+            for generated, rules_file, test_file in planned
+        ],
+    )
+
+    manifest_paths: list[Path] = []
+    changed_outputs: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for generated, rules_file, test_file in planned:
+            original_content = rules_file.read_text() if rules_file.exists() else None
+            original_test_content = (
+                test_file.read_text() if test_file.exists() else None
+            )
+            generated_output = (
+                output_root
+                / "deterministic-cms-chip-eligibility-composition"
+                / generated.relative_output
+            )
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text(generated.rules_content)
+            generated_test = _rulespec_test_path(generated_output)
+            generated_test.write_text(generated.test_content)
+
+            rules_file.parent.mkdir(parents=True, exist_ok=True)
+            rules_file.write_text(generated.rules_content)
+            test_file.write_text(generated.test_content)
+
+            validation_passed = False
+            tests_passed = False
+            try:
+                validation = ValidatorPipeline(
+                    policy_repo_path=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                    enable_oracles=False,
+                    require_policy_proofs=True,
+                ).validate(rules_file, skip_reviewers=True)
+                validation_passed = validation.all_passed
+                if not validation_passed:
+                    issues = [
+                        result.error
+                        for result in validation.results.values()
+                        if result.error
+                    ]
+                    print(
+                        "CMS CHIP eligibility composition generation failed "
+                        "validation; restored original files."
+                    )
+                    for issue in issues:
+                        print(f"- {issue}")
+                    sys.exit(1)
+
+                test_failures = _rulespec_companion_test_failures(
+                    test_file,
+                    root=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+                tests_passed = not test_failures
+                if test_failures:
+                    print(
+                        "CMS CHIP eligibility composition generation failed "
+                        "companion tests; restored original files."
+                    )
+                    for failure in test_failures[:20]:
+                        case_name = failure.get("case") or "<unknown case>"
+                        print(f"- {case_name}: {failure.get('message')}")
+                    sys.exit(1)
+            finally:
+                if not validation_passed or not tests_passed:
+                    if original_content is None:
+                        if rules_file.exists():
+                            rules_file.unlink()
+                    else:
+                        rules_file.write_text(original_content)
+                    if original_test_content is None:
+                        if test_file.exists():
+                            test_file.unlink()
+                    else:
+                        test_file.write_text(original_test_content)
+
+            citation = _rulespec_anchor_base_for_output(
+                repo_path,
+                generated.relative_output,
+            )
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-generator",
+                backend="deterministic",
+                model=CMS_CHIP_COMPOSITION_MODEL,
+                tool="axiom-encode generate-cms-chip-eligibility-composition",
+                citation=citation,
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_path = _write_applied_encoding_manifest(
+                result,
+                output_root=output_root,
+                policy_repo_path=repo_path,
+                relative_output=generated.relative_output,
+                applied_files=[rules_file, test_file],
+                run_id="deterministic-cms-chip-eligibility-composition",
+                signing_key=signing_key,
+                axiom_encode_git=axiom_encode_git,
+            )
+            manifest_paths.append(manifest_path)
+            changed_outputs.append(generated.relative_output)
+
+    print("Generated CMS CHIP eligibility composition RuleSpec files")
     for relative_output in skipped_existing:
         print(f"skipped_existing={relative_output}")
     for relative_output in changed_outputs:
