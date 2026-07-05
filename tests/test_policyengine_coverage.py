@@ -2263,6 +2263,20 @@ def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encodin
     assert "FSSA Medicaid Policy Manual Chapter 5000" in in_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_kansas_sspp_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="ks_sspp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ks_sspp = items_by_variable["ks_sspp"]
+
+    assert ks_sspp["program_id"] == "ssi_state_supplement"
+    assert ks_sspp["state"] == "KS"
+    assert ks_sspp["axiom_status"] == "pending_rulespec_encoding"
+    assert ks_sspp["mapping_count"] == 0
+    assert "K.S.A. 39-972" in ks_sspp["rationale"]
+    assert "KHPA Policy No. 2007-05-01" in ks_sspp["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 
