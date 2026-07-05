@@ -4414,10 +4414,14 @@ class hbai_household_net_income(Variable):
     assert by_name["housing_benefit"].surfaces == (
         "housing-benefit-working-age-tariff-income",
         "housing-benefit-pension-age-tariff-income",
+        "housing-benefit-applicable-amount",
+        "housing-benefit-entitlement",
         "housing-benefit-final",
     )
     assert by_name["housing_benefit"].covered_outputs == (
         "housing_benefit_tariff_income",
+        "housing_benefit_applicable_amount",
+        "housing_benefit_entitlement",
         "housing_benefit",
     )
     assert by_name["working_tax_credit"].status == "partial"
