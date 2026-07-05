@@ -1255,6 +1255,18 @@ def test_policyengine_registry_resolves_wic_and_chip_eligibility_prefixes():
         assert mapping.mapping_type == "not_comparable"
         assert mapping.policyengine_variable == variable
 
+    expected_exact_mappings = {
+        "us:statutes/42/1397ll/f/1#child_health_assistance_option_through_specified_regulations_not_limited": "is_chip_eligible_child",
+        "us:statutes/42/1397ll/f/1#pregnancy_related_services_option_through_waiver_authority_not_limited": "is_chip_fcep_eligible_person",
+    }
+    for legal_id, variable in expected_exact_mappings.items():
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+
+        assert mapping is not None
+        assert mapping.match_type == "exact"
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.policyengine_variable == variable
+
 
 def test_policyengine_coverage_classifies_uk_vat_act_firm_outputs(tmp_path):
     _write_rulespec_file(
