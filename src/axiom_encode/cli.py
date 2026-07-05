@@ -33,6 +33,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
+from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, NamedTuple
@@ -1974,6 +1975,49 @@ def main():
         ),
     )
 
+    generate_cms_table_parser = subparsers.add_parser(
+        "generate-cms-medicaid-chip-eligibility-levels",
+        help=(
+            "Generate signed state CMS Medicaid/CHIP eligibility-level "
+            "RuleSpec files from the official CMS table"
+        ),
+    )
+    generate_cms_table_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    generate_cms_table_parser.add_argument(
+        "--source-html",
+        type=Path,
+        required=True,
+        help="Official CMS Medicaid, CHIP and BHP eligibility-level HTML table",
+    )
+    generate_cms_table_parser.add_argument(
+        "--state",
+        dest="states",
+        action="append",
+        default=[],
+        help=(
+            "State name or postal abbreviation to generate; may be repeated. "
+            "Defaults to every state row in the CMS table."
+        ),
+    )
+    generate_cms_table_parser.add_argument(
+        "--overwrite-existing",
+        action="store_true",
+        help="Replace existing state CMS eligibility-level RuleSpec files",
+    )
+    generate_cms_table_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_medicaid_optional_parser = subparsers.add_parser(
         "repair-medicaid-optional-senior-composition",
         help="Apply signed deterministic Medicaid optional senior/disabled composition repairs",
@@ -2793,6 +2837,8 @@ def main():
         cmd_repair_georgia_cms_effective_magi_limits(args)
     elif args.command == "repair-cms-effective-magi-limits":
         cmd_repair_cms_effective_magi_limits(args)
+    elif args.command == "generate-cms-medicaid-chip-eligibility-levels":
+        cmd_generate_cms_medicaid_chip_eligibility_levels(args)
     elif args.command == "repair-medicaid-optional-senior-composition":
         cmd_repair_medicaid_optional_senior_composition(args)
     elif args.command == "repair-medicaid-primary-category-composition":
@@ -7932,6 +7978,541 @@ CMS_EFFECTIVE_MAGI_LIMIT_SUFFIXES = (
     "pregnant_women_medicaid",
     "pregnant_women_chip",
 )
+CMS_ELIGIBILITY_LEVELS_TABLE_HEADER = (
+    "State Medicaid, CHIP and BHP Income Eligibility Standards"
+)
+CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK = """    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us/statute/42/1397jj/b/1
+        - us/statute/42/1397jj/c/4
+        - us/statute/42/1397jj/c/8
+        - us/statute/42/1397ll/d/2
+        - us/statute/42/1397ll/f/2
+        - us/regulation/42/457/340
+        - us/regulation/42/457/344
+      rationale: |-
+        Federal CHIP statute and regulations define the eligibility framework,
+        targeted low-income child and low-income child predicates, uncovered
+        child condition, pregnant eligibility options, and MAGI screen/process
+        rules. The CMS Medicaid, CHIP and BHP eligibility-level table is the
+        official current compiled source for the state-decided MAGI income
+        levels and availability flags encoded in this module.
+"""
+CMS_MEDICAID_CHIP_EFFECTIVE_DATE = "2023-12-01"
+CMS_MAGI_FPL_DISREGARD_RATE = Decimal("0.05")
+CMS_MEDICAID_CHIP_AVAILABILITY_SUFFIXES = {
+    "children_separate_chip",
+    "pregnant_women_chip",
+    "adult_medicaid_expansion",
+}
+CMS_MEDICAID_CHIP_STATE_CODES = {
+    "Alabama": "AL",
+    "Alaska": "AK",
+    "Arizona": "AZ",
+    "Arkansas": "AR",
+    "California": "CA",
+    "Colorado": "CO",
+    "Connecticut": "CT",
+    "Delaware": "DE",
+    "District of Columbia": "DC",
+    "Florida": "FL",
+    "Georgia": "GA",
+    "Hawaii": "HI",
+    "Idaho": "ID",
+    "Illinois": "IL",
+    "Indiana": "IN",
+    "Iowa": "IA",
+    "Kansas": "KS",
+    "Kentucky": "KY",
+    "Louisiana": "LA",
+    "Maine": "ME",
+    "Maryland": "MD",
+    "Massachusetts": "MA",
+    "Michigan": "MI",
+    "Minnesota": "MN",
+    "Mississippi": "MS",
+    "Missouri": "MO",
+    "Montana": "MT",
+    "Nebraska": "NE",
+    "Nevada": "NV",
+    "New Hampshire": "NH",
+    "New Jersey": "NJ",
+    "New Mexico": "NM",
+    "New York": "NY",
+    "North Carolina": "NC",
+    "North Dakota": "ND",
+    "Ohio": "OH",
+    "Oklahoma": "OK",
+    "Oregon": "OR",
+    "Pennsylvania": "PA",
+    "Rhode Island": "RI",
+    "South Carolina": "SC",
+    "South Dakota": "SD",
+    "Tennessee": "TN",
+    "Texas": "TX",
+    "Utah": "UT",
+    "Vermont": "VT",
+    "Virginia": "VA",
+    "Washington": "WA",
+    "West Virginia": "WV",
+    "Wisconsin": "WI",
+    "Wyoming": "WY",
+}
+
+
+class _CmsEligibilityColumn(NamedTuple):
+    suffix: str
+    label: str
+
+
+CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS = (
+    _CmsEligibilityColumn(
+        "children_medicaid_ages_0_to_1",
+        "Children Medicaid Ages 0-1",
+    ),
+    _CmsEligibilityColumn(
+        "children_medicaid_ages_1_to_5",
+        "Children Medicaid Ages 1-5",
+    ),
+    _CmsEligibilityColumn(
+        "children_medicaid_ages_6_to_18",
+        "Children Medicaid Ages 6-18",
+    ),
+    _CmsEligibilityColumn(
+        "children_separate_chip",
+        "Children Separate CHIP",
+    ),
+    _CmsEligibilityColumn(
+        "pregnant_women_medicaid",
+        "Pregnant Women Medicaid",
+    ),
+    _CmsEligibilityColumn(
+        "pregnant_women_chip",
+        "Pregnant Women CHIP",
+    ),
+    _CmsEligibilityColumn(
+        "parent_caretaker_adults_medicaid",
+        "Adults (Medicaid) Parent/Caretaker",
+    ),
+    _CmsEligibilityColumn(
+        "adult_medicaid_expansion",
+        "Adults (Medicaid) Expansion to Adults",
+    ),
+)
+
+
+class _CmsEligibilityRow(NamedTuple):
+    state: str
+    code: str
+    cells: dict[str, str]
+
+
+class _CmsGeneratedEligibilityFile(NamedTuple):
+    relative_output: Path
+    rules_content: str
+    test_content: str
+    output_values: dict[str, str]
+
+
+class _CmsEligibilityHtmlTableParser(HTMLParser):
+    """Extract the first HTML table while ignoring footnote superscripts."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._in_table = False
+        self._table_depth = 0
+        self._finished = False
+        self._current_row: list[str] | None = None
+        self._current_cell: list[str] | None = None
+        self._skip_depth = 0
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if self._finished:
+            return
+        tag = tag.lower()
+        if tag == "table" and not self._in_table:
+            self._in_table = True
+            self._table_depth = 1
+            return
+        if not self._in_table:
+            return
+        if tag == "table":
+            self._table_depth += 1
+        elif tag == "tr":
+            self._current_row = []
+        elif tag in {"td", "th"}:
+            self._current_cell = []
+        elif tag == "sup" and self._current_cell is not None:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._finished or not self._in_table:
+            return
+        tag = tag.lower()
+        if tag == "sup" and self._skip_depth:
+            self._skip_depth -= 1
+            return
+        if tag in {"td", "th"} and self._current_cell is not None:
+            cell = _cms_normalize_cell_text("".join(self._current_cell))
+            if self._current_row is not None:
+                self._current_row.append(cell)
+            self._current_cell = None
+        elif tag == "tr" and self._current_row is not None:
+            if any(cell for cell in self._current_row):
+                self.rows.append(self._current_row)
+            self._current_row = None
+        elif tag == "table":
+            self._table_depth -= 1
+            if self._table_depth <= 0:
+                self._in_table = False
+                self._finished = True
+
+    def handle_data(self, data: str) -> None:
+        if self._finished or self._current_cell is None or self._skip_depth:
+            return
+        self._current_cell.append(data)
+
+
+def _cms_normalize_cell_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.replace("\xa0", " ")).strip()
+
+
+def _cms_state_slug(state: str) -> str:
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", state.lower())).strip("_")
+
+
+def _cms_file_slug(state: str) -> str:
+    return _cms_state_slug(state).replace("_", "-")
+
+
+def _cms_yaml_double(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _cms_rate_from_table_cell(cell: str) -> Decimal | None:
+    normalized = _cms_normalize_cell_text(cell)
+    lowered = normalized.lower()
+    if not normalized or lowered in {"n/a", "see note"} or lowered.startswith("no"):
+        return None
+    match = re.search(r"(\d+(?:\.\d+)?)\s*%", normalized)
+    if not match:
+        return None
+    try:
+        return Decimal(match.group(1)) / Decimal("100")
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _cms_table_cell_unavailable(cell: str) -> bool:
+    lowered = _cms_normalize_cell_text(cell).lower()
+    return lowered in {"n/a", "no"} or lowered.startswith("no/")
+
+
+def _cms_table_cell_uses_dollar_amounts(cell: str) -> bool:
+    return "($)" in _cms_normalize_cell_text(cell)
+
+
+def _cms_format_rate(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.01")), "f")
+
+
+def _cms_medicaid_chip_rows_from_html(html: str) -> list[_CmsEligibilityRow]:
+    parser = _CmsEligibilityHtmlTableParser()
+    parser.feed(html)
+    rows = parser.rows
+    expected_columns = len(CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS) + 1
+    table_start = next(
+        (
+            index
+            for index, row in enumerate(rows)
+            if row and row[0].lower() == "state" and len(row) >= expected_columns
+        ),
+        None,
+    )
+    if table_start is None:
+        raise RuntimeError("CMS eligibility-level source HTML has no state table")
+
+    parsed: list[_CmsEligibilityRow] = []
+    for raw_row in rows[table_start + 1 :]:
+        if len(raw_row) < expected_columns:
+            continue
+        state = raw_row[0]
+        code = CMS_MEDICAID_CHIP_STATE_CODES.get(state)
+        if code is None:
+            continue
+        cells = {
+            column.suffix: raw_row[index + 1]
+            for index, column in enumerate(CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS)
+        }
+        parsed.append(_CmsEligibilityRow(state=state, code=code, cells=cells))
+
+    if not parsed:
+        raise RuntimeError("CMS eligibility-level source HTML has no state rows")
+    return parsed
+
+
+def _cms_requested_state_codes(raw_states: list[str]) -> set[str] | None:
+    if not raw_states:
+        return None
+    aliases: dict[str, str] = {}
+    for state, code in CMS_MEDICAID_CHIP_STATE_CODES.items():
+        aliases[code.lower()] = code
+        aliases[state.lower()] = code
+        aliases[_cms_state_slug(state).replace("_", "-")] = code
+        aliases[_cms_state_slug(state)] = code
+
+    requested: set[str] = set()
+    unknown: list[str] = []
+    for raw in raw_states:
+        key = raw.strip().lower()
+        code = aliases.get(key)
+        if code is None:
+            unknown.append(raw)
+        else:
+            requested.add(code)
+    if unknown:
+        raise RuntimeError(f"Unknown CMS table state(s): {', '.join(unknown)}")
+    return requested
+
+
+def _cms_eligibility_row_summary(row: _CmsEligibilityRow) -> str:
+    cell_text = "; ".join(
+        f"{column.label} {row.cells[column.suffix]}"
+        for column in CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS
+    )
+    return (
+        "The table provides MAGI eligibility levels as percentages of FPL, "
+        "based on state decisions as of December 1, 2023. "
+        f"{row.state} row: {cell_text}. The MAGI-based rules generally "
+        "include a 5% FPL disregard."
+    )
+
+
+def _cms_source_table_yaml_lines(
+    *,
+    row: _CmsEligibilityRow,
+    column: _CmsEligibilityColumn,
+    cell: str,
+) -> list[str]:
+    return [
+        f"              corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}",
+        f"              excerpt: {_cms_yaml_double(cell)}",
+        "              table:",
+        f"                header: {_cms_yaml_double(CMS_ELIGIBILITY_LEVELS_TABLE_HEADER)}",
+        f"                row: {_cms_yaml_double(row.state)}",
+        f"                column: {_cms_yaml_double(column.label)}",
+    ]
+
+
+def _cms_parameter_rule_block(
+    *,
+    name: str,
+    dtype: str,
+    source: str,
+    formula: str,
+    row: _CmsEligibilityRow,
+    column: _CmsEligibilityColumn,
+    cell: str,
+) -> str:
+    source_lines = "\n".join(
+        _cms_source_table_yaml_lines(row=row, column=column, cell=cell)
+    )
+    return f"""  - name: {name}
+    kind: parameter
+    dtype: {dtype}
+    source: {source}
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: table_cell
+            source:
+{source_lines}
+    versions:
+      - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
+        formula: |-
+          {formula}
+"""
+
+
+def _cms_effective_rule_block(
+    *,
+    name: str,
+    raw_name: str,
+    row: _CmsEligibilityRow,
+) -> str:
+    return f"""  - name: {name}
+    kind: derived
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, {row.state} row, including the MAGI 5% FPL disregard
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}
+              excerpt: "5% FPL disregard"
+    versions:
+      - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
+        formula: |-
+          {raw_name} + magi_fpl_disregard_rate
+"""
+
+
+def _cms_magi_disregard_rule_block() -> str:
+    return f"""  - name: magi_fpl_disregard_rate
+    kind: parameter
+    dtype: Rate
+    source: CMS Medicaid, CHIP and BHP Eligibility Levels, introductory text
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}
+              excerpt: "5% FPL disregard"
+    versions:
+      - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
+        formula: |-
+          {_cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE)}
+"""
+
+
+def _cms_build_medicaid_chip_eligibility_file(
+    row: _CmsEligibilityRow,
+) -> _CmsGeneratedEligibilityFile:
+    state_slug = _cms_state_slug(row.state)
+    state_file_slug = _cms_file_slug(row.state)
+    state_prefix = f"us-{row.code.lower()}"
+    relative_output = (
+        Path(state_prefix)
+        / "policies"
+        / "cms"
+        / f"{state_file_slug}-medicaid-chip-bhp-eligibility-levels.yaml"
+    )
+    citation = _rulespec_anchor_base_for_output(Path("rulespec-us"), relative_output)
+
+    rules: list[str] = [_cms_magi_disregard_rule_block()]
+    output_values: dict[str, str] = {
+        "magi_fpl_disregard_rate": _cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE),
+    }
+    raw_rates: dict[str, Decimal] = {}
+
+    for column in CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS:
+        cell = row.cells[column.suffix]
+        rate = _cms_rate_from_table_cell(cell)
+        base_source = (
+            f"CMS Medicaid, CHIP and BHP Eligibility Levels table, {row.state} row"
+        )
+        if rate is not None:
+            raw_name = f"{state_slug}_{column.suffix}_fpl_limit"
+            raw_formula = _cms_format_rate(rate)
+            rules.append(
+                _cms_parameter_rule_block(
+                    name=raw_name,
+                    dtype="Rate",
+                    source=base_source,
+                    formula=raw_formula,
+                    row=row,
+                    column=column,
+                    cell=cell,
+                )
+            )
+            output_values[raw_name] = raw_formula
+            raw_rates[column.suffix] = rate
+        elif (
+            column.suffix in CMS_MEDICAID_CHIP_AVAILABILITY_SUFFIXES
+            and _cms_table_cell_unavailable(cell)
+        ):
+            available_name = f"{state_slug}_{column.suffix}_available"
+            rules.append(
+                _cms_parameter_rule_block(
+                    name=available_name,
+                    dtype="Boolean",
+                    source=base_source,
+                    formula="false",
+                    row=row,
+                    column=column,
+                    cell=cell,
+                )
+            )
+            output_values[available_name] = "false"
+
+        if (
+            column.suffix == "parent_caretaker_adults_medicaid"
+            and _cms_table_cell_uses_dollar_amounts(cell)
+        ):
+            dollars_name = f"{state_slug}_parent_caretaker_standard_uses_dollar_amounts"
+            rules.append(
+                _cms_parameter_rule_block(
+                    name=dollars_name,
+                    dtype="Boolean",
+                    source=f"{base_source} and dollar-amount footnote",
+                    formula="true",
+                    row=row,
+                    column=column,
+                    cell=cell,
+                )
+            )
+            output_values[dollars_name] = "true"
+
+    for suffix in CMS_EFFECTIVE_MAGI_LIMIT_SUFFIXES:
+        rate = raw_rates.get(suffix)
+        if rate is None:
+            continue
+        raw_name = f"{state_slug}_{suffix}_fpl_limit"
+        effective_name = f"{state_slug}_{suffix}_effective_fpl_limit"
+        effective_formula = _cms_format_rate(rate + CMS_MAGI_FPL_DISREGARD_RATE)
+        rules.append(
+            _cms_effective_rule_block(
+                name=effective_name,
+                raw_name=raw_name,
+                row=row,
+            )
+        )
+        output_values[effective_name] = effective_formula
+
+    rules_content = (
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  proof_validation:\n"
+        "    required: true\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}\n"
+        f"{CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK}"
+        "  summary: |-\n"
+        f"    {_cms_eligibility_row_summary(row)}\n"
+        "rules:\n" + "\n".join(rule.rstrip() for rule in rules) + "\n"
+    )
+
+    test_lines = [
+        f"- name: {state_slug}_magi_eligibility_level_parameters_as_of_december_2023",
+        "  period:",
+        "    period_kind: custom",
+        "    name: day",
+        f"    start: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'",
+        f"    end: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'",
+        "  input: {}",
+        "  output:",
+    ]
+    for name, value in output_values.items():
+        test_lines.append(f"    {citation}#{name}: {value}")
+    test_content = "\n".join(test_lines) + "\n"
+
+    return _CmsGeneratedEligibilityFile(
+        relative_output=relative_output,
+        rules_content=rules_content,
+        test_content=test_content,
+        output_values=output_values,
+    )
 
 
 def _rulespec_rule_names(content: str) -> set[str]:
@@ -9699,6 +10280,183 @@ def cmd_repair_cms_effective_magi_limits(args):
     print(f"changed={relative_output}")
     print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
+
+
+def cmd_generate_cms_medicaid_chip_eligibility_levels(args):
+    """Generate signed state CMS Medicaid/CHIP eligibility-level files."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "generate-cms-medicaid-chip-eligibility-levels must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    source_html = Path(args.source_html).resolve()
+    if not source_html.is_file():
+        print(f"CMS source HTML not found: {source_html}")
+        sys.exit(1)
+
+    try:
+        requested_codes = _cms_requested_state_codes(list(args.states or []))
+        rows = _cms_medicaid_chip_rows_from_html(source_html.read_text())
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    selected_rows = [
+        row for row in rows if requested_codes is None or row.code in requested_codes
+    ]
+    if not selected_rows:
+        print("No matching CMS state rows found.")
+        sys.exit(1)
+
+    generated_files = [
+        _cms_build_medicaid_chip_eligibility_file(row) for row in selected_rows
+    ]
+    planned: list[tuple[_CmsGeneratedEligibilityFile, Path, Path]] = []
+    skipped_existing: list[Path] = []
+    for generated in generated_files:
+        rules_file = repo_path / generated.relative_output
+        test_file = _rulespec_test_path(rules_file)
+        if (rules_file.exists() or test_file.exists()) and not getattr(
+            args, "overwrite_existing", False
+        ):
+            skipped_existing.append(generated.relative_output)
+            continue
+        planned.append((generated, rules_file, test_file))
+
+    if not planned:
+        print("No CMS Medicaid/CHIP eligibility-level files to generate.")
+        for relative_output in skipped_existing:
+            print(f"skipped_existing={relative_output}")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [
+            (generated.relative_output, [rules_file, test_file])
+            for generated, rules_file, test_file in planned
+        ],
+    )
+
+    manifest_paths: list[Path] = []
+    changed_outputs: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for generated, rules_file, test_file in planned:
+            original_content = rules_file.read_text() if rules_file.exists() else None
+            original_test_content = (
+                test_file.read_text() if test_file.exists() else None
+            )
+            applied_files = [rules_file, test_file]
+            generated_output = (
+                output_root
+                / "deterministic-cms-eligibility-levels"
+                / generated.relative_output
+            )
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text(generated.rules_content)
+            generated_test = _rulespec_test_path(generated_output)
+            generated_test.write_text(generated.test_content)
+
+            rules_file.parent.mkdir(parents=True, exist_ok=True)
+            rules_file.write_text(generated.rules_content)
+            test_file.write_text(generated.test_content)
+
+            validation_passed = False
+            tests_passed = False
+            try:
+                validation = ValidatorPipeline(
+                    policy_repo_path=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                    enable_oracles=False,
+                    require_policy_proofs=True,
+                ).validate(rules_file, skip_reviewers=True)
+                validation_passed = validation.all_passed
+                if not validation_passed:
+                    issues = [
+                        result.error
+                        for result in validation.results.values()
+                        if result.error
+                    ]
+                    print(
+                        "CMS eligibility-level generation failed validation; "
+                        "restored original files."
+                    )
+                    for issue in issues:
+                        print(f"- {issue}")
+                    sys.exit(1)
+
+                test_failures = _rulespec_companion_test_failures(
+                    test_file,
+                    root=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+                tests_passed = not test_failures
+                if test_failures:
+                    print(
+                        "CMS eligibility-level generation failed companion tests; "
+                        "restored original files."
+                    )
+                    for failure in test_failures[:20]:
+                        case_name = failure.get("case") or "<unknown case>"
+                        print(f"- {case_name}: {failure.get('message')}")
+                    sys.exit(1)
+            finally:
+                if not validation_passed or not tests_passed:
+                    if original_content is None:
+                        if rules_file.exists():
+                            rules_file.unlink()
+                    else:
+                        rules_file.write_text(original_content)
+                    if original_test_content is None:
+                        if test_file.exists():
+                            test_file.unlink()
+                    else:
+                        test_file.write_text(original_test_content)
+
+            citation = _rulespec_anchor_base_for_output(
+                repo_path,
+                generated.relative_output,
+            )
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-generator",
+                backend="deterministic",
+                model="cms-medicaid-chip-eligibility-levels-v1",
+                tool="axiom-encode generate-cms-medicaid-chip-eligibility-levels",
+                citation=citation,
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_path = _write_applied_encoding_manifest(
+                result,
+                output_root=output_root,
+                policy_repo_path=repo_path,
+                relative_output=generated.relative_output,
+                applied_files=applied_files,
+                run_id="deterministic-cms-eligibility-levels",
+                signing_key=signing_key,
+                axiom_encode_git=axiom_encode_git,
+            )
+            manifest_paths.append(manifest_path)
+            changed_outputs.append(generated.relative_output)
+
+    print("Generated CMS Medicaid/CHIP eligibility-level RuleSpec files")
+    for relative_output in skipped_existing:
+        print(f"skipped_existing={relative_output}")
+    for relative_output in changed_outputs:
+        print(f"changed={relative_output}")
+        print(f"changed={_rulespec_test_path(relative_output)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):
