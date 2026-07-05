@@ -9262,7 +9262,6 @@ def _cms_chip_build_composition_file(
             _cms_chip_composition_rule_block(
                 name=fcep_availability,
                 source=f"CMS CHIP FCEP SPA source, {state_name}",
-                kind="parameter",
                 dtype="Boolean",
                 entity=None,
                 proof_atoms=fcep_source_atom,
@@ -9496,6 +9495,20 @@ def _cms_chip_build_composition_file(
                 "found_eligible_for_medical_assistance_under_subchapter_xix: false",
                 "  output:",
                 f"    {citation}#is_chip_fcep_eligible_person: not_holds",
+                "",
+                f"- name: {state_slug}_fcep_eligible_under_source_limit",
+                "  period:",
+                "    period_kind: custom",
+                "    name: calendar_year",
+                "    start: '2026-01-01'",
+                "    end: '2026-12-31'",
+                "  input:",
+                f"    {citation}#input.person_is_pregnant: true",
+                f"    {citation}#input.medicaid_income_level: 0.00",
+                f"    {citation}#input."
+                "found_eligible_for_medical_assistance_under_subchapter_xix: false",
+                "  output:",
+                f"    {citation}#is_chip_fcep_eligible_person: holds",
             ]
         )
 
