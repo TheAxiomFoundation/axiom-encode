@@ -1,0 +1,1 @@
+Classify the Personal Independence Payment compare-wrapper outputs (daily-living and mobility components, weekly total, and enhanced daily-living receipt) in PolicyEngine oracle coverage, mapping them to pip_dl/pip_m/pip/receives_enhanced_pip_dl and marking the annualization helpers not_comparable.
