@@ -66,6 +66,7 @@ from .validator_pipeline import (
     ValidatorPipeline,
     _candidate_local_corpus_provision_files,
     _fetch_supabase_corpus_source_text,
+    _local_corpus_record_text,
     _read_local_corpus_provision_file,
     _source_text_looks_like_table,
     extract_embedded_source_text,
@@ -2704,7 +2705,7 @@ def _read_local_corpus_descendant_text(
         record_path = str(record.get("citation_path") or "")
         if not record_path.startswith(child_prefix):
             continue
-        body = record.get("body")
+        body = _local_corpus_record_text(record)
         if body is None:
             continue
         descendants.append(
@@ -2713,7 +2714,7 @@ def _read_local_corpus_descendant_text(
                 int(record.get("ordinal") or 0),
                 str(record.get("heading") or ""),
                 record_path,
-                str(body),
+                body,
             )
         )
 
@@ -2731,10 +2732,10 @@ def _read_local_corpus_descendant_text(
 def _corpus_provisions_root(corpus_path: Path) -> Path | None:
     root = Path(corpus_path).expanduser()
     candidates = (
-        root,
-        root / "provisions",
-        root / "data" / "corpus",
         root / "data" / "corpus" / "provisions",
+        root / "data" / "corpus",
+        root / "provisions",
+        root,
     )
     for candidate in candidates:
         provisions_root = (
@@ -5042,6 +5043,10 @@ RuleSpec requirements:
   RuleSpec target that was checked, and `rationale` explaining why the lower
   source is still used. If no higher-authority check is available, stop and
   emit a typed request `upstream_source_check_required` instead of encoding.
+- When higher-authority context is supplied through copied JSONL, inventory, or
+  ingest-run files, cite the embedded corpus `citation_path` values in
+  `checked_paths` and proof atoms. Do not cite the copied `external/...`
+  workspace filename as legal authority.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
   `derived_relation` rule. Each atom

@@ -89,6 +89,50 @@ DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
 )
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """PyYAML safe loader that rejects duplicate mapping keys."""
+
+
+def _construct_mapping_without_duplicate_keys(
+    loader: yaml.SafeLoader,
+    node: yaml.nodes.MappingNode,
+    deep: bool = False,
+) -> dict[Any, Any]:
+    loader.flatten_mapping(node)
+    seen: set[Any] = set()
+    for key_node, _value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            key = repr(key)
+            duplicate = key in seen
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_without_duplicate_keys,
+)
+
+
+def _safe_load_unique_keys(content: str) -> Any:
+    """Load YAML with duplicate mapping keys treated as parse errors."""
+    return yaml.load(content, Loader=_UniqueKeySafeLoader)
+
+
+def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
+    return f"{path.name} YAML parse failed: {exc}"
+
+
 def run_claude_code(
     prompt: str,
     model: str = REVIEWER_CLI_MODEL,
@@ -565,6 +609,7 @@ GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
 NUMERIC_GROUNDING_ABS_TOLERANCE = 1e-6
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
+_DOTTED_DATE_PATTERN = re.compile(r"\b\d{1,2}\.\d{1,2}\.(?P<year>\d{4})\b")
 _SOURCE_URL_PATTERN = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
 GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
@@ -624,7 +669,9 @@ def _normalize_grouped_thousands_number(raw: str) -> str:
 
 
 def _normalize_european_decimal_number(raw: str) -> str:
-    return _normalize_grouped_thousands_number(raw).replace(",", ".")
+    return _normalize_grouped_thousands_number(
+        re.sub(r"\s+([,.])", r"\1", raw)
+    ).replace(",", ".")
 
 
 def _is_source_backed_simple_fraction_parameter(
@@ -649,6 +696,34 @@ def _is_source_backed_simple_fraction_parameter(
             normalized_source,
         )
     )
+
+
+def _has_captured_percentage_rate(
+    values: Iterable[float | tuple[tuple[int, int], float]],
+    percent_value: float,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
+    rate_value = percent_value / 100
+    for item in values:
+        value_span: tuple[int, int] | None
+        if isinstance(item, tuple):
+            value_span, value = item
+            if span is not None and (
+                value_span[0] >= span[1] or span[0] >= value_span[1]
+            ):
+                continue
+        else:
+            value_span = None
+            value = item
+        if math.isclose(
+            value,
+            rate_value,
+            rel_tol=0,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        ):
+            return True
+    return False
 
 
 def _rule_has_source_proof(rule: dict[str, Any]) -> bool:
@@ -754,10 +829,16 @@ _FRACTION_WORD_VALUES = {
     "two thirds": 2 / 3,
     "one quarter": 0.25,
     "three quarters": 0.75,
+    "un quart": 0.25,
+    "trois quarts": 0.75,
+    "een kwart": 0.25,
+    "drie kwart": 0.75,
+    "drie kwarten": 0.75,
 }
 _FRACTION_WORD_PATTERN = (
     r"(?:half[-\s]+time|one[-\s]+half|one[-\s]+third|two[-\s]+thirds|"
-    r"one[-\s]+quarter|three[-\s]+quarters)"
+    r"one[-\s]+quarter|three[-\s]+quarters|un[-\s]+quart|"
+    r"trois[-\s]+quarts|een[-\s]+kwart|drie[-\s]+kwart(?:en)?)"
 )
 _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
     rf"\b({_FRACTION_WORD_PATTERN})\b",
@@ -1191,11 +1272,67 @@ _CARDINAL_VALUE_WORDS = {
     if float(value).is_integer()
 }
 _FRENCH_CARDINAL_PHRASE_VALUES = {
+    "deux": 2.0,
+    "trois": 3.0,
+    "quatre": 4.0,
+    "cinq": 5.0,
+    "six": 6.0,
+    "sept": 7.0,
+    "huit": 8.0,
+    "neuf": 9.0,
+    "douze": 12.0,
+    "quinze": 15.0,
+    "dix huit": 18.0,
+    "dix-huit": 18.0,
+    "vingt quatre": 24.0,
+    "vingt-quatre": 24.0,
+    "vingt et un": 21.0,
+    "vingt-et-un": 21.0,
+    "vingt cinq": 25.0,
+    "vingt-cinq": 25.0,
+    "vingt": 20.0,
+    "trente": 30.0,
+    "trente six": 36.0,
+    "trente-six": 36.0,
+    "quarante": 40.0,
+    "soixante": 60.0,
+    "soixante sept": 67.0,
+    "soixante-sept": 67.0,
+    "nonante": 90.0,
+    "cent vingt": 120.0,
+    "cent-vingt": 120.0,
+    "deux cents": 200.0,
+    "deux cent": 200.0,
+    "cent trente trois": 133.0,
+    "cent trente-trois": 133.0,
+    "quatre cents": 400.0,
+    "quatre cent": 400.0,
+    "huit cents": 800.0,
+    "huit cent": 800.0,
     "cent quatre vingts": 180.0,
     "cent quatre vingt": 180.0,
+    "cent-quatre-vingts": 180.0,
+    "cent-quatre-vingt": 180.0,
     "cent quatre-vingts": 180.0,
     "cent quatre-vingt": 180.0,
 }
+_FRENCH_ORDINAL_PHRASE_VALUES = {
+    "deuxieme": 2.0,
+    "deuxième": 2.0,
+    "sixieme": 6.0,
+    "sixième": 6.0,
+    "huitieme": 8.0,
+    "huitième": 8.0,
+}
+_FRENCH_ORDINAL_PHRASE_PATTERN = re.compile(
+    r"\b("
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(_FRENCH_ORDINAL_PHRASE_VALUES, key=len, reverse=True)
+    )
+    + r")\b",
+    re.IGNORECASE,
+)
 _FRENCH_CARDINAL_PHRASE_PATTERN = re.compile(
     r"\b("
     + "|".join(
@@ -1203,6 +1340,108 @@ _FRENCH_CARDINAL_PHRASE_PATTERN = re.compile(
         for phrase in sorted(_FRENCH_CARDINAL_PHRASE_VALUES, key=len, reverse=True)
     )
     + r")\b",
+    re.IGNORECASE,
+)
+_DUTCH_CARDINAL_PHRASE_VALUES = {
+    "vijf": 5.0,
+    "twaalf": 12.0,
+    "vijftien": 15.0,
+    "achttien": 18.0,
+    "eenentwintig": 21.0,
+    "vijfentwintig": 25.0,
+    "veertig": 40.0,
+    "honderdtachtig": 180.0,
+    "honderd tachtig": 180.0,
+    "vierduizend": 4000.0,
+}
+_DUTCH_CARDINAL_PHRASE_PATTERN = re.compile(
+    r"\b("
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(_DUTCH_CARDINAL_PHRASE_VALUES, key=len, reverse=True)
+    )
+    + r")\b",
+    re.IGNORECASE,
+)
+_EUROPEAN_RAW_NUMBER = r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)(?:\s*[,.]\d{1,4})?"
+_RANGE_ENDPOINT_RAW_NUMBER = (
+    r"-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+)(?:[,.]\d{1,4})?"
+)
+_PERCENTAGE_RAW_NUMBER = (
+    r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
+    r"(?:\s*[,.]\d{1,4})?"
+    r"|-?\d+\.\d+"
+)
+_BELGIAN_NUMERIC_RANGE_PATTERN = re.compile(
+    rf"\b(?P<start>{_RANGE_ENDPOINT_RAW_NUMBER})\s*(?:à|tot|t/m)\s*"
+    rf"(?P<end>{_RANGE_ENDPOINT_RAW_NUMBER})(?=\b)",
+    re.IGNORECASE,
+)
+_EUROPEAN_MONEY_AMOUNT_PATTERN = re.compile(
+    rf"(?:\b(?:euro|euros|eur)\s*)?(?P<number>{_EUROPEAN_RAW_NUMBER})"
+    r"(?:\s*\]\s*\d+)?\s*(?:euro|euros|eur\b|€)",
+    re.IGNORECASE,
+)
+_DIRECT_PERCENTAGE_PATTERN = re.compile(
+    rf"(?P<number>{_PERCENTAGE_RAW_NUMBER})\s*(?:%|\bp\.?\s*c\.?\b)",
+    re.IGNORECASE,
+)
+_PERCENT_MARKER_AFTER_NUMBER_PATTERN = re.compile(
+    r"\s*(?:%|\bp\.?\s*c\.?\b)",
+    re.IGNORECASE,
+)
+_VEHICLE_TAX_FISCAL_POWER_TABLE_CELL_PATTERN = re.compile(
+    r"\b(?P<cv>[5-9]|1\d|20)\s+"
+    r"(?=(?:\d{1,3}[.\u00a0\u202f]\d{3},\d{2}|\d{2,3}[,.]\d{2})"
+    r"\s*(?:euro|euros|eur\b|€))",
+    re.IGNORECASE,
+)
+_WEEK_DURATION_PATTERN = re.compile(
+    rf"\b(?P<number>{_EUROPEAN_RAW_NUMBER}|"
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(
+            {
+                *_CARDINAL_WORD_VALUES,
+                *_FRENCH_CARDINAL_PHRASE_VALUES,
+                *_DUTCH_CARDINAL_PHRASE_VALUES,
+            },
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")\s+(?:weeks?|semaines?|weken)\b",
+    re.IGNORECASE,
+)
+_ORDINAL_WEEK_DURATION_PATTERN = re.compile(
+    r"\b(?P<number>"
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(_FRENCH_ORDINAL_PHRASE_VALUES, key=len, reverse=True)
+    )
+    + r")\s+semaines?\b",
+    re.IGNORECASE,
+)
+_YEAR_DURATION_PATTERN = re.compile(
+    rf"\b(?P<number>{_EUROPEAN_RAW_NUMBER}|"
+    + "|".join(
+        re.escape(phrase)
+        for phrase in sorted(
+            {
+                *_CARDINAL_WORD_VALUES,
+                *_FRENCH_CARDINAL_PHRASE_VALUES,
+                *_DUTCH_CARDINAL_PHRASE_VALUES,
+            },
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")\s+(?:ans?|jaar|jaren)\b",
+    re.IGNORECASE,
+)
+_CENTIME_UNIT_PATTERN = re.compile(r"\bcentimes?\b", re.IGNORECASE)
+_ANNUAL_CONTEXT_PATTERN = re.compile(
+    r"\b(?:par\s+an|annuel(?:le|s|les)?|per\s+jaar)\b",
     re.IGNORECASE,
 )
 _CARDINAL_WORD_SEQUENCE = (
@@ -2696,13 +2935,34 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(two_line_table_occurrences)
     numbers.update(schedule_occurrences)
 
+    for span, value in _iter_belgian_numeric_range_endpoint_matches(text):
+        numbers.add(value)
+        occupied_spans.append(span)
+
     for match in re.finditer(
         r"\b(?:age|aged)\s+(\d{1,3})(?=\b)", original_text, re.IGNORECASE
     ):
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group(1)))
 
+    for _, value in _iter_raw_european_money_value_matches(original_text):
+        numbers.add(value)
+    for span, value in _iter_raw_european_money_value_matches(text):
+        numbers.add(value)
+        occupied_spans.append(span)
+    direct_percentage_rate_matches = _iter_direct_percentage_rate_matches(original_text)
+    direct_percentage_rates = {value for _, value in direct_percentage_rate_matches}
+    numbers.update(direct_percentage_rates)
+    numbers.update(_extract_week_duration_day_values(original_text))
+    numbers.update(_extract_year_duration_month_values(original_text))
+    numbers.update(_extract_dotted_date_year_values(original_text))
+    numbers.update(_extract_centime_unit_values(original_text))
+    numbers.update(_extract_annual_context_values(original_text))
+    numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
+
     for span, value in _iter_normalized_special_numeric_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
         numbers.add(value)
         occupied_spans.append(span)
     numbers.update(_extract_percentage_context_values(text))
@@ -2716,12 +2976,22 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
-    for span, value in _iter_cardinal_word_number_matches(text):
+    for span, value in _iter_cardinal_word_number_matches(text, compound_only=True):
         if _span_overlaps(span, occupied_spans):
             continue
         numbers.add(value)
         occupied_spans.append(span)
     for span, value in _iter_french_cardinal_phrase_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
+    for span, value in _iter_dutch_cardinal_phrase_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
+    for span, value in _iter_cardinal_word_number_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
         numbers.add(value)
@@ -2765,11 +3035,21 @@ def extract_numbers_from_text(text: str) -> set[float]:
             occupied_spans.append(match.span(1))
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
-        if _span_overlaps(match.span(1), occupied_spans):
+        span = match.span(1)
+        if _span_overlaps(span, occupied_spans):
+            continue
+        if _number_span_is_immediately_followed_by_percent_marker(text, span):
             continue
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):
-            numbers.add(float(raw))
+            value = float(raw)
+            if _has_captured_percentage_rate(
+                direct_percentage_rate_matches,
+                value,
+                span=span,
+            ):
+                continue
+            numbers.add(value)
 
     for match in _ORDINAL_NUMBER_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
@@ -2868,18 +3148,13 @@ def _iter_normalized_special_numeric_matches(
                 (match.span(), (whole + sign * numerator / denominator) / 100)
             )
 
-    for pattern in (
-        re.compile(
-            r"(\d+(?:\.\d+)?)(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
-            re.IGNORECASE,
-        ),
-        re.compile(r"(\d+(?:\.\d+)?)\s*%"),
+    for match in re.finditer(
+        r"(\d+(?:\.\d+)?)(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+        text,
+        re.IGNORECASE,
     ):
-        for match in pattern.finditer(text):
-            with contextlib.suppress(ValueError):
-                matches.append(
-                    (match.span(), float(match.group(1).replace(",", "")) / 100)
-                )
+        with contextlib.suppress(ValueError):
+            matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
 
     for match in _SUBPOUND_MONEY_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
@@ -2890,7 +3165,7 @@ def _iter_normalized_special_numeric_matches(
             with contextlib.suppress(ValueError):
                 matches.append(
                     (
-                        match.span(),
+                        match.span(group_index),
                         float(match.group(group_index).replace(",", "")),
                     )
                 )
@@ -2935,11 +3210,15 @@ def _parse_cardinal_word_sequence(text: str) -> float | None:
 
 def _iter_cardinal_word_number_matches(
     text: str,
+    *,
+    compound_only: bool = False,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
     for match in _CARDINAL_NUMBER_WORD_PATTERN.finditer(text):
         phrase = match.group(0)
+        if compound_only and not re.search(r"[-\s]", phrase):
+            continue
         split_values = _split_flat_coordinated_cardinal_phrase(
             phrase, offset=match.start()
         )
@@ -2964,6 +3243,152 @@ def _iter_french_cardinal_phrase_matches(
             continue
         matches.append((match.span(1), value))
     return matches
+
+
+def _iter_dutch_cardinal_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _DUTCH_CARDINAL_PHRASE_PATTERN.finditer(text):
+        normalized = re.sub(r"\s+", " ", match.group(1).strip().lower())
+        value = _DUTCH_CARDINAL_PHRASE_VALUES.get(normalized)
+        if value is None:
+            continue
+        matches.append((match.span(1), value))
+    return matches
+
+
+def _parse_belgian_numeric_phrase(raw: str) -> float | None:
+    normalized = re.sub(r"\s+", " ", raw.strip().lower())
+    if not normalized:
+        return None
+    if re.search(r"\d", normalized):
+        with contextlib.suppress(ValueError):
+            return float(_normalize_european_decimal_number(normalized))
+        return None
+    value = _parse_cardinal_number_words(normalized)
+    if value is not None:
+        return value
+    value = _FRENCH_CARDINAL_PHRASE_VALUES.get(normalized)
+    if value is not None:
+        return value
+    return _DUTCH_CARDINAL_PHRASE_VALUES.get(normalized)
+
+
+def _parse_percentage_numeric_phrase(raw: str) -> float | None:
+    cleaned = re.sub(r"\s+", "", raw.strip())
+    dot_grouped = re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", cleaned)
+    if "." in cleaned and "," not in cleaned and not dot_grouped:
+        with contextlib.suppress(ValueError):
+            return float(cleaned)
+    return _parse_belgian_numeric_phrase(raw)
+
+
+def _iter_raw_european_money_value_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    values: list[tuple[tuple[int, int], float]] = []
+    for match in _EUROPEAN_MONEY_AMOUNT_PATTERN.finditer(text):
+        value = _parse_belgian_numeric_phrase(match.group("number"))
+        if value is not None:
+            values.append((match.span("number"), value))
+    return values
+
+
+def _extract_raw_european_money_values(text: str) -> set[float]:
+    return {value for _, value in _iter_raw_european_money_value_matches(text)}
+
+
+def _extract_direct_percentage_rate_values(text: str) -> set[float]:
+    return {value for _, value in _iter_direct_percentage_rate_matches(text)}
+
+
+def _number_span_is_immediately_followed_by_percent_marker(
+    text: str,
+    span: tuple[int, int],
+) -> bool:
+    return _PERCENT_MARKER_AFTER_NUMBER_PATTERN.match(text[span[1] :]) is not None
+
+
+def _iter_direct_percentage_rate_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    values: list[tuple[tuple[int, int], float]] = []
+    for match in _DIRECT_PERCENTAGE_PATTERN.finditer(text):
+        value = _parse_percentage_numeric_phrase(match.group("number"))
+        if value is not None:
+            values.append((match.span("number"), value / 100))
+    return values
+
+
+def _iter_belgian_numeric_range_endpoint_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    values: list[tuple[tuple[int, int], float]] = []
+    for match in _BELGIAN_NUMERIC_RANGE_PATTERN.finditer(text):
+        for group_name in ("start", "end"):
+            value = _parse_belgian_numeric_phrase(match.group(group_name))
+            if value is not None:
+                values.append((match.span(group_name), value))
+    return values
+
+
+def _extract_week_duration_day_values(text: str) -> set[float]:
+    values: set[float] = set()
+    for match in _WEEK_DURATION_PATTERN.finditer(text):
+        value = _parse_belgian_numeric_phrase(match.group("number"))
+        if value is not None:
+            values.add(value * 7)
+    for match in _ORDINAL_WEEK_DURATION_PATTERN.finditer(text):
+        normalized = re.sub(r"\s+", " ", match.group("number").strip().lower())
+        value = _FRENCH_ORDINAL_PHRASE_VALUES.get(normalized)
+        if value is not None:
+            values.add(value * 7)
+    return values
+
+
+def _extract_year_duration_month_values(text: str) -> set[float]:
+    values: set[float] = set()
+    for match in _YEAR_DURATION_PATTERN.finditer(text):
+        value = _parse_belgian_numeric_phrase(match.group("number"))
+        if value is not None:
+            values.add(value * 12)
+    return values
+
+
+def _extract_dotted_date_year_values(text: str) -> set[float]:
+    values: set[float] = set()
+    for match in _DOTTED_DATE_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            values.add(float(match.group("year")))
+    return values
+
+
+def _extract_centime_unit_values(text: str) -> set[float]:
+    if _CENTIME_UNIT_PATTERN.search(text):
+        return {100.0}
+    return set()
+
+
+def _extract_annual_context_values(text: str) -> set[float]:
+    if _ANNUAL_CONTEXT_PATTERN.search(text):
+        return {12.0}
+    return set()
+
+
+def _extract_vehicle_tax_fiscal_power_table_values(text: str) -> set[float]:
+    values: set[float] = set()
+    lowered = text.lower()
+    for match in _VEHICLE_TAX_FISCAL_POWER_TABLE_CELL_PATTERN.finditer(text):
+        context = lowered[max(0, match.start() - 2000) : match.start()]
+        if not re.search(
+            r"\b(?:chevaux\s+fiscaux|fiscale\s+paardenkracht|aantal\s+pk|cv)\b",
+            context,
+        ):
+            continue
+        with contextlib.suppress(ValueError):
+            values.add(float(match.group("cv")))
+    return values
 
 
 def _split_flat_coordinated_cardinal_phrase(
@@ -3198,6 +3623,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
+    cleaned = _DOTTED_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _SLASH_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
@@ -3349,6 +3775,7 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
 
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
+    raw_text = text
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
     cleaned = _clean_source_text_for_numeric_extraction(text)
     collapsed_schedule_occurrences, cleaned = (
@@ -3358,8 +3785,40 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
     spans: list[tuple[int, int]] = []
+    cleaned_money_values: list[float] = []
+    for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
+        occurrences.append(value)
+        spans.append(span)
+
+    for span, value in _iter_raw_european_money_value_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        occurrences.append(value)
+        cleaned_money_values.append(value)
+        spans.append(span)
+    for _, value in _iter_raw_european_money_value_matches(raw_text):
+        if any(
+            math.isclose(
+                value,
+                cleaned_value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            )
+            for cleaned_value in cleaned_money_values
+        ):
+            continue
+        occurrences.append(value)
+    direct_percentage_rate_matches = _iter_direct_percentage_rate_matches(raw_text)
+    direct_percentage_rates = {value for _, value in direct_percentage_rate_matches}
+    occurrences.extend(direct_percentage_rates)
+    occurrences.extend(_extract_week_duration_day_values(raw_text))
+    occurrences.extend(_extract_year_duration_month_values(raw_text))
+    occurrences.extend(_extract_dotted_date_year_values(raw_text))
+    occurrences.extend(_extract_centime_unit_values(raw_text))
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
         occurrences.append(value)
         spans.append(span)
 
@@ -3371,6 +3830,8 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
 
     for match in SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN.finditer(cleaned):
         span = match.span(1)
+        if _span_overlaps(span, spans):
+            continue
         with contextlib.suppress(ValueError):
             occurrences.append(
                 float(_normalize_european_decimal_number(match.group(1)))
@@ -3401,9 +3862,38 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         span = match.span(1)
         if _span_overlaps(span, spans):
             continue
+        if _number_span_is_immediately_followed_by_percent_marker(cleaned, span):
+            continue
         with contextlib.suppress(ValueError):
-            value = float(match.group(1).replace(",", ""))
+            raw_value = match.group(1)
+            value = float(raw_value.replace(",", ""))
             if value.is_integer() and 1900 <= value <= 2100:
+                continue
+            if _has_captured_percentage_rate(
+                direct_percentage_rate_matches,
+                value,
+                span=span,
+            ):
+                continue
+            grouped_value = _parse_belgian_numeric_phrase(raw_value)
+            if (
+                grouped_value is not None
+                and not math.isclose(
+                    grouped_value,
+                    value,
+                    rel_tol=0,
+                    abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+                )
+                and any(
+                    math.isclose(
+                        grouped_value,
+                        occurrence,
+                        rel_tol=0,
+                        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+                    )
+                    for occurrence in occurrences
+                )
+            ):
                 continue
             occurrences.append(value)
 
@@ -3426,7 +3916,7 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
 
-    for span, value in _iter_cardinal_word_number_matches(cleaned):
+    for span, value in _iter_cardinal_word_number_matches(cleaned, compound_only=True):
         if _span_overlaps(span, spans):
             continue
         if value not in GROUNDING_ALLOWED_VALUES:
@@ -3434,6 +3924,20 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         spans.append(span)
 
     for span, value in _iter_french_cardinal_phrase_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
+        spans.append(span)
+
+    for span, value in _iter_dutch_cardinal_phrase_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
+        spans.append(span)
+
+    for span, value in _iter_cardinal_word_number_matches(cleaned):
         if _span_overlaps(span, spans):
             continue
         if value not in GROUNDING_ALLOWED_VALUES:
@@ -8814,6 +9318,16 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 fallback_source_text=source_text,
                 unit_relation_aggregate_helper_names=unit_relation_aggregate_helper_names,
             ):
+                continue
+            if source_unit_entity is not None:
+                issues.append(
+                    "Source scope mismatch: "
+                    f"`{name}` is declared on `Person`, but the embedded source "
+                    f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
+                    "unit-scoped test. Encode the rule at the source-stated "
+                    "unit scope or cite source text that states the person-level "
+                    "test."
+                )
                 continue
             issues.append(
                 "Source scope mismatch: "
@@ -18815,10 +19329,10 @@ def _local_corpus_provisions_roots() -> tuple[Path, ...]:
     seen: set[Path] = set()
     for root in roots:
         for candidate in (
-            root,
-            root / "provisions",
-            root / "data" / "corpus",
             root / "data" / "corpus" / "provisions",
+            root / "data" / "corpus",
+            root / "provisions",
+            root,
         ):
             provisions_root = (
                 candidate
@@ -18893,7 +19407,9 @@ def _read_local_corpus_provision_file(
 
 def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | None:
     """Select the best body when local corpus files contain duplicate citations."""
-    body_records = [record for record in records if record.get("body") is not None]
+    body_records = [
+        record for record in records if _local_corpus_record_text(record) is not None
+    ]
     if not body_records:
         return None
 
@@ -18905,7 +19421,16 @@ def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | Non
         return (source_as_of, official_source, version)
 
     selected = max(body_records, key=record_key)
-    return str(selected["body"])
+    return _local_corpus_record_text(selected)
+
+
+def _local_corpus_record_text(record: dict[str, Any]) -> str | None:
+    """Return local corpus provision text across supported row schemas."""
+    for key in ("body", "text"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _read_local_corpus_descendant_text(
@@ -18932,7 +19457,7 @@ def _read_local_corpus_descendant_text(
         record_path = str(record.get("citation_path") or "")
         if not record_path.startswith(child_prefix):
             continue
-        body = record.get("body")
+        body = _local_corpus_record_text(record)
         if body is None:
             continue
         descendants.append(
@@ -18940,7 +19465,7 @@ def _read_local_corpus_descendant_text(
                 int(record.get("level") or 0),
                 int(record.get("ordinal") or 0),
                 str(record.get("heading") or "") or None,
-                str(body),
+                body,
             )
         )
 
@@ -20756,10 +21281,22 @@ class ValidatorPipeline:
         ):
             return False
         try:
-            payload = yaml.safe_load(rules_file.read_text())
+            payload = _safe_load_unique_keys(rules_file.read_text())
         except (OSError, yaml.YAMLError, ValueError):
             return False
         return isinstance(payload, dict) and payload.get("format") == "rulespec/v1"
+
+    def _rulespec_yaml_preflight_issue(self, rules_file: Path) -> str | None:
+        """Return a parse/shape issue before invoking compile or CI validators."""
+        try:
+            payload = _safe_load_unique_keys(rules_file.read_text())
+        except OSError as exc:
+            return f"RuleSpec YAML read failed: {exc}"
+        except (yaml.YAMLError, ValueError) as exc:
+            return _yaml_parse_issue(rules_file, exc)
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            return "RuleSpec YAML artifacts are required."
+        return None
 
     def _rulespec_test_path(self, rules_file: Path) -> Path:
         """Return the companion RuleSpec test file path."""
@@ -20862,12 +21399,13 @@ class ValidatorPipeline:
 
     def _run_compile_check(self, rulespec_file: Path) -> ValidationResult:
         """Tier 0: Compile check against the Axiom rules engine RuleSpec."""
-        if not self._is_rulespec_file(rulespec_file):
+        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+        if yaml_issue:
             return ValidationResult(
                 validator_name="compile",
                 passed=False,
-                issues=["RuleSpec YAML artifacts are required."],
-                error="RuleSpec YAML artifacts are required",
+                issues=[yaml_issue],
+                error=yaml_issue,
             )
 
         return self._run_rulespec_compile_check(rulespec_file)
@@ -22097,9 +22635,9 @@ class ValidatorPipeline:
         test_path = self._rulespec_test_path(rules_file)
         if test_path.exists():
             try:
-                payload = yaml.safe_load(test_path.read_text())
+                payload = _safe_load_unique_keys(test_path.read_text())
             except (yaml.YAMLError, ValueError) as exc:
-                issues.append(f"Test YAML parse failed: {exc}")
+                issues.append(_yaml_parse_issue(test_path, exc))
             else:
                 if payload in (None, ""):
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
@@ -22193,12 +22731,13 @@ class ValidatorPipeline:
 
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
-        if not self._is_rulespec_file(rulespec_file):
+        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+        if yaml_issue:
             return ValidationResult(
                 validator_name="ci",
                 passed=False,
-                issues=["RuleSpec YAML artifacts are required."],
-                error="RuleSpec YAML artifacts are required",
+                issues=[yaml_issue],
+                error=yaml_issue,
             )
         return self._run_rulespec_ci(rulespec_file)
 

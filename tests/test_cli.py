@@ -115,6 +115,7 @@ from axiom_encode.cli import (
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
+    _resolve_policy_repo_for_corpus_source,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
@@ -171,6 +172,7 @@ from axiom_encode.cli import (
     _try_repair_generated_upstream_placement_duplicates_and_proofs_for_apply,
     _try_repair_generated_upstream_placement_duplicates_for_apply,
     _unit_scoped_person_definition_issue_names,
+    _unit_scoped_person_definition_issue_units,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     _write_overlay_eval_source_metadata_for_generated_output,
@@ -221,13 +223,13 @@ from axiom_encode.cli import (
     cmd_repair_unreferenced_proof_imports,
     cmd_repair_zero_branch_tests,
     cmd_retire,
-    cmd_sign_applied_files,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
     cmd_session_start,
     cmd_session_stats,
     cmd_sessions,
+    cmd_sign_applied_files,
     cmd_stats,
     cmd_sync_agent_sessions,
     cmd_sync_transcripts,
@@ -255,6 +257,72 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
+
+
+def test_resolve_policy_repo_for_state_corpus_source_uses_state_monorepo_root(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    state_root = repo / "us-ia"
+    state_root.mkdir(parents=True)
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        repo,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == state_root.resolve()
+
+
+def test_resolve_policy_repo_for_state_corpus_source_creates_state_monorepo_root(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        repo,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == (repo / "us-ia").resolve()
+    assert (repo / "us-ia").is_dir()
+
+
+def test_resolve_policy_repo_for_state_corpus_source_uses_sibling_for_country_content_override(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    country_root = repo / "us"
+    country_root.mkdir(parents=True)
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        country_root,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == (repo / "us-ia").resolve()
+    assert (repo / "us-ia").is_dir()
+    assert not (country_root / "us-ia").exists()
+
+
+def test_resolve_policy_repo_for_state_corpus_source_preserves_legacy_override(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us-ia"
+    repo.mkdir()
+
+    resolved = _resolve_policy_repo_for_corpus_source(
+        "us-ia/regulation/iac/441/41/41.28",
+        repo,
+        create_missing_monorepo_content_root=True,
+    )
+
+    assert resolved == repo.resolve()
+    assert not (repo / "us-ia").exists()
 
 
 def test_package_version_metadata_matches_pyproject():
@@ -4030,7 +4098,7 @@ class TestCmdEncode:
             == args.axiom_rules_path
         )
 
-    def test_encode_routes_state_corpus_citation_to_monorepo_jurisdiction_dir(
+    def test_encode_routes_state_corpus_citation_to_state_monorepo_root(
         self, capsys, tmp_path
     ):
         policy_repo_path = tmp_path / "rulespec-us"
@@ -4047,7 +4115,7 @@ class TestCmdEncode:
         assert exit_code == 0
         assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-co"
 
-    def test_encode_creates_missing_state_monorepo_jurisdiction_dir(
+    def test_encode_creates_state_monorepo_root_for_missing_state_dir(
         self, capsys, tmp_path
     ):
         policy_repo_path = tmp_path / "rulespec-us"
@@ -9408,6 +9476,22 @@ rules:
         assert _unit_scoped_person_definition_issue_names(issues) == [
             "llc_or_s_corporation_owner_earned_income"
         ]
+        assert _unit_scoped_person_definition_issue_units(issues) == {}
+
+    def test_unit_scoped_person_definition_issue_units_captures_source_unit(self):
+        issues = [
+            "Source scope mismatch: `targeted_low_income_pregnant_woman` "
+            "is declared on `Person`, but the embedded source states a "
+            "`Family` unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the person-level test."
+        ]
+
+        assert _unit_scoped_person_definition_issue_names(issues) == [
+            "targeted_low_income_pregnant_woman"
+        ]
+        assert _unit_scoped_person_definition_issue_units(issues) == {
+            "targeted_low_income_pregnant_woman": "Family"
+        }
 
     def test_repair_unit_scoped_person_definition_entities_uses_dominant_unit(
         self, tmp_path
@@ -9447,6 +9531,35 @@ rules:
             "Household",
             "Household",
         ]
+
+    def test_repair_unit_scoped_person_definition_entities_uses_explicit_source_unit(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "statutes/42/1397ll/d/2.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: targeted_low_income_pregnant_woman
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Day
+  versions:
+  - effective_from: '1974-01-01'
+    formula: family_income > pregnant_woman_income_floor
+"""
+        )
+
+        repaired = _repair_unit_scoped_person_definition_entities(
+            rules_file=rules_file,
+            target_names=["targeted_low_income_pregnant_woman"],
+            unit_entities_by_name={"targeted_low_income_pregnant_woman": "Family"},
+        )
+
+        assert repaired == ["targeted_low_income_pregnant_woman"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["entity"] == "Family"
 
     def test_inline_medicaid_magi_income_helpers_removes_one_use_income_helper(
         self, tmp_path

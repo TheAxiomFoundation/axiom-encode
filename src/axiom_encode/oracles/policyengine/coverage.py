@@ -59,6 +59,7 @@ POLICYENGINE_CLOUD_RUN_ARTIFACT_SCHEMA = (
     "axiom-encode/policyengine-cloud-run-artifact/v1"
 )
 CLOUD_QUEUE_STATUSES = {
+    "deferred_jurisdiction",
     "pending_oracle_mapping",
     "pending_rulespec_encoding",
     "pending_source_ingestion",
@@ -67,7 +68,7 @@ CLOUD_QUEUE_STATUS_ACTIONS = {
     "pending_oracle_mapping": "wire_oracle_mapping",
     "pending_rulespec_encoding": "encode_rulespec",
     "pending_source_ingestion": "ingest_source",
-    "deferred_jurisdiction": "bootstrap_jurisdiction",
+    "deferred_jurisdiction": "ingest_source",
 }
 _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
@@ -403,12 +404,14 @@ class PolicyEngineCloudQueueItem:
     source_type: str
     agency: str | None = None
     state: str | None = None
+    policybench_output: str | None = None
+    policybench_household_weight: float | None = None
     oracle_expectation: str | None = None
     lock_scopes: tuple[str, ...] = ()
     legal_ids: tuple[str, ...] = ()
     rationale: str | None = None
 
-    def as_dict(self) -> dict[str, str | list[str] | None]:
+    def as_dict(self) -> dict[str, str | float | list[str] | None]:
         return {
             "id": self.id,
             "action": self.action,
@@ -426,6 +429,8 @@ class PolicyEngineCloudQueueItem:
             "policyengine_status": self.policyengine_status,
             "coverage": self.coverage,
             "source_type": self.source_type,
+            "policybench_output": self.policybench_output,
+            "policybench_household_weight": self.policybench_household_weight,
             "oracle_expectation": self.oracle_expectation,
             "lock_scopes": list(self.lock_scopes),
             "legal_ids": list(self.legal_ids),
@@ -521,7 +526,7 @@ def build_policyengine_cloud_queue_report(
     country: str = "us",
     program: str | None = None,
     manifest_path: Path | None = None,
-    include_deferred_jurisdictions: bool = False,
+    include_deferred_jurisdictions: bool = True,
 ) -> dict[str, Any]:
     """Export a deterministic work queue from PolicyEngine program surfaces.
 
@@ -536,8 +541,8 @@ def build_policyengine_cloud_queue_report(
         manifest_path=manifest_path,
     )
     statuses = set(CLOUD_QUEUE_STATUSES)
-    if include_deferred_jurisdictions:
-        statuses.add("deferred_jurisdiction")
+    if not include_deferred_jurisdictions:
+        statuses.discard("deferred_jurisdiction")
     raw_items = [
         _cloud_queue_item_from_program_surface(item)
         for item in surface_report["items"]
@@ -546,6 +551,7 @@ def build_policyengine_cloud_queue_report(
     items = sorted(
         raw_items,
         key=lambda item: (
+            -(item.policybench_household_weight or 0.0),
             _candidate_priority_rank(item.priority or ""),
             _cloud_queue_action_rank(item.action),
             item.target_repo,
@@ -760,6 +766,8 @@ def _cloud_queue_item_from_program_surface(
         policyengine_status=str(item.get("policyengine_status") or ""),
         coverage=str(item.get("coverage") or ""),
         source_type=str(item.get("source_type") or "program"),
+        policybench_output=item.get("policybench_output"),
+        policybench_household_weight=item.get("policybench_household_weight"),
         oracle_expectation=_cloud_queue_oracle_expectation(action),
         lock_scopes=tuple(dict.fromkeys(lock_scopes)),
         legal_ids=legal_ids,
@@ -780,17 +788,14 @@ def _cloud_queue_oracle_expectation(action: str) -> str:
         return "ingest source before scheduling RuleSpec encoding"
     if action == "wire_oracle_mapping":
         return "classify existing legal outputs in the oracle registry"
-    if action == "bootstrap_jurisdiction":
-        return "prepare jurisdiction repo/source routing before encoding"
     return "classify outcome before merge"
 
 
 def _cloud_queue_action_rank(action: str) -> int:
     return {
         "ingest_source": 0,
-        "bootstrap_jurisdiction": 1,
-        "encode_rulespec": 2,
-        "wire_oracle_mapping": 3,
+        "encode_rulespec": 1,
+        "wire_oracle_mapping": 2,
     }.get(action, 99)
 
 

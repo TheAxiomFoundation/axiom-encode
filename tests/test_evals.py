@@ -30,6 +30,7 @@ from axiom_encode.harness.evals import (
     _command_looks_out_of_bounds,
     _command_uses_policyengine_skill,
     _context_file_executable_surfaces,
+    _corpus_provisions_root,
     _eval_result_from_payload,
     _evaluate_generated_artifact_with_repairs,
     _format_subparagraph_coverage_checklist,
@@ -149,6 +150,80 @@ def test_resolve_corpus_source_unit_normalizes_colon_prefixed_local_citation(tmp
     assert source_unit.source == "local"
     assert source_unit.citation_path == "us-ca/regulation/cdss/eas/49/49-040"
     assert source_unit.body == "CAPI resource limits."
+
+
+def test_resolve_corpus_source_unit_reads_text_field_rows(tmp_path):
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us-me" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "official-documents.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "us-me/regulation/dhhs/ofi/chapter-331/block-4",
+                "text": "Maine TANF grant table source text.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit(
+        "us-me/regulation/dhhs/ofi/chapter-331/block-4",
+        corpus_path,
+    )
+
+    assert source_unit.source == "local"
+    assert source_unit.citation_path == "us-me/regulation/dhhs/ofi/chapter-331/block-4"
+    assert source_unit.body == "Maine TANF grant table source text."
+
+
+def test_resolve_corpus_source_unit_concatenates_descendant_text_rows(tmp_path):
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = (
+        corpus_path / "data" / "corpus" / "provisions" / "us-me" / "regulation"
+    )
+    provisions_dir.mkdir(parents=True)
+    rows = [
+        {
+            "citation_path": "us-me/regulation/dhhs/ofi/chapter-331",
+        },
+        {
+            "citation_path": "us-me/regulation/dhhs/ofi/chapter-331/block-1",
+            "ordinal": 2,
+            "text": "Second extracted block.",
+        },
+        {
+            "citation_path": "us-me/regulation/dhhs/ofi/chapter-331/block-2",
+            "ordinal": 1,
+            "heading": "Need standards",
+            "text": "First extracted block.",
+        },
+    ]
+    (provisions_dir / "official-documents.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit(
+        "us-me/regulation/dhhs/ofi/chapter-331",
+        corpus_path,
+    )
+
+    assert source_unit.body == (
+        "Need standards\n\nFirst extracted block.\n\nSecond extracted block."
+    )
+
+
+def test_corpus_provisions_root_prefers_current_data_corpus_layout(tmp_path):
+    corpus_path = tmp_path / "axiom-corpus"
+    legacy_root = corpus_path / "provisions"
+    current_root = corpus_path / "data" / "corpus" / "provisions"
+    legacy_root.mkdir(parents=True)
+    current_root.mkdir(parents=True)
+
+    assert _corpus_provisions_root(corpus_path) == current_root.resolve()
 
 
 def test_source_identifier_maps_state_manual_to_policies_repo_path():
@@ -6488,6 +6563,7 @@ class TestEvalPrompt:
         )
         assert "entity:" in prompt
         assert "period:" in prompt
+        assert "Do not cite the copied `external/...`" in prompt
         assert "dtype:" in prompt
         assert "RuleSpec requirements:" in prompt
         assert "The RuleSpec file must begin with `format: rulespec/v1`" in prompt

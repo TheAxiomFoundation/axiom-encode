@@ -388,6 +388,62 @@ mappings:
     policyengine_variable: is_chip_eligible_child
     rationale: This RuleSpec output is the federal uncovered-child definition. PolicyEngine exposes final CHIP eligibility and insurance-status inputs, not this statutory prerequisite as a standalone oracle variable.
 
+  - legal_id: us:statutes/42/1397ll/d/2#standard_postpartum_period_days
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is a federal postpartum-period scalar inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing helper as a one-to-one variable or parameter.
+
+  - legal_id: us:statutes/42/1397ll/d/2#extended_postpartum_period_months
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal extended postpartum period scalar inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing helper as a one-to-one variable or parameter.
+
+  - legal_id: us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output imports the federal extended postpartum coverage period used by the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory period helper as a standalone oracle target.
+
+  - legal_id: us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal lower income floor for targeted low-income pregnant women. PolicyEngine uses state effective CHIP pregnant income limits in final eligibility, not this federal source-level floor as a one-to-one parameter.
+
+  - legal_id: us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output selects the higher of the statutory 185 percent floor and the subsection (b)(1)(A) floor. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory income-floor helper as a standalone oracle variable.
+
+  - legal_id: us:statutes/42/1397ll/d/2#within_pregnancy_or_applicable_postpartum_period
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal pregnancy-or-postpartum timing predicate inside the targeted low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility, not this statutory timing prerequisite as a one-to-one oracle variable.
+
+  - legal_id: us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_standard_pregnant_person
+    rationale: This RuleSpec output is the federal source-level targeted-low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility after state limits and other category assembly, not this statutory prerequisite as a one-to-one oracle variable.
+
   - legal_id: us:statutes/8/1612/b/2/G#paragraph_1_nonapplication_exception_applies
     country: us
     program: medicaid
@@ -2420,6 +2476,97 @@ mappings:
     candidate_priority: P4
     rationale: RuleSpec exposes a source-local selector over attachment 660-2-4-.19a Maximum Budgeted amounts. PolicyEngine's Alabama SSP surface does not expose that separate maximum-budgeted column.
 
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#optional_supplement_waived_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 11 source-level OS Code Y waived-optional-supplement predicate used to select state payment-table rows. PolicyEngine's state SSP surfaces store payment amounts and final benefit composition, not this POMS row-selection predicate as a one-to-one oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_individual_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code A as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_individual_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code B FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code B as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_c_individual_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 federal SSI FBR column for Federal Code C as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_c_no_supplement_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 no-supplement total payment level for Federal Code C as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_d_individual_title_xix_payment_cap
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 13 Federal Code D Title XIX payment cap column as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal payment cap.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_couple_fbr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 federal SSI couple FBR column for Federal Code A as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately from federal SSI rates.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_a_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code A as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_couple_fbr_less_vtr
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code B couple FBR-less-VTR amount as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal SSI source-table column.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_b_no_supplement_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 no-supplement total payment level for Federal Code B as a federal source-table input. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal-payment total as an oracle output.
+
+  - legal_id: us:policies/ssa/poms/si-01415-058/2026/federally-administered-optional-supplement-common#federal_code_d_couple_title_xix_payment_cap
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 block 14 Federal Code D Title XIX couple payment cap column as a source-table input to state SSP payment levels. PolicyEngine's state SSP surfaces store state supplement amounts separately and do not expose this federal payment cap.
+
   - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels#federal_code_a_individual_fbr
     country: us
     program: ssi_state_supplement
@@ -2576,8 +2723,9 @@ mappings:
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
-    candidate_priority: P4
-    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 13 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+    policyengine_variable: dc_ossp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 block 13 individual total payment levels. PolicyEngine's final `dc_ossp` person amount composes the District payment standard with eligibility and SSI countable-income offset logic, and does not expose the POMS federal-plus-District total column as the final benefit amount.
 
   - legal_id: us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-couple-state-supplement-levels#federal_code_a_couple_fbr
     country: us
@@ -2714,8 +2862,168 @@ mappings:
     country: us
     program: ssi_state_supplement
     mapping_type: not_comparable
+    policyengine_variable: dc_ossp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 block 14 couple total payment levels. PolicyEngine's final `dc_ossp` person amount composes the District payment standard with eligibility, SSI countable-income offset, and person-level couple allocation logic, and does not expose the POMS federal-plus-District total column as the final benefit amount.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#adult_residential_care_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
     candidate_priority: P4
-    rationale: RuleSpec exposes a source-local selector over POMS SI 01415.058 block 14 total payment levels. PolicyEngine's DC OSSP parameter stores only the District supplement amount, not the federal-plus-District total column.
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A residential-care predicate. PolicyEngine's Delaware SSP surface stores a household living-arrangement input and final person-level payment formula rather than exposing this source-specific OS-code predicate as a one-to-one variable.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#assisted_living_facility_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A assisted-living predicate. PolicyEngine's Delaware SSP surface does not expose this OS-code predicate separately from the living-arrangement input and final payment formula.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#adult_foster_care_home_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware State OS Code A adult-foster-care predicate. PolicyEngine's Delaware SSP surface does not expose this source-specific OS-code predicate as a one-to-one oracle target.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#os_code_a_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level Delaware State OS Code A selector over certified residential care settings. PolicyEngine uses a broader Delaware SSP living-arrangement input and final eligibility/payment graph, not this POMS selector as a standalone output.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#no_supplement_os_code_applies
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the source-level Delaware State OS Code Z/no-supplement selector. PolicyEngine represents no-supplement cases through its living-arrangement input and final eligibility/payment graph rather than a separate OS Code Z oracle variable.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-living-arrangement-variations#de_ssp_living_arrangement
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp_living_arrangement
+    candidate_priority: P4
+    rationale: RuleSpec emits the POMS State OS Code value A, Y, or Z. PolicyEngine's Delaware SSP living-arrangement input is a simplified household enum with RESIDENTIAL_CARE and NONE, so the source OS-code string is adjacent but not a one-to-one oracle output.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#certified_care_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.de.dhss.ssp.amount.individual
+    period: month
+    unit: USD
+    comparison: money
+    tested_by_legal_ids:
+      - us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp
+    rationale: Same Delaware monthly individual state supplement for POMS Federal Code A / State OS Code A certified-care cases, represented by PolicyEngine's Delaware individual SSP amount parameter.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#no_supplement_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS State OS Code Z individual supplement cell. PolicyEngine's Delaware SSP parameter table stores only the positive certified-care amount; zero no-supplement cases are represented through final eligibility and living-arrangement logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#title_xix_individual_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS Title XIX institution individual supplement cell. PolicyEngine's Delaware SSP amount parameter stores the positive certified-care supplement rather than separate zero source-table cells.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#certified_care_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware total payment level, which sums the federal SSI FBR and Delaware supplement. PolicyEngine's Delaware SSP parameter stores only the state supplement amount, not the federal-plus-state total.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#title_xix_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS Title XIX individual total payment cap. PolicyEngine's Delaware SSP surface stores state supplement amounts and final offset logic separately from federal SSI institution payment caps.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp_individual_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the Delaware POMS federal SSI payment column. PolicyEngine's Delaware SSP variable models only the state supplementary payment amount after eligibility and SSI offset logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware individual state supplement selector. PolicyEngine's final `de_ssp` person amount composes SSP eligibility, individual-vs-couple payment selection, SSI countable-income offset, and person-level couple allocation, so the POMS individual selector is not a one-to-one final benefit oracle.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-individual-state-supplement-levels#de_ssp_individual_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 Delaware individual total payment levels. PolicyEngine's final `de_ssp` person amount is the state supplement after eligibility, SSI offset, and couple allocation, not the federal-plus-state total payment column.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#certified_care_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.de.dhss.ssp.amount.couple
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Delaware monthly couple state supplement for POMS Federal Code A / State OS Code A certified-care cases, represented by PolicyEngine's Delaware couple SSP amount parameter.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#no_supplement_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS State OS Code Z couple supplement cell. PolicyEngine's Delaware SSP parameter table stores only the positive certified-care couple amount; zero no-supplement cases are represented through final eligibility and living-arrangement logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#title_xix_couple_state_supplement_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the zero Delaware POMS Title XIX institution couple supplement cell. PolicyEngine's Delaware SSP amount parameter stores the positive certified-care couple supplement rather than separate zero source-table cells.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#certified_care_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS SI 01415.058 Delaware couple total payment level, which sums the federal SSI couple FBR and Delaware supplement. PolicyEngine's Delaware SSP parameter stores only the state supplement amount.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#title_xix_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the POMS Title XIX couple total payment cap. PolicyEngine's Delaware SSP surface stores state supplement amounts and final offset logic separately from federal SSI institution payment caps.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#de_ssp_couple_federal_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-local selector over the Delaware POMS federal SSI couple payment column. PolicyEngine's Delaware SSP variable models only the state supplementary payment amount after eligibility and SSI offset logic.
+
+  - legal_id: us-de:policies/ssa/poms/si-01415-058/2026/de-ssp-couple-state-supplement-levels#de_ssp_couple_total_payment_level
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: de_ssp
+    candidate_priority: P2
+    rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 Delaware couple total payment levels. PolicyEngine's final `de_ssp` person amount composes the Delaware couple payment standard with eligibility, SSI countable-income offset, and person-level couple allocation, and does not expose the POMS federal-plus-state total column as the final benefit amount.
 
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
@@ -20580,6 +20888,51 @@ mappings:
     comparison: bool
     rationale: Same Utah FEP resource-test eligibility predicate under R986-200-230, represented in PolicyEngine as ut_fep_resources_eligible.
 
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#gross_countable_income_snb_percentage_limit
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.dwf.fep.income.gross_income_limit.rate
+    period: month
+    comparison: rate
+    rationale: Same Utah Administrative Code R986-200-239 gross-income limit rate of 185% of the Standard Needs Budget, represented in PolicyEngine as the Utah FEP gross-income-limit rate parameter.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#financial_assistance_gross_countable_income_limit
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_gross_income_eligible
+    candidate_priority: P4
+    rationale: Axiom exposes the source-level dollar gross-income limit equal to 185% of the household-size Standard Needs Budget. PolicyEngine uses the same rate and SNB table inside ut_fep_gross_income_eligible, but does not expose this calculated threshold as a one-to-one oracle variable.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#financial_assistance_gross_countable_income_eligible
+    country: us
+    program: tanf
+    mapping_type: direct_variable
+    policyengine_variable: ut_fep_gross_income_eligible
+    entity: spm_unit
+    period: month
+    comparison: bool
+    rationale: Same Utah FEP gross-income eligibility predicate under R986-200-239, represented in PolicyEngine as ut_fep_gross_income_eligible.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#work_expense_allowance_per_employed_person
+    country: us
+    program: tanf
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.dwf.fep.income.deductions.work_expense_allowance.amount
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Utah Administrative Code R986-200-239 $100 work-expense allowance per employed person, represented in PolicyEngine as the Utah FEP work-expense allowance parameter.
+
+  - legal_id: us-ut:regulations/admin-rules/r986/200/239#work_expense_allowance_deduction
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ut_fep_earned_income_after_work_expense
+    candidate_priority: P4
+    rationale: Axiom exposes the household-level work-expense allowance deduction allowed by R986-200-239 when the gross-income test is satisfied. PolicyEngine exposes person-level earned income after the work-expense allowance, not this household aggregate deduction as a one-to-one oracle target.
+
 prefixes:
   - legal_id_prefix: us-dc:statutes/4/4-205/49#
     country: us
@@ -21010,6 +21363,22 @@ prefixes:
     candidate_priority: P4
     rationale: Hawaii HAR §17-680-12 outputs decompose the source-level monthly assistance payment, initial-month proration, quotient truncation, whole-dollar rounding, and no-payment thresholds. PolicyEngine-US exposes hi_tanf as a final SPM-unit TANF benefit built from its own eligibility, income, and maximum-benefit graph; it does not expose this section's source-specific payment-determination helpers as one-to-one oracle variables.
 
+  - legal_id: us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: de_tanf
+    candidate_priority: P1
+    rationale: Axiom's Delaware TANF output follows 16 DE Admin. Code 4008.1.2's income test, earned-income deductions, 50 percent deficit remainder, and payment-standard cap using source-local standard-of-need and payment-standard inputs. PolicyEngine's de_tanf is a final monthly SPM-unit benefit gated by PE demographic, immigration, resource, standard/payment, and income helper graphs, so this source slice is adjacent rather than a one-to-one final-benefit oracle.
+
+  - legal_id_prefix: us-ia:regulations/iac/441/41/41/28#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: ia_fip
+    candidate_priority: P4
+    rationale: Iowa IAC 441-41.28 outputs decompose Family Investment Program basic-needs, living-cost, special-needs, school-expense, guardian-fee, and related need-standard source mechanics. PolicyEngine-US exposes ia_fip as a final SPM-unit benefit built from PE eligibility, countable-income, payment-standard, and standard-of-need graphs, not these source-specific Iowa regulation helpers as one-to-one oracle variables.
+
   - legal_id_prefix: us-ks:policies/dcf/keesm/keesm7410#
     country: us
     program: tanf
@@ -21033,6 +21402,14 @@ prefixes:
     policyengine_variable: la_fitap
     candidate_priority: P4
     rationale: Louisiana FITAP B-640 outputs decompose source-local income-limit, flat-grant, 18+ household, minimum-payment, and rounded-deficit grant rules. PolicyEngine-US exposes la_fitap as a final monthly benefit surface, but currently omits the B-640 rounded-down deficit and under-$10 no-payment rules, so these source-faithful RuleSpec outputs are not one-to-one comparable.
+
+  - legal_id_prefix: us-me:regulations/dhhs/ofi/chapter-331/tanf-rule-125a/maximum-benefit-and-standard-of-need#
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    policyengine_variable: me_tanf
+    candidate_priority: P4
+    rationale: Maine TANF Rule 125A outputs expose the FFY 2022-2026 Adult Included and Child Only standard-of-need and maximum-grant table, add-member rows, and special-need housing addition as source-level legal table mechanics. PolicyEngine's me_tanf surface is a final SPM-unit benefit graph with older 2024 Rule 121A parameter references and no separate child-only/adult-included table boundary, so these current Rule 125A outputs are adjacent coverage rather than one-to-one oracle targets.
 
   - legal_id: us-nv:policies/dwss/eligibility-payments/a-600/page-38#tanf_minimum_issuable_benefit
     country: us
@@ -22861,6 +23238,12 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: PolicyEngine-US does not model NH agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-nj:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model NJ agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-ny:"
     country: us

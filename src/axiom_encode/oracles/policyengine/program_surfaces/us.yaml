@@ -212,12 +212,12 @@ surfaces:
   coverage: US
   variable: is_chip_eligible
   source_type: eligibility
-  axiom_status: known_not_comparable
+  axiom_status: pending_rulespec_encoding
   priority: P1
-  rationale: PolicyBench scores this direct person-level CHIP eligibility variable. Axiom encodes federal CHIP child and
-    targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available; PolicyEngine's
-    is_chip_eligible is a final category aggregate over child, standard pregnant, and FCEP paths, so the currently encoded
-    legal outputs are adjacent rather than a one-to-one oracle target.
+  rationale: PolicyBench scores this direct person-level CHIP eligibility variable, and it is an appropriate final oracle
+    target once Axiom assembles the upstream CHIP category graph. Axiom currently encodes federal CHIP child and
+    targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available, but still
+    needs RuleSpec coverage for the child, standard pregnant, FCEP, and aggregate category paths before Populace comparison.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
@@ -358,10 +358,13 @@ surfaces:
   variable: nc_tanf
   source_type: state_implementation
   state: NC
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: PolicyEngine models this program variable. Axiom now has an official NCDHHS Work First Manual 114 corpus slice
+    for the operational payment calculation, but the upstream statute source, N.C. Gen. Stat. 108A-27.01, is still blocked
+    from unattended ingestion by HTTP 403 on the official NC General Assembly endpoint. Do not encode this surface from the
+    manual alone; first ingest the primary-official statute or approve an official-source workaround, then encode the full
+    Work First benefit graph and add legal-ID oracle mappings.
 - country: us
   program_id: tanf
   program_name: New Jersey WFNJ
@@ -372,10 +375,12 @@ surfaces:
   variable: nj_wfnj
   source_type: state_implementation
   state: NJ
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has current N.J.A.C. 10:90 source-regulation coverage for WFNJ financial eligibility, payment
+    standards, income exclusions, disregards, and resource-limit slices. PolicyEngine's nj_wfnj is a final SPM-unit
+    benefit variable with its own graph and composition boundaries, so keep this source-regulation coverage known-not-comparable
+    until a full legal WFNJ program bridge composes the final benefit and any exact PE helper mappings are reconciled.
 - country: us
   program_id: tanf
   program_name: Texas TANF
@@ -478,10 +483,13 @@ surfaces:
   variable: md_tca
   source_type: state_implementation
   state: MD
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Primary-source review found that current COMAR 07.03.03.17 still carries the stale November 2013 grant schedule,
+    while PolicyEngine's 2025 benefit table is sourced to Maryland DHS FIA Information Memo 25-12 and Maryland DHS has since
+    published IM 26-13 as a superseding 2026 TCA/TDAP benefit-increase memo. Axiom has ingested the governing Maryland Human
+    Services Article provisions and COMAR 07.03.03, but should not encode current TCA amounts until DHS IM 26-13, IM 25-12 for
+    PE's historical 2025 table, or an equivalent official schedule is ingested through axiom-corpus.
 - country: us
   program_id: tanf
   program_name: South Dakota TANF
@@ -571,10 +579,13 @@ surfaces:
   variable: me_tanf
   source_type: state_implementation
   state: ME
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom now has source-level Maine TANF Rule 125A coverage for current FFY 2022-2026 adult-included
+    and child-only standard-of-need and maximum-grant table mechanics. PolicyEngine's me_tanf is a final SPM-unit
+    benefit graph with older Rule 121A parameter references and no separate child-only/adult-included table boundary,
+    so keep it known-not-comparable until the remaining eligibility, income, resource, and final-benefit graph is
+    encoded and PE exposes or updates matching current-source boundaries.
 - country: us
   program_id: tanf
   program_name: Nevada TANF
@@ -634,10 +645,12 @@ surfaces:
   variable: de_tanf
   source_type: state_implementation
   state: DE
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes 16 DE Admin. Code 4008.1.2's TANF gross-income, countable-income, deficit-remainder,
+    and grant-cap mechanics as a source-local legal output. PolicyEngine's de_tanf is a final monthly SPM-unit benefit
+    gated by PE demographic, immigration, resource, standard-of-need, payment-standard, and income helper graphs, so
+    this Delaware source slice is adjacent progress rather than a one-to-one final-benefit oracle.
 - country: us
   program_id: tanf
   program_name: Oregon TANF
@@ -803,10 +816,15 @@ surfaces:
   variable: id_tafi
   source_type: state_implementation
   state: ID
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    Current official Idaho sources do not support PolicyEngine's id_tafi final-benefit formula as cited. PE references
+    historical Cornell pages for IDAPA 16.03.08.248-.252, but the official current IDAPA 16.03.08 PDF published July 1,
+    2026 only contains TANF sections 100-115 and LIHEAP sections 200-205. Idaho DHW's current TAFI pages substantiate the
+    $309 cap and partial July 2002 household income table, but not the full 60%-earned-income/work-incentive formula or
+    9+/10+/over-10 table PE applies. Treat this as a source-hierarchy conflict rather than an encodeable parity gap until
+    the current upstream Idaho policy source or PE implementation is reconciled.
 - country: us
   program_id: tanf
   program_name: Nebraska ADC
@@ -866,11 +884,14 @@ surfaces:
   variable: ut_fep
   source_type: state_implementation
   state: UT
-  axiom_status: pending_rulespec_encoding
+  axiom_status: pending_source_ingestion
   priority: P1
-  rationale: Axiom has a source-backed Utah DWS Table 1 payment-standard encoding and oracle mapping for
-    ut_fep_payment_standard. Final ut_fep parity still requires encoding the remaining income, eligibility, assistance-unit,
-    and benefit-composition rules from Utah's upstream R986-200/DWS sources before claiming full program parity.
+  rationale: >-
+    Axiom has a source-backed Utah DWS Table 1 payment-standard encoding and oracle mapping for
+    ut_fep_payment_standard. Final ut_fep parity still requires R986-200-239 income and work-expense RuleSpec, but
+    the current Utah Administrative Code R986-200-239 source is not yet present in the local corpus and direct official
+    Utah admin-rules endpoints were inaccessible during source-first verification. Ingest the maximally upstream current
+    Utah source before encoding the remaining income, eligibility, assistance-unit, and benefit-composition rules.
 - country: us
   program_id: tanf
   program_name: Kentucky K-TAP
@@ -881,10 +902,15 @@ surfaces:
   variable: ky_ktap
   source_type: state_implementation
   state: KY
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: >-
+    Current upstream Kentucky law supports encoding 921 KAR 2:016 and KRS 205.200(2), but PolicyEngine's active 2025
+    ky_ktap payment maximums are sourced from KY FACES rather than a regulatory instrument. Current 921 KAR 2:016 Section
+    9(2)(a) lists payment maximums of $372, $450, $524, $656, $766, $864, and $964 for one through seven-or-more eligible
+    persons, while PE applies lower 2025 values of $242, $293, $341, $426, $498, $562, and $627 from a KY FACES table
+    labeled by number of children. Treat this as a source-hierarchy conflict rather than an encodeable parity gap until
+    the legal authority for the 2025 reduction or the PE implementation is reconciled.
 - country: us
   program_id: tanf
   program_name: Alabama TANF
@@ -948,10 +974,12 @@ surfaces:
   variable: ia_fip
   source_type: state_implementation
   state: IA
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P1
-  rationale: PolicyEngine models this program variable; Axiom should encode the governing law and add a legal-ID oracle mapping
-    before claiming parity.
+  rationale: Axiom encodes Iowa IAC 441-41.28 Family Investment Program need-standard components from the primary
+    regulation. PolicyEngine's ia_fip is a final monthly SPM-unit benefit using PE eligibility, countable-income,
+    payment-standard, and standard-of-need graphs, so the encoded Iowa source mechanics are adjacent coverage rather
+    than a one-to-one final-benefit oracle.
 - country: us
   program_id: tanf
   program_name: Louisiana FITAP
@@ -1755,10 +1783,15 @@ surfaces:
   variable: dc_ossp
   source_type: state_implementation
   state: DC
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: >-
+    Axiom encodes POMS SI 01415.058 2026 District payment-level tables and living-arrangement OS-code rules, with
+    upstream source checks against D.C. Code § 4-205.49 and current DC DHCF OSSP payment-level guidance. The encoded
+    RuleSpec outputs map exact monthly state-supplement parameter cells to PolicyEngine, but PolicyEngine's final
+    `dc_ossp` person surface also composes eligibility, living arrangement, countable-income reduction, and person-level
+    couple allocation, so compare encoded payment-level cells separately until Axiom has equivalent final benefit
+    composition.
 - country: us
   program_id: ssi_state_supplement
   program_name: Delaware SSP
@@ -1769,10 +1802,14 @@ surfaces:
   variable: de_ssp
   source_type: state_implementation
   state: DE
-  axiom_status: deferred_jurisdiction
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Axiom encodes SSA POMS SI 01415.058 2026 Delaware payment-level tables and living-arrangement OS-code
+    rules, with upstream source context from Delaware Code Title 31 Chapter 5 and Delaware DSSM 13000 state supplement
+    administration rules. The encoded RuleSpec outputs map exact monthly individual and couple state-supplement
+    parameter cells to PolicyEngine, but PolicyEngine's final `de_ssp` person surface also composes eligibility,
+    individual-vs-couple payment selection, SSI countable-income reduction, and person-level couple allocation, so compare
+    encoded payment-level cells separately until Axiom has equivalent final benefit composition.
 - country: us
   program_id: ssi_state_supplement
   program_name: Florida OSS
@@ -1815,10 +1852,11 @@ surfaces:
   variable: id_aabd
   source_type: state_implementation
   state: ID
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Official Idaho IDAPA 16.03.05 AABD administrative-rule corpus artifacts are ingested from the Idaho
+    administrative rules source. Encode the source-law AABD eligibility and payment calculation before classifying
+    comparability with PolicyEngine's final `id_aabd` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Indiana SSP
@@ -1829,10 +1867,12 @@ surfaces:
   variable: in_ssp
   source_type: state_implementation
   state: IN
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Indiana Code is already available through the source-first Indiana Code corpus release, and official Indiana
+    FSSA Medicaid Policy Manual Chapter 5000 SAPN corpus artifacts are ingested from the FSSA OMPP source. Encode the
+    source-law SAPN eligibility and benefit-calculation rules before classifying comparability with PolicyEngine's final
+    `in_ssp` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Massachusetts SSP
@@ -1945,10 +1985,11 @@ surfaces:
   variable: ks_sspp
   source_type: state_implementation
   state: KS
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Official Kansas K.S.A. 39-972 statute corpus artifacts and KHPA Policy No. 2007-05-01 SSPP guidance corpus
+    artifacts are ingested from Kansas Revisor and KDHE official sources. Encode the source-law institutional SSI recipient
+    eligibility and payment rules before classifying comparability with PolicyEngine's final `ks_sspp` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Louisiana OSS

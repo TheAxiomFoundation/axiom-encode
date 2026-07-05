@@ -242,14 +242,17 @@ def _resolve_policy_repo_for_corpus_source(
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
     if override is not None:
         override = Path(override)
-        content_root = jurisdiction_content_dir(override, jurisdiction)
-        if (
-            create_missing_monorepo_content_root
-            and content_root == override
-            and _override_is_country_monorepo_for_jurisdiction(override, jurisdiction)
+        candidate_roots = candidate_jurisdiction_content_dirs(override, jurisdiction)
+        for candidate_root in candidate_roots:
+            if candidate_root.is_dir():
+                return candidate_root.resolve()
+        if create_missing_monorepo_content_root and (
+            _override_is_country_monorepo_for_jurisdiction(override, jurisdiction)
         ):
-            content_root = override / jurisdiction
+            content_root = candidate_roots[0] if candidate_roots else override
             content_root.mkdir(parents=True, exist_ok=True)
+        else:
+            content_root = jurisdiction_content_dir(override, jurisdiction)
         return content_root.resolve()
     return _resolve_policy_repo_for_prefix(jurisdiction)
 
@@ -866,7 +869,15 @@ def main():
     cloud_queue_parser.add_argument(
         "--include-deferred-jurisdictions",
         action="store_true",
-        help="Include repo/bootstrap tasks for deferred jurisdictions",
+        help=(
+            "Deprecated compatibility flag; deferred jurisdiction surfaces are "
+            "included by default because they are actionable PE-parity work."
+        ),
+    )
+    cloud_queue_parser.add_argument(
+        "--exclude-deferred-jurisdictions",
+        action="store_true",
+        help="Exclude deferred jurisdiction source-ingestion tasks from the queue",
     )
     cloud_queue_parser.add_argument(
         "--limit",
@@ -1441,6 +1452,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_upstream_duplicates_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_ssa_poms_optional_supplement_parser = subparsers.add_parser(
+        "repair-ssa-poms-optional-supplement-common",
+        help=(
+            "Apply signed deterministic repairs that upstream shared SSA POMS "
+            "SI 01415.058 optional-supplement facts into the US-level module"
+        ),
+    )
+    repair_ssa_poms_optional_supplement_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_ssa_poms_optional_supplement_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -2629,6 +2662,8 @@ def main():
         cmd_repair_child_fragment_reencoding(args)
     elif args.command == "repair-upstream-placement-duplicates":
         cmd_repair_upstream_placement_duplicates(args)
+    elif args.command == "repair-ssa-poms-optional-supplement-common":
+        cmd_repair_ssa_poms_optional_supplement_common(args)
     elif args.command == "repair-missing-deferred-outputs":
         cmd_repair_missing_deferred_outputs(args)
     elif args.command == "repair-section-172-c-capacity":
@@ -4268,7 +4303,7 @@ def cmd_cloud_queue(args):
         root,
         country=args.country,
         program=args.program,
-        include_deferred_jurisdictions=args.include_deferred_jurisdictions,
+        include_deferred_jurisdictions=not args.exclude_deferred_jurisdictions,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -12122,6 +12157,942 @@ def cmd_repair_upstream_placement_duplicates(args):
         success_label="upstream placement duplicate",
         repair=repair,
     )
+
+
+_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_RELATIVE_OUTPUT = Path(
+    "us/policies/ssa/poms/si-01415-058/2026/"
+    "federally-administered-optional-supplement-common.yaml"
+)
+_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE = (
+    "us:policies/ssa/poms/si-01415-058/2026/"
+    "federally-administered-optional-supplement-common"
+)
+_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_IMPORTS = {
+    "optional_supplement_waived_os_code_applies": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#optional_supplement_waived_os_code_applies"
+    ),
+    "federal_code_a_individual_fbr": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_a_individual_fbr"
+    ),
+    "federal_code_a_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_a_no_supplement_individual_total_payment_level"
+    ),
+    "federal_code_b_individual_fbr_less_vtr": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_individual_fbr_less_vtr"
+    ),
+    "federal_code_b_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_no_supplement_individual_total_payment_level"
+    ),
+    "federal_code_c_individual_fbr": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_c_individual_fbr"
+    ),
+    "federal_code_c_no_supplement_individual_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_c_no_supplement_individual_total_payment_level"
+    ),
+    "federal_code_d_individual_title_xix_payment_cap": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_d_individual_title_xix_payment_cap"
+    ),
+    "federal_code_a_couple_fbr": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}#federal_code_a_couple_fbr"
+    ),
+    "federal_code_a_no_supplement_couple_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_a_no_supplement_couple_total_payment_level"
+    ),
+    "federal_code_b_couple_fbr_less_vtr": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_couple_fbr_less_vtr"
+    ),
+    "federal_code_b_no_supplement_couple_total_payment_level": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_b_no_supplement_couple_total_payment_level"
+    ),
+    "federal_code_d_couple_title_xix_payment_cap": (
+        f"{_SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE}"
+        "#federal_code_d_couple_title_xix_payment_cap"
+    ),
+}
+
+
+def cmd_repair_ssa_poms_optional_supplement_common(args):
+    """Upstream shared SSA POMS SI 01415.058 facts out of state files."""
+
+    repo_path = Path(args.repo).resolve()
+    if not repo_path.exists():
+        print(f"Rules repository root not found: {repo_path}")
+        sys.exit(1)
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    common_file = repo_path / _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_RELATIVE_OUTPUT
+    common_test_file = _rulespec_test_path(common_file)
+    changed_relative_outputs: list[Path] = []
+    original_contents: dict[Path, str | None] = {}
+
+    candidate_repairs: dict[str, dict[str, tuple[Path, set[str]]]] = {
+        "us-dc": {
+            "dc-ossp-living-arrangement-variations": (
+                Path(
+                    "us-dc/policies/ssa/poms/si-01415-058/2026/"
+                    "dc-ossp-living-arrangement-variations.yaml"
+                ),
+                {"optional_supplement_waived_os_code_applies"},
+            ),
+            "dc-ossp-individual-state-supplement-levels": (
+                Path(
+                    "us-dc/policies/ssa/poms/si-01415-058/2026/"
+                    "dc-ossp-individual-state-supplement-levels.yaml"
+                ),
+                {
+                    "federal_code_a_individual_fbr",
+                    "federal_code_a_no_supplement_individual_total_payment_level",
+                    "federal_code_b_individual_fbr_less_vtr",
+                    "federal_code_b_no_supplement_individual_total_payment_level",
+                    "federal_code_c_individual_fbr",
+                    "federal_code_c_no_supplement_individual_total_payment_level",
+                    "federal_code_d_individual_title_xix_payment_cap",
+                },
+            ),
+            "dc-ossp-couple-state-supplement-levels": (
+                Path(
+                    "us-dc/policies/ssa/poms/si-01415-058/2026/"
+                    "dc-ossp-couple-state-supplement-levels.yaml"
+                ),
+                {
+                    "federal_code_a_couple_fbr",
+                    "federal_code_a_no_supplement_couple_total_payment_level",
+                    "federal_code_b_couple_fbr_less_vtr",
+                    "federal_code_b_no_supplement_couple_total_payment_level",
+                    "federal_code_d_couple_title_xix_payment_cap",
+                },
+            ),
+        },
+        "us-de": {
+            "de-ssp-living-arrangement-variations": (
+                Path(
+                    "us-de/policies/ssa/poms/si-01415-058/2026/"
+                    "de-ssp-living-arrangement-variations.yaml"
+                ),
+                {"optional_supplement_waived_os_code_applies"},
+            ),
+            "de-ssp-individual-state-supplement-levels": (
+                Path(
+                    "us-de/policies/ssa/poms/si-01415-058/2026/"
+                    "de-ssp-individual-state-supplement-levels.yaml"
+                ),
+                {
+                    "federal_code_a_individual_fbr",
+                    "federal_code_a_no_supplement_individual_total_payment_level",
+                    "federal_code_b_individual_fbr_less_vtr",
+                    "federal_code_b_no_supplement_individual_total_payment_level",
+                    "federal_code_c_individual_fbr",
+                    "federal_code_c_no_supplement_individual_total_payment_level",
+                    "federal_code_d_individual_title_xix_payment_cap",
+                },
+            ),
+            "de-ssp-couple-state-supplement-levels": (
+                Path(
+                    "us-de/policies/ssa/poms/si-01415-058/2026/"
+                    "de-ssp-couple-state-supplement-levels.yaml"
+                ),
+                {
+                    "federal_code_a_couple_fbr",
+                    "federal_code_a_no_supplement_couple_total_payment_level",
+                    "federal_code_b_couple_fbr_less_vtr",
+                    "federal_code_b_no_supplement_couple_total_payment_level",
+                    "federal_code_d_couple_title_xix_payment_cap",
+                },
+            ),
+        },
+    }
+
+    try:
+        _remember_original_file(common_file, original_contents)
+        _remember_original_file(common_test_file, original_contents)
+        common_file.parent.mkdir(parents=True, exist_ok=True)
+        common_file.write_text(
+            yaml.safe_dump(
+                _ssa_poms_optional_supplement_common_document(),
+                sort_keys=False,
+                allow_unicode=False,
+            )
+        )
+        common_test_file.write_text(
+            yaml.safe_dump(
+                _ssa_poms_optional_supplement_common_tests(),
+                sort_keys=False,
+                allow_unicode=False,
+            )
+        )
+        changed_relative_outputs.append(
+            _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_RELATIVE_OUTPUT
+        )
+
+        for jurisdiction, repairs in candidate_repairs.items():
+            for relative_output, duplicate_names in repairs.values():
+                rules_file = repo_path / relative_output
+                if not rules_file.exists():
+                    continue
+                test_file = _rulespec_test_path(rules_file)
+                _remember_original_file(rules_file, original_contents)
+                _remember_original_file(test_file, original_contents)
+                _retarget_ssa_poms_optional_supplement_state_file(
+                    rules_file=rules_file,
+                    test_file=test_file,
+                    duplicate_names=duplicate_names,
+                )
+                changed_relative_outputs.append(relative_output)
+
+            _retarget_ssa_poms_optional_supplement_test_inputs(
+                repo_path=repo_path,
+                jurisdiction=jurisdiction,
+                original_contents=original_contents,
+            )
+
+        changed_relative_outputs = list(dict.fromkeys(changed_relative_outputs))
+        if not changed_relative_outputs:
+            print("No SSA POMS optional supplement common repairs found.")
+            return
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_failures: list[str] = []
+        for relative_output in changed_relative_outputs:
+            validation = pipeline.validate(
+                repo_path / relative_output, skip_reviewers=True
+            )
+            if not validation.all_passed:
+                validation_failures.extend(
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                )
+        if validation_failures:
+            raise RuntimeError(
+                "Repair failed validation:\n"
+                + "\n".join(f"- {failure}" for failure in validation_failures)
+            )
+
+        manifest_paths: list[Path] = []
+        for relative_output in changed_relative_outputs:
+            rules_file = repo_path / relative_output
+            test_file = _rulespec_test_path(rules_file)
+            manifest_paths.append(
+                _write_deterministic_repair_manifest_for_rulespec(
+                    repo_path=repo_path,
+                    relative_output=relative_output,
+                    rules_file=rules_file,
+                    test_file=test_file if test_file.exists() else None,
+                    model="ssa-poms-optional-supplement-common-v3",
+                    tool=("axiom-encode repair-ssa-poms-optional-supplement-common"),
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+    except Exception as exc:
+        _restore_original_files(original_contents)
+        print("Repair failed; restored original files.")
+        print(str(exc))
+        sys.exit(1)
+
+    repaired = ", ".join(str(path) for path in changed_relative_outputs)
+    print(f"Applied SSA POMS optional supplement common repair to: {repaired}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _remember_original_file(
+    path: Path, original_contents: dict[Path, str | None]
+) -> None:
+    if path in original_contents:
+        return
+    original_contents[path] = path.read_text() if path.exists() else None
+
+
+def _restore_original_files(original_contents: dict[Path, str | None]) -> None:
+    for path, content in original_contents.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+
+def _write_deterministic_repair_manifest_for_rulespec(
+    *,
+    repo_path: Path,
+    relative_output: Path,
+    rules_file: Path,
+    test_file: Path | None,
+    model: str,
+    tool: str,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+) -> Path:
+    content_repo_path, manifest_relative_output = (
+        _content_root_relative_output_for_rulespec_path(repo_path, relative_output)
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = (
+            output_root / "deterministic-repair" / manifest_relative_output
+        )
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        generated_test = _rulespec_test_path(generated_output)
+        applied_files = [rules_file]
+        if test_file is not None and test_file.exists():
+            generated_test.write_text(test_file.read_text())
+            applied_files.append(test_file)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model=model,
+            tool=tool,
+            citation=_rulespec_anchor_base_for_output(
+                content_repo_path, manifest_relative_output
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_repo_path,
+            relative_output=manifest_relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+    obsolete_manifest_path = repo_path / _applied_encoding_manifest_path(
+        relative_output
+    )
+    if obsolete_manifest_path != manifest_path:
+        obsolete_manifest_path.unlink(missing_ok=True)
+    return manifest_path
+
+
+def _content_root_relative_output_for_rulespec_path(
+    repo_path: Path, relative_output: Path
+) -> tuple[Path, Path]:
+    content_repo_path = _generated_validation_repair_policy_repo_path(
+        repo_path, relative_output
+    )
+    parts = relative_output.parts
+    if (
+        len(parts) >= 2
+        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and parts[0] == _repo_jurisdiction_prefix(content_repo_path)
+    ):
+        return content_repo_path, Path(*parts[1:])
+    return content_repo_path, relative_output
+
+
+def _ssa_poms_optional_supplement_common_document() -> dict[str, object]:
+    return {
+        "format": "rulespec/v1",
+        "module": {
+            "proof_validation": {"required": True},
+            "source_verification": {
+                "corpus_citation_paths": [
+                    "us/guidance/ssa/poms/si-01415-058/2026/block-11",
+                    "us/guidance/ssa/poms/si-01415-058/2026/block-13",
+                    "us/guidance/ssa/poms/si-01415-058/2026/block-14",
+                ],
+                "upstream_source_check": {
+                    "status": "official_parameter_source",
+                    "checked_paths": [
+                        "us/statute/42/1382/b",
+                        "us/statute/42/1382e",
+                        "us/statute/42/1382f",
+                        "us/guidance/ssa/poms/si-01415-058/2026/block-11",
+                        "us/guidance/ssa/poms/si-01415-058/2026/block-13",
+                        "us/guidance/ssa/poms/si-01415-058/2026/block-14",
+                    ],
+                    "rationale": (
+                        "SSA POMS SI 01415.058 is the official current "
+                        "federally administered optional supplementary payment "
+                        "program source for January 2026. Blocks 11, 13, and 14 "
+                        "state the shared optional-supplement waived OS-code "
+                        "predicate and the shared federal SSI table inputs "
+                        "used by state payment tables."
+                    ),
+                },
+            },
+            "summary": (
+                "Shared SSA POMS SI 01415.058 facts for federally administered "
+                "optional supplementary payment programs: OS code Y applies "
+                "when a recipient eligible for an optional supplement waives the "
+                "supplement, the 2026 Federal Code A individual FBR is 994.00, "
+                "the 2026 Federal Code A individual no-supplement total "
+                "payment level is 994.00, "
+                "the 2026 Federal Code B individual FBR less the VTR reduction "
+                "is 662.67, the 2026 Federal Code B individual no-supplement "
+                "total payment level is 662.67, the 2026 Federal Code C "
+                "individual FBR is 994.00, the 2026 Federal Code C individual "
+                "no-supplement total payment level is 994.00, "
+                "the 2026 Federal Code D individual Title XIX payment cap is "
+                "30.00, the 2026 Federal Code A couple FBR is 1491.00, "
+                "the 2026 Federal Code A couple no-supplement total payment "
+                "level is 1491.00, "
+                "the 2026 Federal Code B couple FBR less the VTR reduction is "
+                "994.00, the 2026 Federal Code B couple no-supplement total "
+                "payment level is 994.00, and the 2026 Federal Code D couple Title XIX payment "
+                "cap is 60.00."
+            ),
+        },
+        "rules": [
+            {
+                "name": "optional_supplement_waived_os_code_applies",
+                "kind": "derived",
+                "entity": "Person",
+                "dtype": "Judgment",
+                "period": "Month",
+                "source": "POMS SI 01415.058, block 11, OS code Y definition",
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "definition",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-11"
+                                    ),
+                                    "excerpt": ("Optional supplementation waived"),
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [
+                    {
+                        "effective_from": "2026-01-01",
+                        "formula": (
+                            "recipient_eligible_for_optional_supplement\n"
+                            "and recipient_waived_optional_supplement"
+                        ),
+                    }
+                ],
+            },
+            {
+                "name": "federal_code_a_individual_fbr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": "POMS SI 01415.058, block 13, Federal Code A rows",
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "A A All 994.00 681.00 1675.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_a_no_supplement_individual_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code A / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_b_individual_fbr_less_vtr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code B / "
+                    "State OS Code Z row and footnote 1"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "B Z All 662.67 0.00 662.67",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "662.67"}],
+            },
+            {
+                "name": "federal_code_b_no_supplement_individual_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code B / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "B Z All 662.67 1 0.00 662.67",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "662.67"}],
+            },
+            {
+                "name": "federal_code_c_individual_fbr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code C / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "C Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_c_no_supplement_individual_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code C / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "C Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_d_individual_title_xix_payment_cap",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 13, Federal Code D / "
+                    "State OS Code G row and footnote 2"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-13"
+                                    ),
+                                    "excerpt": "D G All 30.00 2 79.00 109.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "30.00"}],
+            },
+            {
+                "name": "federal_code_a_couple_fbr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": "POMS SI 01415.058, block 14, Federal Code A rows",
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "A A All 1491.00 968.00 2459.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "1491.00"}],
+            },
+            {
+                "name": "federal_code_a_no_supplement_couple_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code A / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "Z All 1491.00 0.00 1491.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "1491.00"}],
+            },
+            {
+                "name": "federal_code_b_couple_fbr_less_vtr",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code B / "
+                    "State OS Code Z row and footnote 1"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "B Z All 994.00 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_b_no_supplement_couple_total_payment_level",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code B / State OS Code Z row"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": "B Z All 994.00 1 0.00 994.00",
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "994.00"}],
+            },
+            {
+                "name": "federal_code_d_couple_title_xix_payment_cap",
+                "kind": "parameter",
+                "dtype": "Money",
+                "unit": "USD",
+                "source": (
+                    "POMS SI 01415.058, block 14, Federal Code D / "
+                    "State OS Code G row and footnote 2"
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "amount",
+                                "source": {
+                                    "corpus_citation_path": (
+                                        "us/guidance/ssa/poms/si-01415-058/"
+                                        "2026/block-14"
+                                    ),
+                                    "excerpt": (
+                                        "D G All 60.00 ... 2 Not the FBR; the "
+                                        "amount represents a payment cap to "
+                                        "recipients in a Title XIX institution."
+                                    ),
+                                },
+                            }
+                        ]
+                    }
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": "60.00"}],
+            },
+        ],
+    }
+
+
+def _ssa_poms_optional_supplement_common_tests() -> list[dict[str, object]]:
+    target = _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE
+    return [
+        {
+            "name": "federal_code_fbr_amounts",
+            "period": "2026-01",
+            "input": {},
+            "output": {
+                f"{target}#federal_code_a_individual_fbr": 994.0,
+                f"{target}#federal_code_a_no_supplement_individual_total_payment_level": (
+                    994.0
+                ),
+                f"{target}#federal_code_b_individual_fbr_less_vtr": 662.67,
+                f"{target}#federal_code_b_no_supplement_individual_total_payment_level": (
+                    662.67
+                ),
+                f"{target}#federal_code_c_individual_fbr": 994.0,
+                f"{target}#federal_code_c_no_supplement_individual_total_payment_level": (
+                    994.0
+                ),
+                f"{target}#federal_code_d_individual_title_xix_payment_cap": 30.0,
+                f"{target}#federal_code_a_couple_fbr": 1491.0,
+                f"{target}#federal_code_a_no_supplement_couple_total_payment_level": (
+                    1491.0
+                ),
+                f"{target}#federal_code_b_couple_fbr_less_vtr": 994.0,
+                f"{target}#federal_code_b_no_supplement_couple_total_payment_level": (
+                    994.0
+                ),
+                f"{target}#federal_code_d_couple_title_xix_payment_cap": 60.0,
+            },
+        },
+        {
+            "name": "optional_supplement_waived_when_eligible_and_waived",
+            "period": "2026-01",
+            "input": {
+                f"{target}#input.recipient_eligible_for_optional_supplement": True,
+                f"{target}#input.recipient_waived_optional_supplement": True,
+            },
+            "output": {f"{target}#optional_supplement_waived_os_code_applies": "holds"},
+        },
+        {
+            "name": "optional_supplement_not_waived_without_waiver",
+            "period": "2026-01",
+            "input": {
+                f"{target}#input.recipient_eligible_for_optional_supplement": True,
+                f"{target}#input.recipient_waived_optional_supplement": False,
+            },
+            "output": {
+                f"{target}#optional_supplement_waived_os_code_applies": "not_holds"
+            },
+        },
+    ]
+
+
+def _retarget_ssa_poms_optional_supplement_state_file(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    duplicate_names: set[str],
+) -> bool:
+    try:
+        document = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(document, dict):
+        return False
+    rules = document.get("rules")
+    if not isinstance(rules, list):
+        return False
+
+    removed_names: set[str] = set()
+    remaining_rules: list[object] = []
+    for rule in rules:
+        name = str(rule.get("name") or "").strip() if isinstance(rule, dict) else ""
+        if name in duplicate_names:
+            removed_names.add(name)
+            continue
+        remaining_rules.append(rule)
+    if not removed_names:
+        return False
+
+    content_root = find_policy_repo_root(rules_file)
+    imports = document.get("imports")
+    if not isinstance(imports, list):
+        imports = []
+        document["imports"] = imports
+    existing_imports = {
+        str(import_ref).strip().strip('"').strip("'")
+        for import_ref in imports
+        if isinstance(import_ref, str)
+    }
+    for name in sorted(removed_names):
+        import_target = _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_IMPORTS[name]
+        if import_target not in existing_imports:
+            imports.append(import_target)
+            existing_imports.add(import_target)
+
+    document["rules"] = remaining_rules
+    content = yaml.safe_dump(document, sort_keys=False, allow_unicode=False)
+    if content_root is not None:
+        target_base = _rulespec_anchor_base_for_output(
+            content_root,
+            rules_file.relative_to(content_root),
+        )
+        content, _ = _repair_proof_import_hashes(
+            content,
+            target_base=target_base,
+            rules_file=rules_file,
+            repo_path=content_root,
+        )
+    rules_file.write_text(content)
+
+    if content_root is not None:
+        _remove_local_test_output_refs_for_names(
+            test_file,
+            target_base=target_base,
+            names=removed_names,
+        )
+    return True
+
+
+def _retarget_ssa_poms_optional_supplement_test_inputs(
+    *,
+    repo_path: Path,
+    jurisdiction: str,
+    original_contents: dict[Path, str | None],
+) -> None:
+    poms_dir = repo_path / jurisdiction / "policies/ssa/poms/si-01415-058/2026"
+    if not poms_dir.exists():
+        return
+    common_target = _SSA_POMS_OPTIONAL_SUPPLEMENT_COMMON_TARGET_BASE
+    replacements = {
+        "recipient_eligible_for_optional_supplement": (
+            f"{common_target}#input.recipient_eligible_for_optional_supplement"
+        ),
+        "recipient_waived_optional_supplement": (
+            f"{common_target}#input.recipient_waived_optional_supplement"
+        ),
+    }
+    for test_file in sorted(poms_dir.glob("*.test.yaml")):
+        _remember_original_file(test_file, original_contents)
+        try:
+            cases = yaml.safe_load(test_file.read_text()) or []
+        except (OSError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(cases, list):
+            continue
+        changed = False
+        for case in cases:
+            if not isinstance(case, dict):
+                continue
+            inputs = case.get("input")
+            if not isinstance(inputs, dict):
+                continue
+            for input_ref in list(inputs):
+                input_ref_text = str(input_ref).strip().strip('"').strip("'")
+                for input_name, replacement in replacements.items():
+                    if input_ref_text.endswith(f"#input.{input_name}"):
+                        value = inputs.pop(input_ref)
+                        inputs[replacement] = value
+                        changed = True
+                        break
+        if changed:
+            test_file.write_text(
+                yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+            )
 
 
 def _try_repair_generated_upstream_placement_duplicates_for_apply(
@@ -33403,7 +34374,8 @@ _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
 )
 _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN = re.compile(
     r"Source scope mismatch: `([^`]+)` is declared on `Person`, but the "
-    r"embedded source states a household/unit-scoped test\."
+    r"embedded source states (?:a `([^`]+)` unit-scoped|a household/unit-scoped) "
+    r"test\."
 )
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
@@ -36094,6 +37066,7 @@ def _try_repair_generated_unit_scoped_person_definition_for_apply(
     return _repair_unit_scoped_person_definition_entities(
         rules_file=rules_file,
         target_names=target_names,
+        unit_entities_by_name=_unit_scoped_person_definition_issue_units(issues),
     )
 
 
@@ -36106,10 +37079,32 @@ def _unit_scoped_person_definition_issue_names(issues: list[str]) -> list[str]:
     return names
 
 
+def _unit_scoped_person_definition_issue_units(
+    issues: list[str],
+) -> dict[str, str]:
+    canonical = {
+        "family": "Family",
+        "household": "Household",
+        "snapunit": "SnapUnit",
+        "spmunit": "SPMUnit",
+        "taxunit": "TaxUnit",
+    }
+    units: dict[str, str] = {}
+    for issue in issues:
+        match = _SOURCE_SCOPE_UNIT_MISMATCH_PERSON_ISSUE_PATTERN.search(str(issue))
+        if match is None:
+            continue
+        unit = str(match.group(2) or "").replace("_", "").lower()
+        if unit in canonical:
+            units[match.group(1)] = canonical[unit]
+    return units
+
+
 def _repair_unit_scoped_person_definition_entities(
     *,
     rules_file: Path,
     target_names: list[str],
+    unit_entities_by_name: dict[str, str] | None = None,
 ) -> list[str]:
     if not rules_file.exists():
         return []
@@ -36136,7 +37131,10 @@ def _repair_unit_scoped_person_definition_entities(
         target_rule = by_name.get(target_name)
         if not isinstance(target_rule, dict):
             continue
-        if _set_rule_entity_to_unit(target_rule, unit_entity=unit_entity):
+        target_unit_entity = (unit_entities_by_name or {}).get(
+            target_name
+        ) or unit_entity
+        if _set_rule_entity_to_unit(target_rule, unit_entity=target_unit_entity):
             repaired.append(target_name)
 
     if not repaired:

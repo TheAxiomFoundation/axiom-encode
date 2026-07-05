@@ -884,7 +884,7 @@ surfaces:
     state: DC
     axiom_status: deferred_jurisdiction
     priority: P1
-    rationale: Stale jurisdiction bootstrap status.
+    rationale: Stale deferred-jurisdiction status.
   - country: us
     program_id: tanf
     program_name: Vermont Reach Up
@@ -1152,7 +1152,7 @@ def test_policyengine_program_surface_includes_policybench_person_eligibility_su
     assert medicaid["policybench_household_weight"] == pytest.approx(29.86)
 
     assert chip["program_id"] == "chip"
-    assert chip["axiom_status"] == "known_not_comparable"
+    assert chip["axiom_status"] == "pending_rulespec_encoding"
     assert chip["policybench_output"] == "person_level_chip_eligibility"
     assert chip["policybench_household_weight"] == pytest.approx(0.18)
 
@@ -1190,23 +1190,32 @@ def test_policyengine_program_surface_medicaid_filter_prioritizes_eligibility():
     assert report["actionable_surfaces"] == []
 
 
-def test_policyengine_program_surface_marks_wic_and_chip_final_eligibility_known_not_comparable():
+def test_policyengine_program_surface_marks_wic_final_eligibility_known_not_comparable():
     report = build_policyengine_program_surface_report()
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
     wic = items_by_variable["is_wic_eligible"]
-    chip = items_by_variable["is_chip_eligible"]
     assert wic["axiom_status"] == "known_not_comparable"
     assert wic["mapping_count"] >= 1
     assert wic["comparable_mapping_count"] == 0
     assert "us:regulations/7-cfr/246/7/" in wic["legal_ids"]
-    assert chip["axiom_status"] == "known_not_comparable"
+    assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
+        {"is_wic_eligible"}
+    )
+
+
+def test_policyengine_program_surface_marks_chip_final_eligibility_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report()
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    chip = items_by_variable["is_chip_eligible"]
+    assert chip["axiom_status"] == "pending_rulespec_encoding"
     assert chip["mapping_count"] >= 1
     assert chip["comparable_mapping_count"] == 0
     assert "us:statutes/42/1397jj/b/1#" in chip["legal_ids"]
-    assert {item["variable"] for item in report["actionable_surfaces"]}.isdisjoint(
-        {"is_wic_eligible", "is_chip_eligible"}
-    )
+    assert "is_chip_eligible" in {
+        item["variable"] for item in report["actionable_surfaces"]
+    }
 
 
 def test_policyengine_program_surface_marks_medicare_proxy_known_not_comparable():
@@ -1457,19 +1466,35 @@ surfaces:
         report["run_artifact_schema"]
         == "axiom-encode/policyengine-cloud-run-artifact/v1"
     )
-    assert report["total_items"] == 3
+    assert report["total_items"] == 4
     assert report["action_counts"] == {
         "encode_rulespec": 2,
-        "ingest_source": 1,
+        "ingest_source": 2,
     }
+    assert [item["policyengine_variable"] for item in report["items"]] == [
+        "new_tax_surface",
+        "mt_snap",
+        "al_tanf_fixture",
+        "az_source_ingestion_fixture",
+    ]
     items_by_variable = {
         item["policyengine_variable"]: item for item in report["items"]
     }
+
+    mt_snap = items_by_variable["mt_snap"]
+    assert mt_snap["action"] == "ingest_source"
+    assert mt_snap["target_repo"] == "axiom-corpus"
+    assert mt_snap["policybench_output"] == "snap"
+    assert mt_snap["policybench_household_weight"] == pytest.approx(4.15)
 
     new_tax_surface = items_by_variable["new_tax_surface"]
     assert new_tax_surface["action"] == "encode_rulespec"
     assert new_tax_surface["target_repo"] == "rulespec-us"
     assert new_tax_surface["target_prefix"] == "us"
+    assert new_tax_surface["policybench_output"] == (
+        "federal_tax_before_refundable_credits"
+    )
+    assert new_tax_surface["policybench_household_weight"] == pytest.approx(19.14)
     assert "repo:rulespec-us" in new_tax_surface["lock_scopes"]
     assert new_tax_surface["oracle_expectation"].startswith("encode source-law output")
 
@@ -1477,6 +1502,8 @@ surfaces:
     assert al_tanf["action"] == "encode_rulespec"
     assert al_tanf["target_repo"] == "rulespec-us"
     assert al_tanf["target_prefix"] == "us-al"
+    assert al_tanf["policybench_output"] == "tanf"
+    assert al_tanf["policybench_household_weight"] == pytest.approx(0.26)
     assert "repo:rulespec-us" in al_tanf["lock_scopes"]
     assert "target-prefix:us-al" in al_tanf["lock_scopes"]
 
@@ -1484,10 +1511,12 @@ surfaces:
     assert az_ccap["action"] == "ingest_source"
     assert az_ccap["target_repo"] == "axiom-corpus"
     assert az_ccap["target_prefix"] == "us-az"
+    assert az_ccap["policybench_output"] is None
+    assert az_ccap["policybench_household_weight"] is None
     assert "corpus-source:us:ccdf:az_source_ingestion_fixture" in az_ccap["lock_scopes"]
 
 
-def test_policyengine_cloud_queue_can_include_deferred_jurisdictions(tmp_path):
+def test_policyengine_cloud_queue_includes_deferred_jurisdictions_by_default(tmp_path):
     manifest = tmp_path / "program_surfaces.yaml"
     manifest.write_text(
         """source:
@@ -1514,14 +1543,46 @@ surfaces:
     report = build_policyengine_cloud_queue_report(
         tmp_path,
         manifest_path=manifest,
-        include_deferred_jurisdictions=True,
     )
 
     assert report["total_items"] == 1
     item = report["items"][0]
-    assert item["action"] == "bootstrap_jurisdiction"
-    assert item["target_repo"] == "rulespec-us"
+    assert item["action"] == "ingest_source"
+    assert item["target_repo"] == "axiom-corpus"
     assert item["target_prefix"] == "us-mt"
+
+
+def test_policyengine_cloud_queue_can_exclude_deferred_jurisdictions(tmp_path):
+    manifest = tmp_path / "program_surfaces.yaml"
+    manifest.write_text(
+        """source:
+  repository: PolicyEngine/policyengine-us
+  ref: test
+  path: policyengine_us/programs.yaml
+surfaces:
+  - country: us
+    program_id: snap
+    program_name: Montana SNAP
+    category: Benefits
+    policyengine_status: complete
+    coverage: MT
+    variable: mt_snap
+    source_type: state_implementation
+    state: MT
+    axiom_status: deferred_jurisdiction
+    priority: P2
+    rationale: Needs jurisdiction setup.
+""",
+        encoding="utf-8",
+    )
+
+    report = build_policyengine_cloud_queue_report(
+        tmp_path,
+        manifest_path=manifest,
+        include_deferred_jurisdictions=False,
+    )
+
+    assert report["total_items"] == 0
 
 
 def test_policyengine_program_surface_marks_colorado_ccap_final_subsidy_known_not_comparable():
@@ -1921,6 +1982,46 @@ def test_policyengine_program_surface_marks_connecticut_ssp_known_not_comparable
     assert "final composition surface" in ct_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_dc_ossp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="dc_ossp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    dc_ossp = items_by_variable["dc_ossp"]
+
+    assert dc_ossp["program_id"] == "ssi_state_supplement"
+    assert dc_ossp["state"] == "DC"
+    assert dc_ossp["axiom_status"] == "known_not_comparable"
+    assert dc_ossp["mapping_count"] >= 1
+    assert dc_ossp["comparable_mapping_count"] == 0
+    assert (
+        "us-dc:policies/ssa/poms/si-01415-058/2026/dc-ossp-individual-state-supplement-levels"
+        "#dc_ossp_individual_total_payment_level" in dc_ossp["legal_ids"]
+    )
+    assert "POMS SI 01415.058" in dc_ossp["rationale"]
+    assert "final benefit composition" in dc_ossp["rationale"]
+
+
+def test_policyengine_program_surface_marks_delaware_ssp_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="de_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    de_ssp = items_by_variable["de_ssp"]
+
+    assert de_ssp["program_id"] == "ssi_state_supplement"
+    assert de_ssp["state"] == "DE"
+    assert de_ssp["axiom_status"] == "known_not_comparable"
+    assert de_ssp["mapping_count"] >= 1
+    assert de_ssp["comparable_mapping_count"] == 0
+    assert (
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp" in de_ssp["legal_ids"]
+    )
+    assert "Delaware Code Title 31 Chapter 5" in de_ssp["rationale"]
+    assert "DSSM 13000" in de_ssp["rationale"]
+    assert "POMS SI 01415.058" in de_ssp["rationale"]
+    assert "final benefit composition" in de_ssp["rationale"]
+
+
 def test_policyengine_coverage_maps_connecticut_ssp_income_cap_rate(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "us-ct" / "statutes/17b-600.yaml",
@@ -2135,6 +2236,47 @@ def test_policyengine_program_surface_marks_alabama_ssp_known_not_comparable():
     assert "final `al_ssp` surface" in al_ssp["rationale"]
 
 
+def test_policyengine_program_surface_marks_idaho_aabd_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="id_aabd")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    id_aabd = items_by_variable["id_aabd"]
+
+    assert id_aabd["program_id"] == "ssi_state_supplement"
+    assert id_aabd["state"] == "ID"
+    assert id_aabd["axiom_status"] == "pending_rulespec_encoding"
+    assert id_aabd["mapping_count"] == 0
+    assert "IDAPA 16.03.05" in id_aabd["rationale"]
+
+
+def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="in_ssp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    in_ssp = items_by_variable["in_ssp"]
+
+    assert in_ssp["program_id"] == "ssi_state_supplement"
+    assert in_ssp["state"] == "IN"
+    assert in_ssp["axiom_status"] == "pending_rulespec_encoding"
+    assert in_ssp["mapping_count"] == 0
+    assert "Indiana Code" in in_ssp["rationale"]
+    assert "FSSA Medicaid Policy Manual Chapter 5000" in in_ssp["rationale"]
+
+
+def test_policyengine_program_surface_marks_kansas_sspp_pending_rulespec_encoding():
+    report = build_policyengine_program_surface_report(program="ks_sspp")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    ks_sspp = items_by_variable["ks_sspp"]
+
+    assert ks_sspp["program_id"] == "ssi_state_supplement"
+    assert ks_sspp["state"] == "KS"
+    assert ks_sspp["axiom_status"] == "pending_rulespec_encoding"
+    assert ks_sspp["mapping_count"] == 0
+    assert "K.S.A. 39-972" in ks_sspp["rationale"]
+    assert "KHPA Policy No. 2007-05-01" in ks_sspp["rationale"]
+
+
 def test_policyengine_program_surface_marks_illinois_tanf_known_not_comparable():
     report = build_policyengine_program_surface_report(program="il_tanf")
 
@@ -2173,6 +2315,94 @@ def test_policyengine_program_surface_marks_indiana_tanf_known_not_comparable():
         in indiana_tanf["legal_ids"]
     )
     assert "source-local monthly benefit entitlement" in indiana_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_delaware_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="de_tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    delaware_tanf = items_by_variable["de_tanf"]
+
+    assert delaware_tanf["program_id"] == "tanf"
+    assert delaware_tanf["state"] == "DE"
+    assert delaware_tanf["axiom_status"] == "known_not_comparable"
+    assert delaware_tanf["mapping_count"] >= 1
+    assert delaware_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-de:regulations/title-16/4000-financial-responsibility/4008/1/2#de_tanf"
+        in delaware_tanf["legal_ids"]
+    )
+    assert "16 DE Admin. Code 4008.1.2" in delaware_tanf["rationale"]
+    assert "final monthly SPM-unit benefit" in delaware_tanf["rationale"]
+
+
+def test_policyengine_program_surface_marks_iowa_fip_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ia_fip")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    iowa_fip = items_by_variable["ia_fip"]
+
+    assert iowa_fip["program_id"] == "tanf"
+    assert iowa_fip["state"] == "IA"
+    assert iowa_fip["axiom_status"] == "known_not_comparable"
+    assert iowa_fip["mapping_count"] >= 1
+    assert iowa_fip["comparable_mapping_count"] == 0
+    assert "us-ia:regulations/iac/441/41/41/28#" in iowa_fip["legal_ids"]
+    assert "Iowa IAC 441-41.28" in iowa_fip["rationale"]
+    assert "final monthly SPM-unit benefit" in iowa_fip["rationale"]
+
+
+def test_policyengine_program_surface_marks_idaho_tafi_source_conflict_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="id_tafi")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    idaho_tafi = items_by_variable["id_tafi"]
+
+    assert idaho_tafi["program_id"] == "tanf"
+    assert idaho_tafi["state"] == "ID"
+    assert idaho_tafi["axiom_status"] == "known_not_comparable"
+    assert idaho_tafi["mapping_count"] == 0
+    assert idaho_tafi["comparable_mapping_count"] == 0
+    assert "source-hierarchy conflict" in idaho_tafi["rationale"]
+    assert (
+        "historical Cornell pages for IDAPA 16.03.08.248-.252"
+        in idaho_tafi["rationale"]
+    )
+    assert "official current IDAPA 16.03.08 PDF" in idaho_tafi["rationale"]
+
+
+def test_policyengine_program_surface_marks_kentucky_ktap_source_conflict_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="ky_ktap")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    kentucky_ktap = items_by_variable["ky_ktap"]
+
+    assert kentucky_ktap["program_id"] == "tanf"
+    assert kentucky_ktap["state"] == "KY"
+    assert kentucky_ktap["axiom_status"] == "known_not_comparable"
+    assert kentucky_ktap["mapping_count"] == 0
+    assert kentucky_ktap["comparable_mapping_count"] == 0
+    assert "source-hierarchy conflict" in kentucky_ktap["rationale"]
+    assert "Current upstream Kentucky law" in kentucky_ktap["rationale"]
+    assert "921 KAR 2:016 Section 9(2)(a)" in kentucky_ktap["rationale"]
+    assert "KY FACES table labeled by number of children" in kentucky_ktap["rationale"]
+
+
+def test_policyengine_program_surface_marks_maryland_tca_pending_source_ingestion():
+    report = build_policyengine_program_surface_report(program="md_tca")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    maryland_tca = items_by_variable["md_tca"]
+
+    assert maryland_tca["program_id"] == "tanf"
+    assert maryland_tca["state"] == "MD"
+    assert maryland_tca["axiom_status"] == "pending_source_ingestion"
+    assert maryland_tca["mapping_count"] == 0
+    assert maryland_tca["comparable_mapping_count"] == 0
+    assert "COMAR 07.03.03.17" in maryland_tca["rationale"]
+    assert "Maryland DHS FIA Information Memo 25-12" in maryland_tca["rationale"]
+    assert "IM 26-13 as a superseding 2026 TCA/TDAP" in maryland_tca["rationale"]
+    assert "should not encode current TCA amounts" in maryland_tca["rationale"]
 
 
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
@@ -3886,6 +4116,124 @@ rules:
         in str(item["rationale"])
         for item in report["items"]
     )
+
+
+def test_policyengine_coverage_classifies_maine_tanf_rule_125a_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "us-me"
+        / "regulations/dhhs/ofi/chapter-331/tanf-rule-125a"
+        / "maximum-benefit-and-standard-of-need.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tanf_table_max_household_size
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 8
+  - name: special_need_housing_addition
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 300
+  - name: adult_included_standard_of_need_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 362
+  - name: adult_included_maximum_grant_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 298
+  - name: child_only_standard_of_need_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 214
+  - name: child_only_maximum_grant_base
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 178
+  - name: adult_included_standard_of_need_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 195
+  - name: adult_included_maximum_grant_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 160
+  - name: child_only_standard_of_need_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 195
+  - name: child_only_maximum_grant_add_member
+    kind: parameter
+    versions:
+      - effective_from: '2021-10-01'
+        formula: 160
+  - name: adult_included_standard_of_need
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: adult_included_standard_of_need_base
+  - name: adult_included_maximum_grant
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: adult_included_maximum_grant_base
+  - name: child_only_standard_of_need
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: child_only_standard_of_need_base
+  - name: child_only_maximum_grant
+    kind: derived
+    versions:
+      - effective_from: '2021-10-01'
+        formula: child_only_maximum_grant_base
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["total_outputs"] == 14
+    assert report["status_counts"] == {"known_not_comparable": 14}
+    assert report["untested_comparable"] == 0
+    assert {item["program"] for item in report["items"]} == {"tanf"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {"me_tanf"}
+    assert all(
+        "Maine TANF Rule 125A outputs expose the FFY 2022-2026"
+        in str(item["rationale"])
+        for item in report["items"]
+    )
+
+
+def test_policyengine_program_surface_marks_maine_tanf_known_not_comparable():
+    report = build_policyengine_program_surface_report(program="tanf")
+
+    items_by_variable = {item["variable"]: item for item in report["items"]}
+    maine_tanf = items_by_variable["me_tanf"]
+
+    assert maine_tanf["program_id"] == "tanf"
+    assert maine_tanf["state"] == "ME"
+    assert maine_tanf["axiom_status"] == "known_not_comparable"
+    assert maine_tanf["mapping_count"] == 1
+    assert maine_tanf["comparable_mapping_count"] == 0
+    assert (
+        "us-me:regulations/dhhs/ofi/chapter-331/tanf-rule-125a/"
+        "maximum-benefit-and-standard-of-need#" in maine_tanf["legal_ids"]
+    )
+    assert "Rule 125A coverage" in maine_tanf["rationale"]
+    assert "older Rule 121A parameter references" in maine_tanf["rationale"]
 
 
 def test_policyengine_coverage_infers_health_programs(tmp_path):

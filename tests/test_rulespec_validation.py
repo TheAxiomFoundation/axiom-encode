@@ -117,6 +117,45 @@ AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
 AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
 
 
+def test_validator_rejects_duplicate_rulespec_mapping_keys(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = (
+        repo / "us-ia" / "regulations" / "iac" / "441" / "41" / "41" / "28.yaml"
+    )
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: shelter_basic_needs_component
+    kind: parameter
+    entity: Household
+    dtype: Money
+    period: Month
+    values:
+      10: 20.58
+      10: 20.58
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo / "us-ia",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    result = pipeline.validate(rules_file, skip_reviewers=True)
+
+    assert result.all_passed is False
+    assert any(
+        "duplicate key" in issue and "10" in issue
+        for issue in result.results["compile"].issues
+    )
+    assert any(
+        "duplicate key" in issue and "10" in issue
+        for issue in result.results["ci"].issues
+    )
+
+
 def test_rulespec_numeric_output_comparison_tolerates_decimal_residue(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path / "rulespec-us",
@@ -2934,6 +2973,23 @@ def test_policyengine_registry_is_legal_id_keyed():
         assert mapping.program == "chip"
         assert mapping.candidate_priority == "P4"
         assert mapping.policyengine_variable == "is_chip_eligible_child"
+    pregnant_chip_definition_mappings = [
+        "us:statutes/42/1397ll/d/2#standard_postpartum_period_days",
+        "us:statutes/42/1397ll/d/2#extended_postpartum_period_months",
+        "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman_extended_postpartum_period_months",
+        "us:statutes/42/1397ll/d/2#pregnant_woman_income_floor_rate",
+        "us:statutes/42/1397ll/d/2#applicable_pregnant_woman_income_floor_rate",
+        "us:statutes/42/1397ll/d/2#within_pregnancy_or_applicable_postpartum_period",
+        "us:statutes/42/1397ll/d/2#targeted_low_income_pregnant_woman",
+    ]
+    for legal_id in pregnant_chip_definition_mappings:
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        assert mapping.mapping_type == "not_comparable"
+        assert mapping.program == "chip"
+        assert mapping.candidate_priority == "P4"
+        assert (
+            mapping.policyengine_variable == "is_chip_eligible_standard_pregnant_person"
+        )
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",
@@ -3764,7 +3820,81 @@ def test_policyengine_registry_includes_dc_ossp_payment_level_mappings():
         country="us",
     )
     assert total_column.mapping_type == "not_comparable"
-    assert total_column.candidate_priority == "P4"
+    assert total_column.policyengine_variable == "dc_ossp"
+    assert total_column.candidate_priority == "P2"
+
+    couple_total_column = registry.mapping_for_legal_id(
+        "us-dc:policies/ssa/poms/si-01415-058/2026/"
+        "dc-ossp-couple-state-supplement-levels#dc_ossp_couple_total_payment_level",
+        country="us",
+    )
+    assert couple_total_column.mapping_type == "not_comparable"
+    assert couple_total_column.policyengine_variable == "dc_ossp"
+    assert couple_total_column.candidate_priority == "P2"
+
+
+def test_policyengine_registry_includes_delaware_ssp_payment_level_mappings():
+    registry = load_policyengine_registry()
+
+    living_arrangement = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-living-arrangement-variations#de_ssp_living_arrangement",
+        country="us",
+    )
+    assert living_arrangement.mapping_type == "not_comparable"
+    assert living_arrangement.policyengine_variable == "de_ssp_living_arrangement"
+    assert living_arrangement.candidate_priority == "P4"
+
+    individual_amount = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels"
+        "#certified_care_individual_state_supplement_level",
+        country="us",
+    )
+    assert individual_amount.mapping_type == "parameter_value"
+    assert (
+        individual_amount.policyengine_parameter
+        == "gov.states.de.dhss.ssp.amount.individual"
+    )
+    assert individual_amount.period == "month"
+    assert individual_amount.unit == "USD"
+    assert individual_amount.comparison == "money"
+    assert individual_amount.tested_by_legal_ids == (
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp",
+    )
+
+    couple_amount = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-couple-state-supplement-levels"
+        "#certified_care_couple_state_supplement_level",
+        country="us",
+    )
+    assert couple_amount.mapping_type == "parameter_value"
+    assert (
+        couple_amount.policyengine_parameter == "gov.states.de.dhss.ssp.amount.couple"
+    )
+    assert couple_amount.period == "month"
+    assert couple_amount.unit == "USD"
+    assert couple_amount.comparison == "money"
+
+    final_individual_selector = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-individual-state-supplement-levels#de_ssp",
+        country="us",
+    )
+    assert final_individual_selector.mapping_type == "not_comparable"
+    assert final_individual_selector.policyengine_variable == "de_ssp"
+    assert final_individual_selector.candidate_priority == "P2"
+
+    couple_total = registry.mapping_for_legal_id(
+        "us-de:policies/ssa/poms/si-01415-058/2026/"
+        "de-ssp-couple-state-supplement-levels#de_ssp_couple_total_payment_level",
+        country="us",
+    )
+    assert couple_total.mapping_type == "not_comparable"
+    assert couple_total.policyengine_variable == "de_ssp"
+    assert couple_total.candidate_priority == "P2"
 
 
 def test_policyengine_registry_includes_acp_parameter_and_not_comparable_mappings():
@@ -5881,6 +6011,51 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_english_compound_cardinal_words():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/example/compound-cardinals
+rules:
+  - name: month_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '36'
+  - name: middle_credit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '600'
+  - name: high_credit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1200'
+"""
+
+    source_text = (
+        "benefits shall be provided for not longer than thirty-six months. "
+        "The middle credit amount is Six hundred dollars. "
+        "The high credit amount is one thousand two hundred dollars."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words():
+    assert 36.0 in extract_numbers_from_text("not longer than thirty-six months")
+    assert 600.0 in extract_numbers_from_text("The amount is Six hundred dollars")
+    assert 1200.0 in extract_numeric_occurrences_from_text(
+        "One thousand two hundred dollars"
+    )
+
+
 def test_rulespec_grounding_rejects_unrelated_power_of_ten():
     content = """format: rulespec/v1
 module:
@@ -7423,6 +7598,427 @@ rules:
     assert 180 in extract_numbers_from_text(source_text)
 
 
+def test_rulespec_grounding_accepts_belgian_money_and_direct_percent_formats():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/5
+rules:
+  - name: belgium_direct_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 150000
+  - name: belgium_direct_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.03
+  - name: belgium_bracketed_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 7872.29
+"""
+
+    source_text = (
+        "Le tarif applicable est 150.000 EUR 3 %. "
+        "Le montant vise par l'article est [5 7 872,29] 5 EUR."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 150000 in source_values
+    assert 0.03 in source_values
+    assert 7872.29 in source_values
+
+
+def test_rulespec_grounding_keeps_integer_value_also_seen_as_percent():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/company-car
+rules:
+  - name: belgium_company_car_catalog_age_percentage
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.70
+  - name: belgium_company_car_reference_co2
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 70
+"""
+
+    source_text = (
+        'A partir de 61 mois 70 %. La colonne essence est completee par "70 g/km".'
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 0.70 in source_values
+    assert 70 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_table_range_endpoint_before_money():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-bru/guidance/example/vehicle-tax
+rules:
+  - name: brussels_entry_into_service_tax_thermal_power_band_max_kw
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-07-01'
+        values:
+          2: 100
+"""
+
+    source_text = "2 - 2,1 11 86 à 100 634,89 € 571,40 €"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 100 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_quarter_phrase():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/property-tax
+rules:
+  - name: belgium_immovable_withholding_quarter_reduction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.25
+"""
+
+    source_text = "Il est accorde une reduction d'un quart du precompte immobilier."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.25 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_belgian_ratio_parts():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/36
+rules:
+  - name: belgium_company_car_catalog_value_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 6 / 7
+"""
+
+    source_text = "L'avantage imposable est calcule a 6/7 de la valeur catalogue."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 6 in source_values
+    assert 7 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_cardinal_and_week_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/6
+rules:
+  - name: belgium_twelve_month_condition
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+  - name: belgium_six_week_condition_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 42
+  - name: belgium_dutch_age_condition
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 25
+  - name: belgium_dutch_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 40
+"""
+
+    source_text = (
+        "La condition est de douze mois et six semaines. "
+        "De leeftijdsvoorwaarde bedraagt vijfentwintig jaar en veertig euro."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert {12, 25, 40, 42}.issubset(source_values)
+
+
+def test_rulespec_grounding_accepts_french_hundreds_and_year_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/8
+rules:
+  - name: belgium_part_time_waiting_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 800
+  - name: belgium_reference_extension_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 180
+"""
+
+    source_text = (
+        "Le travailleur accomplit huit cents heures de travail. "
+        "Cette prolongation ne peut depasser quinze ans."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 800 in source_values
+    assert 180 in source_values
+
+
+def test_rulespec_grounding_accepts_fully_hyphenated_french_180_days():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/114
+rules:
+  - name: belgium_stillbirth_minimum_gestation_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 180
+"""
+
+    source_text = "La grossesse a dure un minimum de cent-quatre-vingts jours."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 180 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_hyphenated_month_count():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/203
+rules:
+  - name: belgium_part_time_max_reference_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 36
+"""
+
+    source_text = "La periode de reference est prolongee jusqu'a trente-six mois."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 36 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_belgian_waiting_stage_cardinals():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/203-1
+rules:
+  - name: belgium_waiting_stage_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 120
+  - name: belgium_reentry_part_time_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 67
+  - name: belgium_transfer_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 90
+  - name: belgium_reentry_work_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 60
+  - name: belgium_short_interruption_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 30
+  - name: belgium_reentry_part_time_three_month_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 200
+"""
+
+    source_text = (
+        "Le stage exige cent vingt jours de travail. "
+        "Le stage reduit exige soixante-sept heures. "
+        "Le transfert exige nonante jours. "
+        "Le nouveau stage exige soixante jours et deux cents heures. "
+        "Une interruption de trente jours est admise."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert {30, 60, 67, 90, 120, 200}.issubset(extract_numbers_from_text(source_text))
+
+
+def test_rulespec_grounding_accepts_dutch_cardinal_thousands():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-vlg/statute/example/article/23501
+rules:
+  - name: flanders_biv_natural_gas_reduction_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 4000
+"""
+
+    source_text = "De belasting wordt verminderd met vierduizend euro."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 4000 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_vehicle_tax_fiscal_power_table_cells():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be-wal/statute/example/vehicle-tax
+rules:
+  - name: wallonia_circulation_tax_cv_5
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 5
+  - name: wallonia_circulation_tax_cv_15
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 15
+"""
+
+    source_text = (
+        "Chevaux fiscaux (CV) Taxe de circulation en EUR "
+        "751 - 950 5 134,11 EUR 2.751 - 3.050 15 1.075,54 EUR"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 5 in extract_numbers_from_text(source_text)
+    assert 15 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_french_ordinal_week_durations():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/8
+rules:
+  - name: belgium_single_birth_prenatal_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 42
+"""
+
+    source_text = "Le repos prenatal debute a partir de la sixieme semaine."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 42 in extract_numbers_from_text(source_text)
+
+
+def test_rulespec_grounding_accepts_centime_and_annual_unit_conventions():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/9
+rules:
+  - name: belgium_centime_divisor
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 100
+  - name: belgium_months_in_annual_amount
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+"""
+
+    source_text = (
+        "La commune peut etablir des centimes additionnels. "
+        "Le montant immunise est fixe par an."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 100 in source_values
+    assert 12 in source_values
+
+
+def test_rulespec_grounding_accepts_belgian_dotted_date_years():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/example/article/7
+rules:
+  - name: wallonia_deferred_effective_year
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2028
+"""
+
+    source_text = "Cette disposition produit ses effets le 01.01.2028."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 2028 in extract_numbers_from_text(source_text)
+
+
 def test_rulespec_grounding_accepts_coordinated_cardinal_age_bounds():
     content = """format: rulespec/v1
 rules:
@@ -7832,9 +8428,21 @@ def test_numeric_occurrence_extraction_accepts_spaced_european_decimal_money():
 
 
 def test_numeric_occurrence_extraction_accepts_french_cardinal_180_days():
-    text = "grossesse d'au moins cent quatre-vingts jours."
+    text = "grossesse d'au moins cent-quatre-vingts jours."
 
     assert extract_numeric_occurrences_from_text(text) == [180.0]
+
+
+def test_numeric_occurrence_extraction_accepts_french_hyphenated_month_count():
+    text = "La periode de reference est prolongee jusqu'a trente-six mois."
+
+    assert 36 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_cardinal_30_days():
+    text = "Une interruption de trente jours est admise."
+
+    assert extract_numeric_occurrences_from_text(text) == [30.0]
 
 
 def test_numeric_occurrence_extraction_accepts_european_decimal_money_table_cell():
@@ -7857,6 +8465,60 @@ def test_numeric_occurrence_extraction_accepts_four_place_european_decimal_money
     text = "Le droit d'accise est 0,7933 EUR par hectolitre-degre Plato."
 
     assert extract_numeric_occurrences_from_text(text) == [0.7933]
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_footnoted_money():
+    text = "Le montant vise par l'article est [5 7 872,29] 5 EUR."
+
+    assert 7872.29 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_space_before_european_decimal_comma():
+    text = "Elle percoit une allocation qui s'eleve a [ 3 7.872 ,29 EUR] 3."
+
+    assert 7872.29 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_direct_percent():
+    text = "Le tarif applicable est 150.000 EUR 3 %."
+
+    values = extract_numeric_occurrences_from_text(text)
+
+    assert 150000 in values
+    assert 0.03 in values
+    assert 150.0 not in values
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_week_duration_days():
+    text = "La periode de protection est de six semaines."
+
+    assert 42 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_ordinal_week_duration_days():
+    text = "Le repos prenatal debute a partir de la sixieme semaine."
+
+    assert 42 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_year_duration_months():
+    text = "Cette prolongation ne peut depasser quinze ans."
+
+    assert 180 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_french_hundreds():
+    text = "Le stage est accompli avec huit cents heures de travail."
+
+    assert 800 in extract_numeric_occurrences_from_text(text)
+
+
+def test_numeric_occurrence_extraction_accepts_belgian_dotted_date_year():
+    text = "Cette disposition produit ses effets le 01.01.2028."
+
+    values = extract_numeric_occurrences_from_text(text)
+
+    assert values == [2028.0]
 
 
 def test_numeric_occurrence_extraction_ignores_section_symbol_reference():
@@ -12636,6 +13298,56 @@ rules:
     )
 
 
+def test_upstream_placement_ignores_nested_axiom_dependency_in_git_monorepo(tmp_path):
+    repo_parent = tmp_path / "repos"
+    checkout = repo_parent / "rulespec-us"
+    subprocess.run(["git", "init", checkout], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=checkout,
+        check=True,
+        capture_output=True,
+    )
+    duplicate_content = """format: rulespec/v1
+rules:
+  - name: federal_code_a_individual_fbr
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '994'
+"""
+    rules_file = _write_rulespec_file(
+        checkout
+        / "us-de"
+        / "policies/ssa/poms/si-01415-058/2026/de-ssp-individual.yaml",
+        duplicate_content,
+    )
+    _write_rulespec_file(
+        checkout
+        / "_axiom"
+        / "rulespec-us"
+        / "us-dc"
+        / "policies/ssa/poms/si-01415-058/2026/dc-ossp-individual.yaml",
+        duplicate_content,
+    )
+
+    assert (
+        find_upstream_placement_issues(
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
+        )
+        == []
+    )
+
+
 def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
@@ -16614,7 +17326,7 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `snap_member_resource_eligible` is declared on "
-        "`Person`, but the embedded source states a household/unit-scoped test. "
+        "`Person`, but the embedded source states a `Household` unit-scoped test. "
         "Encode the rule at the source-stated unit scope or cite source text "
         "that states the person-level test."
     ]
@@ -16690,9 +17402,9 @@ rules:
     assert issues == [
         "Source scope mismatch: "
         "`t_snap_member_snap_ineligibility_criterion` is declared on `Person`, "
-        "but the embedded source states a household/unit-scoped test. Encode "
-        "the rule at the source-stated unit scope or cite source text that "
-        "states the person-level test."
+        "but the embedded source states a `Household` unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
     ]
 
 
@@ -16740,9 +17452,9 @@ rules:
     assert issues == [
         "Source scope mismatch: "
         "`t_snap_member_snap_ineligibility_criterion` is declared on `Person`, "
-        "but the embedded source states a household/unit-scoped test. Encode "
-        "the rule at the source-stated unit scope or cite source text that "
-        "states the person-level test."
+        "but the embedded source states a `Household` unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
     ]
 
 
@@ -17353,9 +18065,9 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `adult_group_resource_eligible` is declared "
-        "on `Person`, but the embedded source states a household/unit-scoped "
-        "test. Encode the rule at the source-stated unit scope or cite source "
-        "text that states the person-level test."
+        "on `Person`, but the embedded source states a `Household` "
+        "unit-scoped test. Encode the rule at the source-stated unit scope or "
+        "cite source text that states the person-level test."
     ]
 
 
@@ -17474,6 +18186,36 @@ rules:
     ]
 
 
+def test_source_scope_consistency_names_family_unit_for_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Family income eligibility requires family income to exceed the lower floor
+    and not exceed the State child health plan income eligibility level.
+rules:
+  - name: targeted_low_income_pregnant_woman
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Day
+    source: 42 USC 1397ll(d)(2)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          family_income > pregnant_woman_income_floor
+          and family_income <= state_child_health_plan_income_level
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `targeted_low_income_pregnant_woman` is "
+        "declared on `Person`, but the embedded source states a `Family` "
+        "unit-scoped test. Encode the rule at the source-stated unit scope or "
+        "cite source text that states the person-level test."
+    ]
+
+
 def test_source_scope_consistency_accepts_federal_tax_taxpayer_as_taxunit_rule():
     content = """format: rulespec/v1
 module:
@@ -17584,7 +18326,7 @@ rules:
 
     assert issues == [
         "Source scope mismatch: `taxpayer_is_applicable_taxpayer` is declared "
-        "on `Person`, but the embedded source states a household/unit-scoped "
+        "on `Person`, but the embedded source states a `TaxUnit` unit-scoped "
         "test. Encode the rule at the source-stated unit scope or cite source "
         "text that states the person-level test."
     ]
