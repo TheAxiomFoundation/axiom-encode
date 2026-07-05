@@ -2970,6 +2970,7 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    numbers.update(_iter_ascii_mixed_fraction_percentage_component_values(text))
     numbers.update(_extract_percentage_context_values(text))
     for span, value in _iter_standalone_fraction_word_matches(text):
         if _span_overlaps(span, occupied_spans):
@@ -2986,10 +2987,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
-    for span, value in _iter_digit_scale_number_matches(text):
+    for span, value, raw_value in _iter_digit_scale_number_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
         numbers.add(value)
+        numbers.add(raw_value)
         occupied_spans.append(span)
     for span, value in _iter_french_cardinal_phrase_matches(text):
         if _span_overlaps(span, occupied_spans):
@@ -3244,9 +3246,9 @@ def _iter_cardinal_word_number_matches(
 
 def _iter_digit_scale_number_matches(
     text: str,
-) -> list[tuple[tuple[int, int], float]]:
+) -> list[tuple[tuple[int, int], float, float]]:
     """Return numeric scale phrases such as "20 million" or "10.2 million"."""
-    matches: list[tuple[tuple[int, int], float]] = []
+    matches: list[tuple[tuple[int, int], float, float]] = []
     for match in _DIGIT_SCALE_NUMBER_PATTERN.finditer(text):
         scale_word = match.group("scale").lower().removesuffix("s")
         scale = _CARDINAL_SCALE_WORD_VALUES.get(scale_word)
@@ -3254,8 +3256,23 @@ def _iter_digit_scale_number_matches(
             continue
         with contextlib.suppress(ValueError):
             number = float(match.group("number").replace(",", ""))
-            matches.append((match.span(), number * scale))
+            matches.append((match.span(), number * scale, number))
     return matches
+
+
+def _iter_ascii_mixed_fraction_percentage_component_values(text: str) -> list[float]:
+    """Return component numbers from phrases like "2 6/7 per cent"."""
+    values: list[float] = []
+    for match in re.finditer(
+        r"(-?[\d,]+)\s+(\d+)\s*/\s*(\d+)"
+        r"(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+        text,
+        re.IGNORECASE,
+    ):
+        for group_index in (1, 2, 3):
+            with contextlib.suppress(ValueError):
+                values.append(float(match.group(group_index).replace(",", "")))
+    return values
 
 
 def _iter_french_cardinal_phrase_matches(
@@ -3884,7 +3901,7 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
             )
             spans.append(span)
 
-    for span, value in _iter_digit_scale_number_matches(cleaned):
+    for span, value, raw_value in _iter_digit_scale_number_matches(cleaned):
         if _span_overlaps(span, spans):
             continue
         if value not in GROUNDING_ALLOWED_VALUES:
