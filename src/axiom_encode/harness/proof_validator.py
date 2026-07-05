@@ -134,6 +134,7 @@ def validate_rulespec_proofs(
             continue
         rule_issues, rule_atom_count = _validate_rule_proof(
             rule_name=rule_name,
+            rule=rule,
             proof=proof,
             source_paths=source_paths,
             source_value_keys=source_value_keys,
@@ -241,6 +242,7 @@ def _is_policy_bearing_rule(rule: dict[str, Any]) -> bool:
 def _validate_rule_proof(
     *,
     rule_name: str,
+    rule: dict[str, Any],
     proof: dict[str, Any],
     source_paths: set[str],
     source_value_keys: set[str],
@@ -269,6 +271,7 @@ def _validate_rule_proof(
             _validate_proof_atom(
                 atom=atom,
                 label=label,
+                rule=rule,
                 source_paths=source_paths,
                 source_value_keys=source_value_keys,
                 declared_claims=declared_claims,
@@ -281,6 +284,7 @@ def _validate_proof_atom(
     *,
     atom: dict[str, Any],
     label: str,
+    rule: dict[str, Any],
     source_paths: set[str],
     source_value_keys: set[str],
     declared_claims: set[str],
@@ -289,6 +293,10 @@ def _validate_proof_atom(
     path = str(atom.get("path") or "").strip()
     if not path:
         issues.append(f"Proof atom missing path: {label} must declare `path`.")
+    else:
+        anchor_issue = _atom_anchor_issue(path=path, label=label, rule=rule)
+        if anchor_issue is not None:
+            issues.append(anchor_issue)
 
     kind = str(atom.get("kind") or "").strip()
     if kind not in PROOF_ATOM_KINDS:
@@ -329,6 +337,71 @@ def _validate_proof_atom(
         issues.extend(_validate_import_proof_atom(atom.get("import"), label))
 
     return issues
+
+
+# A ``versions[i].values`` proof atom anchors a parameter *table* (the cells
+# live under ``values``); a ``versions[i].formula`` atom anchors a scalar
+# formula. Enforcing that an atom's declared anchor matches the version's actual
+# shape makes ``versions[i].values`` the single, authoritative contract for
+# table atoms across the whole proof system, rather than a shape only the
+# money-atom gate happens to accept. Without this, a table atom could claim
+# ``versions[i].formula`` (which no ``values``-only version has) and pass base
+# validation while failing the money gate — the mutual-exclusivity trap from
+# rulespec-be#31/#80 and axiom-encode#1032.
+_ANCHOR_FIELD_PATTERN = re.compile(r"^versions\[(\d+)\]\.(values|formula)\b")
+
+
+def _atom_anchor_issue(
+    *,
+    path: str,
+    label: str,
+    rule: dict[str, Any],
+) -> str | None:
+    """Return an issue when a ``versions[i].{values,formula}`` anchor is wrong.
+
+    The atom's path is only enforced when it targets a ``versions[i].values`` or
+    ``versions[i].formula`` location and that version index resolves against the
+    rule. Any other path shape (e.g. a bare field, a table-cell suffix, or a
+    non-``versions`` anchor) is left to the other checks so this never
+    over-rejects. A ``.values`` anchor requires the version to carry a ``values``
+    table; a ``.formula`` anchor requires the version to carry a ``formula``.
+    """
+    normalized = re.sub(r"\s+", "", str(path))
+    normalized = _ATOM_PATH_INDEX_PATTERN.sub(r"[\1]", normalized)
+    normalized = re.sub(r"^versions\.", "versions[0].", normalized)
+    match = _ANCHOR_FIELD_PATTERN.match(normalized)
+    if match is None:
+        return None
+
+    version_index = int(match.group(1))
+    field = match.group(2)
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or version_index >= len(versions):
+        return (
+            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
+            f"{field}`, but the rule has no such version."
+        )
+    version = versions[version_index]
+    if not isinstance(version, dict):
+        return (
+            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
+            f"{field}`, but that version is malformed."
+        )
+
+    if field == "values":
+        if not isinstance(version.get("values"), dict):
+            return (
+                f"Proof atom anchor mismatch: {label} anchors `versions[{version_index}]"
+                ".values`, but that version declares no `values` table. Anchor a "
+                "scalar rule at `versions[i].formula` instead."
+            )
+    elif version.get("formula") is None:
+        return (
+            f"Proof atom anchor mismatch: {label} anchors `versions[{version_index}]"
+            ".formula`, but that version declares no `formula`. Anchor a parameter "
+            "table at `versions[i].values` instead."
+        )
+    return None
 
 
 def _validate_source_proof_atom(
