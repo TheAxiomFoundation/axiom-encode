@@ -26091,6 +26091,77 @@ mappings:
     mapping_type: not_comparable
     rationale: "Source-specific intermediate output (rule `reapplying_household_requires_postponed_proof_for_expedited`, grounded against `IDAPA 16.03.04.160.05`). Not present in the PolicyEngine Populace adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
+  - legal_id: us-id:regulations/idapa/16/03/05/514#single_participant_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.id.dhw.aabd.payment.amount
+    parameter_key: SINGLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same IDAPA 16.03.05.514.01 monthly AABD cash-payment maximum for a single participant.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#couple_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.id.dhw.aabd.payment.amount
+    parameter_key: COUPLE
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same IDAPA 16.03.05.514.02(a) monthly AABD cash-payment maximum for a couple, stored as the couple-level row.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#essential_person_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.id.dhw.aabd.payment.amount
+    parameter_key: ESSENTIAL_PERSON
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same IDAPA 16.03.05.514.02(b) monthly AABD cash-payment maximum for a participant living with an essential person.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#semi_independent_group_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.id.dhw.aabd.payment.amount
+    parameter_key: SIGRIF
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same IDAPA 16.03.05.514.03 monthly AABD cash-payment maximum for a semi-independent group residential facility participant.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#room_and_board_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.id.dhw.aabd.payment.amount
+    parameter_key: ROOM_AND_BOARD
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same IDAPA 16.03.05.514.04 monthly AABD cash-payment maximum for a room-and-board participant.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#aabd_living_arrangement_maximum_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: id_aabd
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-level selector over IDAPA 16.03.05.514 cash-payment maximums. PolicyEngine's final `id_aabd` surface also composes eligibility, basic allowances, SSI countable income, and person-level couple allocation, so compare the encoded maximum-payment rows separately.
+
+  - legal_id: us-id:regulations/idapa/16/03/05/514#aabd_cash_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: id_aabd
+    candidate_priority: P2
+    rationale: RuleSpec encodes IDAPA 16.03.05.514 as a source-level AABD cash-payment rule at the cash-payment-unit level, using financial need, countable income, next-dollar rounding, and source-law couple-level maximums. PolicyEngine's final `id_aabd` variable is a person-level surface that additionally computes financial need from IDAPA 16.03.05.501 and .512 allowances, uses `ssi_countable_income`, applies living-arrangement exclusions, and divides the couple amount per person, so it is reviewed but not one-to-one.
+
   - legal_id: us-al:regulations/660-4/1/03/block-1#first_violation_minimum_disqualification_months
     country: us
     program: snap

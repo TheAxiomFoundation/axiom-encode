@@ -1852,11 +1852,12 @@ surfaces:
   variable: id_aabd
   source_type: state_implementation
   state: ID
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: Official Idaho IDAPA 16.03.05 AABD administrative-rule corpus artifacts are ingested from the Idaho
-    administrative rules source. Encode the source-law AABD eligibility and payment calculation before classifying
-    comparability with PolicyEngine's final `id_aabd` person-level surface.
+  rationale: Axiom encodes IDAPA 16.03.05.514 source-law AABD cash-payment maximums and the cash-payment rule from
+    Idaho's administrative rules. PolicyEngine's final `id_aabd` person-level surface additionally composes basic
+    allowances from IDAPA 16.03.05.501 and .512, SSI countable income, living-arrangement exclusions, and per-person
+    couple allocation, so the final variable is reviewed but not one-to-one with the source-level RuleSpec output.
 - country: us
   program_id: ssi_state_supplement
   program_name: Indiana SSP
