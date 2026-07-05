@@ -11621,6 +11621,10 @@ rules:
             "us-co:policies/cms/colorado-chip-eligibility"
             "#is_chip_fcep_eligible_person: holds" not in test_content
         )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#is_chip_fcep_eligible_person: not_holds" in test_content
+        )
 
         manifest = (
             policy_repo
