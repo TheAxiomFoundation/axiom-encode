@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.1152"
+version = "0.2.1153"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -20,6 +20,11 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+    # Shared PolicyEngine/Populace oracle-bridge layer; the modules under
+    # src/axiom_encode/oracles/policyengine/ are thin re-export shims over
+    # axiom_oracles.bridges (axiom-oracles#124). Pinned to a commit because
+    # axiom-oracles is not on PyPI; bump the SHA to pull bridge changes.
+    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@e4951dd8303d087fe5fc127f460a4c8fc54a75de",
     "pydantic>=2.0",
     "pypdf>=6.4.0",
     "pyyaml>=6.0",
@@ -58,6 +63,12 @@ all = [
 # entrypoint.main dispatches check-source-staleness and delegates every
 # other invocation to axiom_encode.cli:main unchanged.
 axiom-encode = "axiom_encode.entrypoint:main"
+
+# Required for the git-pinned axiom-oracles dependency above (axiom-oracles
+# is not published to PyPI, and neither is axiom-encode, so a direct
+# reference is the honest declaration).
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/axiom_encode"]
