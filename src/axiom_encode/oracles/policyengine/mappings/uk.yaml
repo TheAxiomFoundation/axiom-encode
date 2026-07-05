@@ -2251,6 +2251,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: GOV.UK VAT policy outputs are firm-level registration, output-tax, input-tax, and net-liability rules; PolicyEngine UK does not currently expose a firm entity or one-to-one VAT variables for these outputs.
 
+  - legal_id_prefix: uk:statutes/ukpga/2006/46/382#
+    country: uk
+    program: companies_act
+    mapping_type: not_comparable
+    rationale: Companies Act 2006 section 382 outputs are firm-level accounting thresholds and small-company qualification predicates. PolicyEngine UK models household tax-benefit rules and does not expose a firm entity or one-to-one Companies Act oracle surface for these outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2018/12/157#
+    country: uk
+    program: data_protection
+    mapping_type: not_comparable
+    rationale: Data Protection Act 2018 section 157 outputs are UK GDPR penalty-cap fixed amounts, turnover percentages, turnover amounts, and maximum-penalty amounts. PolicyEngine UK models household tax-benefit rules and does not expose enforcement-penalty or undertaking-turnover oracle surfaces for these outputs.
+
   - legal_id_prefix: uk-kingston-upon-thames:policies/kingston-upon-thames/council-tax-reduction#
     country: uk
     program: council_tax_reduction
