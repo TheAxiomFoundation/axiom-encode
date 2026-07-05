@@ -8974,6 +8974,34 @@ _MEDICAID_MAGI_SINGLE_INCOME_HELPER_FORMULA_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:income|magi|fpl)[A-Za-z0-9_]*(?:\s*\([^()]*\))?$",
     flags=re.IGNORECASE,
 )
+_CHIP_PERSON_ELIGIBILITY_CONTEXT_PATTERN = re.compile(
+    r"\b(?:unborn\s+children?|pregnant\s+(?:individuals?|woman|women)|"
+    r"birth\s+parents?|targeted\s+low-income\s+(?:children?|pregnant\s+women)|"
+    r"children?|from[-\s]conception[-\s]to[-\s](?:birth|end[-\s]of[-\s]pregnancy)|"
+    r"fcep)\b"
+    r"[\s\S]{0,700}\b(?:family|families|household)s?\s+income[s]?\b"
+    r"|"
+    r"\b(?:family|families|household)s?\s+income[s]?\b"
+    r"[\s\S]{0,700}\b(?:unborn\s+children?|pregnant\s+(?:individuals?|woman|women)|"
+    r"birth\s+parents?|targeted\s+low-income\s+(?:children?|pregnant\s+women)|"
+    r"children?|from[-\s]conception[-\s]to[-\s](?:birth|end[-\s]of[-\s]pregnancy)|"
+    r"fcep)\b",
+    flags=re.IGNORECASE,
+)
+_CHIP_RULE_CITATION_PATTERN = re.compile(
+    r"\b42\s*(?:USC|U\.?\s*S\.?\s*C\.?)\s*(?:§\s*)?1397j[jl]\b"
+    r"|"
+    r"\bus/statute/42/1397j[jl]\b"
+    r"|"
+    r"\b42\s*(?:CFR|C\.?\s*F\.?\s*R\.?)\s*(?:§\s*)?457\.\d+\b"
+    r"|"
+    r"\bus/regulation/42/457/\d+\b",
+    flags=re.IGNORECASE,
+)
+_CHIP_ELIGIBILITY_RULE_NAME_PATTERN = re.compile(
+    r"(?=.*(?:^|_)chip(?:_|$))(?=.*(?:^|_)(?:eligible|eligibility)(?:_|$))",
+    flags=re.IGNORECASE,
+)
 _FORMULA_BOOLEAN_CONNECTIVE_PATTERN = re.compile(
     r"\b(?:and|or|not)\b",
     flags=re.IGNORECASE,
@@ -9219,6 +9247,38 @@ def _person_rule_can_use_unit_scoped_medicaid_magi_source(
     )
 
 
+def _person_rule_can_use_unit_scoped_chip_income_source(
+    rule: dict[str, Any],
+    *,
+    fallback_source_text: str,
+) -> bool:
+    """Allow CHIP person eligibility to include family or household income."""
+    name = str(rule.get("name") or "")
+    if not _CHIP_ELIGIBILITY_RULE_NAME_PATTERN.search(name):
+        return False
+    if _MEDICAID_MAGI_INCOME_HELPER_RULE_NAME_PATTERN.search(name):
+        return False
+    if str(rule.get("dtype") or "").strip().lower() != "judgment":
+        return False
+    if _medicaid_magi_rule_has_income_only_formula(rule):
+        return False
+    if not _medicaid_magi_rule_has_income_formula_reference(rule):
+        return False
+    proof_contexts = _rule_proof_source_contexts(rule)
+    citation_context = "\n".join(
+        [
+            str(rule.get("source") or ""),
+            *(text for _key, text in proof_contexts),
+        ]
+    )
+    if not _CHIP_RULE_CITATION_PATTERN.search(citation_context):
+        return False
+    proof_excerpts = [text for key, text in proof_contexts if key == "excerpt"]
+    classified_texts = proof_excerpts or [fallback_source_text]
+    eligibility_context = "\n".join([*classified_texts, fallback_source_text])
+    return bool(_CHIP_PERSON_ELIGIBILITY_CONTEXT_PATTERN.search(eligibility_context))
+
+
 def _medicaid_magi_rule_has_income_only_formula(rule: dict[str, Any]) -> bool:
     versions = rule.get("versions")
     if not isinstance(versions, list):
@@ -9377,6 +9437,11 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
             )
         elif source_scope == _SOURCE_SCOPE_UNIT and normalized_entity == "person":
             if _person_rule_can_use_unit_scoped_medicaid_magi_source(
+                rule,
+                fallback_source_text=source_text,
+            ):
+                continue
+            if _person_rule_can_use_unit_scoped_chip_income_source(
                 rule,
                 fallback_source_text=source_text,
             ):

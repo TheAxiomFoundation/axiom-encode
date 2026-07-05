@@ -18393,6 +18393,44 @@ rules:
     ]
 
 
+def test_source_scope_consistency_accepts_chip_person_eligibility_with_family_income():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Alabama CHIP FCEP eligibility applies family income to a person-level
+    pregnancy/FCEP eligibility judgment.
+rules:
+  - name: is_chip_fcep_eligible_person
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 42 USC 1397ll(f)(1), 42 CFR 457.10, and CMS CHIP FCEP SPA source
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/policy/cms/chip-spa/al/example
+              excerpt: "Alabama expands CHIP eligibility statewide for the from-conception-to-end-of-pregnancy (FCEP) coverage group with family incomes up to and including 312 percent of the federal poverty level whose birth parent is not otherwise eligible for Medicaid or CHIP."
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/1397ll/f/1
+              excerpt: "through the application of sections 457.10"
+    versions:
+      - effective_from: '2024-10-01'
+        formula: |-
+          person_is_pregnant
+          and alabama_fcep_eligibility_available
+          and not found_eligible_for_medical_assistance_under_subchapter_xix
+          and medicaid_income_level <= alabama_fcep_effective_fpl_limit
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_accepts_federal_tax_taxpayer_as_taxunit_rule():
     content = """format: rulespec/v1
 module:
