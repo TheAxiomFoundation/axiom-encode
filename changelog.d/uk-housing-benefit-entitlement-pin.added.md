@@ -1,0 +1,1 @@
+Bump the axiom-oracles pin to pull the composed Housing Benefit entitlement EFRS surfaces (housing-benefit-applicable-amount, housing-benefit-entitlement) and their PolicyEngine oracle-registry mappings, so the composed Housing Benefit entitlement pipeline in rulespec-uk is classified and compared.
