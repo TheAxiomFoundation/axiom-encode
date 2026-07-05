@@ -6056,6 +6056,40 @@ def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words
     )
 
 
+def test_rulespec_grounding_accepts_digit_scale_money_phrases():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: uk/statute/ukpga/2018/12/157/enacted
+rules:
+  - name: higher_maximum_fixed_penalty_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2018-05-25'
+        formula: '20000000'
+  - name: standard_maximum_fixed_penalty_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2018-05-25'
+        formula: '10000000'
+"""
+
+    source_text = (
+        "The higher maximum amount is 20 million Euros. "
+        "The standard maximum amount is 10 million Euros."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 20000000 in source_values
+    assert 10000000 in source_values
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 20000000 in occurrences
+    assert 10000000 in occurrences
+
+
 def test_rulespec_grounding_rejects_unrelated_power_of_ten():
     content = """format: rulespec/v1
 module:
