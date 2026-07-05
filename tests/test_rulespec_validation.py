@@ -6109,8 +6109,7 @@ rules:
 """
 
     source_text = (
-        "for “Not more than £6.5 million” substitute "
-        "“Not more than £10.2 million”"
+        "for “Not more than £6.5 million” substitute “Not more than £10.2 million”"
     )
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
