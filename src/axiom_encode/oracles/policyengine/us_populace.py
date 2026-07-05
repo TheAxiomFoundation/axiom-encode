@@ -581,6 +581,10 @@ def source_variables_for_adapters(
             *adapter.monthly_person_inputs,
             *adapter.boolean_person_inputs,
             *adapter.monthly_boolean_person_inputs,
+            *(
+                (rule_key, pe_key)
+                for rule_key, pe_key, *_ in adapter.boolean_enum_person_inputs
+            ),
         ):
             person_vars[pe_key] = None
         for _rule_key, pe_key in (
@@ -648,6 +652,15 @@ def project_case_inputs(
         inputs[rule_key] = bool_value(row_value(row, pe_key))
     for rule_key, pe_key in adapter.monthly_boolean_person_inputs:
         inputs[rule_key] = bool_value(row_value(row, pe_key))
+    for (
+        rule_key,
+        pe_key,
+        _true_value,
+        false_value,
+    ) in adapter.boolean_enum_person_inputs:
+        raw_value = row_value(row, pe_key)
+        raw_text = str(raw_value).strip().upper()
+        inputs[rule_key] = raw_text != false_value.strip().upper()
     for rule_key, pe_key in adapter.direct_spm_overrides:
         inputs[rule_key] = money(row_value(spm_row, pe_key))
     for rule_key, pe_key in adapter.annual_direct_spm_overrides:

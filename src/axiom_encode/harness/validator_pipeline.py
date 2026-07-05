@@ -26960,6 +26960,10 @@ print("BENCHMARK:" + json.dumps(result))
                 *adapter.monthly_person_inputs,
                 *adapter.boolean_person_inputs,
                 *adapter.monthly_boolean_person_inputs,
+                *(
+                    (rule_key, pe_key)
+                    for rule_key, pe_key, *_ in adapter.boolean_enum_person_inputs
+                ),
                 *adapter.direct_household_overrides,
                 *adapter.inverted_boolean_household_overrides,
                 *adapter.annual_direct_household_overrides,
@@ -28001,6 +28005,21 @@ print(f'RESULT:{{float(value)}}')
                         else adult_attrs
                     )
                     attrs.append(f"'{pe_attr}': {{'{period}': {bool(value)}}}")
+            for (
+                rule_key,
+                pe_attr,
+                true_value,
+                false_value,
+            ) in adapter.boolean_enum_person_inputs:
+                value = self._rulespec_test_input_value(inputs, rule_key)
+                if value is not None:
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    enum_value = true_value if bool(value) else false_value
+                    attrs.append(f"'{pe_attr}': {{'{year}': {pe_literal(enum_value)}}}")
             for (
                 pe_attr,
                 operation,

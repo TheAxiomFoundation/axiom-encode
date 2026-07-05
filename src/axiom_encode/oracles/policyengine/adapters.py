@@ -22,6 +22,7 @@ class PolicyEngineUSVarAdapter:
     monthly_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     monthly_boolean_person_inputs: tuple[tuple[str, str], ...] = ()
+    boolean_enum_person_inputs: tuple[tuple[str, str, str, str], ...] = ()
     monthly_derived_boolean_person_inputs: tuple[
         tuple[str, str, tuple[str, ...]], ...
     ] = ()
@@ -781,6 +782,21 @@ PE_US_CHIP_VAR_ADAPTERS = (
         entity="person",
         period="year",
         comparison="decision",
+        direct_person_inputs=(("medicaid_income_level", "medicaid_income_level"),),
+        boolean_person_inputs=(
+            (
+                "found_eligible_for_medical_assistance_under_subchapter_xix",
+                "is_medicaid_eligible",
+            ),
+        ),
+        boolean_enum_person_inputs=(
+            (
+                "person_meets_chip_immigration_requirement",
+                "immigration_status",
+                "CITIZEN",
+                "UNDOCUMENTED",
+            ),
+        ),
         target_person_role="child",
     ),
     PolicyEngineUSVarAdapter(
@@ -789,6 +805,29 @@ PE_US_CHIP_VAR_ADAPTERS = (
         entity="person",
         period="year",
         comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_eligible_standard_pregnant_person",),
+        pe_var="is_chip_eligible_standard_pregnant_person",
+        entity="person",
+        period="year",
+        comparison="decision",
+        direct_person_inputs=(("medicaid_income_level", "medicaid_income_level"),),
+        boolean_person_inputs=(
+            ("person_is_pregnant", "is_pregnant"),
+            (
+                "found_eligible_for_medical_assistance_under_subchapter_xix",
+                "is_medicaid_eligible",
+            ),
+        ),
+        boolean_enum_person_inputs=(
+            (
+                "person_meets_chip_immigration_requirement",
+                "immigration_status",
+                "CITIZEN",
+                "UNDOCUMENTED",
+            ),
+        ),
     ),
     PolicyEngineUSVarAdapter(
         rule_names=("is_chip_fcep_eligible_person",),

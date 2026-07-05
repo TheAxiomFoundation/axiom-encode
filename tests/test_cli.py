@@ -183,6 +183,7 @@ from axiom_encode.cli import (
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
+    cmd_generate_cms_chip_eligibility_composition,
     cmd_generate_cms_medicaid_chip_eligibility_levels,
     cmd_guard_generated,
     cmd_interval_table_audit,
@@ -11415,6 +11416,228 @@ rules:
             "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml",
             "us/policies/cms/medicaid-chip-bhp-eligibility-levels.test.yaml",
         ]
+
+    def test_generate_cms_chip_composition_writes_signed_state_file(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(policy_repo)
+        child_source = policy_repo / "us/statutes/42/1397jj/c/1.yaml"
+        child_source.parent.mkdir(parents=True)
+        child_source.write_text(
+            """format: rulespec/v1
+rules:
+  - name: child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Day
+    source: 42 USC 1397jj(c)(1)
+    versions:
+      - effective_from: '1974-01-01'
+        formula: |-
+          age < 19
+"""
+        )
+        cms_file = (
+            policy_repo
+            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        cms_file.parent.mkdir(parents=True)
+        cms_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: colorado_children_separate_chip_effective_fpl_limit
+    kind: derived
+    dtype: Rate
+    source: CMS table
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.65
+  - name: colorado_pregnant_women_chip_fpl_limit
+    kind: parameter
+    dtype: Rate
+    source: CMS table
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.60
+"""
+        )
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+
+        target = policy_repo / "us-co/policies/cms/colorado-chip-eligibility.yaml"
+        test_file = target.with_name("colorado-chip-eligibility.test.yaml")
+        args = SimpleNamespace(
+            repo=policy_repo,
+            states=["CO"],
+            overwrite_existing=False,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_generate_cms_chip_eligibility_composition(args)
+
+        rules_content = target.read_text()
+        rules_payload = yaml.safe_load(rules_content)
+        assert rules_payload["module"]["source_verification"][
+            "corpus_citation_paths"
+        ] == [
+            "us/form/cms/medicaid-chip-bhp-eligibility-levels",
+            "us/statute/42/1397jj/b/1",
+            "us/statute/42/1397ll/d/2",
+        ]
+        assert "us:statutes/42/1397jj/c/1#child" in rules_content
+        assert (
+            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
+            "#colorado_children_separate_chip_effective_fpl_limit" in rules_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
+            "#colorado_pregnant_women_chip_fpl_limit" in rules_content
+        )
+        assert "is_chip_eligible_child" in rules_content
+        assert "is_chip_eligible_standard_pregnant_person" in rules_content
+        assert "is_chip_fcep_eligible_person" not in rules_content
+        assert "name: is_chip_eligible\n" not in rules_content
+        assert (
+            "medicaid_income_level <= "
+            "colorado_children_separate_chip_effective_fpl_limit" in rules_content
+        )
+        assert (
+            "medicaid_income_level <= colorado_pregnant_women_chip_fpl_limit"
+            in rules_content
+        )
+        assert (
+            "It intentionally does not encode FCEP state income limits" in rules_content
+        )
+
+        test_content = test_file.read_text()
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#is_chip_eligible_child: holds" in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#is_chip_eligible_standard_pregnant_person: holds" in test_content
+        )
+
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/us-co/policies/cms/colorado-chip-eligibility.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "cms-chip-eligibility-composition-v1"
+        assert payload["tool"] == (
+            "axiom-encode generate-cms-chip-eligibility-composition"
+        )
+        assert payload["citation"] == "us-co:policies/cms/colorado-chip-eligibility"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "us-co/policies/cms/colorado-chip-eligibility.yaml",
+            "us-co/policies/cms/colorado-chip-eligibility.test.yaml",
+        ]
+
+    def test_generate_cms_chip_composition_keeps_unavailable_pregnant_path_false(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(policy_repo)
+        child_source = policy_repo / "us/statutes/42/1397jj/c/1.yaml"
+        child_source.parent.mkdir(parents=True)
+        child_source.write_text("format: rulespec/v1\nrules: []\n")
+        cms_file = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        cms_file.parent.mkdir(parents=True)
+        cms_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: georgia_children_separate_chip_effective_fpl_limit
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.52
+  - name: georgia_pregnant_women_chip_available
+    kind: parameter
+    dtype: Boolean
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          false
+"""
+        )
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+
+        target = policy_repo / "us-ga/policies/cms/georgia-chip-eligibility.yaml"
+        args = SimpleNamespace(
+            repo=policy_repo,
+            states=["GA"],
+            overwrite_existing=False,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli.ValidatorPipeline",
+                return_value=SimpleNamespace(
+                    validate=lambda path, skip_reviewers: SimpleNamespace(
+                        all_passed=True,
+                        results={},
+                    )
+                ),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_generate_cms_chip_eligibility_composition(args)
+
+        rules_content = target.read_text()
+        assert "georgia_standard_pregnant_chip_eligibility_available" in rules_content
+        assert "georgia_pregnant_women_chip_available" in rules_content
+        assert "georgia_pregnant_women_chip_fpl_limit" not in rules_content
+        assert (
+            "us-ga:policies/cms/georgia-chip-eligibility"
+            "#is_chip_eligible_standard_pregnant_person: not_holds"
+            in target.with_name("georgia-chip-eligibility.test.yaml").read_text()
+        )
 
     def test_repair_minnesota_mfip_source_check_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
