@@ -1867,10 +1867,12 @@ surfaces:
   variable: in_ssp
   source_type: state_implementation
   state: IN
-  axiom_status: deferred_jurisdiction
+  axiom_status: pending_rulespec_encoding
   priority: P2
-  rationale: PolicyEngine models this jurisdiction-specific surface, but Axiom is prioritizing national, Colorado, Arizona,
-    and Georgia law before other jurisdictions.
+  rationale: Indiana Code is already available through the source-first Indiana Code corpus release, and official Indiana
+    FSSA Medicaid Policy Manual Chapter 5000 SAPN corpus artifacts are ingested from the FSSA OMPP source. Encode the
+    source-law SAPN eligibility and benefit-calculation rules before classifying comparability with PolicyEngine's final
+    `in_ssp` person-level surface.
 - country: us
   program_id: ssi_state_supplement
   program_name: Massachusetts SSP
