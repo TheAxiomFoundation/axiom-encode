@@ -8249,7 +8249,9 @@ def _cms_yaml_double(value: str) -> str:
 
 def _indent_block(value: str, spaces: int) -> str:
     prefix = " " * spaces
-    return "\n".join(f"{prefix}{line}" if line else prefix for line in value.splitlines())
+    return "\n".join(
+        f"{prefix}{line}" if line else prefix for line in value.splitlines()
+    )
 
 
 def _cms_rate_from_table_cell(cell: str) -> Decimal | None:
@@ -8643,8 +8645,12 @@ def _rulespec_rule_names(content: str) -> set[str]:
 
 
 CMS_CHIP_COMPOSITION_MODEL = "cms-chip-eligibility-composition-v1"
-CMS_CHIP_CHILD_SOURCE_RELATIVE = Path("us") / "statutes" / "42" / "1397jj" / "c" / "1.yaml"
+CMS_CHIP_CHILD_SOURCE_RELATIVE = (
+    Path("us") / "statutes" / "42" / "1397jj" / "c" / "1.yaml"
+)
 CMS_CHIP_CHILD_TARGET = "us:statutes/42/1397jj/c/1#child"
+CMS_CHIP_CHILD_FORMULA_CORPUS_PATH = "us/statute/42/1397jj/b/1"
+CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH = "us/statute/42/1397ll/d/2"
 
 
 def _cms_state_code_aliases() -> dict[str, str]:
@@ -8707,7 +8713,9 @@ def _cms_existing_state_eligibility_files(repo_path: Path) -> list[Path]:
     )
 
 
-def _cms_requested_state_codes_for_existing_files(raw_states: list[str]) -> set[str] | None:
+def _cms_requested_state_codes_for_existing_files(
+    raw_states: list[str],
+) -> set[str] | None:
     if not raw_states:
         return None
     aliases = _cms_state_code_aliases()
@@ -8771,11 +8779,13 @@ def _cms_chip_composition_rule_block(
     source: str,
     proof_atoms: str,
     formula: str,
+    dtype: str = "Judgment",
+    entity: str | None = "Person",
 ) -> str:
+    entity_line = f"    entity: {entity}\n" if entity else ""
     return f"""  - name: {name}
     kind: derived
-    entity: Person
-    dtype: Judgment
+{entity_line}    dtype: {dtype}
     period: Year
     source: {source}
     metadata:
@@ -8813,7 +8823,9 @@ def _cms_chip_build_composition_file(
     pregnant_limit = f"{state_slug}_pregnant_women_chip_fpl_limit"
     pregnant_availability = f"{state_slug}_standard_pregnant_chip_eligibility_available"
 
-    imports = [CMS_CHIP_CHILD_TARGET]
+    imports = []
+    if child_limit in rules_by_name:
+        imports.append(CMS_CHIP_CHILD_TARGET)
     if child_limit in rules_by_name:
         imports.append(f"{cms_target}#{child_limit}")
     source_child_availability = f"{state_slug}_children_separate_chip_available"
@@ -8822,20 +8834,21 @@ def _cms_chip_build_composition_file(
     if pregnant_limit in rules_by_name:
         imports.append(f"{cms_target}#{pregnant_limit}")
     source_pregnant_availability = f"{state_slug}_pregnant_women_chip_available"
-    if pregnant_limit not in rules_by_name and source_pregnant_availability in rules_by_name:
+    if (
+        pregnant_limit not in rules_by_name
+        and source_pregnant_availability in rules_by_name
+    ):
         imports.append(f"{cms_target}#{source_pregnant_availability}")
 
     rules: list[str] = []
     if child_limit in rules_by_name:
         child_available_formula = "true"
-        child_available_atoms = _cms_chip_import_atom(
-            target=f"{cms_target}#{child_limit}",
-            output=child_limit,
-            digest=cms_hash,
+        child_available_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Children Separate CHIP",
         )
         child_formula = (
-            f"{child_availability}\n"
-            "and child\n"
+            "child\n"
             "and person_meets_chip_immigration_requirement\n"
             "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
             f"and medicaid_income_level <= {child_limit}"
@@ -8852,7 +8865,7 @@ def _cms_chip_build_composition_file(
                 digest=cms_hash,
             )
             + _cms_chip_formula_source_atom(
-                corpus_citation_path="us/statute/42/1397jj/b/1",
+                corpus_citation_path=CMS_CHIP_CHILD_FORMULA_CORPUS_PATH,
                 excerpt="not found eligible for medical assistance under subchapter XIX",
             )
             + _cms_chip_formula_source_atom(
@@ -8867,21 +8880,26 @@ def _cms_chip_build_composition_file(
             output=source_child_availability,
             digest=cms_hash,
         )
-        child_formula = child_availability
-        child_atoms = child_available_atoms
+        child_formula = "false"
+        child_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Children Separate CHIP",
+        )
     else:
         child_available_formula = "false"
         child_available_atoms = _cms_chip_formula_source_atom(
             corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
             excerpt="Children Separate CHIP",
         )
-        child_formula = child_availability
+        child_formula = "false"
         child_atoms = child_available_atoms
 
     rules.append(
         _cms_chip_composition_rule_block(
             name=child_availability,
             source=f"CMS Medicaid, CHIP and BHP Eligibility Levels table, {state_name} row",
+            dtype="Boolean",
+            entity=None,
             proof_atoms=child_available_atoms,
             formula=child_available_formula,
         )
@@ -8897,14 +8915,12 @@ def _cms_chip_build_composition_file(
 
     if pregnant_limit in rules_by_name:
         pregnant_available_formula = "true"
-        pregnant_available_atoms = _cms_chip_import_atom(
-            target=f"{cms_target}#{pregnant_limit}",
-            output=pregnant_limit,
-            digest=cms_hash,
+        pregnant_available_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Pregnant Women CHIP",
         )
         pregnant_formula = (
-            f"{pregnant_availability}\n"
-            "and person_is_pregnant\n"
+            "person_is_pregnant\n"
             "and person_meets_chip_immigration_requirement\n"
             "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
             f"and medicaid_income_level <= {pregnant_limit}"
@@ -8916,7 +8932,7 @@ def _cms_chip_build_composition_file(
                 digest=cms_hash,
             )
             + _cms_chip_formula_source_atom(
-                corpus_citation_path="us/statute/42/1397ll/d/2",
+                corpus_citation_path=CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH,
                 excerpt="targeted low-income pregnant woman",
             )
             + _cms_chip_formula_source_atom(
@@ -8931,21 +8947,26 @@ def _cms_chip_build_composition_file(
             output=source_pregnant_availability,
             digest=cms_hash,
         )
-        pregnant_formula = pregnant_availability
-        pregnant_atoms = pregnant_available_atoms
+        pregnant_formula = "false"
+        pregnant_atoms = _cms_chip_formula_source_atom(
+            corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+            excerpt="Pregnant Women CHIP",
+        )
     else:
         pregnant_available_formula = "false"
         pregnant_available_atoms = _cms_chip_formula_source_atom(
             corpus_citation_path=CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
             excerpt="Pregnant Women CHIP",
         )
-        pregnant_formula = pregnant_availability
+        pregnant_formula = "false"
         pregnant_atoms = pregnant_available_atoms
 
     rules.append(
         _cms_chip_composition_rule_block(
             name=pregnant_availability,
             source=f"CMS Medicaid, CHIP and BHP Eligibility Levels table, {state_name} row",
+            dtype="Boolean",
+            entity=None,
             proof_atoms=pregnant_available_atoms,
             formula=pregnant_available_formula,
         )
@@ -8967,7 +8988,10 @@ def _cms_chip_build_composition_file(
         + "  proof_validation:\n"
         + "    required: true\n"
         + "  source_verification:\n"
-        + f"    corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}\n"
+        + "    corpus_citation_paths:\n"
+        + f"      - {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}\n"
+        + f"      - {CMS_CHIP_CHILD_FORMULA_CORPUS_PATH}\n"
+        + f"      - {CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH}\n"
         + f"{CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK}"
         + "  summary: |-\n"
         + f"    {state_name} CHIP eligibility composition applies the federal CHIP child and standard-pregnant eligibility framework to the CMS state eligibility-level outputs. It intentionally does not encode FCEP state income limits until primary state-plan or CMS source coverage is available.\n"
@@ -8981,27 +9005,52 @@ def _cms_chip_build_composition_file(
         f"{citation}#input.found_eligible_for_medical_assistance_under_subchapter_xix": "false",
     }
     test_lines = [
+        f"- name: {state_slug}_separate_chip_child_availability",
+        "  period:",
+        "    period_kind: custom",
+        "    name: calendar_year",
+        "    start: '2026-01-01'",
+        "    end: '2026-12-31'",
+        "  input: {}",
+        "  output:",
+        f"    {citation}#{child_availability}: "
+        + ("true" if child_limit in rules_by_name else "false"),
+        "",
         f"- name: {state_slug}_chip_child_eligible_under_cms_limit",
         "  period:",
         "    period_kind: custom",
         "    name: calendar_year",
         "    start: '2026-01-01'",
         "    end: '2026-12-31'",
-        "  input:",
-        f"    {CMS_CHIP_CHILD_TARGET.removesuffix('#child')}#input.age: 10",
-        f"    {citation}#input.medicaid_income_level: 0",
     ]
-    for key, value in common_true_inputs.items():
-        test_lines.append(f"    {key}: {value}")
     if child_limit in rules_by_name:
-        test_lines[-(len(common_true_inputs) + 1)] = (
-            f"    {citation}#input.medicaid_income_level: 2.00"
+        test_lines.extend(
+            [
+                "  input:",
+                f"    {CMS_CHIP_CHILD_TARGET.removesuffix('#child')}#input.age: 10",
+                f"    {citation}#input.medicaid_income_level: 0.00",
+            ]
         )
+        for key, value in common_true_inputs.items():
+            test_lines.append(f"    {key}: {value}")
+    else:
+        test_lines.append("  input: {}")
     test_lines.extend(
         [
             "  output:",
             f"    {citation}#is_chip_eligible_child: "
             + ("holds" if child_limit in rules_by_name else "not_holds"),
+            "",
+            f"- name: {state_slug}_standard_pregnant_chip_availability",
+            "  period:",
+            "    period_kind: custom",
+            "    name: calendar_year",
+            "    start: '2026-01-01'",
+            "    end: '2026-12-31'",
+            "  input: {}",
+            "  output:",
+            f"    {citation}#{pregnant_availability}: "
+            + ("true" if pregnant_limit in rules_by_name else "false"),
             "",
             f"- name: {state_slug}_standard_pregnant_chip_eligible_under_cms_limit",
             "  period:",
@@ -9009,13 +9058,20 @@ def _cms_chip_build_composition_file(
             "    name: calendar_year",
             "    start: '2026-01-01'",
             "    end: '2026-12-31'",
-            "  input:",
-            f"    {citation}#input.person_is_pregnant: true",
-            f"    {citation}#input.medicaid_income_level: 2.00",
         ]
     )
-    for key, value in common_true_inputs.items():
-        test_lines.append(f"    {key}: {value}")
+    if pregnant_limit in rules_by_name:
+        test_lines.extend(
+            [
+                "  input:",
+                f"    {citation}#input.person_is_pregnant: true",
+                f"    {citation}#input.medicaid_income_level: 0.00",
+            ]
+        )
+        for key, value in common_true_inputs.items():
+            test_lines.append(f"    {key}: {value}")
+    else:
+        test_lines.append("  input: {}")
     test_lines.extend(
         [
             "  output:",

@@ -2990,6 +2990,42 @@ def test_policyengine_registry_is_legal_id_keyed():
         assert (
             mapping.policyengine_variable == "is_chip_eligible_standard_pregnant_person"
         )
+    child_chip_composition_mapping = registry.mapping_for_legal_id(
+        "us-co:policies/cms/colorado-chip-eligibility#is_chip_eligible_child",
+        country="us",
+    )
+    assert child_chip_composition_mapping.mapping_type == "direct_variable"
+    assert child_chip_composition_mapping.program == "chip"
+    assert (
+        child_chip_composition_mapping.policyengine_variable == "is_chip_eligible_child"
+    )
+    pregnant_chip_composition_mapping = registry.mapping_for_legal_id(
+        "us-co:policies/cms/colorado-chip-eligibility#is_chip_eligible_standard_pregnant_person",
+        country="us",
+    )
+    assert pregnant_chip_composition_mapping.mapping_type == "direct_variable"
+    assert (
+        pregnant_chip_composition_mapping.policyengine_variable
+        == "is_chip_eligible_standard_pregnant_person"
+    )
+    child_chip_availability_mapping = registry.mapping_for_legal_id(
+        "us-ca:policies/cms/california-chip-eligibility#california_separate_chip_child_eligibility_available",
+        country="us",
+    )
+    assert child_chip_availability_mapping.mapping_type == "not_comparable"
+    assert (
+        child_chip_availability_mapping.policyengine_variable
+        == "is_chip_eligible_child"
+    )
+    pregnant_chip_availability_mapping = registry.mapping_for_legal_id(
+        "us-co:policies/cms/colorado-chip-eligibility#colorado_standard_pregnant_chip_eligibility_available",
+        country="us",
+    )
+    assert pregnant_chip_availability_mapping.mapping_type == "not_comparable"
+    assert (
+        pregnant_chip_availability_mapping.policyengine_variable
+        == "is_chip_eligible_standard_pregnant_person"
+    )
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",
@@ -5022,6 +5058,85 @@ def test_policyengine_health_child_variable_applies_top_level_age_to_child(
     assert "'adult': {'age': {'2026': 30}" in script
     assert "'child0': {'age': {'2026': 19}" in script
     assert "result_index = 1" in script
+
+
+def test_policyengine_chip_child_composition_projects_legal_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2026",
+        "state_code_str": "CO",
+        "us:statutes/42/1397jj/c/1#input.age": 10,
+        "us-co:policies/cms/colorado-chip-eligibility#input.medicaid_income_level": 0.0,
+        "us-co:policies/cms/colorado-chip-eligibility#input.person_meets_chip_immigration_requirement": True,
+        "us-co:policies/cms/colorado-chip-eligibility#input.found_eligible_for_medical_assistance_under_subchapter_xix": False,
+    }
+
+    projected = ValidatorPipeline._pe_us_projectable_inputs_for_mappability(
+        inputs,
+        "is_chip_eligible_child",
+    )
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "is_chip_eligible_child",
+        projected,
+        pe_var="is_chip_eligible_child",
+    )
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        inputs,
+        "2026",
+    )
+
+    assert mappable is True, reason
+    assert "'state_code_str': {'2026': 'CO'}" in script
+    assert "'child0': {'age': {'2026': 10}" in script
+    assert "'medicaid_income_level': {'2026': 0.0}" in script
+    assert "'immigration_status': {'2026': 'CITIZEN'}" in script
+    assert "'is_medicaid_eligible': {'2026': False}" in script
+    assert "result_index = 1" in script
+
+
+def test_policyengine_chip_pregnant_composition_projects_legal_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = {
+        "period": "2026",
+        "state_code_str": "CO",
+        "us-co:policies/cms/colorado-chip-eligibility#input.person_is_pregnant": True,
+        "us-co:policies/cms/colorado-chip-eligibility#input.medicaid_income_level": 0.0,
+        "us-co:policies/cms/colorado-chip-eligibility#input.person_meets_chip_immigration_requirement": True,
+        "us-co:policies/cms/colorado-chip-eligibility#input.found_eligible_for_medical_assistance_under_subchapter_xix": False,
+    }
+
+    projected = ValidatorPipeline._pe_us_projectable_inputs_for_mappability(
+        inputs,
+        "is_chip_eligible_standard_pregnant_person",
+    )
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "is_chip_eligible_standard_pregnant_person",
+        projected,
+        pe_var="is_chip_eligible_standard_pregnant_person",
+    )
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_standard_pregnant_person",
+        inputs,
+        "2026",
+    )
+
+    assert mappable is True, reason
+    assert "'state_code_str': {'2026': 'CO'}" in script
+    assert "'is_pregnant': {'2026': True}" in script
+    assert "'medicaid_income_level': {'2026': 0.0}" in script
+    assert "'immigration_status': {'2026': 'CITIZEN'}" in script
+    assert "'is_medicaid_eligible': {'2026': False}" in script
 
 
 def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):

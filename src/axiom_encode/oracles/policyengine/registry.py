@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -106,6 +107,11 @@ class PolicyEngineOracleRegistry:
         mapping = self.mappings_by_legal_id.get(legal_id_text)
         if mapping is not None and (country is None or mapping.country == country):
             return mapping
+        synthetic_mapping = _cms_chip_composition_mapping(legal_id_text)
+        if synthetic_mapping is not None and (
+            country is None or synthetic_mapping.country == country
+        ):
+            return synthetic_mapping
         for prefix_mapping in self.prefix_mappings:
             if country and prefix_mapping.country != country:
                 continue
@@ -243,6 +249,80 @@ class PolicyEngineOracleRegistry:
                         f"canonical legal IDs: {legal_id} -> {evidence_legal_id}"
                     )
         return issues
+
+
+_CMS_CHIP_COMPOSITION_LEGAL_ID_RE = re.compile(
+    r"^(?P<jurisdiction>us-[a-z]{2}|us-dc):policies/cms/"
+    r"(?P<state_slug>[a-z-]+)-chip-eligibility#(?P<rule>[a-z0-9_]+)$"
+)
+
+
+def _cms_chip_composition_mapping(legal_id: str) -> PolicyEngineMapping | None:
+    match = _CMS_CHIP_COMPOSITION_LEGAL_ID_RE.match(legal_id)
+    if not match:
+        return None
+    rule = match.group("rule")
+    if rule == "is_chip_eligible_child":
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="direct_variable",
+            policyengine_variable="is_chip_eligible_child",
+            entity="Person",
+            period="year",
+            rationale=(
+                "CMS CHIP composition output for final child CHIP eligibility; "
+                "mapped directly to the PolicyEngine-US child CHIP eligibility "
+                "variable."
+            ),
+        )
+    if rule == "is_chip_eligible_standard_pregnant_person":
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="direct_variable",
+            policyengine_variable="is_chip_eligible_standard_pregnant_person",
+            entity="Person",
+            period="year",
+            rationale=(
+                "CMS CHIP composition output for final standard pregnant-person "
+                "CHIP eligibility; mapped directly to the PolicyEngine-US "
+                "standard pregnant CHIP eligibility variable."
+            ),
+        )
+    if rule.endswith("_separate_chip_child_eligibility_available"):
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_eligible_child",
+            candidate_priority="P4",
+            rationale=(
+                "Axiom exposes the source-level CMS child CHIP availability "
+                "fact used by the state composition. PolicyEngine-US exposes "
+                "final child CHIP eligibility rather than a separate availability "
+                "boolean."
+            ),
+        )
+    if rule.endswith("_standard_pregnant_chip_eligibility_available"):
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_eligible_standard_pregnant_person",
+            candidate_priority="P4",
+            rationale=(
+                "Axiom exposes the source-level CMS standard pregnant CHIP "
+                "availability fact used by the state composition. "
+                "PolicyEngine-US exposes final standard pregnant CHIP "
+                "eligibility rather than a separate availability boolean."
+            ),
+        )
+    return None
 
 
 @lru_cache(maxsize=1)

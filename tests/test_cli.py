@@ -11502,6 +11502,14 @@ rules:
             cmd_generate_cms_chip_eligibility_composition(args)
 
         rules_content = target.read_text()
+        rules_payload = yaml.safe_load(rules_content)
+        assert rules_payload["module"]["source_verification"][
+            "corpus_citation_paths"
+        ] == [
+            "us/form/cms/medicaid-chip-bhp-eligibility-levels",
+            "us/statute/42/1397jj/b/1",
+            "us/statute/42/1397ll/d/2",
+        ]
         assert "us:statutes/42/1397jj/c/1#child" in rules_content
         assert (
             "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
@@ -11523,7 +11531,9 @@ rules:
             "medicaid_income_level <= colorado_pregnant_women_chip_fpl_limit"
             in rules_content
         )
-        assert "It intentionally does not encode FCEP state income limits" in rules_content
+        assert (
+            "It intentionally does not encode FCEP state income limits" in rules_content
+        )
 
         test_content = test_file.read_text()
         assert (
