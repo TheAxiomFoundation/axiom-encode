@@ -409,6 +409,82 @@ mappings:
     comparison: rate
     rationale: Same Class 4 additional contribution percentage.
 
+  # NIC Class 1 earnings thresholds (SSCBA 1992 via the Social Security
+  # (Contributions) Regulations 2001, reg. 10). PolicyEngine-UK holds these as
+  # weekly scalar parameters. Exact entries; they take precedence over the
+  # uk:regulations/uksi/2001/1004/10# not_comparable prefix below.
+  - legal_id: uk:regulations/uksi/2001/1004/10#lower_earnings_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.thresholds.lower_earnings_limit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Class 1 lower earnings limit (weekly).
+
+  - legal_id: uk:regulations/uksi/2001/1004/10#primary_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.thresholds.primary_threshold
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Class 1 primary threshold (weekly), above which employees pay the main primary contribution.
+
+  - legal_id: uk:regulations/uksi/2001/1004/10#secondary_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.thresholds.secondary_threshold
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Class 1 secondary threshold (weekly), above which employers pay secondary contributions.
+
+  - legal_id: uk:regulations/uksi/2001/1004/10#upper_earnings_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.thresholds.upper_earnings_limit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Class 1 upper earnings limit (weekly), above which the additional primary rate applies.
+
+  # Income Tax basic and higher rate limits (Income Tax Act 2007 s. 10).
+  # PolicyEngine-UK holds these as thresholds of the annual income tax rate
+  # scale gov.hmrc.income_tax.rates.uk: the basic-rate limit is the top of the
+  # basic band (scale threshold index 1) and the higher-rate limit is the top
+  # of the higher band (scale threshold index 2). Exact entries; they take
+  # precedence over the uk:statutes/ukpga/2007/3/10# not_comparable prefix.
+  - legal_id: uk:statutes/ukpga/2007/3/10#basic_rate_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.income_tax.rates.uk
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same basic rate limit — the top of the basic-rate band, held as threshold index 1 of the annual income tax rate scale.
+
+  - legal_id: uk:statutes/ukpga/2007/3/10#higher_rate_limit
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.income_tax.rates.uk
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same higher rate limit — the top of the higher-rate band, held as threshold index 2 of the annual income tax rate scale.
+
   - legal_id: uk:statutes/ukpga/1992/4/15#main_class_4_contribution
     country: uk
     program: tax
@@ -2729,7 +2805,7 @@ prefixes:
     country: uk
     program: tax
     mapping_type: not_comparable
-    rationale: Section 10 outputs not listed above are the basic and higher rate limit parameters; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+    rationale: Section 10 outputs not listed above are intra-section rate-application helpers; PolicyEngine UK carries these in its parameter tree rather than as simulated variables. The basic and higher rate limits themselves are now registered above as exact parameter_value comparisons against the income tax rate scale.
 
   - legal_id_prefix: uk:statutes/ukpga/2007/3/12#
     country: uk
@@ -2801,7 +2877,7 @@ prefixes:
     country: uk
     program: tax
     mapping_type: not_comparable
-    rationale: Regulation 10 outputs are the National Insurance earnings limits and thresholds; PolicyEngine UK carries these in its parameter tree rather than as simulated variables, and parameter-level comparisons are not yet registered.
+    rationale: Regulation 10 outputs not listed above are apprentice/under-21 upper secondary threshold variants; PolicyEngine UK carries these in its parameter tree rather than as simulated variables. The Class 1 lower earnings limit, primary threshold, secondary threshold, and upper earnings limit are now registered above as exact parameter_value comparisons.
   # Council-level schemes are outside PolicyEngine-UK's model; exact
   # mappings take precedence. Added for rulespec-uk#43.
   - legal_id_prefix: "uk-kingston-upon-thames:"
