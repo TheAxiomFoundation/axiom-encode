@@ -444,6 +444,22 @@ mappings:
     policyengine_variable: is_chip_eligible_standard_pregnant_person
     rationale: This RuleSpec output is the federal source-level targeted-low-income pregnant woman definition. PolicyEngine exposes final standard pregnant CHIP eligibility after state limits and other category assembly, not this statutory prerequisite as a one-to-one oracle variable.
 
+  - legal_id: us:statutes/42/1397ll/f/1#child_health_assistance_option_through_specified_regulations_not_limited
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_eligible_child
+    rationale: Section 1397ll(f)(1) preserves state authority to provide child health assistance through specified regulations; it is not itself a person-level CHIP eligibility rule or threshold. PolicyEngine's child CHIP variable represents final person eligibility after state option, category, and income-threshold rules are applied.
+
+  - legal_id: us:statutes/42/1397ll/f/1#pregnancy_related_services_option_through_waiver_authority_not_limited
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    candidate_priority: P4
+    policyengine_variable: is_chip_fcep_eligible_person
+    rationale: Section 1397ll(f)(1) preserves state waiver authority for pregnancy-related services; it does not determine FCEP eligibility for a person. PolicyEngine's FCEP variable is a final eligibility surface that depends on state adoption and income limits from downstream state CHIP authorities.
+
   - legal_id: us:statutes/42/1397ll/f/2#postpartum_continuation_period_days
     country: us
     program: chip
