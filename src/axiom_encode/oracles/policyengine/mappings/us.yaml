@@ -3057,6 +3057,38 @@ mappings:
     candidate_priority: P2
     rationale: RuleSpec exposes a source-level selector over POMS SI 01415.058 Delaware couple total payment levels. PolicyEngine's final `de_ssp` person amount composes the Delaware couple payment standard with eligibility, SSI countable-income offset, and person-level couple allocation, and does not expose the POMS federal-plus-state total column as the final benefit amount.
 
+  - legal_id: us-ks:policies/khpa/policy-memo/2007-05-01/state-supplemental-payment-program#ks_sspp_minimum_age
+    country: us
+    program: ssi_state_supplement
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ks.kdhe.sspp.eligibility.age_threshold
+    comparison: count
+    tested_by_legal_ids:
+      - us-ks:policies/khpa/policy-memo/2007-05-01/state-supplemental-payment-program#ks_sspp_eligible
+    rationale: Both Axiom's KHPA Policy Memo 2007-05-01 Section III(4) minimum-age parameter and PolicyEngine's Kansas SSPP age threshold set 18 as the minimum age for State Supplemental Payment Program eligibility.
+
+  - legal_id: us-ks:policies/khpa/policy-memo/2007-05-01/state-supplemental-payment-program#ks_sspp_monthly_payment
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes the 20.00 dollar SSPP monthly benefit stated in KHPA Policy Memo 2007-05-01 Section IV, the amount the corpus source text substantiates for the 2006-2007 program period. PolicyEngine's `gov.states.ks.kdhe.sspp.payment.amount` parameter stores a later administrative value of 32 effective 2009, so the two amounts are not comparable at a shared date. The memo's Section XI notes the benefit level changes after July 2007.
+
+  - legal_id: us-ks:policies/khpa/policy-memo/2007-05-01/state-supplemental-payment-program#ks_sspp_eligible
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes a source-level SSPP eligibility predicate over exogenous institution, reduced-institutional-SSI, full-Medicaid, and age inputs from KHPA Policy Memo 2007-05-01 Section III. PolicyEngine's `ks_sspp_eligible` composes SSI receipt, the SSI federal living arrangement being a medical treatment facility, Medicaid enrollment, and the age threshold, so the source predicate is not a one-to-one eligibility oracle.
+
+  - legal_id: us-ks:policies/khpa/policy-memo/2007-05-01/state-supplemental-payment-program#ks_sspp
+    country: us
+    program: ssi_state_supplement
+    mapping_type: not_comparable
+    policyengine_variable: ks_sspp
+    candidate_priority: P2
+    rationale: RuleSpec exposes the final Kansas SSPP monthly benefit as the 20.00 dollar amount stated in KHPA Policy Memo 2007-05-01 for the 2006-2007 program period. PolicyEngine's final `ks_sspp` person amount pays a later administrative value of 32 effective 2009, so the encoded corpus-substantiated benefit is not a one-to-one final benefit oracle at a shared date. Map the SSPP minimum-age parameter separately.
+
   - legal_id: us-mn:policies/dhs/combined-manual/0020-21/msa-assistance-standards-2026#msa_person_living_alone_standard
     country: us
     program: ssi_state_supplement

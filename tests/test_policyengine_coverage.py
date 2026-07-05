@@ -2342,7 +2342,7 @@ def test_policyengine_registry_maps_indiana_sapn_parameters():
     assert benefit.policyengine_variable == "in_ssp_sapn"
 
 
-def test_policyengine_program_surface_marks_kansas_sspp_pending_rulespec_encoding():
+def test_policyengine_program_surface_marks_kansas_sspp_known_not_comparable():
     report = build_policyengine_program_surface_report(program="ks_sspp")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2350,8 +2350,13 @@ def test_policyengine_program_surface_marks_kansas_sspp_pending_rulespec_encodin
 
     assert ks_sspp["program_id"] == "ssi_state_supplement"
     assert ks_sspp["state"] == "KS"
-    assert ks_sspp["axiom_status"] == "pending_rulespec_encoding"
-    assert ks_sspp["mapping_count"] == 0
+    assert ks_sspp["axiom_status"] == "known_not_comparable"
+    assert ks_sspp["mapping_count"] >= 1
+    assert ks_sspp["comparable_mapping_count"] == 0
+    assert (
+        "us-ks:policies/khpa/policy-memo/2007-05-01/"
+        "state-supplemental-payment-program#ks_sspp" in ks_sspp["legal_ids"]
+    )
     assert "K.S.A. 39-972" in ks_sspp["rationale"]
     assert "KHPA Policy No. 2007-05-01" in ks_sspp["rationale"]
 

@@ -1991,11 +1991,14 @@ surfaces:
   variable: ks_sspp
   source_type: state_implementation
   state: KS
-  axiom_status: pending_rulespec_encoding
+  axiom_status: known_not_comparable
   priority: P2
-  rationale: Official Kansas K.S.A. 39-972 statute corpus artifacts and KHPA Policy No. 2007-05-01 SSPP guidance corpus
-    artifacts are ingested from Kansas Revisor and KDHE official sources. Encode the source-law institutional SSI recipient
-    eligibility and payment rules before classifying comparability with PolicyEngine's final `ks_sspp` person-level surface.
+  rationale: Axiom encodes the Kansas SSPP institutional SSI recipient eligibility and flat monthly payment rules from
+    KHPA Policy No. 2007-05-01 and K.S.A. 39-972, ingested from KDHE and Kansas Revisor official sources. The SSPP
+    minimum-age parameter maps to PolicyEngine as a comparable value (both set age 18). The final benefit is not
+    comparable at a shared date because the corpus source text substantiates the 20.00 dollar amount for the 2006-2007
+    program period, while PolicyEngine's `ks_sspp` pays a later administrative value of 32 effective 2009; the memo's
+    Section XI flags that the benefit level changes after July 2007.
 - country: us
   program_id: ssi_state_supplement
   program_name: Louisiana OSS
