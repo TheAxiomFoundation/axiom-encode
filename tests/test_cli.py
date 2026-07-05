@@ -11280,6 +11280,9 @@ rules:
             policy_repo
             / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
         )
+        shared_target = (
+            policy_repo / "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml"
+        )
         test_file = target.with_name(
             "georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
         )
@@ -11296,7 +11299,7 @@ rules:
                 assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
+                assert path in {shared_target.resolve(), target.resolve()}
                 assert skip_reviewers is True
                 return SimpleNamespace(all_passed=True, results={})
 
@@ -11317,20 +11320,50 @@ rules:
         ):
             cmd_generate_cms_medicaid_chip_eligibility_levels(args)
 
+        shared_rules_content = shared_target.read_text()
+        assert "source: 42 CFR 435.603(d)(4)" in shared_rules_content
+        assert (
+            "corpus_citation_path: us/regulation/42/435/603/d" in shared_rules_content
+        )
+        assert "magi_fpl_disregard_rate" in shared_rules_content
+        shared_test_file = shared_target.with_name(
+            "medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        assert (
+            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
+            "#magi_fpl_disregard_rate: 0.05" in shared_test_file.read_text()
+        )
+
         rules_content = target.read_text()
+        assert (
+            "imports:\n"
+            "  - us:policies/cms/medicaid-chip-bhp-eligibility-levels"
+            "#magi_fpl_disregard_rate\n"
+        ) in rules_content
+        state_payload = yaml.safe_load(rules_content)
+        state_rule_names = {rule["name"] for rule in state_payload["rules"]}
+        assert "magi_fpl_disregard_rate" not in state_rule_names
         assert "georgia_children_separate_chip_fpl_limit" in rules_content
         assert "georgia_pregnant_women_chip_available" in rules_content
         assert "georgia_adult_medicaid_expansion_available" in rules_content
         assert "georgia_parent_caretaker_standard_uses_dollar_amounts" in rules_content
         assert "georgia_children_separate_chip_effective_fpl_limit" in rules_content
+        assert (
+            "target: us:policies/cms/medicaid-chip-bhp-eligibility-levels"
+            in rules_content
+        )
+        assert "output: magi_fpl_disregard_rate" in rules_content
+        assert "hash: sha256:" in rules_content
         assert "georgia_adult_medicaid_expansion_fpl_limit" not in rules_content
         assert 'excerpt: "28%($)"' in rules_content
         assert "upstream_source_check:" in rules_content
         assert "status: official_parameter_source" in rules_content
         assert "- us/statute/42/1397jj/b/1" in rules_content
+        assert "- us/regulation/42/435/603/d" in rules_content
         assert "- us/regulation/42/457/340" in rules_content
 
         test_content = test_file.read_text()
+        assert "#magi_fpl_disregard_rate" not in test_content
         assert (
             "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
             "#georgia_children_separate_chip_fpl_limit: 2.47" in test_content
@@ -11364,6 +11397,23 @@ rules:
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
             "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
+        ]
+
+        shared_manifest = (
+            policy_repo / ".axiom/encoding-manifests/us/policies/cms/"
+            "medicaid-chip-bhp-eligibility-levels.json"
+        )
+        shared_payload = json.loads(shared_manifest.read_text())
+        assert shared_payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert shared_payload["model"] == "cms-medicaid-chip-eligibility-levels-v1"
+        assert shared_payload["citation"] == (
+            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
+        )
+        assert [
+            applied_file["path"] for applied_file in shared_payload["applied_files"]
+        ] == [
+            "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml",
+            "us/policies/cms/medicaid-chip-bhp-eligibility-levels.test.yaml",
         ]
 
     def test_repair_minnesota_mfip_source_check_writes_signed_manifest(self, tmp_path):
