@@ -1,0 +1,1 @@
+Classify CMS CHIP FCEP state composition outputs (person eligibility, availability, and FPL-limit parameters) as not-comparable PolicyEngine oracle coverage so generated FCEP state RuleSpec passes changed-file coverage classification.

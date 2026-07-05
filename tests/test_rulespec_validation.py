@@ -3026,6 +3026,41 @@ def test_policyengine_registry_is_legal_id_keyed():
         pregnant_chip_availability_mapping.policyengine_variable
         == "is_chip_eligible_standard_pregnant_person"
     )
+    fcep_person_mapping = registry.mapping_for_legal_id(
+        "us-me:policies/cms/maine-chip-eligibility#is_chip_fcep_eligible_person",
+        country="us",
+    )
+    assert fcep_person_mapping.mapping_type == "not_comparable"
+    assert fcep_person_mapping.program == "chip"
+    assert fcep_person_mapping.candidate_priority == "P4"
+    assert fcep_person_mapping.policyengine_variable == "is_chip_fcep_eligible_person"
+    fcep_availability_mapping = registry.mapping_for_legal_id(
+        "us-me:policies/cms/maine-chip-eligibility#maine_fcep_eligibility_available",
+        country="us",
+    )
+    assert fcep_availability_mapping.mapping_type == "not_comparable"
+    assert (
+        fcep_availability_mapping.policyengine_variable
+        == "is_chip_fcep_eligible_person"
+    )
+    fcep_fpl_limit_mapping = registry.mapping_for_legal_id(
+        "us-me:policies/cms/maine-chip-eligibility#maine_fcep_fpl_limit",
+        country="us",
+    )
+    assert fcep_fpl_limit_mapping.mapping_type == "not_comparable"
+    assert fcep_fpl_limit_mapping.program == "chip"
+    assert (
+        fcep_fpl_limit_mapping.policyengine_variable == "is_chip_fcep_eligible_person"
+    )
+    fcep_effective_fpl_limit_mapping = registry.mapping_for_legal_id(
+        "us-me:policies/cms/maine-chip-eligibility#maine_fcep_effective_fpl_limit",
+        country="us",
+    )
+    assert fcep_effective_fpl_limit_mapping.mapping_type == "not_comparable"
+    assert (
+        fcep_effective_fpl_limit_mapping.policyengine_variable
+        == "is_chip_fcep_eligible_person"
+    )
     residential_clean_energy_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25D#residential_clean_energy_credit",
         country="us",

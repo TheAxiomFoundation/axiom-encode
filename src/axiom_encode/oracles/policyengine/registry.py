@@ -322,6 +322,66 @@ def _cms_chip_composition_mapping(legal_id: str) -> PolicyEngineMapping | None:
                 "eligibility rather than a separate availability boolean."
             ),
         )
+    if rule == "is_chip_fcep_eligible_person":
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_fcep_eligible_person",
+            candidate_priority="P4",
+            rationale=(
+                "CMS CHIP composition output for final from-conception-to-end-"
+                "of-pregnancy (FCEP) person eligibility. This is a state-"
+                "adopted coverage surface assembled from CMS SPA income limits "
+                "and other category rules; PolicyEngine-US does not expose a "
+                "one-to-one FCEP eligibility oracle target."
+            ),
+        )
+    if rule.endswith("_fcep_eligibility_available"):
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_fcep_eligible_person",
+            candidate_priority="P4",
+            rationale=(
+                "Axiom exposes the source-level CMS CHIP FCEP availability fact "
+                "used by the state composition. PolicyEngine-US exposes final "
+                "FCEP eligibility rather than a separate state availability "
+                "boolean."
+            ),
+        )
+    if rule.endswith("_fcep_effective_fpl_limit"):
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_fcep_eligible_person",
+            candidate_priority="P4",
+            rationale=(
+                "Axiom exposes the source-level CMS CHIP FCEP income limit "
+                "including the MAGI 5-percentage-point disregard used by the "
+                "state composition. PolicyEngine-US does not expose this state "
+                "income threshold as a one-to-one parameter."
+            ),
+        )
+    if rule.endswith("_fcep_fpl_limit"):
+        return PolicyEngineMapping(
+            legal_id=legal_id,
+            country="us",
+            program="chip",
+            mapping_type="not_comparable",
+            policyengine_variable="is_chip_fcep_eligible_person",
+            candidate_priority="P4",
+            rationale=(
+                "Axiom exposes the source-level CMS CHIP FCEP SPA income limit "
+                "used by the state composition. PolicyEngine-US does not expose "
+                "this state income threshold as a one-to-one parameter."
+            ),
+        )
     return None
 
 
