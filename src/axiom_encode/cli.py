@@ -77,7 +77,13 @@ from .harness.evals import (
     run_source_eval,
     summarize_readiness,
 )
-from .harness.proof_validator import validate_rulespec_proofs
+from .harness.proof_validator import (
+    MoneyAtomRatchet,
+    emit_money_atom_ratchet,
+    evaluate_money_atoms,
+    load_money_atom_ratchet,
+    validate_rulespec_proofs,
+)
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
@@ -614,6 +620,54 @@ def main():
     )
     proof_validate_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
+    )
+    proof_validate_parser.add_argument(
+        "--require-money-atoms",
+        action="store_true",
+        help=(
+            "Also derive money proof obligations: every policy-bearing monetary "
+            "value (currency parameters, currency parameter-table cells, and "
+            "currency literals in derived formulas) must carry a proof atom "
+            "citing a provision. Fails when the missing count exceeds the "
+            "ratchet allowance (zero when no --ratchet-file is given)."
+        ),
+    )
+    proof_validate_parser.add_argument(
+        "--ratchet-file",
+        type=Path,
+        default=None,
+        help=(
+            "YAML ratchet allowing a known money-atom backlog "
+            "({total_allowed: N} or per-path counts). Used with "
+            "--require-money-atoms."
+        ),
+    )
+    proof_validate_parser.add_argument(
+        "--money-atom-root",
+        type=Path,
+        default=None,
+        help=(
+            "Root to make money-atom file paths relative to for per-path "
+            "ratchet matching (defaults to the current directory)."
+        ),
+    )
+    proof_validate_parser.add_argument(
+        "--money-atoms-only",
+        action="store_true",
+        help=(
+            "Run only the money-atom obligation check; skip base proof-tree "
+            "validation. Use for a repo-wide money-atom gate that must not "
+            "re-report unrelated proof issues on unchanged files. Implies "
+            "--require-money-atoms."
+        ),
+    )
+    proof_validate_parser.add_argument(
+        "--emit-ratchet",
+        action="store_true",
+        help=(
+            "Print a seed money-atom ratchet YAML for the given files and exit "
+            "0 without running proof validation."
+        ),
     )
 
     # log command
@@ -2989,6 +3043,16 @@ def _validate_one(args, pipeline, rulespec_file):
     return all_passed, None
 
 
+def _money_atom_display_path(file: Path, root: Path | None) -> str:
+    """Return a stable, ratchet-matchable path for a file."""
+    resolved = file.resolve()
+    base = (root or Path.cwd()).resolve()
+    try:
+        return resolved.relative_to(base).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 def cmd_proof_validate(args):
     """Validate explicit RuleSpec proof trees for one or more files."""
     missing = [file for file in args.files if not file.exists()]
@@ -2997,27 +3061,76 @@ def cmd_proof_validate(args):
             print(f"File not found: {file}")
         sys.exit(1)
 
+    root = getattr(args, "money_atom_root", None)
+    money_atom_files = [
+        (_money_atom_display_path(file, root), file.read_text(encoding="utf-8"))
+        for file in args.files
+    ]
+
+    if getattr(args, "emit_ratchet", False):
+        sys.stdout.write(emit_money_atom_ratchet(money_atom_files))
+        sys.exit(0)
+
+    money_atoms_only = getattr(args, "money_atoms_only", False)
+    require_money_atoms = (
+        getattr(args, "require_money_atoms", False) or money_atoms_only
+    )
+    money_run = None
+    if require_money_atoms:
+        ratchet = MoneyAtomRatchet.empty()
+        ratchet_file = getattr(args, "ratchet_file", None)
+        if ratchet_file is not None:
+            if not ratchet_file.exists():
+                print(f"Ratchet file not found: {ratchet_file}")
+                sys.exit(1)
+            try:
+                ratchet = load_money_atom_ratchet(
+                    ratchet_file.read_text(encoding="utf-8")
+                )
+            except ValueError as exc:
+                print(f"Ratchet file invalid: {exc}")
+                sys.exit(1)
+        money_run = evaluate_money_atoms(money_atom_files, ratchet)
+
+    if money_atoms_only:
+        _emit_money_atoms_only(money_run, args.json)
+        sys.exit(1 if not money_run.passed else 0)
+
     json_outputs = []
     failed_files = []
     for index, file in enumerate(args.files):
         rulespec_file = file.resolve()
         result = validate_rulespec_proofs(
-            rulespec_file.read_text(encoding="utf-8"),
+            money_atom_files[index][1],
             validate_claim_records=True,
         )
         if not result.passed:
             failed_files.append(file)
 
         if args.json:
-            json_outputs.append(
-                {
-                    "file": str(rulespec_file),
-                    "passed": result.passed,
-                    "proof_required": result.proof_required,
-                    "atoms_checked": result.atoms_checked,
-                    "issues": result.issues,
+            entry = {
+                "file": str(rulespec_file),
+                "passed": result.passed,
+                "proof_required": result.proof_required,
+                "atoms_checked": result.atoms_checked,
+                "issues": result.issues,
+            }
+            if money_run is not None:
+                file_result = money_run.files[index]
+                entry["money_atoms"] = {
+                    "obligations": file_result.obligation_count,
+                    "missing": file_result.missing_count,
+                    "missing_atoms": [
+                        {
+                            "rule": obligation.rule_name,
+                            "path": obligation.path,
+                            "kind": obligation.kind,
+                            "reason": obligation.reason,
+                        }
+                        for obligation in file_result.report.missing
+                    ],
                 }
-            )
+            json_outputs.append(entry)
         else:
             if index:
                 print()
@@ -3027,6 +3140,18 @@ def cmd_proof_validate(args):
             print(f"Result: {'✓ PASSED' if result.passed else '✗ FAILED'}")
             for issue in result.issues:
                 print(f"  - {issue}")
+            if money_run is not None:
+                file_result = money_run.files[index]
+                print(
+                    f"Money atoms: {file_result.missing_count} missing of "
+                    f"{file_result.obligation_count} monetary obligation(s)"
+                )
+                for obligation in file_result.report.missing:
+                    print(
+                        f"  - missing money proof atom: rule "
+                        f"`{obligation.rule_name}` needs a proof atom at "
+                        f"`{obligation.path}` ({obligation.reason})."
+                    )
 
     if args.json:
         if len(args.files) == 1:
@@ -3038,7 +3163,89 @@ def cmd_proof_validate(args):
         for file in failed_files:
             print(f"  - {file}")
 
-    sys.exit(1 if failed_files else 0)
+    money_atoms_over_budget = False
+    if money_run is not None and not args.json:
+        money_atoms_over_budget = _report_money_atom_verdict(money_run)
+    elif money_run is not None:
+        money_atoms_over_budget = not money_run.passed
+
+    sys.exit(1 if (failed_files or money_atoms_over_budget) else 0)
+
+
+def _emit_money_atoms_only(money_run, as_json: bool) -> None:
+    """Report only the money-atom result (base proof validation skipped)."""
+    if as_json:
+        payload = {
+            "money_atoms_only": True,
+            "passed": money_run.passed,
+            "total_obligations": money_run.total_obligations,
+            "total_missing": money_run.total_missing,
+            "files": [
+                {
+                    "file": file_result.path,
+                    "obligations": file_result.obligation_count,
+                    "missing": file_result.missing_count,
+                    "missing_atoms": [
+                        {
+                            "rule": obligation.rule_name,
+                            "path": obligation.path,
+                            "kind": obligation.kind,
+                            "reason": obligation.reason,
+                        }
+                        for obligation in file_result.report.missing
+                    ],
+                }
+                for file_result in money_run.files
+                if file_result.obligation_count
+            ],
+        }
+        print(json.dumps(payload, indent=2))
+        return
+
+    for file_result in money_run.files:
+        if not file_result.report.missing:
+            continue
+        print(f"File: {file_result.path}")
+        for obligation in file_result.report.missing:
+            print(
+                f"  - missing money proof atom: rule "
+                f"`{obligation.rule_name}` needs a proof atom at "
+                f"`{obligation.path}` ({obligation.reason})."
+            )
+    _report_money_atom_verdict(money_run)
+
+
+def _report_money_atom_verdict(money_run) -> bool:
+    """Print the money-atom ratchet verdict; return True when over budget."""
+    print()
+    print(
+        f"Money-atom summary: {money_run.total_missing} monetary value(s) "
+        f"lack a proof atom citing a provision across "
+        f"{money_run.total_obligations} monetary obligation(s)."
+    )
+    if money_run.passed:
+        allowance = (
+            money_run.ratchet.total_allowed
+            if money_run.ratchet.total_allowed is not None
+            else 0
+        )
+        print(f"Money-atom check: ✓ PASSED (within ratchet allowance of {allowance}).")
+        return False
+
+    print("Money-atom check: ✗ FAILED (over ratchet allowance).")
+    for path, (found, allowed) in sorted(money_run.over_budget_paths.items()):
+        print(f"  - {path}: {found} missing money atoms, ratchet allows {allowed}.")
+    if money_run.total_over_budget is not None:
+        found, allowed = money_run.total_over_budget
+        print(
+            f"  - repository total (untracked files): {found} missing money "
+            f"atoms, ratchet total_allowed is {allowed}."
+        )
+    print(
+        "  Fix: add `metadata.proof.atoms` citing a provision to the monetary "
+        "rules above, or raise the ratchet only for a documented backlog."
+    )
+    return True
 
 
 def cmd_test(args):
