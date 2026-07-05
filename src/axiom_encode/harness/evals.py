@@ -4947,6 +4947,14 @@ Preferred principal output:
   because the source is broad or cites many sibling provisions when an
   executable formula can be composed from source-stated facts, scalar
   parameters, or imported primary-source RuleSpec exports supplied in context.
+- When the source slice contains multiple independent table columns or
+  sibling figures but the PolicyEngine hint names one oracle-facing output,
+  encode only the column, parameters, and boundary facts needed to compute
+  that hinted output. Do not create executable rules for unrelated sibling
+  columns, recoupment schedules, deemed-income amounts, administrative counts,
+  or documentary table fields unless the formula for the hinted output depends
+  on them or the requested source identifier explicitly names that sibling
+  surface.
 - If the hinted output would otherwise depend on broad placeholders such as
   `person_is_described_in_*`, `person_is_in_*_category`, `*_determined_for_*`,
   `*_mandatory_subclauses*`, or `person_is_qualified_*_group`, first look for

@@ -4707,6 +4707,75 @@ rules:
         assert metrics.ungrounded_numeric_count == 0
         assert metrics.source_numeric_occurrence_count == 0
 
+    def test_collapsed_household_size_schedule_treats_row_keys_as_structural(
+        self, tmp_path
+    ):
+        rulespec_file = (
+            tmp_path
+            / "policies"
+            / "dhs"
+            / "fia"
+            / "im-26-13"
+            / "allowable-tca-monthly-payment.yaml"
+        )
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-md/guidance/dhs/fia/im-26-13/fip-schedule
+rules:
+  - name: allowable_tca_monthly_payment
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              corpus_citation_path: us-md/guidance/dhs/fia/im-26-13/fip-schedule
+              excerpt: Household Size Allowable TCA Monthly Payment
+              table:
+                header: Household Size Allowable TCA Monthly Payment
+                row_key: Household Size
+                column_key: Allowable TCA Monthly Payment
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 348
+          2: 612
+          3: 773
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "Household Size Allowable TCA Monthly Payment 1 $348 2 $612 3 $773"
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.grounded_numeric_count == 3
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.source_numeric_occurrence_count == 6
+        assert metrics.covered_source_numeric_occurrence_count == 6
+        assert metrics.missing_source_numeric_occurrence_count == 0
+
     def test_numeric_occurrence_check_counts_imported_named_scalars(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "B.yaml"

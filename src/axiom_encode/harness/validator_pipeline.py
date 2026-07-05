@@ -4048,6 +4048,16 @@ def extract_named_scalar_occurrences(content: str) -> list[NamedScalarOccurrence
                     table_values = version.get("values")
                     if isinstance(table_values, dict):
                         for key, table_value in table_values.items():
+                            extracted_key = _numeric_rule_value(key)
+                            if extracted_key is not None:
+                                _, key_value = extracted_key
+                                occurrences.append(
+                                    NamedScalarOccurrence(
+                                        line=1,
+                                        name=f"{name}[{key}]",
+                                        value=key_value,
+                                    )
+                                )
                             extracted = _numeric_rule_value(table_value)
                             if extracted is None:
                                 continue
@@ -6997,12 +7007,21 @@ def _formula_has_unsupported_chained_conditional(formula: str) -> bool:
 
 
 def _source_text_looks_like_table(source_text: str) -> bool:
+    money_cells = re.findall(r"\$\s*[\d,]+(?:\.\d+)?", source_text)
     return bool(
         re.search(r"\btable\b", source_text, flags=re.IGNORECASE)
         or source_text.count("|") >= 6
         or (
             re.search(r"\bschedule\b", source_text, flags=re.IGNORECASE)
             and source_text.count("|") >= 2
+        )
+        or (
+            re.search(
+                r"\b(?:household|family|assistance\s+unit)\s+size\b",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+            and len(money_cells) >= 2
         )
     )
 
