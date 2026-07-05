@@ -2236,7 +2236,7 @@ def test_policyengine_program_surface_marks_alabama_ssp_known_not_comparable():
     assert "final `al_ssp` surface" in al_ssp["rationale"]
 
 
-def test_policyengine_program_surface_marks_idaho_aabd_pending_rulespec_encoding():
+def test_policyengine_program_surface_marks_idaho_aabd_known_not_comparable():
     report = build_policyengine_program_surface_report(program="id_aabd")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2244,9 +2244,37 @@ def test_policyengine_program_surface_marks_idaho_aabd_pending_rulespec_encoding
 
     assert id_aabd["program_id"] == "ssi_state_supplement"
     assert id_aabd["state"] == "ID"
-    assert id_aabd["axiom_status"] == "pending_rulespec_encoding"
-    assert id_aabd["mapping_count"] == 0
-    assert "IDAPA 16.03.05" in id_aabd["rationale"]
+    assert id_aabd["axiom_status"] == "known_not_comparable"
+    assert id_aabd["mapping_count"] >= 1
+    assert id_aabd["comparable_mapping_count"] == 0
+    assert (
+        "us-id:regulations/idapa/16/03/05/514#aabd_cash_payment" in id_aabd["legal_ids"]
+    )
+    assert "IDAPA 16.03.05.514" in id_aabd["rationale"]
+    assert "final `id_aabd` person-level surface" in id_aabd["rationale"]
+
+
+def test_policyengine_registry_maps_idaho_aabd_514_maximum_payment_parameters():
+    registry = load_policyengine_registry()
+
+    expected_keys = {
+        "single_participant_maximum_payment": "SINGLE",
+        "couple_maximum_payment": "COUPLE",
+        "essential_person_maximum_payment": "ESSENTIAL_PERSON",
+        "semi_independent_group_maximum_payment": "SIGRIF",
+        "room_and_board_maximum_payment": "ROOM_AND_BOARD",
+    }
+
+    for rule_name, parameter_key in expected_keys.items():
+        mapping = registry.mapping_for_legal_id(
+            f"us-id:regulations/idapa/16/03/05/514#{rule_name}",
+            country="us",
+        )
+        assert mapping is not None
+        assert mapping.program == "ssi_state_supplement"
+        assert mapping.mapping_type == "parameter_value"
+        assert mapping.policyengine_parameter == "gov.states.id.dhw.aabd.payment.amount"
+        assert mapping.parameter_key == parameter_key
 
 
 def test_policyengine_program_surface_marks_indiana_ssp_pending_rulespec_encoding():
