@@ -7390,6 +7390,107 @@ rules:
     assert result.issues == []
 
 
+def _anchor_probe_content(atom_path: str, *, version: str) -> str:
+    """A single money parameter with a table version and one proof atom.
+
+    ``version`` supplies the ``versions[0]`` body (``values`` table or a
+    ``formula``); ``atom_path`` is the anchor the proof atom declares. Used to
+    exercise ``versions[i].{values,formula}`` anchor-consistency enforcement.
+    """
+    return f"""format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - be/x/block-1
+rules:
+  - name: brussels_entry_into_service_tax_amount_by_band
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    indexed_by: band
+    metadata:
+      proof:
+        atoms:
+          - path: {atom_path}
+            kind: parameter_table
+            source:
+              corpus_citation_path: be/x/block-1
+              span: "78,88 EUR"
+    versions:
+      - effective_from: '2026-07-01'
+        {version}
+"""
+
+
+def test_proof_atom_table_anchor_at_values_path_passes():
+    # The single authoritative contract for a parameter table: a
+    # `versions[i].values` atom. This is what the money-atom gate also accepts,
+    # so one atom satisfies both gates (axiom-encode#1032).
+    content = _anchor_probe_content(
+        "versions[0].values", version="values:\n          0: 78.88\n          1: 157.76"
+    )
+
+    result = validate_rulespec_proofs(content)
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_proof_atom_table_anchor_at_formula_path_fails():
+    # Negative case: a table version (no `formula`) cannot be anchored at
+    # `versions[i].formula`. This is the shape that used to pass base validation
+    # while the money gate rejected it — the mutual-exclusivity trap. The gate
+    # must now fail here.
+    content = _anchor_probe_content(
+        "versions[0].formula",
+        version="values:\n          0: 78.88\n          1: 157.76",
+    )
+
+    result = validate_rulespec_proofs(content)
+
+    assert result.passed is False
+    assert any(
+        "anchor mismatch" in issue and "versions[0].formula" in issue
+        for issue in result.issues
+    )
+
+
+def test_proof_atom_formula_anchor_on_valueless_version_fails():
+    # The symmetric guard: a scalar `versions[i].formula` anchor requires the
+    # version to actually declare a `formula`.
+    content = _anchor_probe_content(
+        "versions[0].values",
+        version="formula: brussels_entry_into_service_tax_base_amount",
+    )
+
+    result = validate_rulespec_proofs(content)
+
+    assert result.passed is False
+    assert any(
+        "anchor mismatch" in issue and "versions[0].values" in issue
+        for issue in result.issues
+    )
+
+
+def test_proof_atom_anchor_on_missing_version_index_fails():
+    # An anchor pointing past the rule's versions is rejected before any
+    # shape check.
+    content = _anchor_probe_content(
+        "versions[3].values",
+        version="values:\n          0: 78.88",
+    )
+
+    result = validate_rulespec_proofs(content)
+
+    assert result.passed is False
+    assert any(
+        "anchor invalid" in issue and "versions[3].values" in issue
+        for issue in result.issues
+    )
+
+
 def test_rulespec_proof_validator_checks_declared_source_claim_records(
     tmp_path, monkeypatch
 ):
