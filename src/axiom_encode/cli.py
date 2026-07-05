@@ -7989,6 +7989,7 @@ CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK = """    upstream_source_chec
         - us/statute/42/1397jj/c/8
         - us/statute/42/1397ll/d/2
         - us/statute/42/1397ll/f/2
+        - us/regulation/42/435/603/d
         - us/regulation/42/457/340
         - us/regulation/42/457/344
       rationale: |-
@@ -8001,6 +8002,12 @@ CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK = """    upstream_source_chec
 """
 CMS_MEDICAID_CHIP_EFFECTIVE_DATE = "2023-12-01"
 CMS_MAGI_FPL_DISREGARD_RATE = Decimal("0.05")
+CMS_MAGI_FPL_DISREGARD_RELATIVE_OUTPUT = (
+    Path("us") / "policies" / "cms" / "medicaid-chip-bhp-eligibility-levels.yaml"
+)
+CMS_MAGI_FPL_DISREGARD_TARGET = (
+    "us:policies/cms/medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate"
+)
 CMS_MEDICAID_CHIP_AVAILABILITY_SUFFIXES = {
     "children_separate_chip",
     "pregnant_women_chip",
@@ -8346,6 +8353,7 @@ def _cms_effective_rule_block(
     name: str,
     raw_name: str,
     row: _CmsEligibilityRow,
+    magi_disregard_hash: str,
 ) -> str:
     return f"""  - name: {name}
     kind: derived
@@ -8354,6 +8362,12 @@ def _cms_effective_rule_block(
     metadata:
       proof:
         atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: {CMS_MAGI_FPL_DISREGARD_TARGET}
+              output: magi_fpl_disregard_rate
+              hash: sha256:{magi_disregard_hash}
           - path: versions[0].formula
             kind: formula
             source:
@@ -8370,15 +8384,15 @@ def _cms_magi_disregard_rule_block() -> str:
     return f"""  - name: magi_fpl_disregard_rate
     kind: parameter
     dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels, introductory text
+    source: 42 CFR 435.603(d)(4)
     metadata:
       proof:
         atoms:
           - path: versions[0].formula
             kind: amount
             source:
-              corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}
-              excerpt: "5% FPL disregard"
+              corpus_citation_path: us/regulation/42/435/603/d
+              excerpt: "5 percentage points of the Federal poverty level"
     versions:
       - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
         formula: |-
@@ -8386,8 +8400,53 @@ def _cms_magi_disregard_rule_block() -> str:
 """
 
 
+def _cms_build_magi_disregard_file() -> _CmsGeneratedEligibilityFile:
+    citation = _rulespec_anchor_base_for_output(
+        Path("rulespec-us"),
+        CMS_MAGI_FPL_DISREGARD_RELATIVE_OUTPUT,
+    )
+    output_values = {
+        "magi_fpl_disregard_rate": _cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE),
+    }
+    rules_content = (
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  proof_validation:\n"
+        "    required: true\n"
+        "  source_verification:\n"
+        "    corpus_citation_path: us/regulation/42/435/603/d\n"
+        "  summary: |-\n"
+        "    Effective January 1, 2014, 42 CFR 435.603(d)(4) directs States to "
+        "subtract an amount equivalent to 5 percentage points of FPL only for "
+        "the highest MAGI-based income-standard Medicaid eligibility group.\n"
+        "rules:\n"
+        f"{_cms_magi_disregard_rule_block().rstrip()}\n"
+    )
+    test_lines = [
+        "- name: cms_magi_fpl_disregard_rate_as_of_december_2023",
+        "  period:",
+        "    period_kind: custom",
+        "    name: day",
+        f"    start: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'",
+        f"    end: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'",
+        "  input: {}",
+        "  output:",
+    ]
+    for name, value in output_values.items():
+        test_lines.append(f"    {citation}#{name}: {value}")
+
+    return _CmsGeneratedEligibilityFile(
+        relative_output=CMS_MAGI_FPL_DISREGARD_RELATIVE_OUTPUT,
+        rules_content=rules_content,
+        test_content="\n".join(test_lines) + "\n",
+        output_values=output_values,
+    )
+
+
 def _cms_build_medicaid_chip_eligibility_file(
     row: _CmsEligibilityRow,
+    *,
+    magi_disregard_hash: str,
 ) -> _CmsGeneratedEligibilityFile:
     state_slug = _cms_state_slug(row.state)
     state_file_slug = _cms_file_slug(row.state)
@@ -8400,10 +8459,8 @@ def _cms_build_medicaid_chip_eligibility_file(
     )
     citation = _rulespec_anchor_base_for_output(Path("rulespec-us"), relative_output)
 
-    rules: list[str] = [_cms_magi_disregard_rule_block()]
-    output_values: dict[str, str] = {
-        "magi_fpl_disregard_rate": _cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE),
-    }
+    rules: list[str] = []
+    output_values: dict[str, str] = {}
     raw_rates: dict[str, Decimal] = {}
 
     for column in CMS_MEDICAID_CHIP_ELIGIBILITY_COLUMNS:
@@ -8476,12 +8533,15 @@ def _cms_build_medicaid_chip_eligibility_file(
                 name=effective_name,
                 raw_name=raw_name,
                 row=row,
+                magi_disregard_hash=magi_disregard_hash,
             )
         )
         output_values[effective_name] = effective_formula
 
     rules_content = (
         "format: rulespec/v1\n"
+        "imports:\n"
+        f"  - {CMS_MAGI_FPL_DISREGARD_TARGET}\n"
         "module:\n"
         "  proof_validation:\n"
         "    required: true\n"
@@ -10311,8 +10371,19 @@ def cmd_generate_cms_medicaid_chip_eligibility_levels(args):
         print("No matching CMS state rows found.")
         sys.exit(1)
 
+    shared_magi_disregard_file = _cms_build_magi_disregard_file()
+    magi_disregard_hash = hashlib.sha256(
+        shared_magi_disregard_file.rules_content.encode()
+    ).hexdigest()
     generated_files = [
-        _cms_build_medicaid_chip_eligibility_file(row) for row in selected_rows
+        shared_magi_disregard_file,
+        *[
+            _cms_build_medicaid_chip_eligibility_file(
+                row,
+                magi_disregard_hash=magi_disregard_hash,
+            )
+            for row in selected_rows
+        ],
     ]
     planned: list[tuple[_CmsGeneratedEligibilityFile, Path, Path]] = []
     skipped_existing: list[Path] = []
