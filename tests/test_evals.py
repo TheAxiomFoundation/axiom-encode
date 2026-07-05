@@ -4424,6 +4424,85 @@ rules:
         assert metrics.missing_source_numeric_occurrence_count == 0
         assert metrics.numeric_occurrence_issues == []
 
+    def test_numeric_occurrence_check_does_not_require_digit_scale_components(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: The maximum amount is 10 million Euros.
+rules:
+  - name: maximum_fixed_penalty_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 10000000
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="The maximum amount is 10 million Euros.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.missing_source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_does_not_require_mixed_fraction_components(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Amount B is 2 6/7 per cent of the difference.
+rules:
+  - name: daily_excess_income_taper_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.02857142857142857
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Amount B is 2 6/7 per cent of the difference.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.missing_source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
     def test_numeric_occurrence_check_skips_empty_deferred_artifact(self, tmp_path):
         rulespec_file = tmp_path / "statutes" / "wic" / "18901" / "5.yaml"
         rulespec_file.parent.mkdir(parents=True)

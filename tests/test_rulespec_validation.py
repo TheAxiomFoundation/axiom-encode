@@ -6085,9 +6085,37 @@ rules:
     source_values = extract_numbers_from_text(source_text)
     assert 20000000 in source_values
     assert 10000000 in source_values
+    assert 20 in source_values
+    assert 10 in source_values
     occurrences = extract_numeric_occurrences_from_text(source_text)
     assert 20000000 in occurrences
     assert 10000000 in occurrences
+    assert 20 not in occurrences
+    assert 10 not in occurrences
+
+
+def test_rulespec_grounding_accepts_digit_scale_source_components():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: uk/regulation/uksi/2015/980/4
+rules:
+  - name: small_company_annual_turnover_threshold
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2016-01-01'
+        formula: '10.2'
+"""
+
+    source_text = (
+        "for “Not more than £6.5 million” substitute “Not more than £10.2 million”"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 10.2 in source_values
+    assert 10200000 in source_values
 
 
 def test_rulespec_grounding_rejects_unrelated_power_of_ten():
@@ -26317,6 +26345,32 @@ rules:
         math.isclose(value, 0.02857142857142857)
         for value in extract_numeric_occurrences_from_text(source_text)
     )
+
+
+def test_ungrounded_numeric_accepts_mixed_ascii_fraction_percentage_components():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+rules:
+  - name: council_tax_reduction_taper_fraction_numerator
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          6
+"""
+
+    source_text = "amount B is 2 6/7 per cent of the difference"
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 6 in source_values
+    assert 7 in source_values
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 6 not in occurrences
+    assert 7 not in occurrences
 
 
 def test_ungrounded_numeric_accepts_spelled_hundredths_percentage():
