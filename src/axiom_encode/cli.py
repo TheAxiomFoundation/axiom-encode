@@ -9311,7 +9311,6 @@ def _cms_chip_build_composition_file(
         )
         fcep_formula = (
             "person_is_pregnant\n"
-            f"and {fcep_availability}\n"
             "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
             f"and medicaid_income_level <= {fcep_effective_limit}"
         )
