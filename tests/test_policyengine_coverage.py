@@ -4355,8 +4355,8 @@ def test_policyengine_coverage_classifies_colorado_medicaid_chip_thresholds(
 ):
     _write_rulespec_file(
         tmp_path
-        / "rulespec-us-co"
-        / "policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml",
+        / "rulespec-us"
+        / "policies/cms/medicaid-chip-bhp-eligibility-levels.yaml",
         """format: rulespec/v1
 rules:
   - name: magi_fpl_disregard_rate
@@ -4364,6 +4364,14 @@ rules:
     versions:
       - effective_from: '2023-12-01'
         formula: 0.05
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-co"
+        / "policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml",
+        """format: rulespec/v1
+rules:
   - name: colorado_children_medicaid_ages_0_to_1_fpl_limit
     kind: parameter
     versions:
@@ -4510,11 +4518,50 @@ rules:
     assert all("5% MAGI FPL disregard" in str(item["rationale"]) for item in raw_items)
 
 
+def test_policyengine_registry_includes_nationwide_cms_medicaid_chip_mappings():
+    registry = load_policyengine_registry()
+
+    shared_disregard = registry.mapping_for_legal_id(
+        "us:policies/cms/medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate",
+        country="us",
+    )
+    assert shared_disregard is not None
+    assert shared_disregard.mapping_type == "not_comparable"
+    assert shared_disregard.program == "health"
+    assert shared_disregard.candidate_priority == "P4"
+
+    dc_infant = registry.mapping_for_legal_id(
+        "us-dc:policies/cms/district-of-columbia-medicaid-chip-bhp-eligibility-levels#district_of_columbia_children_medicaid_ages_0_to_1_effective_fpl_limit",
+        country="us",
+    )
+    assert dc_infant is not None
+    assert dc_infant.mapping_type == "parameter_value"
+    assert (
+        dc_infant.policyengine_parameter
+        == "gov.hhs.medicaid.eligibility.categories.infant.income_limit"
+    )
+    assert dc_infant.parameter_key == "DC"
+    assert dc_infant.period == "year"
+    assert dc_infant.comparison == "rate"
+
+    ohio_chip_available = registry.mapping_for_legal_id(
+        "us-oh:policies/cms/ohio-medicaid-chip-bhp-eligibility-levels#ohio_children_separate_chip_available",
+        country="us",
+    )
+    assert ohio_chip_available is not None
+    assert ohio_chip_available.mapping_type == "not_comparable"
+    assert ohio_chip_available.policyengine_parameter == (
+        "gov.hhs.chip.child.income_limit"
+    )
+    assert ohio_chip_available.parameter_key == "OH"
+    assert ohio_chip_available.candidate_priority == "P4"
+
+
 def test_policyengine_coverage_classifies_georgia_snap_medicaid_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path
-        / "rulespec-us-ga"
-        / "policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
+        / "rulespec-us"
+        / "policies/cms/medicaid-chip-bhp-eligibility-levels.yaml",
         """format: rulespec/v1
 rules:
   - name: magi_fpl_disregard_rate
@@ -4522,6 +4569,14 @@ rules:
     versions:
       - effective_from: '2025-01-01'
         formula: 0.05
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ga"
+        / "policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
+        """format: rulespec/v1
+rules:
   - name: georgia_children_medicaid_ages_0_to_1_fpl_limit
     kind: parameter
     versions:
