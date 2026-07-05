@@ -2042,6 +2042,17 @@ def main():
         ),
     )
     generate_cms_chip_composition_parser.add_argument(
+        "--fcep-corpus-jsonl",
+        type=Path,
+        default=None,
+        help=(
+            "Optional official CMS CHIP FCEP SPA provisions JSONL. When "
+            "provided, state CHIP composition files include source-backed "
+            "FCEP availability and income-limit rules for states with a "
+            "matched FCEP threshold."
+        ),
+    )
+    generate_cms_chip_composition_parser.add_argument(
         "--overwrite-existing",
         action="store_true",
         help="Replace existing state CHIP eligibility composition files",
@@ -8167,6 +8178,15 @@ class _CmsGeneratedChipCompositionFile(NamedTuple):
     test_content: str
 
 
+class _CmsChipFcepSource(NamedTuple):
+    state_code: str
+    raw_fpl_limit: Decimal
+    effective_from: str
+    corpus_citation_path: str
+    excerpt: str
+    score: int
+
+
 class _CmsEligibilityHtmlTableParser(HTMLParser):
     """Extract the first HTML table while ignoring footnote superscripts."""
 
@@ -8651,6 +8671,12 @@ CMS_CHIP_CHILD_SOURCE_RELATIVE = (
 CMS_CHIP_CHILD_TARGET = "us:statutes/42/1397jj/c/1#child"
 CMS_CHIP_CHILD_FORMULA_CORPUS_PATH = "us/statute/42/1397jj/b/1"
 CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH = "us/statute/42/1397ll/d/2"
+CMS_CHIP_FCEP_FORMULA_CORPUS_PATH = "us/statute/42/1397ll/f/1"
+CMS_CHIP_FCEP_DEFINITION_CORPUS_PATH = "us/regulation/42/457/10"
+CMS_CHIP_FCEP_PERCENT_PATTERN = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:%|percent)",
+    re.IGNORECASE,
+)
 
 
 def _cms_state_code_aliases() -> dict[str, str]:
@@ -8779,12 +8805,14 @@ def _cms_chip_composition_rule_block(
     source: str,
     proof_atoms: str,
     formula: str,
+    kind: str = "derived",
     dtype: str = "Judgment",
     entity: str | None = "Person",
+    effective_from: str = CMS_MEDICAID_CHIP_EFFECTIVE_DATE,
 ) -> str:
     entity_line = f"    entity: {entity}\n" if entity else ""
     return f"""  - name: {name}
-    kind: derived
+    kind: {kind}
 {entity_line}    dtype: {dtype}
     period: Year
     source: {source}
@@ -8793,16 +8821,248 @@ def _cms_chip_composition_rule_block(
         atoms:
 {proof_atoms.rstrip()}
     versions:
-      - effective_from: '{CMS_MEDICAID_CHIP_EFFECTIVE_DATE}'
+      - effective_from: '{effective_from}'
         formula: |-
 {_indent_block(formula, 10)}
 """
+
+
+def _cms_chip_fcep_record_state_code(record: dict[str, Any]) -> str | None:
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        code = str(metadata.get("state_abbr") or "").strip().upper()
+        if code:
+            return code
+    citation_path = str(record.get("citation_path") or "")
+    match = re.search(r"/chip-spa/([a-z]{2})/", citation_path)
+    if match:
+        return match.group(1).upper()
+    return None
+
+
+def _cms_chip_fcep_effective_from(record: dict[str, Any]) -> str:
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("effective_date", "approval_date"):
+            value = str(metadata.get(key) or "").strip()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                return value
+    value = str(record.get("expression_date") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+    return CMS_MEDICAID_CHIP_EFFECTIVE_DATE
+
+
+def _cms_chip_fcep_text_segments(body: str) -> list[str]:
+    normalized = _cms_normalize_cell_text(body)
+    segments: list[str] = []
+    for part in re.split(r"(?<=[.;])\s+", normalized):
+        if len(part) > 900:
+            segments.extend(
+                re.split(r"(?=\d+\.\d+(?:\.\d+)?(?:-[A-Z]+)?\s)", part)
+            )
+        else:
+            segments.append(part)
+    return [segment.strip() for segment in segments if segment.strip()]
+
+
+def _cms_chip_fcep_segment_score(
+    *,
+    segment: str,
+    citation_path: str,
+    metadata: dict[str, Any],
+) -> int:
+    lowered = segment.lower()
+    if not any(
+        marker in lowered
+        for marker in (
+            "fpl",
+            "fpf",
+            "federal poverty",
+            "poverty guideline",
+            "poverty level",
+        )
+    ):
+        return 0
+
+    score = 0
+    anchor_score = 0
+    if "/summary/block-" in citation_path:
+        score += 230
+    page_number = metadata.get("page_number")
+    if isinstance(page_number, int) and page_number <= 2 and any(
+        marker in lowered for marker in ("approved", "amendment", "spa")
+    ):
+        score += 170
+
+    anchors = (
+        ("fcep", 180),
+        ("from-conception-to", 160),
+        ("from conception to", 160),
+        ("from conception through", 160),
+        ("from conception to the end of pregnancy", 160),
+        ("coverage from conception to birth", 160),
+        ("conception to birth", 125),
+        ("conception through birth", 125),
+        ("unborn child option", 145),
+        ("unborn option", 145),
+        ("unborn children", 120),
+        ("unborn child", 120),
+        ("unborn-chip", 120),
+        ("4.1.3.1-pc", 100),
+        ("famis prenatal", 90),
+        ("soon-to-be-sooners", 90),
+        ("show-me healthy babies", 90),
+        ("mcap", 90),
+    )
+    for marker, weight in anchors:
+        if marker in lowered:
+            score += weight
+            anchor_score += weight
+
+    if anchor_score == 0:
+        return 0
+    if "pregnant" in lowered:
+        score += 35
+    if "income" in lowered or "incomes" in lowered:
+        score += 45
+    if any(
+        marker in lowered
+        for marker in (
+            "not otherwise eligible for medicaid",
+            "not eligible for medicaid",
+            "ineligible for medicaid",
+        )
+    ):
+        score += 55
+    if any(
+        marker in lowered
+        for marker in ("up to", "through", "including", "less than or equal")
+    ):
+        score += 25
+    if "title xxi" in lowered or "chip" in lowered:
+        score += 15
+    if any(
+        marker in lowered for marker in ("premium", "copayment", "cost sharing")
+    ):
+        score -= 55
+    if any(
+        marker in lowered
+        for marker in (
+            "birth through eighteen",
+            "children birth to",
+            "targeted low-income children",
+            "children ages 0 to 19",
+        )
+    ):
+        score -= 80
+    if (
+        "as described in appendix" in lowered
+        and "unborn children (conception to birth)" not in lowered
+    ):
+        score -= 80
+    return score
+
+
+def _cms_chip_fcep_source_excerpt(segment: str) -> str:
+    excerpt = _cms_normalize_cell_text(segment)
+    if len(excerpt) <= 500:
+        return excerpt
+    return excerpt[:497].rstrip() + "..."
+
+
+def _cms_chip_fcep_sources_from_jsonl(path: Path) -> dict[str, _CmsChipFcepSource]:
+    if not path.exists():
+        raise RuntimeError(f"CMS CHIP FCEP corpus JSONL not found: {path}")
+
+    candidates: dict[str, list[_CmsChipFcepSource]] = defaultdict(list)
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Invalid CMS CHIP FCEP corpus JSONL at line {line_number}: {exc}"
+            ) from exc
+        if not isinstance(record, dict):
+            continue
+        state_code = _cms_chip_fcep_record_state_code(record)
+        if not state_code:
+            continue
+        body = str(record.get("body") or "")
+        if not body.strip():
+            continue
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        citation_path = str(record.get("citation_path") or "").strip()
+        if not citation_path:
+            continue
+        effective_from = _cms_chip_fcep_effective_from(record)
+        segments = _cms_chip_fcep_text_segments(body)
+        for index, segment in enumerate(segments):
+            scoring_segment = segment
+            if index:
+                scoring_segment = f"{segments[index - 1]} {segment}"
+            raw_percentages = [
+                Decimal(match)
+                for match in CMS_CHIP_FCEP_PERCENT_PATTERN.findall(segment)
+            ]
+            percentages = [
+                value
+                for value in raw_percentages
+                if Decimal("0") < value <= Decimal("500")
+            ]
+            if not percentages:
+                continue
+            score = _cms_chip_fcep_segment_score(
+                segment=scoring_segment,
+                citation_path=citation_path,
+                metadata=metadata,
+            )
+            if score < 60:
+                continue
+            candidates[state_code].append(
+                _CmsChipFcepSource(
+                    state_code=state_code,
+                    raw_fpl_limit=max(percentages) / Decimal("100"),
+                    effective_from=effective_from,
+                    corpus_citation_path=citation_path,
+                    excerpt=_cms_chip_fcep_source_excerpt(segment),
+                    score=score,
+                )
+            )
+
+    best_by_state: dict[str, _CmsChipFcepSource] = {}
+    for state_code, state_candidates in candidates.items():
+        state_candidates.sort(
+            key=lambda source: (
+                source.score,
+                source.effective_from,
+                source.raw_fpl_limit,
+            ),
+            reverse=True,
+        )
+        best = state_candidates[0]
+        same_limit = [
+            source
+            for source in state_candidates
+            if source.raw_fpl_limit == best.raw_fpl_limit
+        ]
+        same_limit.sort(
+            key=lambda source: (source.effective_from, source.score),
+            reverse=True,
+        )
+        best_by_state[state_code] = same_limit[0]
+    return best_by_state
 
 
 def _cms_chip_build_composition_file(
     *,
     repo_path: Path,
     cms_relative_output: Path,
+    fcep_source: _CmsChipFcepSource | None = None,
 ) -> _CmsGeneratedChipCompositionFile:
     cms_file = repo_path / cms_relative_output
     rules_by_name = _cms_rule_names_by_name(cms_file.read_text())
@@ -8822,6 +9082,9 @@ def _cms_chip_build_composition_file(
     child_availability = f"{state_slug}_separate_chip_child_eligibility_available"
     pregnant_limit = f"{state_slug}_pregnant_women_chip_fpl_limit"
     pregnant_availability = f"{state_slug}_standard_pregnant_chip_eligibility_available"
+    fcep_availability = f"{state_slug}_fcep_eligibility_available"
+    fcep_raw_limit = f"{state_slug}_fcep_fpl_limit"
+    fcep_effective_limit = f"{state_slug}_fcep_effective_fpl_limit"
 
     imports = []
     if child_limit in rules_by_name:
@@ -8839,6 +9102,16 @@ def _cms_chip_build_composition_file(
         and source_pregnant_availability in rules_by_name
     ):
         imports.append(f"{cms_target}#{source_pregnant_availability}")
+    magi_disregard_hash = None
+    if fcep_source is not None:
+        magi_disregard_file = repo_path / CMS_MAGI_FPL_DISREGARD_RELATIVE_OUTPUT
+        if not magi_disregard_file.exists():
+            raise RuntimeError(
+                "Required CMS MAGI disregard RuleSpec file not found: "
+                f"{magi_disregard_file}"
+            )
+        magi_disregard_hash = _sha256_file(magi_disregard_file)
+        imports.append(CMS_MAGI_FPL_DISREGARD_TARGET)
 
     rules: list[str] = []
     if child_limit in rules_by_name:
@@ -8980,6 +9253,118 @@ def _cms_chip_build_composition_file(
         )
     )
 
+    if fcep_source is not None:
+        fcep_source_atom = _cms_chip_formula_source_atom(
+            corpus_citation_path=fcep_source.corpus_citation_path,
+            excerpt=fcep_source.excerpt,
+        )
+        rules.append(
+            _cms_chip_composition_rule_block(
+                name=fcep_availability,
+                source=f"CMS CHIP FCEP SPA source, {state_name}",
+                kind="parameter",
+                dtype="Boolean",
+                entity=None,
+                proof_atoms=fcep_source_atom,
+                formula="true",
+                effective_from=fcep_source.effective_from,
+            )
+        )
+        rules.append(
+            _cms_chip_composition_rule_block(
+                name=fcep_raw_limit,
+                source=f"CMS CHIP FCEP SPA source, {state_name}",
+                kind="parameter",
+                dtype="Rate",
+                entity=None,
+                proof_atoms=fcep_source_atom,
+                formula=_cms_format_rate(fcep_source.raw_fpl_limit),
+                effective_from=fcep_source.effective_from,
+            )
+        )
+        if magi_disregard_hash is None:
+            raise RuntimeError("Internal error: missing MAGI disregard hash")
+        fcep_effective_atoms = (
+            _cms_chip_import_atom(
+                target=CMS_MAGI_FPL_DISREGARD_TARGET,
+                output="magi_fpl_disregard_rate",
+                digest=magi_disregard_hash,
+            )
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path="us/regulation/42/435/603/d",
+                excerpt="5 percentage points of the Federal poverty level",
+            )
+            + fcep_source_atom
+        )
+        rules.append(
+            _cms_chip_composition_rule_block(
+                name=fcep_effective_limit,
+                source=(
+                    f"CMS CHIP FCEP SPA source, {state_name}, including the "
+                    "MAGI 5% FPL disregard"
+                ),
+                dtype="Rate",
+                entity=None,
+                proof_atoms=fcep_effective_atoms,
+                formula=f"{fcep_raw_limit} + magi_fpl_disregard_rate",
+                effective_from=fcep_source.effective_from,
+            )
+        )
+        fcep_formula = (
+            "person_is_pregnant\n"
+            f"and {fcep_availability}\n"
+            "and not found_eligible_for_medical_assistance_under_subchapter_xix\n"
+            f"and medicaid_income_level <= {fcep_effective_limit}"
+        )
+        fcep_atoms = (
+            fcep_source_atom
+            + _cms_chip_formula_source_atom(
+                corpus_citation_path=CMS_CHIP_FCEP_FORMULA_CORPUS_PATH,
+                excerpt="through the application of sections 457.10",
+            )
+        )
+        rules.append(
+            _cms_chip_composition_rule_block(
+                name="is_chip_fcep_eligible_person",
+                source=(
+                    "42 USC 1397ll(f)(1), 42 CFR 457.10, and CMS CHIP "
+                    f"FCEP SPA source for {state_name}"
+                ),
+                proof_atoms=fcep_atoms,
+                formula=fcep_formula,
+                effective_from=fcep_source.effective_from,
+            )
+        )
+
+    source_verification_paths = [
+        CMS_ELIGIBILITY_LEVELS_CORPUS_PATH,
+        CMS_CHIP_CHILD_FORMULA_CORPUS_PATH,
+        CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH,
+    ]
+    summary = (
+        f"{state_name} CHIP eligibility composition applies the federal CHIP "
+        "child and standard-pregnant eligibility framework to the CMS state "
+        "eligibility-level outputs."
+    )
+    if fcep_source is not None:
+        source_verification_paths.extend(
+            [
+                fcep_source.corpus_citation_path,
+                CMS_CHIP_FCEP_FORMULA_CORPUS_PATH,
+                CMS_CHIP_FCEP_DEFINITION_CORPUS_PATH,
+                "us/regulation/42/435/603/d",
+            ]
+        )
+        summary += (
+            " It also applies the CMS CHIP FCEP SPA source for state-set "
+            "coverage from conception to birth income eligibility."
+        )
+    else:
+        summary += (
+            " It intentionally does not encode FCEP state income limits until "
+            "primary state-plan or CMS source coverage is available."
+        )
+
     rules_content = (
         "format: rulespec/v1\n"
         "imports:\n"
@@ -8989,12 +9374,10 @@ def _cms_chip_build_composition_file(
         + "    required: true\n"
         + "  source_verification:\n"
         + "    corpus_citation_paths:\n"
-        + f"      - {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}\n"
-        + f"      - {CMS_CHIP_CHILD_FORMULA_CORPUS_PATH}\n"
-        + f"      - {CMS_CHIP_PREGNANT_FORMULA_CORPUS_PATH}\n"
+        + "".join(f"      - {path}\n" for path in source_verification_paths)
         + f"{CMS_ELIGIBILITY_LEVELS_UPSTREAM_SOURCE_CHECK_BLOCK}"
         + "  summary: |-\n"
-        + f"    {state_name} CHIP eligibility composition applies the federal CHIP child and standard-pregnant eligibility framework to the CMS state eligibility-level outputs. It intentionally does not encode FCEP state income limits until primary state-plan or CMS source coverage is available.\n"
+        + f"    {summary}\n"
         + "rules:\n"
         + "\n".join(rule.rstrip() for rule in rules)
         + "\n"
@@ -9079,6 +9462,41 @@ def _cms_chip_build_composition_file(
             + ("holds" if pregnant_limit in rules_by_name else "not_holds"),
         ]
     )
+    if fcep_source is not None:
+        test_lines.extend(
+            [
+                "",
+                f"- name: {state_slug}_fcep_availability",
+                "  period:",
+                "    period_kind: custom",
+                "    name: calendar_year",
+                "    start: '2026-01-01'",
+                "    end: '2026-12-31'",
+                "  input: {}",
+                "  output:",
+                f"    {citation}#{fcep_availability}: true",
+                f"    {citation}#{fcep_raw_limit}: "
+                + _cms_format_rate(fcep_source.raw_fpl_limit),
+                f"    {citation}#{fcep_effective_limit}: "
+                + _cms_format_rate(
+                    fcep_source.raw_fpl_limit + CMS_MAGI_FPL_DISREGARD_RATE
+                ),
+                "",
+                f"- name: {state_slug}_fcep_eligible_under_source_limit",
+                "  period:",
+                "    period_kind: custom",
+                "    name: calendar_year",
+                "    start: '2026-01-01'",
+                "    end: '2026-12-31'",
+                "  input:",
+                f"    {citation}#input.person_is_pregnant: true",
+                f"    {citation}#input.medicaid_income_level: 0.00",
+                f"    {citation}#input."
+                "found_eligible_for_medical_assistance_under_subchapter_xix: false",
+                "  output:",
+                f"    {citation}#is_chip_fcep_eligible_person: holds",
+            ]
+        )
 
     return _CmsGeneratedChipCompositionFile(
         relative_output=relative_output,
@@ -11048,6 +11466,17 @@ def cmd_generate_cms_chip_eligibility_composition(args):
         print(f"Required CHIP child statute RuleSpec file not found: {child_source}")
         sys.exit(1)
 
+    fcep_sources: dict[str, _CmsChipFcepSource] = {}
+    fcep_corpus_jsonl = getattr(args, "fcep_corpus_jsonl", None)
+    if fcep_corpus_jsonl is not None:
+        try:
+            fcep_sources = _cms_chip_fcep_sources_from_jsonl(
+                Path(fcep_corpus_jsonl).resolve()
+            )
+        except RuntimeError as exc:
+            print(str(exc))
+            sys.exit(1)
+
     cms_state_files = _cms_existing_state_eligibility_files(repo_path)
     selected = [
         relative
@@ -11064,6 +11493,9 @@ def cmd_generate_cms_chip_eligibility_composition(args):
             _cms_chip_build_composition_file(
                 repo_path=repo_path,
                 cms_relative_output=relative,
+                fcep_source=fcep_sources.get(
+                    _cms_state_code_from_relative_output(relative)
+                ),
             )
             for relative in selected
         ]

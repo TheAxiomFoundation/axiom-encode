@@ -11463,14 +11463,56 @@ rules:
           2.60
 """
         )
+        shared_cms_file = (
+            policy_repo / "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        shared_cms_file.parent.mkdir(parents=True)
+        shared_cms_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: magi_fpl_disregard_rate
+    kind: parameter
+    dtype: Rate
+    source: 42 CFR 435.603(d)(4)
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          0.05
+"""
+        )
         _git(policy_repo, "add", ".")
         _git(policy_repo, "commit", "-m", "initial")
+
+        fcep_corpus_jsonl = tmp_path / "cms-chip-fcep.jsonl"
+        fcep_corpus_jsonl.write_text(
+            json.dumps(
+                {
+                    "body": (
+                        "Through this SPA, Colorado extends CHIP eligibility "
+                        "for children from conception to birth with family "
+                        "incomes up to 260 percent of the federal poverty "
+                        "level (FPL) whose parents are not otherwise eligible "
+                        "for Medicaid."
+                    ),
+                    "citation_path": (
+                        "us/policy/cms/chip-spa/co/co-24-0001/summary/block-1"
+                    ),
+                    "expression_date": "2024-01-01",
+                    "metadata": {
+                        "effective_date": "2024-01-01",
+                        "state_abbr": "CO",
+                    },
+                }
+            )
+            + "\n"
+        )
 
         target = policy_repo / "us-co/policies/cms/colorado-chip-eligibility.yaml"
         test_file = target.with_name("colorado-chip-eligibility.test.yaml")
         args = SimpleNamespace(
             repo=policy_repo,
             states=["CO"],
+            fcep_corpus_jsonl=fcep_corpus_jsonl,
             overwrite_existing=False,
             axiom_rules_path=tmp_path / "axiom-rules-engine",
         )
@@ -11509,8 +11551,16 @@ rules:
             "us/form/cms/medicaid-chip-bhp-eligibility-levels",
             "us/statute/42/1397jj/b/1",
             "us/statute/42/1397ll/d/2",
+            "us/policy/cms/chip-spa/co/co-24-0001/summary/block-1",
+            "us/statute/42/1397ll/f/1",
+            "us/regulation/42/457/10",
+            "us/regulation/42/435/603/d",
         ]
         assert "us:statutes/42/1397jj/c/1#child" in rules_content
+        assert (
+            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
+            "#magi_fpl_disregard_rate" in rules_content
+        )
         assert (
             "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
             "#colorado_children_separate_chip_effective_fpl_limit" in rules_content
@@ -11521,7 +11571,10 @@ rules:
         )
         assert "is_chip_eligible_child" in rules_content
         assert "is_chip_eligible_standard_pregnant_person" in rules_content
-        assert "is_chip_fcep_eligible_person" not in rules_content
+        assert "colorado_fcep_eligibility_available" in rules_content
+        assert "colorado_fcep_fpl_limit" in rules_content
+        assert "colorado_fcep_effective_fpl_limit" in rules_content
+        assert "is_chip_fcep_eligible_person" in rules_content
         assert "name: is_chip_eligible\n" not in rules_content
         assert (
             "medicaid_income_level <= "
@@ -11532,7 +11585,11 @@ rules:
             in rules_content
         )
         assert (
-            "It intentionally does not encode FCEP state income limits" in rules_content
+            "medicaid_income_level <= colorado_fcep_effective_fpl_limit"
+            in rules_content
+        )
+        assert (
+            "It also applies the CMS CHIP FCEP SPA source" in rules_content
         )
 
         test_content = test_file.read_text()
@@ -11543,6 +11600,22 @@ rules:
         assert (
             "us-co:policies/cms/colorado-chip-eligibility"
             "#is_chip_eligible_standard_pregnant_person: holds" in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#colorado_fcep_raw_fpl_limit: 2.60" not in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#colorado_fcep_fpl_limit: 2.60" in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#colorado_fcep_effective_fpl_limit: 2.65" in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#is_chip_fcep_eligible_person: holds" in test_content
         )
 
         manifest = (
