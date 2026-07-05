@@ -1887,6 +1887,39 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_cms_effective_parser = subparsers.add_parser(
+        "repair-cms-effective-magi-limits",
+        help="Apply signed deterministic CMS effective MAGI limit repairs",
+    )
+    repair_cms_effective_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_cms_effective_parser.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help="CMS eligibility-level RuleSpec file to repair, relative to the repo root",
+    )
+    repair_cms_effective_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+    repair_cms_effective_parser.add_argument(
+        "--refresh-manifest",
+        action="store_true",
+        help=(
+            "Validate and rewrite the signed apply manifest even when the "
+            "target already contains the deterministic effective MAGI repairs"
+        ),
+    )
+
     repair_medicaid_optional_parser = subparsers.add_parser(
         "repair-medicaid-optional-senior-composition",
         help="Apply signed deterministic Medicaid optional senior/disabled composition repairs",
@@ -2704,6 +2737,8 @@ def main():
         cmd_repair_georgia_cms_medicaid_availability(args)
     elif args.command == "repair-georgia-cms-effective-magi-limits":
         cmd_repair_georgia_cms_effective_magi_limits(args)
+    elif args.command == "repair-cms-effective-magi-limits":
+        cmd_repair_cms_effective_magi_limits(args)
     elif args.command == "repair-medicaid-optional-senior-composition":
         cmd_repair_medicaid_optional_senior_composition(args)
     elif args.command == "repair-medicaid-primary-category-composition":
@@ -7681,6 +7716,17 @@ GEORGIA_CMS_EFFECTIVE_MAGI_LIMIT_RULES = (
 )
 
 
+CMS_ELIGIBILITY_LEVELS_CORPUS_PATH = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+CMS_EFFECTIVE_MAGI_LIMIT_SUFFIXES = (
+    "children_medicaid_ages_0_to_1",
+    "children_medicaid_ages_1_to_5",
+    "children_medicaid_ages_6_to_18",
+    "children_separate_chip",
+    "pregnant_women_medicaid",
+    "pregnant_women_chip",
+)
+
+
 def _rulespec_rule_names(content: str) -> set[str]:
     try:
         payload = yaml.safe_load(content) or {}
@@ -7759,6 +7805,147 @@ def _repair_georgia_cms_medicaid_availability_tests(
             f"    {GEORGIA_CMS_MEDICAID_CITATION}#{rule['name']}: "
             f"{rule['test_value']}\n"
         )
+    return repaired, [rule["name"] for rule in missing]
+
+
+def _first_version_formula(rule: dict[str, Any]) -> Any:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return None
+    first = versions[0]
+    if not isinstance(first, dict):
+        return None
+    return first.get("formula")
+
+
+def _cms_rate_formula_decimal(rule: dict[str, Any]) -> Decimal | None:
+    formula = _first_version_formula(rule)
+    if formula is None:
+        return None
+    try:
+        return Decimal(str(formula).strip())
+    except Exception:
+        return None
+
+
+def _format_cms_effective_rate(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.01")), "f")
+
+
+def _cms_state_label_from_rule_name(rule_name: str, suffix: str) -> str:
+    state_slug = rule_name[: -len(f"_{suffix}_fpl_limit")]
+    return state_slug.replace("_", " ").title()
+
+
+def _cms_effective_magi_limit_repairs(
+    content: str,
+) -> tuple[list[dict[str, str]], str | None]:
+    payload = yaml.safe_load(content) or {}
+    if not isinstance(payload, dict):
+        return [], "RuleSpec file is not a mapping"
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return [], "RuleSpec file has no rules list"
+
+    rules_by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    disregard_rule = rules_by_name.get("magi_fpl_disregard_rate")
+    if not isinstance(disregard_rule, dict):
+        return [], "CMS file has no magi_fpl_disregard_rate rule"
+    disregard = _cms_rate_formula_decimal(disregard_rule)
+    if disregard is None:
+        return [], "magi_fpl_disregard_rate is not a numeric scalar"
+
+    repairs: list[dict[str, str]] = []
+    for raw_name, rule in sorted(rules_by_name.items()):
+        if raw_name.endswith("_effective_fpl_limit"):
+            continue
+        suffix = next(
+            (
+                candidate
+                for candidate in CMS_EFFECTIVE_MAGI_LIMIT_SUFFIXES
+                if raw_name.endswith(f"_{candidate}_fpl_limit")
+            ),
+            None,
+        )
+        if suffix is None:
+            continue
+        if not isinstance(rule, dict):
+            continue
+        effective_name = raw_name.removesuffix("_fpl_limit") + "_effective_fpl_limit"
+        if effective_name in rules_by_name:
+            continue
+        raw_value = _cms_rate_formula_decimal(rule)
+        if raw_value is None:
+            continue
+        state_label = _cms_state_label_from_rule_name(raw_name, suffix)
+        repairs.append(
+            {
+                "name": effective_name,
+                "raw_limit": raw_name,
+                "source": (
+                    "CMS Medicaid, CHIP and BHP Eligibility Levels table, "
+                    f"{state_label} row, including the MAGI 5% FPL disregard"
+                ),
+                "test_value": _format_cms_effective_rate(raw_value + disregard),
+            }
+        )
+    return repairs, None
+
+
+def _cms_effective_magi_limit_rule_block(rule: dict[str, str]) -> str:
+    return f"""  - name: {rule["name"]}
+    kind: derived
+    dtype: Rate
+    source: {rule["source"]}
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {CMS_ELIGIBILITY_LEVELS_CORPUS_PATH}
+              excerpt: "5% FPL disregard"
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          {rule["raw_limit"]} + magi_fpl_disregard_rate
+"""
+
+
+def _repair_cms_effective_magi_limit_rules(
+    content: str,
+) -> tuple[str, list[dict[str, str]], str | None]:
+    missing, issue = _cms_effective_magi_limit_repairs(content)
+    if issue is not None:
+        return content, [], issue
+    if not missing:
+        return content, [], None
+
+    repaired = content.rstrip() + "\n\n"
+    repaired += "\n".join(
+        _cms_effective_magi_limit_rule_block(rule).rstrip() for rule in missing
+    )
+    repaired += "\n"
+    return repaired, missing, None
+
+
+def _repair_cms_effective_magi_limit_tests(
+    content: str,
+    *,
+    citation: str,
+    rules: list[dict[str, str]],
+) -> tuple[str, list[str]]:
+    missing = [rule for rule in rules if f"{citation}#{rule['name']}" not in content]
+    if not missing:
+        return content, []
+
+    repaired = content.rstrip() + "\n"
+    for rule in missing:
+        repaired += f"    {citation}#{rule['name']}: {rule['test_value']}\n"
     return repaired, [rule["name"] for rule in missing]
 
 
@@ -9142,6 +9329,169 @@ def _repair_medicaid_community_engagement_effective_date_rules(
         ),
         ["is_medicaid_eligible"],
     )
+
+
+def _cms_effective_magi_limit_relative_target(
+    repo_path: Path,
+    target: Path,
+) -> Path:
+    if target.is_absolute():
+        try:
+            relative = target.resolve().relative_to(repo_path)
+        except ValueError as exc:
+            raise RuntimeError(f"Target is not inside repo: {target}") from exc
+    else:
+        relative = target
+    if ".." in relative.parts or not relative.parts:
+        raise RuntimeError(f"Invalid target path: {target}")
+    if relative.suffix != ".yaml":
+        raise RuntimeError(f"Target must be a RuleSpec YAML file: {target}")
+    return relative
+
+
+def cmd_repair_cms_effective_magi_limits(args):
+    """Apply signed deterministic CMS effective MAGI limit repairs."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-cms-effective-magi-limits must run against "
+            f"rulespec-us; got {repo_path}"
+        )
+        sys.exit(1)
+
+    try:
+        relative_output = _cms_effective_magi_limit_relative_target(
+            repo_path,
+            Path(args.target),
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content, repaired_rules, issue = _repair_cms_effective_magi_limit_rules(
+        original_content
+    )
+    if issue is not None:
+        print(issue)
+        sys.exit(1)
+    citation = _rulespec_anchor_base_for_output(repo_path, relative_output)
+    repaired_test_content, repaired_tests = _repair_cms_effective_magi_limit_tests(
+        original_test_content,
+        citation=citation,
+        rules=repaired_rules,
+    )
+    applied_files = [rules_file, test_file]
+
+    content_changed = (
+        repaired_content != original_content
+        or repaired_test_content != original_test_content
+    )
+    if not content_changed and not getattr(args, "refresh_manifest", False):
+        print("No CMS effective MAGI limit repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [(relative_output, applied_files)],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+
+            test_failures = _rulespec_companion_test_failures(
+                test_file,
+                root=repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+            if test_failures:
+                print("Repair failed companion tests; restored original files.")
+                for failure in test_failures[:20]:
+                    case_name = failure.get("case") or "<unknown case>"
+                    print(f"- {case_name}: {failure.get('message')}")
+                sys.exit(1)
+        finally:
+            validation_passed = "validation" in locals() and validation.all_passed
+            tests_passed = "test_failures" in locals() and not test_failures
+            if not validation_passed or not tests_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="cms-effective-magi-limits-v1",
+            tool="axiom-encode repair-cms-effective-magi-limits",
+            citation=citation,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    changed_names = sorted(
+        {rule["name"] for rule in repaired_rules} | set(repaired_tests)
+    )
+    if content_changed:
+        print("Applied CMS effective MAGI limit repair")
+    else:
+        print("Refreshed CMS effective MAGI limit repair manifest")
+    if changed_names:
+        print(f"changed_rules={', '.join(changed_names)}")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
 
 
 def cmd_repair_georgia_cms_effective_magi_limits(args):

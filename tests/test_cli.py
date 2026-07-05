@@ -192,6 +192,7 @@ from axiom_encode.cli import (
     cmd_oracle_coverage,
     cmd_repair_arizona_snap_composition,
     cmd_repair_bare_snapunit_entities,
+    cmd_repair_cms_effective_magi_limits,
     cmd_repair_colorado_tax_validation,
     cmd_repair_companion_test_references,
     cmd_repair_current_year_final_amounts,
@@ -27301,6 +27302,191 @@ rules:
         assert payload["model"] == "georgia-cms-effective-magi-limits-v1"
         assert (
             payload["tool"] == "axiom-encode repair-georgia-cms-effective-magi-limits"
+        )
+
+    def test_repair_cms_effective_magi_limits_writes_colorado_signed_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = (
+            policy_repo
+            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+  summary: |-
+    Colorado row: Children Medicaid Ages 0-1 142%; Ages 1-5 142%; Ages 6-18 142%; Children Separate CHIP 260%; Pregnant Women Medicaid 195%; Pregnant Women CHIP 260%. The MAGI-based rules generally include a 5% FPL disregard.
+rules:
+  - name: magi_fpl_disregard_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          0.05
+  - name: colorado_children_medicaid_ages_0_to_1_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.42
+  - name: colorado_children_medicaid_ages_1_to_5_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.42
+  - name: colorado_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.42
+  - name: colorado_children_separate_chip_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.60
+  - name: colorado_pregnant_women_medicaid_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          1.95
+  - name: colorado_pregnant_women_chip_fpl_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: |-
+          2.60
+"""
+        )
+        test_file = (
+            policy_repo
+            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        test_file.write_text(
+            """- name: colorado_magi_eligibility_level_parameters_as_of_december_2023
+  period:
+    period_kind: custom
+    name: day
+    start: '2023-12-01'
+    end: '2023-12-01'
+  input: {}
+  output:
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate: 0.05
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_separate_chip_fpl_limit: 2.60
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            target=Path(
+                "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
+            ),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_cms_effective_magi_limits(args)
+
+        rules_payload = yaml.safe_load(target.read_text())
+        rules_by_name = {rule["name"]: rule for rule in rules_payload["rules"]}
+        assert (
+            rules_by_name["colorado_children_separate_chip_effective_fpl_limit"][
+                "versions"
+            ][0]["formula"]
+            == "colorado_children_separate_chip_fpl_limit + magi_fpl_disregard_rate"
+        )
+        assert "colorado_pregnant_women_chip_effective_fpl_limit" in rules_by_name
+        test_content = test_file.read_text()
+        assert (
+            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
+            "#colorado_children_separate_chip_effective_fpl_limit: 2.65"
+        ) in test_content
+        assert (
+            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
+            "#colorado_pregnant_women_chip_effective_fpl_limit: 2.65"
+        ) in test_content
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/us-co/policies/cms/"
+            "colorado-medicaid-chip-bhp-eligibility-levels.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "cms-effective-magi-limits-v1"
+        assert payload["tool"] == "axiom-encode repair-cms-effective-magi-limits"
+        assert payload["citation"] == (
+            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
+        )
+
+        args.refresh_manifest = True
+        first_rules_content = target.read_text()
+        first_test_content = test_file.read_text()
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "def456", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_cms_effective_magi_limits(args)
+
+        assert target.read_text() == first_rules_content
+        assert test_file.read_text() == first_test_content
+        refreshed_payload = json.loads(manifest.read_text())
+        assert refreshed_payload["axiom_encode_git"]["commit"] == "def456"
+        assert (
+            refreshed_payload["tool"] == "axiom-encode repair-cms-effective-magi-limits"
         )
 
     def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(

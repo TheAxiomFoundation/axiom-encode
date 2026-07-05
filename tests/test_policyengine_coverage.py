@@ -4393,6 +4393,36 @@ rules:
     versions:
       - effective_from: '2023-12-01'
         formula: 2.60
+  - name: colorado_children_medicaid_ages_0_to_1_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_children_medicaid_ages_0_to_1_fpl_limit + magi_fpl_disregard_rate
+  - name: colorado_children_medicaid_ages_1_to_5_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_children_medicaid_ages_1_to_5_fpl_limit + magi_fpl_disregard_rate
+  - name: colorado_children_medicaid_ages_6_to_18_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_children_medicaid_ages_6_to_18_fpl_limit + magi_fpl_disregard_rate
+  - name: colorado_children_separate_chip_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_children_separate_chip_fpl_limit + magi_fpl_disregard_rate
+  - name: colorado_pregnant_women_medicaid_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_pregnant_women_medicaid_fpl_limit + magi_fpl_disregard_rate
+  - name: colorado_pregnant_women_chip_effective_fpl_limit
+    kind: derived
+    versions:
+      - effective_from: '2023-12-01'
+        formula: colorado_pregnant_women_chip_fpl_limit + magi_fpl_disregard_rate
   - name: colorado_parent_caretaker_adults_medicaid_fpl_limit
     kind: parameter
     versions:
@@ -4405,18 +4435,33 @@ rules:
         formula: 1.33
 """,
     )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-co"
+        / "policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.test.yaml",
+        """- name: colorado_effective_magi_limits
+  output:
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_0_to_1_effective_fpl_limit: 1.47
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_1_to_5_effective_fpl_limit: 1.47
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_6_to_18_effective_fpl_limit: 1.47
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_separate_chip_effective_fpl_limit: 2.65
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_pregnant_women_medicaid_effective_fpl_limit: 2.00
+    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_pregnant_women_chip_effective_fpl_limit: 2.65
+""",
+    )
 
     medicaid = build_policyengine_coverage_report(tmp_path, program="medicaid")
     chip = build_policyengine_coverage_report(tmp_path, program="chip")
     health = build_policyengine_coverage_report(tmp_path, program="health")
 
-    assert medicaid["total_outputs"] == 6
-    assert chip["total_outputs"] == 2
-    assert health["total_outputs"] == 9
-    assert health["status_counts"] == {"known_not_comparable": 9}
+    assert medicaid["total_outputs"] == 10
+    assert chip["total_outputs"] == 4
+    assert health["total_outputs"] == 15
+    assert health["status_counts"] == {
+        "comparable": 6,
+        "known_not_comparable": 9,
+    }
     assert health["untested_comparable"] == 0
-    assert {item["mapping_type"] for item in health["items"]} == {"not_comparable"}
-    assert {item["candidate_priority"] for item in health["items"]} == {"P4"}
 
     items_by_name = {item["rule_name"]: item for item in health["items"]}
     assert items_by_name["magi_fpl_disregard_rate"]["program"] == "health"
@@ -4438,9 +4483,30 @@ rules:
         ]
         == "gov.hhs.chip.child.income_limit"
     )
-    assert all(
-        "5% MAGI FPL disregard" in str(item["rationale"]) for item in health["items"]
+    effective_chip_child = items_by_name[
+        "colorado_children_separate_chip_effective_fpl_limit"
+    ]
+    assert effective_chip_child["status"] == "comparable"
+    assert effective_chip_child["mapping_type"] == "parameter_value"
+    assert effective_chip_child["policyengine_parameter"] == (
+        "gov.hhs.chip.child.income_limit"
     )
+    assert effective_chip_child["tested"] is True
+    effective_pregnant_chip = items_by_name[
+        "colorado_pregnant_women_chip_effective_fpl_limit"
+    ]
+    assert effective_pregnant_chip["status"] == "comparable"
+    assert effective_pregnant_chip["mapping_type"] == "parameter_value"
+    assert effective_pregnant_chip["policyengine_parameter"] == (
+        "gov.hhs.chip.pregnant.income_limit"
+    )
+    assert effective_pregnant_chip["tested"] is True
+    raw_items = [
+        item for item in health["items"] if item["status"] == "known_not_comparable"
+    ]
+    assert {item["mapping_type"] for item in raw_items} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in raw_items} == {"P4"}
+    assert all("5% MAGI FPL disregard" in str(item["rationale"]) for item in raw_items)
 
 
 def test_policyengine_coverage_classifies_georgia_snap_medicaid_outputs(tmp_path):
