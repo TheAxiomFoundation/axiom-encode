@@ -183,6 +183,7 @@ from axiom_encode.cli import (
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
+    cmd_generate_cms_medicaid_chip_eligibility_levels,
     cmd_guard_generated,
     cmd_interval_table_audit,
     cmd_inventory,
@@ -11236,6 +11237,133 @@ rules:
         assert [item["path"] for item in refreshed_payload["applied_files"]] == [
             "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
             "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
+        ]
+
+    def test_generate_cms_medicaid_chip_table_writes_signed_state_file(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(policy_repo)
+        (policy_repo / "README.md").write_text("rulespec-us fixture\n")
+        _git(policy_repo, "add", ".")
+        _git(policy_repo, "commit", "-m", "initial")
+        source_html = tmp_path / "cms-medicaid-chip-bhp-eligibility-levels.html"
+        source_html.write_text(
+            """<html><body>
+<p>MAGI-based rules generally include adjusting income by a 5% FPL disregard.</p>
+<table>
+  <tr>
+    <th>State</th>
+    <th>Children Medicaid Ages 0-1</th>
+    <th>Children Medicaid Ages 1-5</th>
+    <th>Children Medicaid Ages 6-18</th>
+    <th>Children Separate CHIP</th>
+    <th>Pregnant Women Medicaid</th>
+    <th>Pregnant Women CHIP</th>
+    <th>Adults (Medicaid) Parent/Caretaker</th>
+    <th>Adults (Medicaid) Expansion to Adults</th>
+  </tr>
+  <tr>
+    <td>Georgia</td>
+    <td>205%</td>
+    <td>149%</td>
+    <td>133%</td>
+    <td>247%</td>
+    <td>220%</td>
+    <td>N/A</td>
+    <td>28%($)</td>
+    <td>No</td>
+  </tr>
+</table>
+</body></html>
+"""
+        )
+        target = (
+            policy_repo
+            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        test_file = target.with_name(
+            "georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            source_html=source_html,
+            states=["GA"],
+            overwrite_existing=False,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_generate_cms_medicaid_chip_eligibility_levels(args)
+
+        rules_content = target.read_text()
+        assert "georgia_children_separate_chip_fpl_limit" in rules_content
+        assert "georgia_pregnant_women_chip_available" in rules_content
+        assert "georgia_adult_medicaid_expansion_available" in rules_content
+        assert "georgia_parent_caretaker_standard_uses_dollar_amounts" in rules_content
+        assert "georgia_children_separate_chip_effective_fpl_limit" in rules_content
+        assert "georgia_adult_medicaid_expansion_fpl_limit" not in rules_content
+        assert 'excerpt: "28%($)"' in rules_content
+        assert "upstream_source_check:" in rules_content
+        assert "status: official_parameter_source" in rules_content
+        assert "- us/statute/42/1397jj/b/1" in rules_content
+        assert "- us/regulation/42/457/340" in rules_content
+
+        test_content = test_file.read_text()
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_children_separate_chip_fpl_limit: 2.47" in test_content
+        )
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_children_separate_chip_effective_fpl_limit: 2.52" in test_content
+        )
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_pregnant_women_chip_available: false" in test_content
+        )
+        assert (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+            "#georgia_adult_medicaid_expansion_available: false" in test_content
+        )
+
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
+            "georgia-medicaid-chip-bhp-eligibility-levels.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["model"] == "cms-medicaid-chip-eligibility-levels-v1"
+        assert payload["tool"] == (
+            "axiom-encode generate-cms-medicaid-chip-eligibility-levels"
+        )
+        assert payload["citation"] == (
+            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
+        )
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
+            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
         ]
 
     def test_repair_minnesota_mfip_source_check_writes_signed_manifest(self, tmp_path):
