@@ -2388,7 +2388,7 @@ def test_policyengine_program_surface_marks_kentucky_ktap_source_conflict_known_
     assert "KY FACES table labeled by number of children" in kentucky_ktap["rationale"]
 
 
-def test_policyengine_program_surface_marks_maryland_tca_pending_source_ingestion():
+def test_policyengine_program_surface_marks_maryland_tca_pending_rulespec_encoding():
     report = build_policyengine_program_surface_report(program="md_tca")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}
@@ -2396,13 +2396,14 @@ def test_policyengine_program_surface_marks_maryland_tca_pending_source_ingestio
 
     assert maryland_tca["program_id"] == "tanf"
     assert maryland_tca["state"] == "MD"
-    assert maryland_tca["axiom_status"] == "pending_source_ingestion"
+    assert maryland_tca["axiom_status"] == "pending_rulespec_encoding"
     assert maryland_tca["mapping_count"] == 0
     assert maryland_tca["comparable_mapping_count"] == 0
     assert "COMAR 07.03.03.17" in maryland_tca["rationale"]
-    assert "Maryland DHS FIA Information Memo 25-12" in maryland_tca["rationale"]
-    assert "IM 26-13 as a superseding 2026 TCA/TDAP" in maryland_tca["rationale"]
-    assert "should not encode current TCA amounts" in maryland_tca["rationale"]
+    assert "Maryland DHS FIA Information Memo 26-13" in maryland_tca["rationale"]
+    assert "rulespec-us now encodes" in maryland_tca["rationale"]
+    assert "md_tca_maximum_benefit" in maryland_tca["rationale"]
+    assert "Final PE parity for md_tca still needs" in maryland_tca["rationale"]
 
 
 def test_policyengine_coverage_maps_georgia_ssp_nursing_home_supplement(tmp_path):
