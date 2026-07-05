@@ -203,6 +203,18 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
                         ],
                     },
                     {
+                        "name": "is_chip_fcep_eligible_person",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": (
+                            "A pregnant person is eligible through the CHIP "
+                            "from-conception-to-end-of-pregnancy pathway."
+                        ),
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                    {
                         "name": "aca_ptc",
                         "kind": "derived",
                         "dtype": "Money",
@@ -272,6 +284,11 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
     )
     assert by_name["is_medicaid_eligible"].entity == "person"
     assert by_name["is_chip_eligible"].policyengine_variable == "is_chip_eligible"
+    assert (
+        by_name["is_chip_fcep_eligible_person"].policyengine_variable
+        == "is_chip_fcep_eligible_person"
+    )
+    assert by_name["is_chip_fcep_eligible_person"].comparison == "decision"
     assert by_name["aca_ptc"].policyengine_variable == "aca_ptc"
     assert by_name["aca_ptc"].entity == "tax_unit"
     assert by_name["aca_ptc"].unit == "USD"
@@ -293,7 +310,10 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
         jurisdiction="us-co",
         program="chip",
     )
-    assert [c.legal_id.split("#")[1] for c in chip_only] == ["is_chip_eligible"]
+    assert [c.legal_id.split("#")[1] for c in chip_only] == [
+        "is_chip_eligible",
+        "is_chip_fcep_eligible_person",
+    ]
 
     aca_only = classify_rulespec_repo(
         repo_root=repo,

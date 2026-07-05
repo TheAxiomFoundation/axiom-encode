@@ -791,6 +791,13 @@ PE_US_CHIP_VAR_ADAPTERS = (
         comparison="decision",
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_fcep_eligible_person",),
+        pe_var="is_chip_fcep_eligible_person",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("chip",),
         pe_var="chip",
         entity="person",
