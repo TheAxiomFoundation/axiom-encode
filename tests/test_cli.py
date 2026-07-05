@@ -11615,7 +11615,11 @@ rules:
         )
         assert (
             "us-co:policies/cms/colorado-chip-eligibility"
-            "#is_chip_fcep_eligible_person: holds" in test_content
+            "#colorado_fcep_eligibility_available: true" in test_content
+        )
+        assert (
+            "us-co:policies/cms/colorado-chip-eligibility"
+            "#is_chip_fcep_eligible_person: holds" not in test_content
         )
 
         manifest = (
