@@ -9463,24 +9463,26 @@ def _cms_chip_build_composition_file(
         ]
     )
     if fcep_source is not None:
+        formatted_fcep_raw_limit = _cms_format_rate(fcep_source.raw_fpl_limit)
+        formatted_fcep_effective_limit = _cms_format_rate(
+            fcep_source.raw_fpl_limit + CMS_MAGI_FPL_DISREGARD_RATE
+        )
         test_lines.extend(
             [
                 "",
-                f"- name: {state_slug}_fcep_availability",
+                f"- name: {state_slug}_fcep_effective_limit",
                 "  period:",
                 "    period_kind: custom",
                 "    name: calendar_year",
                 "    start: '2026-01-01'",
                 "    end: '2026-12-31'",
-                "  input: {}",
+                "  input:",
+                f"    {citation}#{fcep_raw_limit}: {formatted_fcep_raw_limit}",
+                f"    {CMS_MAGI_FPL_DISREGARD_TARGET}: "
+                + _cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE),
                 "  output:",
-                f"    {citation}#{fcep_availability}: true",
-                f"    {citation}#{fcep_raw_limit}: "
-                + _cms_format_rate(fcep_source.raw_fpl_limit),
                 f"    {citation}#{fcep_effective_limit}: "
-                + _cms_format_rate(
-                    fcep_source.raw_fpl_limit + CMS_MAGI_FPL_DISREGARD_RATE
-                ),
+                + formatted_fcep_effective_limit,
                 "",
                 f"- name: {state_slug}_fcep_eligible_under_source_limit",
                 "  period:",
@@ -9493,6 +9495,10 @@ def _cms_chip_build_composition_file(
                 f"    {citation}#input.medicaid_income_level: 0.00",
                 f"    {citation}#input."
                 "found_eligible_for_medical_assistance_under_subchapter_xix: false",
+                f"    {citation}#{fcep_availability}: true",
+                f"    {citation}#{fcep_raw_limit}: {formatted_fcep_raw_limit}",
+                f"    {CMS_MAGI_FPL_DISREGARD_TARGET}: "
+                + _cms_format_rate(CMS_MAGI_FPL_DISREGARD_RATE),
                 "  output:",
                 f"    {citation}#is_chip_fcep_eligible_person: holds",
             ]
