@@ -23381,9 +23381,13 @@ def _all_protected_rulespec_yaml_paths(
     repo_path: Path, *, roots: tuple[str, ...]
 ) -> list[str]:
     paths: set[str] = set()
-    for root in roots:
-        base = repo_path / root
-        if not base.exists():
+    base_dirs: set[Path] = set()
+    for parent in [repo_path, *[path for path in repo_path.iterdir() if path.is_dir()]]:
+        if parent.name in {".git", ".axiom", ".venv", "__pycache__"}:
+            continue
+        base_dirs.update(parent / root for root in roots)
+    for base in sorted(base_dirs):
+        if not base.exists() or not base.is_dir():
             continue
         for suffix in ("*.yaml", "*.yml"):
             for path in base.rglob(suffix):
@@ -23459,13 +23463,26 @@ def _git_changed_files(
     return sorted(set(changed))
 
 
-def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+def _protected_rulespec_root_index(path: Path, *, roots: tuple[str, ...]) -> int | None:
     parts = path.parts
     if len(parts) < 2:
-        return False
+        return None
     if parts[0] not in roots:
-        return False
-    return path.suffix in {".yaml", ".yml"}
+        if (
+            len(parts) >= 3
+            and parts[1] in roots
+            and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
+        ):
+            return 1
+        return None
+    return 0
+
+
+def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+    return (
+        path.suffix in {".yaml", ".yml"}
+        and _protected_rulespec_root_index(path, roots=roots) is not None
+    )
 
 
 def _is_applied_encoding_manifest_path(path: Path, *, roots: tuple[str, ...]) -> bool:
@@ -47104,7 +47121,6 @@ def cmd_sign_applied_files(args):
 
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-    jurisdiction = _repo_jurisdiction_prefix(repo_path)
 
     manifest_paths: list[Path] = []
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -47120,9 +47136,7 @@ def cmd_sign_applied_files(args):
                 backend="manual",
                 model="",
                 tool="axiom-encode sign-applied-files",
-                citation=(
-                    f"{jurisdiction}:{_relative_rulespec_import_target(relative_output)}"
-                ),
+                citation=_rulespec_anchor_base_for_output(repo_path, relative_output),
                 generation_prompt_sha256=None,
                 trace_file=None,
                 context_manifest_file=None,

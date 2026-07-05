@@ -23360,6 +23360,43 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_country_prefixed_existing_rulespec_in_all_mode(self, tmp_path):
+        rule = tmp_path / "us-ga/policies/example.yaml"
+        test = tmp_path / "us-ga/policies/example.test.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test.write_text("cases: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/us-ga/policies/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "us-ga/policies/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "us-ga/policies/example.test.yaml",
+                        "sha256": _sha256_file(test),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("policies",),
+                all_files=True,
+            )
+
+        assert issues == []
+
     def test_accepts_monorepo_existing_rulespec_with_nested_manifest_in_all_mode(
         self, tmp_path
     ):
@@ -33800,6 +33837,25 @@ class TestSignAppliedFiles:
         _git(repo, "commit", "-m", "encode without manifests")
         return repo, base_sha
 
+    def _country_repo_with_unmanifested_encodings(
+        self, tmp_path: Path
+    ) -> tuple[Path, str]:
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        (repo / "README.md").write_text("# rulespec-us\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "initial")
+        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        rule = repo / "us-ga/policies/dfcs/snap/3617.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test = repo / "us-ga/policies/dfcs/snap/3617.test.yaml"
+        test.write_text("cases: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "encode country-prefixed rule without manifest")
+        return repo, base_sha
+
     def _provenance_stub(self) -> dict:
         return {
             "commit": "a" * 40,
@@ -33865,6 +33921,51 @@ class TestSignAppliedFiles:
         # diff against the base includes them.
         _git(repo, "add", ".")
         _git(repo, "commit", "-m", "attest encodings")
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
+        assert issues == []
+
+    def test_signs_country_prefixed_files_and_passes_guard(self, tmp_path, capsys):
+        repo, base_sha = self._country_repo_with_unmanifested_encodings(tmp_path)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value=self._provenance_stub(),
+            ),
+        ):
+            cmd_sign_applied_files(
+                SimpleNamespace(
+                    repo=repo,
+                    base_ref=base_sha,
+                    head_ref="HEAD",
+                    dry_run=False,
+                )
+            )
+
+        output = capsys.readouterr().out
+        assert "guard passes with the new manifests included" in output
+
+        manifest = json.loads(
+            (
+                repo / ".axiom/encoding-manifests/us-ga/policies/dfcs/snap/3617.json"
+            ).read_text()
+        )
+        assert {item["path"] for item in manifest["applied_files"]} == {
+            "us-ga/policies/dfcs/snap/3617.yaml",
+            "us-ga/policies/dfcs/snap/3617.test.yaml",
+        }
+        assert manifest["citation"] == "us-ga:policies/dfcs/snap/3617"
+
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "attest country-prefixed encoding")
         with patch.dict(
             os.environ,
             {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
