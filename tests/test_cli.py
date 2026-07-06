@@ -4081,7 +4081,13 @@ class TestCmdEncode:
         with patch(
             "axiom_encode.cli.run_model_eval", return_value=[result]
         ) as mock_run:
-            with patch.dict(os.environ, {}, clear=True):
+            # The codex-auth preflight is exercised by dedicated tests below;
+            # neutralize it here so these dispatch assertions do not depend on
+            # a Codex auth file existing in the test environment (CI has none).
+            with (
+                patch("axiom_encode.cli.codex_auth_error", return_value=None),
+                patch.dict(os.environ, {}, clear=True),
+            ):
                 with pytest.raises(SystemExit) as exc_info:
                     cmd_encode(args)
             return mock_run, exc_info.value.code
@@ -4100,6 +4106,94 @@ class TestCmdEncode:
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
         )
+
+    def test_encode_codex_backend_without_auth_stops_before_running(
+        self, capsys, tmp_path
+    ):
+        """Negative: codex default + no auth file/key exits 1 before any eval."""
+        args = self._make_args(tmp_path, backend="codex")
+        codex_home = tmp_path / "codex-home-empty"
+        codex_home.mkdir()
+        with (
+            patch("axiom_encode.cli.run_model_eval") as mock_run,
+            patch.dict(
+                os.environ,
+                {"CODEX_HOME": str(codex_home)},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+        out = capsys.readouterr().out
+        assert "Codex backend requires authentication" in out
+        assert "auth.json" in out
+
+    def test_encode_codex_backend_with_auth_json_runs(self, capsys, tmp_path):
+        """Positive: a present ~/.codex/auth.json satisfies the preflight."""
+        args = self._make_args(tmp_path, backend="codex")
+        codex_home = tmp_path / "codex-home-authed"
+        codex_home.mkdir()
+        (codex_home / "auth.json").write_text('{"OPENAI_API_KEY": "sk-test"}\n')
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                return_value=[self._make_eval_result(True)],
+            ) as mock_run,
+            patch.dict(
+                os.environ,
+                {"CODEX_HOME": str(codex_home)},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once()
+
+    def test_encode_codex_backend_with_openai_api_key_runs(self, capsys, tmp_path):
+        """Positive: OPENAI_API_KEY satisfies the preflight without auth.json."""
+        args = self._make_args(tmp_path, backend="codex")
+        codex_home = tmp_path / "codex-home-nofile"
+        codex_home.mkdir()
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                return_value=[self._make_eval_result(True)],
+            ) as mock_run,
+            patch.dict(
+                os.environ,
+                {"CODEX_HOME": str(codex_home), "OPENAI_API_KEY": "sk-test"},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once()
+
+    def test_encode_non_codex_backend_skips_auth_preflight(self, capsys, tmp_path):
+        """Explicit non-codex backends do not require a Codex auth file."""
+        args = self._make_args(tmp_path, backend="claude")
+        codex_home = tmp_path / "codex-home-empty2"
+        codex_home.mkdir()
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                return_value=[self._make_eval_result(True)],
+            ) as mock_run,
+            patch.dict(
+                os.environ,
+                {"CODEX_HOME": str(codex_home)},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["runner_specs"] == ["claude:test-model"]
 
     def test_encode_routes_state_corpus_citation_to_state_monorepo_root(
         self, capsys, tmp_path

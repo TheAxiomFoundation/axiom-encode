@@ -43,6 +43,7 @@ from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
 
+from .codex_cli import codex_auth_error
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -2248,9 +2249,12 @@ def main():
         choices=["codex", "openai", "claude"],
         default="codex",
         help=(
-            "Backend: 'codex' uses the Codex CLI/ChatGPT path, "
-            "'openai' uses OpenAI Responses API, "
-            "'claude' uses Claude CLI"
+            "Backend (default: codex): 'codex' uses the Codex CLI/ChatGPT "
+            f"path with {DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json "
+            "or OPENAI_API_KEY), 'openai' uses OpenAI Responses API, "
+            "'claude' uses Claude CLI. Claude tiers are reserved for "
+            "orchestration and review; net-new statutory encoding runs "
+            "through codex."
         ),
     )
     encode_parser.add_argument(
@@ -26426,6 +26430,11 @@ def cmd_encode(args):
     """Encode a corpus-backed source unit through the RuleSpec eval pipeline."""
     model = args.model or DEFAULT_OPENAI_MODEL
     runner = f"{args.backend}:{model}"
+    if args.backend == "codex":
+        auth_error = codex_auth_error()
+        if auth_error:
+            print(auth_error)
+            sys.exit(1)
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
     axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
         "axiom-rules-engine"
