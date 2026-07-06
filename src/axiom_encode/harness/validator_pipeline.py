@@ -3598,6 +3598,12 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     """Strip structural source scaffolding before numeric extraction."""
     text = re.sub(r"\\r\\n|\\n|\\r", "\n", text)
     text = text.replace(r"\t", "\t")
+    # Detach the Ghana cedi symbol (and other cent/currency glyphs) glued to a
+    # following amount so grouped-thousands parsing sees a clean boundary:
+    # "GH¢5,880" -> "GH¢ 5,880". Without the space the digit run starts right
+    # after ¢, the grouped-thousands matcher's currency lookbehind never fires,
+    # and "5,880" is misread as the trailing "880".
+    text = re.sub(r"([¢₵])(?=\d)", r"\1 ", text)
     cleaned_lines: list[str] = []
     preserve_split_schedule_value = False
     for line in text.splitlines():
