@@ -3318,13 +3318,19 @@ def _parse_belgian_numeric_phrase(raw: str) -> float | None:
     return _DUTCH_CARDINAL_PHRASE_VALUES.get(normalized)
 
 
-def _parse_percentage_numeric_phrase(raw: str) -> float | None:
+def _iter_percentage_numeric_phrase_values(raw: str) -> list[float]:
+    values: list[float] = []
     cleaned = re.sub(r"\s+", "", raw.strip())
-    dot_grouped = re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", cleaned)
-    if "." in cleaned and "," not in cleaned and not dot_grouped:
+    if "." in cleaned and "," not in cleaned:
         with contextlib.suppress(ValueError):
-            return float(cleaned)
-    return _parse_belgian_numeric_phrase(raw)
+            dotted_decimal = float(cleaned)
+            values.append(dotted_decimal)
+        if not re.fullmatch(r"-?[1-9]\d{0,2}(?:\.0{3})+", cleaned):
+            return values
+    parsed = _parse_belgian_numeric_phrase(raw)
+    if parsed is not None and not any(math.isclose(parsed, value) for value in values):
+        values.append(parsed)
+    return values
 
 
 def _iter_raw_european_money_value_matches(
@@ -3358,8 +3364,7 @@ def _iter_direct_percentage_rate_matches(
 ) -> list[tuple[tuple[int, int], float]]:
     values: list[tuple[tuple[int, int], float]] = []
     for match in _DIRECT_PERCENTAGE_PATTERN.finditer(text):
-        value = _parse_percentage_numeric_phrase(match.group("number"))
-        if value is not None:
+        for value in _iter_percentage_numeric_phrase_values(match.group("number")):
             values.append((match.span("number"), value / 100))
     return values
 
