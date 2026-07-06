@@ -6206,6 +6206,55 @@ def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words
     )
 
 
+def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
+    # The Ghana cedi symbol glued to a grouped-thousands amount ("GH¢5,880")
+    # must still yield the full value, not just the trailing "880". Mirrors
+    # how $/£/€ grouped amounts already extract.
+    numbers = extract_numbers_from_text(
+        "1. First GH¢5,880 Nil 2. Next GH¢1,320 5 per cent "
+        "7. Exceeding GH¢600,000 35 per cent"
+    )
+    assert 5880.0 in numbers
+    assert 1320.0 in numbers
+    assert 600000.0 in numbers
+    assert 880.0 not in numbers
+    # Bare cedi glyph forms resolve the same way.
+    assert 5880.0 in extract_numbers_from_text("₵5,880")
+    # A decimal tail after a glued cedi amount still parses fully.
+    assert 5880.5 in extract_numbers_from_text("GH¢5,880.50")
+    # The lookbehind is deliberately one-directional: a cent-*suffixed* amount
+    # ("50¢") must be untouched and still extract 50, not gain a stray space.
+    assert 50.0 in extract_numbers_from_text("costs 50¢ per unit")
+
+
+def test_rulespec_grounding_accepts_ghana_cedi_rate_schedule():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: gh/statute/act-1111/income-tax-amendment-no2-2023/first-schedule-rates-of-income-tax-for-individuals
+rules:
+  - name: first_band_upper_chargeable_income
+    kind: parameter
+    dtype: Money
+    unit: GHS
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '5880'
+  - name: top_band_lower_chargeable_income
+    kind: parameter
+    dtype: Money
+    unit: GHS
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '600000'
+"""
+    source_text = (
+        "1. First GH¢5,880 Nil 2. Next GH¢1,320 5 per cent "
+        "7. Exceeding GH¢600,000 35 per cent"
+    )
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
 def test_rulespec_grounding_accepts_digit_scale_money_phrases():
     content = """format: rulespec/v1
 module:

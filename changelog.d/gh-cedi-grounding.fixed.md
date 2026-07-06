@@ -1,0 +1,1 @@
+Ground Ghana cedi grouped-thousands amounts: numeric grounding now detaches the cedi symbol (`¢`/`₵`/`￠`) glued to a following amount, so `GH¢5,880` extracts `5880` instead of the trailing `880`. Fixes ungrounded-literal failures on Ghana income-tax rate-schedule values.
