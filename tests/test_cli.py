@@ -4028,6 +4028,21 @@ class TestCmdRuns:
 
 
 class TestCmdEncode:
+    @pytest.fixture(autouse=True)
+    def _neutralize_codex_auth_preflight(self):
+        """Default the codex auth preflight to "authenticated" for this class.
+
+        `cmd_encode` now runs a Codex auth preflight when the backend is
+        `codex` (the default in these tests). The dispatch/apply tests here
+        assert eval behavior, not auth, and must not depend on a Codex auth
+        file existing in the environment (CI has none). Tests that exercise
+        the preflight itself patch `codex_auth_error` again inside their own
+        `with` block (the inner patch wins). The real helper logic is covered
+        by tests/test_encoder_backend.py::TestCodexAuthPreflight.
+        """
+        with patch("axiom_encode.cli.codex_auth_error", return_value=None):
+            yield
+
     def _make_args(self, tmp_path, **overrides):
         """Helper to create args with sensible defaults."""
         corpus_path = tmp_path / "axiom-corpus"
@@ -4100,6 +4115,85 @@ class TestCmdEncode:
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
         )
+
+    def test_encode_codex_backend_without_auth_stops_before_running(
+        self, capsys, tmp_path
+    ):
+        """Negative: codex default + failing auth preflight exits 1, no eval.
+
+        Overrides the class autouse fixture by patching ``codex_auth_error``
+        to return an error string, proving ``cmd_encode`` acts on a non-None
+        preflight result before any eval runs. (The real filesystem logic is
+        covered by TestCodexAuthPreflight.)
+        """
+        args = self._make_args(tmp_path, backend="codex")
+        auth_message = (
+            "Codex backend requires authentication but ~/.codex/auth.json "
+            "was not found."
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as mock_run,
+            patch(
+                "axiom_encode.cli.codex_auth_error",
+                return_value=auth_message,
+            ),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+        out = capsys.readouterr().out
+        assert "Codex backend requires authentication" in out
+        assert "auth.json" in out
+
+    def test_encode_codex_backend_with_auth_runs(self, capsys, tmp_path):
+        """Positive: a passing preflight lets the codex-default encode proceed."""
+        args = self._make_args(tmp_path, backend="codex")
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                return_value=[self._make_eval_result(True)],
+            ) as mock_run,
+            patch("axiom_encode.cli.codex_auth_error", return_value=None),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once()
+
+    @pytest.mark.parametrize("backend", ["claude", "openai"])
+    def test_encode_non_codex_backend_skips_auth_preflight(
+        self, capsys, tmp_path, backend
+    ):
+        """Explicit non-codex backends do not consult the Codex auth check.
+
+        Patches ``codex_auth_error`` with a ``side_effect`` that would fail
+        the test if called, proving the ``args.backend == "codex"`` guard
+        short-circuits the preflight for both ``claude`` and ``openai``.
+        """
+
+        def _must_not_be_called():
+            raise AssertionError("codex_auth_error called for non-codex backend")
+
+        args = self._make_args(tmp_path, backend=backend)
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                return_value=[self._make_eval_result(True)],
+            ) as mock_run,
+            patch(
+                "axiom_encode.cli.codex_auth_error",
+                side_effect=_must_not_be_called,
+            ),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["runner_specs"] == [f"{backend}:test-model"]
 
     def test_encode_routes_state_corpus_citation_to_state_monorepo_root(
         self, capsys, tmp_path

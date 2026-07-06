@@ -717,3 +717,46 @@ class TestBackendContract:
             )
 
             assert isinstance(resp, EncoderResponse)
+
+
+class TestCodexAuthPreflight:
+    """Codex-backend auth preflight helpers (encode#1054)."""
+
+    def test_auth_path_defaults_to_home_codex(self):
+        from axiom_encode.codex_cli import codex_auth_json_path
+
+        with patch.dict(os.environ, {}, clear=True):
+            assert codex_auth_json_path() == Path.home() / ".codex" / "auth.json"
+
+    def test_auth_path_honors_codex_home(self, tmp_path):
+        from axiom_encode.codex_cli import codex_auth_json_path
+
+        with patch.dict(os.environ, {"CODEX_HOME": str(tmp_path)}, clear=True):
+            assert codex_auth_json_path() == tmp_path / "auth.json"
+
+    def test_auth_error_when_no_file_and_no_key(self, tmp_path):
+        from axiom_encode.codex_cli import codex_auth_error
+
+        with patch.dict(os.environ, {"CODEX_HOME": str(tmp_path)}, clear=True):
+            error = codex_auth_error()
+        assert error is not None
+        assert "Codex backend requires authentication" in error
+        assert str(tmp_path / "auth.json") in error
+
+    def test_auth_ok_when_file_present(self, tmp_path):
+        from axiom_encode.codex_cli import codex_auth_error
+
+        (tmp_path / "auth.json").write_text('{"OPENAI_API_KEY": "sk-test"}\n')
+        with patch.dict(os.environ, {"CODEX_HOME": str(tmp_path)}, clear=True):
+            assert codex_auth_error() is None
+
+    def test_auth_ok_when_openai_api_key_set(self, tmp_path):
+        from axiom_encode.codex_cli import codex_auth_error
+
+        # No auth.json, but OPENAI_API_KEY is enough for the Codex CLI.
+        with patch.dict(
+            os.environ,
+            {"CODEX_HOME": str(tmp_path), "OPENAI_API_KEY": "sk-test"},
+            clear=True,
+        ):
+            assert codex_auth_error() is None

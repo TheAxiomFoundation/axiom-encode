@@ -24,6 +24,15 @@ generation. Local `axiom-corpus/data/corpus/provisions` artifacts are used first
 Supabase is the fallback. If no corpus provision exists, encoding stops before
 calling a model.
 
+`encode` defaults to `--backend codex` with `gpt-5.5`; Claude/Fable capacity is
+reserved for orchestration, gating, and review rather than YAML generation. The
+Codex backend authenticates through the Codex CLI's `~/.codex/auth.json`
+(created by `codex login`, or an `OPENAI_API_KEY` recorded there); `CODEX_HOME`
+overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
+the check. When neither is present `encode` stops with a clear error before
+starting a run. Other backends stay available explicitly with
+`--backend claude` or `--backend openai`.
+
 `proof-validate` checks explicit RuleSpec proof trees without reviewers or
 oracles. It also resolves declared source-claim IDs against local
 `axiom-corpus/claims` artifacts and rejects missing, unaccepted, executable, or
