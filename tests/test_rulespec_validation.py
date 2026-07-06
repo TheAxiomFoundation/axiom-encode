@@ -6220,6 +6220,11 @@ def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     assert 880.0 not in numbers
     # Bare cedi glyph forms resolve the same way.
     assert 5880.0 in extract_numbers_from_text("₵5,880")
+    # A decimal tail after a glued cedi amount still parses fully.
+    assert 5880.5 in extract_numbers_from_text("GH¢5,880.50")
+    # The lookbehind is deliberately one-directional: a cent-*suffixed* amount
+    # ("50¢") must be untouched and still extract 50, not gain a stray space.
+    assert 50.0 in extract_numbers_from_text("costs 50¢ per unit")
 
 
 def test_rulespec_grounding_accepts_ghana_cedi_rate_schedule():
