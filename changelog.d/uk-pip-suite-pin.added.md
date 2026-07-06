@@ -1,0 +1,1 @@
+Pin axiom-oracles to 4a6f01c (TheAxiomFoundation/axiom-oracles#157) so the Personal Independence Payment compare-wrapper outputs classify (pip daily-living/mobility components, weekly total, and enhanced daily-living receipt comparable; the annualization helpers not_comparable) and the personal-independence-payment-final EFRS surface runs at 100% match against PolicyEngine-UK.
