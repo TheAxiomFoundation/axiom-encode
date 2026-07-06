@@ -1,0 +1,1 @@
+Bumped the axiom-oracles pin to add the Ghana (gh:) PolicyEngine oracle-coverage classification, so `oracle-coverage --fail-on-unmapped` treats Ghana RuleSpec outputs as known-not-comparable; encoder to 0.2.1173. Pinned to a minimal oracles commit (gh.yaml on the previously pinned base) to avoid unrelated bridge changes; the same classification is on axiom-oracles main via #184.
