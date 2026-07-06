@@ -6139,6 +6139,80 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_dotted_fractional_percentage_rates():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/statute/NYC/11-1701
+rules:
+  - name: nyc_second_bracket_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '0.01435'
+  - name: nyc_school_credit_low_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '0.00171'
+"""
+
+    source_text = (
+        "$255 plus 1.435% of excess over $21,600. "
+        "$0 to $21,600 uses 0.171% of taxable income."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    numbers = extract_numbers_from_text(source_text)
+    assert any(math.isclose(value, 0.01435) for value in numbers)
+    assert any(math.isclose(value, 0.00171) for value in numbers)
+
+
+def test_rulespec_grounding_rejects_grouped_reading_of_fractional_dotted_rate():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/statute/NYC/11-1701
+rules:
+  - name: nyc_second_bracket_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '14.35'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="$255 plus 1.435% of excess over $21,600.",
+    )
+
+    assert any("14.35" in issue for issue in issues)
+
+
+def test_rulespec_grounding_preserves_dotted_grouped_percentage_rates():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/regulation/example/article/1
+rules:
+  - name: grouped_percentage_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '10'
+"""
+
+    source_text = "Le taux applicable est de 1.000 %."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    numbers = extract_numbers_from_text(source_text)
+    assert any(math.isclose(value, 10.0) for value in numbers)
+
+
 def test_rulespec_grounding_accepts_decimal_place_scale_derivation():
     content = """format: rulespec/v1
 module:
