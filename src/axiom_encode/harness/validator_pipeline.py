@@ -3609,8 +3609,15 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     # after ¢, the grouped-thousands matcher's currency lookbehind never fires,
     # and "5,880" is misread as the trailing "880". The lookbehind fires only
     # when the glyph precedes a digit, so cent-suffixed values ("50¢") are left
-    # untouched. Covers the cent sign, cedi sign, and fullwidth cent sign.
-    text = re.sub(r"([¢₵￠])(?=\d)", r"\1 ", text)
+    # untouched. Covers the cent sign, cedi sign, fullwidth cent sign, and
+    # naira sign.
+    text = re.sub(r"([¢₵￠₦])(?=\d)", r"\1 ", text)
+    # Nigerian gazette prints denominate naira with an ASCII "N" glued to the
+    # amount ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). Detach
+    # it the same way, but only when the N is a standalone prefix (not part
+    # of a longer token) and the amount is comma-grouped, so identifiers like
+    # "N95" or gazette references like "N26" stay untouched.
+    text = re.sub(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})", "N ", text)
     cleaned_lines: list[str] = []
     preserve_split_schedule_value = False
     for line in text.splitlines():

@@ -6301,6 +6301,33 @@ def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     assert 50.0 in extract_numbers_from_text("costs 50¢ per unit")
 
 
+def test_numeric_extraction_handles_nigeria_naira_ascii_prefix():
+    # Nigerian gazette prints glue an ASCII "N" to naira amounts
+    # ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). The full
+    # grouped value must extract, not just the trailing group.
+    numbers = extract_numbers_from_text(
+        "(a) First N800,000 at 0%; (b) Next N2,200,000 at 15%; "
+        "(f) Above N50,000,000 at 25%."
+    )
+    assert 800000.0 in numbers
+    assert 2200000.0 in numbers
+    assert 50000000.0 in numbers
+    assert 800.0 not in numbers
+    # The naira glyph resolves the same way as the cedi glyph.
+    assert 500000.0 in extract_numbers_from_text("a maximum of \u20a6500,000")
+    # A comma-grouped decimal tail still parses fully.
+    assert 7500.0 in extract_numbers_from_text("Present issue N7,500.00 per copy")
+    # Ungrouped N-prefixed tokens are identifiers, not amounts: no stray
+    # space, no phantom value.
+    n95 = extract_numbers_from_text("wear an N95 respirator")
+    assert 95.0 not in n95
+    # An N glued to a preceding letter is not a naira prefix: the
+    # (?<![A-Za-z0-9]) guard must block the detach. The bare form is the
+    # positive control proving the guard (not something else) is what blocks.
+    assert 2000.0 not in extract_numbers_from_text("code XN2,000 here")
+    assert 2000.0 in extract_numbers_from_text("code N2,000 here")
+
+
 def test_rulespec_grounding_accepts_ghana_cedi_rate_schedule():
     content = """format: rulespec/v1
 module:
