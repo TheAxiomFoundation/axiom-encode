@@ -4173,10 +4173,19 @@ class TestCmdEncode:
         assert exc_info.value.code == 0
         mock_run.assert_called_once()
 
-    def test_encode_non_codex_backend_skips_auth_preflight(self, capsys, tmp_path):
-        """Explicit non-codex backends do not require a Codex auth file."""
-        args = self._make_args(tmp_path, backend="claude")
-        codex_home = tmp_path / "codex-home-empty2"
+    @pytest.mark.parametrize("backend", ["claude", "openai"])
+    def test_encode_non_codex_backend_skips_auth_preflight(
+        self, capsys, tmp_path, backend
+    ):
+        """Explicit non-codex backends do not require a Codex auth file.
+
+        Note: this does not go through the ``_run_encode`` helper, which
+        blanket-patches ``codex_auth_error`` to ``None`` — so it genuinely
+        proves the ``args.backend == "codex"`` guard skips the check for
+        both ``claude`` and ``openai`` in an unauthenticated environment.
+        """
+        args = self._make_args(tmp_path, backend=backend)
+        codex_home = tmp_path / f"codex-home-empty-{backend}"
         codex_home.mkdir()
         with (
             patch(
@@ -4193,7 +4202,7 @@ class TestCmdEncode:
                 cmd_encode(args)
         assert exc_info.value.code == 0
         mock_run.assert_called_once()
-        assert mock_run.call_args.kwargs["runner_specs"] == ["claude:test-model"]
+        assert mock_run.call_args.kwargs["runner_specs"] == [f"{backend}:test-model"]
 
     def test_encode_routes_state_corpus_citation_to_state_monorepo_root(
         self, capsys, tmp_path
