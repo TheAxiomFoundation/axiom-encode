@@ -34798,7 +34798,8 @@ class TestSignAppliedFiles:
             )
         out = capsys.readouterr().out
         assert "Guard would still fail after signing" in out
-        assert "is a new rule file attested by a manual manifest" in out
+        assert "is a new rule file" in out
+        assert "does not record a genuine encoder backend" in out
 
 
 class TestProgramsRootGuarded:
@@ -34871,8 +34872,16 @@ class TestManualExceptionGate:
         base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
         return repo, base_sha
 
+    _BACKEND_UNSET = object()
+
     def _write_manual_manifest(
-        self, repo: Path, rule_rel: str, *, manual_exception=None, content=None
+        self,
+        repo: Path,
+        rule_rel: str,
+        *,
+        manual_exception=None,
+        content=None,
+        backend="manual",
     ) -> None:
         rule = repo / rule_rel
         rule.parent.mkdir(parents=True, exist_ok=True)
@@ -34883,12 +34892,15 @@ class TestManualExceptionGate:
         manifest.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "backend": "manual",
             "runner": "manual-attestation",
             "applied_files": [
                 {"path": rule_rel, "sha256": _sha256_file(rule)},
             ],
         }
+        # `backend=None` writes an explicit null; the sentinel omits the field
+        # entirely (to exercise an absent backend); otherwise write the value.
+        if backend is not self._BACKEND_UNSET:
+            payload["backend"] = backend
         if manual_exception is not None:
             payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] = manual_exception
         manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
@@ -34905,8 +34917,7 @@ class TestManualExceptionGate:
             issues = guard_generated_change_issues(repo, base_ref=base_sha)
 
         assert any(
-            "is a new rule file attested by a manual manifest" in issue
-            and "statutes/be/example.yaml" in issue
+            "is a new rule file" in issue and "statutes/be/example.yaml" in issue
             for issue in issues
         ), issues
 
@@ -34957,10 +34968,7 @@ class TestManualExceptionGate:
         ):
             issues = guard_generated_change_issues(repo, base_ref=base_sha)
 
-        assert any(
-            "is a new rule file attested by a manual manifest" in issue
-            for issue in issues
-        ), issues
+        assert any("is a new rule file" in issue for issue in issues), issues
 
     def test_editing_existing_file_with_manual_manifest_needs_no_marker(self, tmp_path):
         # A manual attestation over a PRE-EXISTING rule file (an edit, not a
@@ -34987,6 +34995,101 @@ class TestManualExceptionGate:
             os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
         ):
             issues = guard_generated_change_issues(repo, base_ref=edit_base)
+
+        assert issues == []
+
+    def test_new_file_introduced_by_rename_without_marker_is_rejected(self, tmp_path):
+        # Bypass regression: a net-new rule file introduced by `git mv` of a
+        # similar donor is reported by git as a rename (R), not an add (A).
+        # The gate must still reject it (encode#1053 review, bypass 1).
+        repo, _base_sha = self._repo(tmp_path)
+        # Commit a donor rule so the new file can be a >=50%-similar rename.
+        self._write_manual_manifest(
+            repo, "statutes/be/donor.yaml", manual_exception="#1053"
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "baseline donor + attested manifest")
+        rename_base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        # git mv the donor to a new path and attest the destination as manual,
+        # no marker. Rename detection makes this an R record, not an A.
+        _git(repo, "mv", "statutes/be/donor.yaml", "statutes/be/smuggled.yaml")
+        # Re-point/refresh the manual manifest onto the renamed destination.
+        (repo / ".axiom/encoding-manifests/statutes/be/donor.json").unlink()
+        self._write_manual_manifest(repo, "statutes/be/smuggled.yaml")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "rename donor into new statute, manual, no marker")
+
+        with patch.dict(
+            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=rename_base)
+
+        assert any(
+            "is a new rule file" in issue and "statutes/be/smuggled.yaml" in issue
+            for issue in issues
+        ), issues
+
+    @pytest.mark.parametrize(
+        "backend",
+        ["", "MANUAL", "manual ", " manual", "handwritten", None, "_BACKEND_UNSET"],
+    )
+    def test_new_file_non_encoder_backend_without_marker_is_rejected(
+        self, tmp_path, backend
+    ):
+        # Bypass regression: the gate is fail-closed. Any backend that is not a
+        # genuine encoder name (empty, absent, mis-cased, space-padded,
+        # unknown) must require a marker for a net-new file (bypass 2).
+        repo, base_sha = self._repo(tmp_path)
+        backend_value = self._BACKEND_UNSET if backend == "_BACKEND_UNSET" else backend
+        self._write_manual_manifest(
+            repo, "statutes/be/example.yaml", backend=backend_value
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", f"new statute, backend={backend!r}, no marker")
+
+        with patch.dict(
+            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
+
+        assert any(
+            "does not record a genuine encoder backend" in issue for issue in issues
+        ), (backend, issues)
+
+    @pytest.mark.parametrize("backend", ["codex", "openai", "claude"])
+    def test_new_file_encoder_backend_needs_no_marker(self, tmp_path, backend):
+        # A net-new file covered by a genuine encoder-backend manifest is
+        # exempt (the encoder-first path). Case-insensitive.
+        repo, base_sha = self._repo(tmp_path)
+        self._write_manual_manifest(
+            repo, "statutes/be/example.yaml", backend=backend.upper()
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", f"new statute via {backend}")
+
+        with patch.dict(
+            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
+
+        assert issues == []
+
+    def test_new_file_deterministic_repair_backend_needs_no_marker(self, tmp_path):
+        # Deterministic-repair manifests (backend: deterministic) are a
+        # recognized machine generator with signed tool/model provenance, so a
+        # new file they produce is exempt without a manual_exception marker.
+        repo, base_sha = self._repo(tmp_path)
+        self._write_manual_manifest(
+            repo, "statutes/be/example.yaml", backend="deterministic"
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "new statute via deterministic repair")
+
+        with patch.dict(
+            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+        ):
+            issues = guard_generated_change_issues(repo, base_ref=base_sha)
 
         assert issues == []
 
@@ -35216,6 +35319,50 @@ class TestSignAppliedFilesBackfill:
         with pytest.raises(SystemExit):
             self._run(repo, manual_exception="nonsense")
         assert "Invalid --manual-exception" in capsys.readouterr().out
+
+    def test_backfill_does_not_clobber_encoder_manifest_via_sibling(
+        self, tmp_path, capsys
+    ):
+        # Bypass regression (encode#1053 review, bypass 3): a main file that is
+        # already covered by a genuine encoder manifest must NOT be downgraded
+        # to backend: manual just because its companion .test.yaml is
+        # unmanifested. --all must skip that group.
+        repo = tmp_path / "rulespec-be"
+        _init_test_git_repo(repo)
+        main_rel = "be/statutes/encoded.yaml"
+        test_rel = "be/statutes/encoded.test.yaml"
+        (repo / main_rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / main_rel).write_text("format: rulespec/v1\nrules: []\n")
+        (repo / test_rel).write_text("cases: []\n")
+        # Encoder manifest covering ONLY the main file (test left unmanifested).
+        manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            json.dumps(
+                _signed_manifest_payload(
+                    {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "backend": "codex",
+                        "model": "gpt-5.5",
+                        "run_id": "ENCODER-RUN-99",
+                        "applied_files": [
+                            {"path": main_rel, "sha256": _sha256_file(repo / main_rel)}
+                        ],
+                    }
+                )
+            )
+            + "\n"
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "encoder main + unmanifested test")
+
+        self._run(repo)
+        capsys.readouterr()
+
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "codex", "encoder manifest was downgraded"
+        assert payload["run_id"] == "ENCODER-RUN-99"
+        assert APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD not in payload
 
 
 class TestManifestCensus:
