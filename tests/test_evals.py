@@ -8570,7 +8570,7 @@ rules:
     source: 26 USC 32(c)(2)
     versions:
       - effective_from: '1990-01-01'
-        formula: max(0, wages - subsidized_state_work_activity_amounts_received)
+        formula: max(0, wages - subsidized_state_work_activity_service_compensation)
 """
         )
         workspace = prepare_eval_workspace(

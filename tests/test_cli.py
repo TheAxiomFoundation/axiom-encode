@@ -9942,7 +9942,7 @@ rules:
     end: '2026-12-31'
   input:
     us:statutes/26/24/d#input.qualifying_children_count: 2
-    us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 20000
+    us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income: 20000
     us:statutes/26/1401#input.self_employment_income: 0
   output:
     us:statutes/26/24/d#refundable_ctc: 2550
@@ -9974,7 +9974,7 @@ rules:
         assert "us:statutes/26/1401#input.self_employment_income" not in repaired
         assert "us:statutes/26/24/d#input.qualifying_children_count" in repaired
         assert (
-            "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+            "us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income"
             in repaired
         )
 
