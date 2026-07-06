@@ -185,13 +185,29 @@ from .repo_routing import (
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
 DEFAULT_GPT_RUNNER = f"codex:{DEFAULT_OPENAI_MODEL}"
-RULESPEC_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
+RULESPEC_SOURCE_ROOTS = {"policies", "programs", "regulations", "statutes"}
 APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
 APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v1"
 APPLIED_ENCODING_SIGNING_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "hmac-sha256"
 APPLIED_ENCODING_SIGNATURE_KEY_ID = "axiom-encode-apply-v1"
 APPLIED_ENCODING_DELETED_MARKER = "deleted"
+# Manual attestations (backend: "manual") may not introduce NEW rule files
+# unless they declare why hand-authoring is allowed. Net-new statutory
+# encoding must come from an encoder run; hand-authoring stays legal only for
+# composition/oracle plumbing, validator-driven repairs, test fixtures, or a
+# named issue that tracks the exception. See encode#1053.
+APPLIED_ENCODING_MANUAL_BACKEND = "manual"
+APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD = "manual_exception"
+APPLIED_ENCODING_MANUAL_EXCEPTION_CLASSES = frozenset(
+    {"composition", "repair", "fixtures"}
+)
+# An issue reference such as "#1060", "encode#1060", or a bare
+# "TheAxiomFoundation/axiom-encode#1060".
+_APPLIED_ENCODING_ISSUE_REF_RE = re.compile(
+    r"^(?:[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?)?#[0-9]+$",
+    re.IGNORECASE,
+)
 
 
 def _resolve_repo_checkout(name: str) -> Path:
@@ -1109,6 +1125,44 @@ def main():
     )
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
+    )
+
+    manifest_census_parser = subparsers.add_parser(
+        "manifest-census",
+        help=(
+            "Report encoder-generated vs manual vs unmanifested coverage for "
+            "a rulespec repo's rule-bearing files (provenance drift stat)"
+        ),
+    )
+    manifest_census_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository to inspect",
+    )
+    manifest_census_parser.add_argument(
+        "--roots",
+        default=" ".join(sorted(RULESPEC_SOURCE_ROOTS)),
+        help="Space-separated RuleSpec roots to census",
+    )
+    manifest_census_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full census as JSON instead of a summary line",
+    )
+    manifest_census_parser.add_argument(
+        "--badge",
+        action="store_true",
+        help=(
+            "Emit a Shields endpoint badge JSON (encoder-generated share) "
+            "instead of the full census"
+        ),
+    )
+    manifest_census_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the JSON/badge output to this path (durable badge file)",
     )
 
     retire_parser = subparsers.add_parser(
@@ -2755,6 +2809,29 @@ def main():
         action="store_true",
         help="List the manifests that would be written without signing",
     )
+    sign_applied_files_parser.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "Attest every existing protected RuleSpec file in the repo that "
+            "lacks a valid manifest, rather than only files changed vs a base "
+            "ref. Use for backfilling a corpus that has no manifests."
+        ),
+    )
+    sign_applied_files_parser.add_argument(
+        "--roots",
+        default=" ".join(sorted(RULESPEC_SOURCE_ROOTS)),
+        help="Space-separated RuleSpec roots to attest (used with --all)",
+    )
+    sign_applied_files_parser.add_argument(
+        "--manual-exception",
+        default=None,
+        help=(
+            "Record a manual_exception marker on every written manifest "
+            "(composition | repair | fixtures | <issue-ref>). Required when "
+            "attesting NEW rule files under the encoder-first guard."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -2811,6 +2888,8 @@ def main():
         cmd_retire(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
+    elif args.command == "manifest-census":
+        cmd_manifest_census(args)
     elif args.command == "repair-nonnegative-floors":
         cmd_repair_nonnegative_floors(args)
     elif args.command == "repair-current-year-final-amounts":
@@ -4940,6 +5019,104 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+def _manifest_census(repo_path: Path, *, roots: tuple[str, ...]) -> dict[str, object]:
+    """Compute encoder-generated vs manual vs unmanifested rule-file counts.
+
+    A file is ``encoder`` when a signature-valid manifest with a non-manual
+    backend records its current sha256; ``manual`` when such a manifest has
+    ``backend: manual``; otherwise ``unmanifested``. Companion ``.test.yaml``
+    files are counted alongside their main rule file.
+    """
+    protected = _all_protected_rulespec_yaml_paths(repo_path, roots=roots)
+    manifest_paths = _all_applied_encoding_manifest_paths(repo_path, roots=roots)
+    surviving = [path for path in manifest_paths if (repo_path / path).exists()]
+    entries, _issues = _load_applied_encoding_manifest_entries(
+        repo_path, surviving, roots=roots
+    )
+    manual_files = _manual_attestation_files_by_manifest(
+        repo_path, surviving, roots=roots
+    )
+    encoder = manual = unmanifested = 0
+    unmanifested_paths: list[str] = []
+    for path in protected:
+        current = repo_path / path
+        expected_hashes = entries.get(path)
+        covered = bool(
+            expected_hashes
+            and current.exists()
+            and APPLIED_ENCODING_DELETED_MARKER not in expected_hashes
+            and _sha256_file(current) in expected_hashes
+        )
+        if not covered:
+            unmanifested += 1
+            unmanifested_paths.append(path)
+        elif path in manual_files:
+            manual += 1
+        else:
+            encoder += 1
+    total = len(protected)
+    encoder_pct = round(100.0 * encoder / total, 1) if total else 0.0
+    return {
+        "repo": _repo_census_label(repo_path),
+        "roots": list(roots),
+        "total": total,
+        "encoder": encoder,
+        "manual": manual,
+        "unmanifested": unmanifested,
+        "encoder_pct": encoder_pct,
+        "unmanifested_paths": unmanifested_paths,
+    }
+
+
+def _repo_census_label(repo_path: Path) -> str:
+    return canonical_rulespec_repo_name(repo_path) or repo_path.name
+
+
+def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
+    """Render a Shields endpoint badge JSON for the encoder-generated share."""
+    pct = census.get("encoder_pct", 0.0)
+    total = census.get("total", 0)
+    if not total:
+        color = "lightgrey"
+    elif isinstance(pct, (int, float)) and pct >= 90:
+        color = "brightgreen"
+    elif isinstance(pct, (int, float)) and pct >= 50:
+        color = "yellow"
+    else:
+        color = "orange"
+    return {
+        "schemaVersion": 1,
+        "label": "encoder-generated",
+        "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
+        "color": color,
+    }
+
+
+def cmd_manifest_census(args):
+    """Report per-repo encoder-generated / manual / unmanifested coverage."""
+    repo_path = Path(args.repo).resolve()
+    roots = tuple(sorted(set(str(args.roots).split()) or RULESPEC_SOURCE_ROOTS))
+    census = _manifest_census(repo_path, roots=roots)
+    if getattr(args, "badge", False):
+        output = json.dumps(_manifest_census_badge(census), indent=2) + "\n"
+    elif getattr(args, "json", False):
+        output = json.dumps(census, indent=2, sort_keys=True) + "\n"
+    else:
+        output = (
+            f"{census['repo']}: {census['encoder_pct']}% encoder-generated "
+            f"({census['encoder']}/{census['total']}); "
+            f"manual={census['manual']} unmanifested={census['unmanifested']}\n"
+        )
+    out_path = getattr(args, "out", None)
+    if out_path is not None:
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output)
+        print(f"wrote {out_path}")
+    else:
+        print(output, end="")
 
 
 COLORADO_SNAP_FEDERAL_REF_REPAIR_MODEL = "colorado-snap-federal-refs-v1"
@@ -25884,10 +26061,76 @@ def guard_generated_change_issues(
             issues.append(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
+
+    # Exception-marker gate: a `backend: manual` manifest may attest edits to
+    # existing rule files, but it may NOT introduce a NEW rule file unless it
+    # declares why hand-authoring is allowed. Net-new statutory encoding must
+    # come from an encoder run. This is only checkable against a base ref, so
+    # it runs in the changed-files path, not full-repo (`all_files`) mode.
+    if not all_files:
+        issues.extend(
+            _manual_exception_gate_issues(
+                repo_path,
+                protected=protected,
+                surviving_manifest_paths=surviving_manifest_paths,
+                roots=roots,
+                base_ref=base_ref,
+                head_ref=head_ref,
+            )
+        )
+
     if issues:
         issues.extend(
             f"{Path(path).as_posix()} does not exist in the working tree"
             for path in missing_manifest_paths
+        )
+    return issues
+
+
+def _manual_exception_gate_issues(
+    repo_path: Path,
+    *,
+    protected: list[str],
+    surviving_manifest_paths: list[str],
+    roots: tuple[str, ...],
+    base_ref: str | None,
+    head_ref: str,
+) -> list[str]:
+    """Reject manual manifests that introduce new rule files without a marker.
+
+    Detecting "new" requires a git diff for the added-file set; when the repo
+    is not a usable git checkout the gate is skipped (the content/coverage
+    gate above still holds). Only files added since ``base_ref`` and covered
+    by a ``backend: manual`` manifest are checked.
+    """
+    if not (repo_path / ".git").exists():
+        return []
+    try:
+        added_files = _git_added_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+    except RuntimeError:
+        return []
+    if not added_files:
+        return []
+    manual_files = _manual_attestation_files_by_manifest(
+        repo_path, surviving_manifest_paths, roots=roots
+    )
+    issues: list[str] = []
+    for path in protected:
+        if path not in added_files:
+            continue
+        metadata = manual_files.get(path)
+        if metadata is None:
+            continue
+        if _manual_exception_marker_is_valid(metadata.get("manual_exception")):
+            continue
+        allowed = ", ".join(sorted(APPLIED_ENCODING_MANUAL_EXCEPTION_CLASSES))
+        issues.append(
+            f"{path} is a new rule file attested by a manual manifest "
+            f"({metadata['manifest']}) without a valid "
+            f"'{APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD}' marker. Net-new "
+            "statutory encoding must come from an encoder run; hand-authoring "
+            f"a new rule file requires {APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD}: "
+            f"one of [{allowed}] or an issue reference such as '#1060'."
         )
     return issues
 
@@ -26020,6 +26263,123 @@ def _applied_encoding_manifest_root_prefix(
     ):
         return parts[0]
     return None
+
+
+def _git_added_files(
+    repo_path: Path, *, base_ref: str | None, head_ref: str
+) -> set[str]:
+    """Return files added (git status A) between base_ref and head_ref.
+
+    Used by the manual-attestation exception gate to distinguish net-new rule
+    files from edits to existing ones. When no base ref is available (a
+    working-tree diff), untracked files count as additions.
+    """
+    if base_ref:
+        diff_range = f"{base_ref}...{head_ref}"
+        command = ["git", "diff", "--name-only", "--diff-filter=A", diff_range]
+    else:
+        command = ["git", "diff", "--name-only", "--diff-filter=A", head_ref]
+    completed = subprocess.run(
+        command,
+        cwd=repo_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0 and base_ref:
+        completed = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=A", base_ref, head_ref],
+            cwd=repo_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "git diff failed")
+    added = {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+    if base_ref is None:
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=repo_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if untracked.returncode == 0:
+            added.update(
+                line.strip() for line in untracked.stdout.splitlines() if line.strip()
+            )
+    return added
+
+
+def _manual_exception_marker_is_valid(value: object) -> bool:
+    """Return True when a manual_exception marker names an allowed class/ref."""
+    if not isinstance(value, str):
+        return False
+    marker = value.strip()
+    if not marker:
+        return False
+    if marker in APPLIED_ENCODING_MANUAL_EXCEPTION_CLASSES:
+        return True
+    return bool(_APPLIED_ENCODING_ISSUE_REF_RE.match(marker))
+
+
+def _manual_attestation_files_by_manifest(
+    repo_path: Path,
+    manifest_paths: list[str],
+    *,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+) -> dict[str, dict[str, object]]:
+    """Map each non-deleted covered file to its manifest's manual metadata.
+
+    Returns ``{prefixed_file_path: {"manifest": label, "backend": str,
+    "manual_exception": value}}`` for manifests whose ``backend`` is
+    ``"manual"``. Encoder-generated manifests are ignored here; the content
+    hash gate already covers them. Signature/schema validity is enforced
+    separately by ``_load_applied_encoding_manifest_entries`` in the same
+    guard pass, so this loader stays permissive and only reads fields.
+    """
+    result: dict[str, dict[str, object]] = {}
+    for manifest_path in manifest_paths:
+        root_prefix = _applied_encoding_manifest_root_prefix(
+            Path(manifest_path), roots=roots
+        )
+        if root_prefix is None:
+            continue
+        path = repo_path / manifest_path
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+            continue
+        backend = str(payload.get("backend") or "")
+        if backend != APPLIED_ENCODING_MANUAL_BACKEND:
+            continue
+        manual_exception = payload.get(APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD)
+        applied_files = payload.get("applied_files")
+        if not isinstance(applied_files, list):
+            continue
+        for item in applied_files:
+            if not isinstance(item, dict):
+                continue
+            file_path = item.get("path")
+            if not isinstance(file_path, str):
+                continue
+            if item.get("deleted") is True:
+                continue
+            prefixed = _prefix_applied_manifest_path(file_path, root_prefix)
+            result[prefixed] = {
+                "manifest": Path(manifest_path).as_posix(),
+                "backend": backend,
+                "manual_exception": manual_exception,
+            }
+    return result
 
 
 def _load_applied_encoding_manifest_entries(
@@ -44101,6 +44461,7 @@ def _write_applied_encoding_manifest(
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     manifest_path = content_root / _applied_encoding_manifest_path(relative_output)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    supersedes = _prior_manifest_supersedes_record(manifest_path)
     context_manifest_raw = str(getattr(result, "context_manifest_file", "") or "")
     trace_file_raw = str(getattr(result, "trace_file", "") or "")
     output_file_raw = str(getattr(result, "output_file", "") or "")
@@ -44153,9 +44514,55 @@ def _write_applied_encoding_manifest(
             for path in unique_applied_files
         ],
     }
+    if supersedes is not None:
+        payload["supersedes"] = supersedes
+    manual_exception = getattr(result, "manual_exception", None)
+    if isinstance(manual_exception, str) and manual_exception.strip():
+        payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] = manual_exception.strip()
     _sign_applied_encoding_manifest(payload, signing_key)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return manifest_path
+
+
+def _prior_manifest_supersedes_record(manifest_path: Path) -> dict[str, object] | None:
+    """Summarize the manifest currently at ``manifest_path``, if any.
+
+    ``sign-applied-files`` and the deterministic repairs overwrite the manifest
+    in place, which would otherwise erase the generation record of an
+    encoder-generated rule that was later hand-repaired. Embedding a compact
+    record of the prior manifest keeps provenance a chain rather than a
+    snapshot: 'encoder-generated then hand-repaired' stays distinguishable from
+    'hand-written from scratch'. Returns ``None`` when there is no prior
+    manifest (from-scratch), or when the existing file is unreadable.
+    """
+    if not manifest_path.exists():
+        return None
+    try:
+        raw = manifest_path.read_text()
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    signature = payload.get("signature")
+    prior_signature = signature.get("value") if isinstance(signature, dict) else None
+    record: dict[str, object] = {
+        # sha256 of the exact prior manifest bytes; a stable content id even
+        # if the prior manifest predates any of the fields below.
+        "manifest_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        "backend": payload.get("backend"),
+        "run_id": payload.get("run_id"),
+        "generation_prompt_sha256": payload.get("generation_prompt_sha256"),
+        "generated_at": payload.get("generated_at"),
+        "tool": payload.get("tool"),
+        "prior_signature": prior_signature,
+    }
+    # Chain the prior manifest's own supersedes record so a multi-step
+    # history (encode -> repair -> re-attest) stays fully linked.
+    prior_supersedes = payload.get("supersedes")
+    if prior_supersedes is not None:
+        record["supersedes"] = prior_supersedes
+    return record
 
 
 def _applied_encoding_manifest_path(relative_output: Path) -> Path:
@@ -49579,6 +49986,57 @@ def cmd_sync_applied_runs(args):
         sys.exit(1)
 
 
+def _sign_applied_backfill_targets(
+    repo_path: Path, *, roots: tuple[str, ...]
+) -> list[str]:
+    """Return protected files (main + companion test) lacking a valid manifest.
+
+    Used by ``sign-applied-files --all`` to backfill a corpus that has no (or
+    partial) manifests. Files already covered by a signature-valid manifest
+    whose recorded sha256 matches the current content are skipped, so the
+    command is idempotent and never clobbers encoder-generated provenance.
+    """
+    protected = _all_protected_rulespec_yaml_paths(repo_path, roots=roots)
+    if not protected:
+        return []
+    manifest_paths = _all_applied_encoding_manifest_paths(repo_path, roots=roots)
+    surviving = [path for path in manifest_paths if (repo_path / path).exists()]
+    entries, issues = _load_applied_encoding_manifest_entries(
+        repo_path, surviving, roots=roots
+    )
+    # If the signing key is unavailable the loader returns an env-var issue;
+    # treat all files as needing attestation (the caller requires the key
+    # before writing anyway) rather than silently skipping coverage.
+    if issues and any(APPLIED_ENCODING_SIGNING_KEY_ENV in issue for issue in issues):
+        entries = {}
+    targets: list[str] = []
+    for path in protected:
+        expected_hashes = entries.get(path)
+        if expected_hashes:
+            current = repo_path / path
+            if (
+                current.exists()
+                and APPLIED_ENCODING_DELETED_MARKER not in expected_hashes
+                and _sha256_file(current) in expected_hashes
+            ):
+                continue
+        targets.append(path)
+    # Pull in companion test files for each main target so a manifest group
+    # covers the pair, matching the changed-files path's grouping.
+    result: set[str] = set()
+    for path in targets:
+        result.add(path)
+        if path.endswith(".test.yaml"):
+            main_rel = f"{path[: -len('.test.yaml')]}.yaml"
+            if (repo_path / main_rel).exists():
+                result.add(main_rel)
+        else:
+            test_rel = f"{path[: -len('.yaml')]}.test.yaml"
+            if (repo_path / test_rel).exists():
+                result.add(test_rel)
+    return sorted(result)
+
+
 def cmd_sign_applied_files(args):
     """Write signed apply manifests attesting existing RuleSpec files.
 
@@ -49595,24 +50053,48 @@ def cmd_sign_applied_files(args):
         print(f"Not a git checkout: {repo_path}")
         sys.exit(1)
 
-    try:
-        changed = _git_changed_files(
-            repo_path, base_ref=args.base_ref, head_ref=args.head_ref
+    manual_exception = getattr(args, "manual_exception", None)
+    if manual_exception is not None and not _manual_exception_marker_is_valid(
+        manual_exception
+    ):
+        allowed = ", ".join(sorted(APPLIED_ENCODING_MANUAL_EXCEPTION_CLASSES))
+        print(
+            f"Invalid --manual-exception '{manual_exception}'. Use one of "
+            f"[{allowed}] or an issue reference such as '#1060'."
         )
-    except RuntimeError as exc:
-        print(str(exc))
         sys.exit(1)
 
-    roots = tuple(sorted(RULESPEC_SOURCE_ROOTS))
-    protected = [
-        path
-        for path in changed
-        if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
-        and (repo_path / path).exists()
-    ]
-    if not protected:
-        print("No protected RuleSpec changes to attest.")
-        return
+    all_files = bool(getattr(args, "all", False))
+    roots = tuple(
+        sorted(
+            set(str(getattr(args, "roots", "") or "").split()) or RULESPEC_SOURCE_ROOTS
+        )
+    )
+
+    if all_files:
+        protected = _sign_applied_backfill_targets(repo_path, roots=roots)
+        if not protected:
+            print("No unmanifested protected RuleSpec files to attest.")
+            return
+        changed: list[str] = list(protected)
+    else:
+        try:
+            changed = _git_changed_files(
+                repo_path, base_ref=args.base_ref, head_ref=args.head_ref
+            )
+        except RuntimeError as exc:
+            print(str(exc))
+            sys.exit(1)
+
+        protected = [
+            path
+            for path in changed
+            if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+            and (repo_path / path).exists()
+        ]
+        if not protected:
+            print("No protected RuleSpec changes to attest.")
+            return
 
     groups: dict[str, list[str]] = {}
     for path in protected:
@@ -49660,6 +50142,7 @@ def cmd_sign_applied_files(args):
                 generation_prompt_sha256=None,
                 trace_file=None,
                 context_manifest_file=None,
+                manual_exception=manual_exception,
             )
             manifest_paths.append(
                 _write_applied_encoding_manifest(
@@ -49679,15 +50162,24 @@ def cmd_sign_applied_files(args):
     for manifest_path in manifest_paths:
         print(f"signed {manifest_path.relative_to(repo_path).as_posix()}")
 
-    issues = guard_generated_change_issues(
-        repo_path,
-        base_ref=args.base_ref,
-        head_ref=args.head_ref,
-        changed_files=sorted(
-            set(changed)
-            | {path.relative_to(repo_path).as_posix() for path in manifest_paths}
-        ),
-    )
+    if all_files:
+        # No base ref to diff against; verify the newly written manifests
+        # satisfy the guard across the whole repo (content-hash coverage).
+        issues = guard_generated_change_issues(
+            repo_path,
+            roots=roots,
+            all_files=True,
+        )
+    else:
+        issues = guard_generated_change_issues(
+            repo_path,
+            base_ref=args.base_ref,
+            head_ref=args.head_ref,
+            changed_files=sorted(
+                set(changed)
+                | {path.relative_to(repo_path).as_posix() for path in manifest_paths}
+            ),
+        )
     if issues:
         print("Guard would still fail after signing:")
         for issue in issues:
