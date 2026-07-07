@@ -870,9 +870,11 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
     ) == {
         "employee_compensation_includible_in_gross_income": 23_000,
         # Head 2,500 + 300 + 450 and spouse 750 - 50 of NESE, net of the
-        # 1402(a)(12) deduction: 3,950 x (1 - 0.5 x (0.124 + 0.029)).
+        # 32(c)(2)(A)(ii)/164(f) deduction: one-half of the SECA tax actually
+        # imposed, i.e. 0.5 x 15.3% applied to 92.35% of profits, so
+        # 3,950 x (1 - 0.5 x (0.124 + 0.029) x (1 - 0.5 x (0.124 + 0.029))).
         "net_earnings_from_self_employment_after_self_employment_tax_deduction": (
-            3_647.825
+            3_670.9413875
         ),
         "pension_or_annuity_amount": 0,
         "nonresident_alien_income_not_connected_with_united_states_business": 0,
