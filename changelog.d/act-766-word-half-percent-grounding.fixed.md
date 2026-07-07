@@ -1,0 +1,1 @@
+Ground word-form half percentage rates ("five and half per centum", "eighteen and a half per centum") in source-text numeric extraction; bare "half"/"a half" are accepted only next to an explicit percentage marker. Unblocks the Ghana Act 766 SSNIT contribution rates (5.5/13.5/18.5%).

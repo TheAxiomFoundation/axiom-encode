@@ -6280,6 +6280,76 @@ def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words
     )
 
 
+def test_rulespec_grounding_accepts_word_form_half_percentage_rates():
+    # Ghana's National Pensions Act, 2008 (Act 766) s.3 drafts every half
+    # rate in words, in two variants within the same section: "five and half
+    # per centum" and "eighteen and a half per centum".
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: gh/statute/act-766/national-pensions-2008/section-3-contributions-to-the-scheme
+rules:
+  - name: worker_contribution_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-12-12'
+        formula: '0.055'
+  - name: employer_contribution_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-12-12'
+        formula: '0.13'
+  - name: total_contribution_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-12-12'
+        formula: '0.185'
+  - name: first_tier_remittance_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-12-12'
+        formula: '0.135'
+  - name: second_tier_remittance_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2008-12-12'
+        formula: '0.05'
+"""
+
+    source_text = (
+        "a worker's contribution of an amount equal to five and half per "
+        "centum of the worker's salary for the period. "
+        "an employer's contribution of an amount equal to thirteen per "
+        "centum of the worker's salary during the month. "
+        "Out of the total contribution of eighteen and a half per centum an "
+        "employer shall transfer thirteen and half per centum to the first "
+        "tier mandatory basic national social security scheme; and five per "
+        "centum to the second tier mandatory occupational pension scheme."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    numbers = extract_numbers_from_text(source_text)
+    for expected in (0.055, 0.135, 0.185):
+        assert any(math.isclose(value, expected) for value in numbers)
+
+
+def test_numeric_extraction_word_half_requires_percentage_context():
+    # A bare fraction word grounds 0.5% only next to a percentage marker;
+    # ordinary prose halves stay unextracted.
+    assert any(
+        math.isclose(value, 0.005)
+        for value in extract_numbers_from_text("a levy of half per centum")
+    )
+    prose_numbers = extract_numbers_from_text("during the first half of the year")
+    assert not any(math.isclose(value, 0.5) for value in prose_numbers)
+    assert not any(math.isclose(value, 0.005) for value in prose_numbers)
+
+
 def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     # The Ghana cedi symbol glued to a grouped-thousands amount ("GH¢5,880")
     # must still yield the full value, not just the trailing "880". Mirrors
