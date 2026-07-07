@@ -165,6 +165,14 @@ from .oracles.policyengine.medicaid_populace import (
 from .oracles.policyengine.medicaid_populace import (
     main as run_medicaid_populace_compare,
 )
+from .oracles.policyengine.pending import (
+    PendingDeclarationError,
+    apply_pending_to_report,
+    load_pending_declarations,
+    load_pending_files,
+    ratchet_problems,
+    sync_repo_pending,
+)
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .oracles.policyengine.us_populace import (
@@ -848,7 +856,89 @@ def main():
         ),
     )
     oracle_coverage_parser.add_argument(
+        "--fail-on-stale-pending",
+        action="store_true",
+        help=(
+            "Exit non-zero when an oracle-coverage-pending.yaml declaration is "
+            "stale (its output is no longer unmapped and must be removed)"
+        ),
+    )
+    oracle_coverage_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
+    )
+
+    # oracle-coverage-pending command — declared-pending lane for bulk encoding
+    pending_parser = subparsers.add_parser(
+        "oracle-coverage-pending",
+        help=(
+            "Manage the declared oracle-coverage pending lane "
+            "(oracle-coverage-pending.yaml): check the ratchet or sync a repo."
+        ),
+    )
+    pending_sub = pending_parser.add_subparsers(dest="pending_command", required=True)
+
+    pending_check = pending_sub.add_parser(
+        "check",
+        help=(
+            "Enforce the pending ratchet: fail on undeclared unmapped outputs, "
+            "stale declarations, or ceiling overflow."
+        ),
+    )
+    pending_check.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rulespec-* repos",
+    )
+    pending_check.add_argument(
+        "--program",
+        default=None,
+        help="Restrict the ratchet to a program label such as snap or tax",
+    )
+    pending_check.add_argument(
+        "--repo",
+        default=None,
+        help=(
+            "Scope the ratchet to one repository directory name (e.g. "
+            "rulespec-uk) so its CI does not couple to another repo's coverage"
+        ),
+    )
+    pending_check.add_argument(
+        "--json", action="store_true", help="Output the pending summary as JSON"
+    )
+
+    pending_sync = pending_sub.add_parser(
+        "sync",
+        help=(
+            "Rewrite a repo's oracle-coverage-pending.yaml to exactly its "
+            "current unmapped outputs (bulk-lane dispatcher step)."
+        ),
+    )
+    pending_sync.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rulespec-* repos",
+    )
+    pending_sync.add_argument(
+        "--repo",
+        required=True,
+        help="Repository directory name to sync, e.g. rulespec-uk",
+    )
+    pending_sync.add_argument(
+        "--source",
+        default="bulk",
+        help="Source label recorded for newly declared outputs (default: bulk)",
+    )
+    pending_sync.add_argument(
+        "--since",
+        default=None,
+        help="ISO date recorded for newly declared outputs (default: today)",
+    )
+    pending_sync.add_argument(
+        "--issue",
+        default=None,
+        help="Tracking issue URL to record in the file",
     )
 
     # classify command — emit us.yaml mapping entries for a state's encoded outputs
@@ -2866,6 +2956,8 @@ def main():
         cmd_interval_table_audit(args)
     elif args.command == "oracle-coverage":
         cmd_oracle_coverage(args)
+    elif args.command == "oracle-coverage-pending":
+        cmd_oracle_coverage_pending(args)
     elif args.command == "oracle-candidates":
         cmd_oracle_candidates(args)
     elif args.command == "cloud-queue":
@@ -4500,11 +4592,25 @@ def cmd_oracle_coverage(args):
     fail_on_incomplete_comparable = (
         getattr(args, "fail_on_incomplete_comparable", False) is True
     )
+    fail_on_stale_pending = getattr(args, "fail_on_stale_pending", False) is True
     report = build_policyengine_coverage_report(
         root,
         program=args.program,
         include_program_surfaces=include_program_surfaces,
     )
+
+    # Reclassify declared-pending outputs (oracle-coverage-pending.yaml) from
+    # ``unmapped`` to ``pending_classification`` before any pass/fail decision,
+    # so ``--fail-on-unmapped`` and the changed-file JSON gate both see a
+    # declared output as accountable pending debt rather than a silent gap.
+    try:
+        pending_summary = apply_pending_to_report(
+            report, load_pending_declarations(root)
+        )
+    except PendingDeclarationError as error:
+        print(f"oracle-coverage-pending error: {error}", file=sys.stderr)
+        sys.exit(2)
+    stale_pending = list(pending_summary.get("stale") or [])
 
     unmapped = int(report["status_counts"].get("unmapped", 0))
     untested_comparable = int(report.get("untested_comparable", 0))
@@ -4519,6 +4625,7 @@ def cmd_oracle_coverage(args):
         (args.fail_on_unmapped and unmapped)
         or (args.fail_on_untested_comparable and untested_comparable)
         or (fail_on_incomplete_comparable and incomplete_comparable)
+        or (fail_on_stale_pending and stale_pending)
         or (
             fail_on_pending_program_surfaces
             and include_program_surfaces
@@ -4540,6 +4647,17 @@ def cmd_oracle_coverage(args):
         print(f"Program: {args.program}")
     print(f"Executable outputs: {report['total_outputs']}")
     print(f"Status: {_format_counter(report['status_counts'])}")
+    if pending_summary.get("declared"):
+        print(
+            "Declared pending classification: "
+            f"{len(pending_summary['applied'])} applied of "
+            f"{pending_summary['declared']} declared "
+            f"({_format_counter(pending_summary['sources'])})"
+        )
+        if stale_pending:
+            print(f"Stale pending declarations ({len(stale_pending)}) — remove them:")
+            for row in stale_pending[: args.limit]:
+                print(f"  - {row['legal_id']}: {row['reason']}")
     print(f"Untested comparable outputs: {untested_comparable}")
     print(f"Incomplete comparable outputs: {incomplete_comparable}")
     print(f"Programs: {_format_counter(report['program_counts'])}")
@@ -4769,6 +4887,86 @@ def cmd_cloud_queue(args):
             print(f"  - ... {len(items) - args.limit} more")
 
     sys.exit(0)
+
+
+def cmd_oracle_coverage_pending(args):
+    """Check the pending ratchet or sync a repo's declared-pending file."""
+    root = (args.root or _default_rulespec_inventory_root()).resolve()
+
+    if args.pending_command == "check":
+        report = build_policyengine_coverage_report(root, program=args.program)
+        try:
+            files = load_pending_files(root)
+            apply_pending_to_report(report, _declarations_or_raise(files))
+            problems = ratchet_problems(report, files, repo=args.repo)
+        except PendingDeclarationError as error:
+            print(f"oracle-coverage-pending error: {error}", file=sys.stderr)
+            sys.exit(2)
+        pending = report.get("pending") or {}
+        if args.json:
+            print(
+                json.dumps(
+                    {"pending": pending, "problems": problems},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            sys.exit(1 if problems else 0)
+        print("PolicyEngine oracle-coverage pending ratchet")
+        print(f"Root: {root}")
+        print(
+            f"Declared: {pending.get('declared', 0)} "
+            f"applied: {len(pending.get('applied') or [])} "
+            f"stale: {len(pending.get('stale') or [])}"
+        )
+        if problems:
+            print(f"Pending ratchet failed ({len(problems)}):", file=sys.stderr)
+            for problem in problems[:50]:
+                print(f"- {problem}", file=sys.stderr)
+            if len(problems) > 50:
+                print(f"- ... {len(problems) - 50} more", file=sys.stderr)
+            sys.exit(1)
+        print("Pending ratchet passed.")
+        sys.exit(0)
+
+    # sync
+    repo_name = args.repo
+    repo_root = root / repo_name
+    if not repo_root.is_dir():
+        print(f"Repository directory not found: {repo_root}", file=sys.stderr)
+        sys.exit(1)
+    since = args.since or date.today().isoformat()
+    report = build_policyengine_coverage_report(root)
+    unmapped = [
+        item["legal_id"]
+        for item in report.get("items") or []
+        if item.get("status") == "unmapped"
+        and str(item.get("file") or "").split("/", 1)[0] == repo_name
+    ]
+    try:
+        result = sync_repo_pending(
+            repo_root=repo_root,
+            repo_name=repo_name,
+            unmapped_legal_ids=unmapped,
+            source=args.source,
+            since=since,
+            issue=args.issue,
+        )
+    except PendingDeclarationError as error:
+        print(f"oracle-coverage-pending error: {error}", file=sys.stderr)
+        sys.exit(2)
+    verb = "Updated" if result["changed"] else "Unchanged"
+    print(
+        f"{verb} {result['path']}: {result['count']} declared "
+        f"(+{len(result['added'])} added, -{len(result['dropped'])} drained)."
+    )
+    sys.exit(0)
+
+
+def _declarations_or_raise(files):
+    from .oracles.policyengine.pending import declarations_from_files
+
+    return declarations_from_files(files)
 
 
 def cmd_classify(args):
