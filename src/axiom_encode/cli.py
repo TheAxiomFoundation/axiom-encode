@@ -16,6 +16,7 @@ import contextlib
 import copy
 import csv
 import difflib
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -44725,7 +44726,14 @@ def _write_applied_encoding_manifest(
 ) -> Path:
     """Record that live RuleSpec files were installed by the encoder."""
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
-    manifest_path = content_root / _applied_encoding_manifest_path(relative_output)
+    manifest_root, manifest_relative_output = _resolve_applied_manifest_placement(
+        repo_root=Path(policy_repo_path),
+        content_root=content_root,
+        relative_output=relative_output,
+    )
+    manifest_path = manifest_root / _applied_encoding_manifest_path(
+        manifest_relative_output
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     supersedes = _prior_manifest_supersedes_record(manifest_path)
     context_manifest_raw = str(getattr(result, "context_manifest_file", "") or "")
@@ -44740,7 +44748,7 @@ def _write_applied_encoding_manifest(
     unique_applied_files: list[Path] = []
     seen_applied_paths: set[str] = set()
     for path in applied_files:
-        relative_path = path.relative_to(content_root).as_posix()
+        relative_path = path.relative_to(manifest_root).as_posix()
         if relative_path in seen_applied_paths:
             continue
         seen_applied_paths.add(relative_path)
@@ -44774,7 +44782,7 @@ def _write_applied_encoding_manifest(
         else None,
         "applied_files": [
             {
-                "path": path.relative_to(content_root).as_posix(),
+                "path": path.relative_to(manifest_root).as_posix(),
                 "sha256": _sha256_file(path),
             }
             for path in unique_applied_files
@@ -44842,6 +44850,135 @@ def _prior_manifest_supersedes_record(manifest_path: Path) -> dict[str, object] 
 
 def _applied_encoding_manifest_path(relative_output: Path) -> Path:
     return (APPLIED_ENCODING_MANIFEST_DIR / relative_output).with_suffix(".json")
+
+
+REPOSITORY_STRUCTURE_RELATIVE_PATH = Path(".axiom") / "repository-structure.yaml"
+
+
+@lru_cache(maxsize=64)
+def _repository_structure_path_rules(
+    repo_root_str: str,
+) -> tuple[tuple[tuple[str, ...], frozenset[str], frozenset[str]], ...]:
+    """Return ``(patterns, allow_extensions, allow_filenames)`` layout rules.
+
+    Reads ``<repo_root>/.axiom/repository-structure.yaml`` — the same file the
+    repository-structure layout gate enforces in CI. Returns an empty tuple
+    when the file is absent or unparseable so callers treat the layout as
+    unknown and keep prior behavior.
+    """
+    layout_path = Path(repo_root_str) / REPOSITORY_STRUCTURE_RELATIVE_PATH
+    try:
+        doc = yaml.safe_load(layout_path.read_text())
+    except (OSError, yaml.YAMLError):
+        return ()
+    if not isinstance(doc, dict):
+        return ()
+    rules_raw = doc.get("path_rules")
+    if not isinstance(rules_raw, list):
+        return ()
+    rules: list[tuple[tuple[str, ...], frozenset[str], frozenset[str]]] = []
+    for rule in rules_raw:
+        if not isinstance(rule, dict):
+            continue
+        patterns = tuple(str(p) for p in rule.get("patterns", []) if isinstance(p, str))
+        extensions = frozenset(
+            str(e) for e in rule.get("allow_extensions", []) if isinstance(e, str)
+        )
+        filenames = frozenset(
+            str(f) for f in rule.get("allow_filenames", []) if isinstance(f, str)
+        )
+        if patterns:
+            rules.append((patterns, extensions, filenames))
+    return tuple(rules)
+
+
+def _repository_structure_pattern_specificity(pattern: str, relpath: str) -> int | None:
+    """Return a match specificity for ``pattern`` against ``relpath``, or None.
+
+    Supports the directory-glob patterns used by ``repository-structure.yaml``
+    (``uk/**``, ``.axiom/**``, ``uk-*/**``) and plain/file-glob patterns. The
+    returned int is the leading-literal length so callers can prefer the most
+    specific matching rule; ``None`` means no match.
+    """
+    if pattern.endswith("/**"):
+        prefix = pattern[:-3]
+        prefix_parts = [part for part in prefix.split("/") if part]
+        cand_parts = [part for part in relpath.split("/") if part]
+        if len(cand_parts) <= len(prefix_parts):
+            return None
+        for want, have in zip(prefix_parts, cand_parts):
+            if not fnmatch.fnmatch(have, want):
+                return None
+        return len(prefix)
+    if fnmatch.fnmatch(relpath, pattern):
+        return len(pattern)
+    return None
+
+
+def _repository_structure_allows_json_manifest(
+    repo_root: Path, manifest_relpath: str
+) -> bool | None:
+    """Whether the repo layout permits a ``.json`` file at ``manifest_relpath``.
+
+    Returns ``True``/``False`` when a path rule matches (most-specific wins),
+    ``None`` when the layout is unknown (no layout file or no matching rule).
+    Only a definitive ``False`` should relocate a manifest — ``None`` keeps the
+    caller's prior placement.
+    """
+    rules = _repository_structure_path_rules(str(Path(repo_root)))
+    if not rules:
+        return None
+    filename = manifest_relpath.rsplit("/", 1)[-1]
+    best_specificity = -1
+    best_allowed: bool | None = None
+    for patterns, extensions, filenames in rules:
+        for pattern in patterns:
+            specificity = _repository_structure_pattern_specificity(
+                pattern, manifest_relpath
+            )
+            if specificity is None or specificity <= best_specificity:
+                continue
+            best_specificity = specificity
+            best_allowed = (".json" in extensions) or (filename in filenames)
+    return best_allowed
+
+
+def _resolve_applied_manifest_placement(
+    *, repo_root: Path, content_root: Path, relative_output: Path
+) -> tuple[Path, Path]:
+    """Return ``(manifest_root, manifest_relative_output)`` for an apply manifest.
+
+    By default an apply manifest lives beside the installed module under the
+    jurisdiction content root — ``<repo>/uk/.axiom/encoding-manifests/...`` for
+    a country monorepo whose content sits under ``uk/``. When the target repo's
+    ``repository-structure.yaml`` layout gate forbids a ``.json`` under that
+    content-root subtree — as rulespec-uk/-be/-gh do for their bare country
+    directory (``uk/**`` permits only ``.yaml``) — that manifest can never
+    merge. In that case the manifest is relocated to the repo-root
+    ``.axiom/encoding-manifests`` mirror with a jurisdiction-prefixed path
+    (``.axiom/encoding-manifests/uk/...``), the canonical layout that passes
+    both the layout gate (``.axiom/**`` permits ``.json``) and guard-generated
+    (root manifest -> ``root_prefix=""`` -> jurisdiction-prefixed applied_files
+    match the changed ``uk/...`` rule files). Repos whose gate allows ``.json``
+    under the content root (rulespec-us, uk-regional subroots) are unchanged.
+    See issue #1078.
+    """
+    repo_root = Path(repo_root)
+    content_root = Path(content_root)
+    try:
+        content_root_prefix = content_root.relative_to(repo_root)
+    except ValueError:
+        return content_root, relative_output
+    if not content_root_prefix.parts:
+        # Content root is the repo root; the manifest already lands under the
+        # repo-root .axiom tree, so there is nothing to relocate.
+        return content_root, relative_output
+    config_a_relpath = (
+        content_root_prefix / _applied_encoding_manifest_path(relative_output)
+    ).as_posix()
+    if _repository_structure_allows_json_manifest(repo_root, config_a_relpath) is False:
+        return repo_root, content_root_prefix / relative_output
+    return content_root, relative_output
 
 
 def _sha256_file(path: Path) -> str:
