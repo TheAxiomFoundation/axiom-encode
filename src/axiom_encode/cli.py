@@ -44727,7 +44727,6 @@ def _write_applied_encoding_manifest(
     """Record that live RuleSpec files were installed by the encoder."""
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     manifest_root, manifest_relative_output = _resolve_applied_manifest_placement(
-        repo_root=Path(policy_repo_path),
         content_root=content_root,
         relative_output=relative_output,
     )
@@ -44943,18 +44942,38 @@ def _repository_structure_allows_json_manifest(
     return best_allowed
 
 
+def _rulespec_checkout_root(content_root: Path) -> Path:
+    """Return the enclosing ``rulespec-*`` checkout root for a content root.
+
+    A country-monorepo content root is ``<checkout>/<jurisdiction>`` (e.g.
+    ``rulespec-uk/uk``); a legacy checkout's content root is the checkout
+    itself (``rulespec-uk-kingston-upon-thames``). The layout gate
+    (``.axiom/repository-structure.yaml``) and the canonical
+    ``.axiom/encoding-manifests`` tree both live at the checkout root, so
+    manifest placement must be resolved against it — not against the
+    jurisdiction content root that ``encode --apply`` installs modules into.
+    Returns the nearest ``rulespec-*`` ancestor (inclusive), or ``content_root``
+    when none is found.
+    """
+    content_root = Path(content_root)
+    for candidate in (content_root, *content_root.parents):
+        if candidate.name.startswith("rulespec-"):
+            return candidate
+    return content_root
+
+
 def _resolve_applied_manifest_placement(
-    *, repo_root: Path, content_root: Path, relative_output: Path
+    *, content_root: Path, relative_output: Path
 ) -> tuple[Path, Path]:
     """Return ``(manifest_root, manifest_relative_output)`` for an apply manifest.
 
-    By default an apply manifest lives beside the installed module under the
-    jurisdiction content root — ``<repo>/uk/.axiom/encoding-manifests/...`` for
-    a country monorepo whose content sits under ``uk/``. When the target repo's
-    ``repository-structure.yaml`` layout gate forbids a ``.json`` under that
-    content-root subtree — as rulespec-uk/-be/-gh do for their bare country
-    directory (``uk/**`` permits only ``.yaml``) — that manifest can never
-    merge. In that case the manifest is relocated to the repo-root
+    ``encode --apply`` installs modules under the jurisdiction content root
+    (``<checkout>/uk`` for a country monorepo). By default the signed manifest
+    is co-located there (``<checkout>/uk/.axiom/encoding-manifests/...``). When
+    the target repo's ``repository-structure.yaml`` layout gate forbids a
+    ``.json`` under that content-root subtree — as rulespec-uk/-be/-gh do for
+    their bare country directory (``uk/**`` permits only ``.yaml``) — that
+    manifest can never merge. In that case it is relocated to the checkout-root
     ``.axiom/encoding-manifests`` mirror with a jurisdiction-prefixed path
     (``.axiom/encoding-manifests/uk/...``), the canonical layout that passes
     both the layout gate (``.axiom/**`` permits ``.json``) and guard-generated
@@ -44962,22 +44981,31 @@ def _resolve_applied_manifest_placement(
     match the changed ``uk/...`` rule files). Repos whose gate allows ``.json``
     under the content root (rulespec-us, uk-regional subroots) are unchanged.
     See issue #1078.
+
+    The gate and the canonical manifest tree live at the *checkout* root, which
+    is derived from ``content_root``: ``encode --apply`` passes the jurisdiction
+    content root (``<checkout>/uk``) as its policy-repo path, not the checkout
+    root, so the checkout root must be recovered here to find the gate file and
+    anchor the relocated manifest.
     """
-    repo_root = Path(repo_root)
     content_root = Path(content_root)
+    checkout_root = _rulespec_checkout_root(content_root)
     try:
-        content_root_prefix = content_root.relative_to(repo_root)
+        content_root_prefix = content_root.relative_to(checkout_root)
     except ValueError:
         return content_root, relative_output
     if not content_root_prefix.parts:
-        # Content root is the repo root; the manifest already lands under the
-        # repo-root .axiom tree, so there is nothing to relocate.
+        # Content root is the checkout root (legacy flat layout); the manifest
+        # already lands under the checkout-root .axiom tree, nothing to relocate.
         return content_root, relative_output
     config_a_relpath = (
         content_root_prefix / _applied_encoding_manifest_path(relative_output)
     ).as_posix()
-    if _repository_structure_allows_json_manifest(repo_root, config_a_relpath) is False:
-        return repo_root, content_root_prefix / relative_output
+    if (
+        _repository_structure_allows_json_manifest(checkout_root, config_a_relpath)
+        is False
+    ):
+        return checkout_root, content_root_prefix / relative_output
     return content_root, relative_output
 
 
