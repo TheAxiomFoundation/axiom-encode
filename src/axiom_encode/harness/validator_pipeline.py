@@ -825,6 +825,8 @@ _UNICODE_FRACTION_VALUES = {
 _FRACTION_WORD_VALUES = {
     "half time": 0.5,
     "one half": 0.5,
+    "a half": 0.5,
+    "half": 0.5,
     "one third": 1 / 3,
     "two thirds": 2 / 3,
     "one quarter": 0.25,
@@ -844,6 +846,10 @@ _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
     rf"\b({_FRACTION_WORD_PATTERN})\b",
     re.IGNORECASE,
 )
+# Bare "half"/"a half" ground only inside an explicit percentage marker
+# ("five and half per centum", "eighteen and a half per centum"); outside
+# one they would over-extract ordinary prose such as "half of the year".
+_PERCENT_FRACTION_WORD_PATTERN = rf"(?:{_FRACTION_WORD_PATTERN}|a[-\s]+half|half)"
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -3109,7 +3115,7 @@ def _iter_normalized_special_numeric_matches(
 
     for match in re.finditer(
         rf"\b(?:(?P<whole>{_CARDINAL_WORD_SEQUENCE})\s+and\s+)?"
-        rf"(?P<fraction>{_FRACTION_WORD_PATTERN})\s+"
+        rf"(?P<fraction>{_PERCENT_FRACTION_WORD_PATTERN})\s+"
         r"(?:percent|per\s*cent(?:um)?)\b",
         text,
         re.IGNORECASE,
