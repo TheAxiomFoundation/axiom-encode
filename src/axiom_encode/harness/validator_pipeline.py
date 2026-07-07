@@ -19560,7 +19560,7 @@ def _read_local_corpus_provision_file(
 
 
 def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | None:
-    """Select the best body when local corpus files contain duplicate citations."""
+    """Select source text from local corpus records for an exact citation path."""
     body_records = [
         record for record in records if _local_corpus_record_text(record) is not None
     ]
@@ -19574,8 +19574,24 @@ def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | Non
         version = str(record.get("version") or "")
         return (source_as_of, official_source, version)
 
-    selected = max(body_records, key=record_key)
-    return _local_corpus_record_text(selected)
+    best_key = max(record_key(record) for record in body_records)
+    selected_records = [
+        record for record in body_records if record_key(record) == best_key
+    ]
+
+    def selected_order_key(record: dict[str, Any]) -> tuple[int, str, str]:
+        raw_ordinal = record.get("ordinal")
+        ordinal = raw_ordinal if isinstance(raw_ordinal, int) else 0
+        source_id = str(record.get("source_id") or "")
+        heading = str(record.get("heading") or "")
+        return (ordinal, source_id, heading)
+
+    selected_texts = [
+        text
+        for record in sorted(selected_records, key=selected_order_key)
+        if (text := _local_corpus_record_text(record)) is not None
+    ]
+    return "\n\n".join(selected_texts)
 
 
 def _local_corpus_record_text(record: dict[str, Any]) -> str | None:
