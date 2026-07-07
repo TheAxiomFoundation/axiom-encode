@@ -115,7 +115,9 @@ from axiom_encode.cli import (
     _repair_tax_filing_status_branches,
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
+    _repository_structure_allows_json_manifest,
     _require_axiom_encode_version_provenance,
+    _resolve_applied_manifest_placement,
     _resolve_policy_repo_for_corpus_source,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
@@ -4691,6 +4693,267 @@ class TestCmdEncode:
             "regulations/42-cfr/435/601/a.yaml",
             "regulations/42-cfr/435/601/a.test.yaml",
         ]
+
+    # Country-monorepo repos whose repository-structure gate forbids `.json`
+    # under the bare-country content root (rulespec-uk/-be/-gh: `uk/**` allows
+    # only `.yaml`). The signed apply manifest must relocate to the repo-root
+    # `.axiom/encoding-manifests/<juris>/...` mirror (Config C) instead of the
+    # un-mergeable `<juris>/.axiom/...` layout (Config A). See issue #1078.
+    _LAYOUT_JSON_FORBIDDEN_UNDER_JURIS = "\n".join(
+        [
+            "version: 1",
+            "path_rules:",
+            "  - patterns:",
+            '      - ".axiom/**"',
+            "    allow_extensions:",
+            '      - ".json"',
+            '      - ".yaml"',
+            "  - patterns:",
+            '      - "uk/**"',
+            "    allow_extensions:",
+            '      - ".yaml"',
+            "",
+        ]
+    )
+    _LAYOUT_JSON_ALLOWED_UNDER_JURIS = "\n".join(
+        [
+            "version: 1",
+            "path_rules:",
+            "  - patterns:",
+            '      - ".axiom/**"',
+            "    allow_extensions:",
+            '      - ".json"',
+            '      - ".yaml"',
+            "  - patterns:",
+            '      - "us/**"',
+            "    allow_extensions:",
+            '      - ".json"',
+            '      - ".yaml"',
+            "",
+        ]
+    )
+
+    def test_apply_generated_encoding_relocates_manifest_when_layout_forbids_json(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-uk"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "36B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("36B.test.yaml").write_text("[]\n")
+        (policy_repo / "uk").mkdir(parents=True)
+        (policy_repo / ".axiom").mkdir(parents=True)
+        (policy_repo / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = "prompt-sha-256"
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        # Modules still land under the jurisdiction content root (uk/…).
+        target = policy_repo / "uk/statutes/26/36B.yaml"
+        target_test = policy_repo / "uk/statutes/26/36B.test.yaml"
+        # Manifest relocates to the repo-root mirror with a juris-prefixed path.
+        manifest = policy_repo / ".axiom/encoding-manifests/uk/statutes/26/36B.json"
+        assert applied == [target, target_test, manifest]
+        assert target.exists()
+        assert target_test.exists()
+        # The un-mergeable Config-A manifest is never written.
+        assert not (
+            policy_repo / "uk/.axiom/encoding-manifests/statutes/26/36B.json"
+        ).exists()
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "uk/statutes/26/36B.yaml",
+            "uk/statutes/26/36B.test.yaml",
+        ]
+        # Guard reads a repo-root manifest with `root_prefix=""`, so the
+        # jurisdiction-prefixed applied_files match the changed uk/… rule files.
+        from axiom_encode.cli import _applied_encoding_manifest_root_prefix
+
+        manifest_rel = manifest.relative_to(policy_repo)
+        assert _applied_encoding_manifest_root_prefix(manifest_rel, roots=("uk",)) == ""
+        # Encoder provenance is preserved end to end.
+        assert payload["backend"] == "codex"
+        assert payload["model"] == "test-model"
+        assert payload["run_id"] == "run-123"
+        assert payload["generation_prompt_sha256"] == "prompt-sha-256"
+        assert payload["generated_output_sha256"]
+        assert payload["trace_sha256"]
+        assert payload["signature"]["value"]
+        assert all(item["sha256"] for item in payload["applied_files"])
+
+    def test_apply_generated_encoding_keeps_config_a_when_layout_allows_json(
+        self, tmp_path
+    ):
+        # Same juris-stripped generation, but the repo layout permits `.json`
+        # under the content root (rulespec-us), so the manifest stays co-located
+        # (Config A) — placement is decided by the target repo's own gate.
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "36B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("36B.test.yaml").write_text("[]\n")
+        (policy_repo / "us").mkdir(parents=True)
+        (policy_repo / ".axiom").mkdir(parents=True)
+        (policy_repo / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        manifest = policy_repo / "us/.axiom/encoding-manifests/statutes/26/36B.json"
+        assert applied[-1] == manifest
+        assert not (
+            policy_repo / ".axiom/encoding-manifests/us/statutes/26/36B.json"
+        ).exists()
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/36B.yaml",
+            "statutes/26/36B.test.yaml",
+        ]
+
+    def test_repository_structure_allows_json_manifest_respects_layout(self, tmp_path):
+        forbidden = tmp_path / "rulespec-uk"
+        (forbidden / ".axiom").mkdir(parents=True)
+        (forbidden / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
+        )
+        allowed = tmp_path / "rulespec-us"
+        (allowed / ".axiom").mkdir(parents=True)
+        (allowed / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
+        )
+        unknown = tmp_path / "rulespec-none"
+        unknown.mkdir(parents=True)
+
+        assert (
+            _repository_structure_allows_json_manifest(
+                forbidden, "uk/.axiom/encoding-manifests/statutes/26/36B.json"
+            )
+            is False
+        )
+        assert (
+            _repository_structure_allows_json_manifest(
+                allowed, "us/.axiom/encoding-manifests/statutes/26/36B.json"
+            )
+            is True
+        )
+        # No matching rule (bare `.axiom/**` still matches root manifests as
+        # allowed); an unknown layout returns None so callers keep prior placement.
+        assert (
+            _repository_structure_allows_json_manifest(
+                unknown, "uk/.axiom/encoding-manifests/statutes/26/36B.json"
+            )
+            is None
+        )
+
+    def test_resolve_applied_manifest_placement_relocates_only_when_forbidden(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-uk"
+        (repo / ".axiom").mkdir(parents=True)
+        (repo / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
+        )
+        # Content lives under uk/ and the gate forbids `.json` there → relocate.
+        manifest_root, manifest_rel = _resolve_applied_manifest_placement(
+            repo_root=repo,
+            content_root=repo / "uk",
+            relative_output=Path("statutes/26/36B.yaml"),
+        )
+        assert manifest_root == repo
+        assert manifest_rel == Path("uk/statutes/26/36B.yaml")
+
+        # A flat content root (== repo root) is never relocated.
+        manifest_root, manifest_rel = _resolve_applied_manifest_placement(
+            repo_root=repo,
+            content_root=repo,
+            relative_output=Path("statutes/26/36B.yaml"),
+        )
+        assert manifest_root == repo
+        assert manifest_rel == Path("statutes/26/36B.yaml")
+
+        # A layout that permits `.json` under the content root keeps Config A.
+        allowed = tmp_path / "rulespec-us"
+        (allowed / ".axiom").mkdir(parents=True)
+        (allowed / ".axiom" / "repository-structure.yaml").write_text(
+            self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
+        )
+        manifest_root, manifest_rel = _resolve_applied_manifest_placement(
+            repo_root=allowed,
+            content_root=allowed / "us",
+            relative_output=Path("statutes/26/36B.yaml"),
+        )
+        assert manifest_root == allowed / "us"
+        assert manifest_rel == Path("statutes/26/36B.yaml")
 
     def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
         output_root = tmp_path / "out"
