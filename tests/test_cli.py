@@ -35364,6 +35364,56 @@ class TestSignAppliedFilesBackfill:
         assert payload["run_id"] == "ENCODER-RUN-99"
         assert APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD not in payload
 
+    def test_backfill_does_not_shadow_encoder_covered_companion_test(
+        self, tmp_path, capsys
+    ):
+        # Reverse-direction anti-clobber (review CONSIDER 1): main is
+        # unmanifested but its companion .test.yaml has its OWN encoder
+        # manifest. --all must attest only the main and must NOT fold the
+        # already-covered test into a new manual group that shadows it.
+        repo = tmp_path / "rulespec-be"
+        _init_test_git_repo(repo)
+        main_rel = "be/statutes/encoded.yaml"
+        test_rel = "be/statutes/encoded.test.yaml"
+        (repo / main_rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / main_rel).write_text("format: rulespec/v1\nrules: []\n")
+        (repo / test_rel).write_text("cases: []\n")
+        # Encoder manifest covering ONLY the companion test.
+        test_manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.test.json"
+        test_manifest.parent.mkdir(parents=True, exist_ok=True)
+        test_manifest.write_text(
+            json.dumps(
+                _signed_manifest_payload(
+                    {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "backend": "codex",
+                        "run_id": "ENCODER-TEST-77",
+                        "applied_files": [
+                            {"path": test_rel, "sha256": _sha256_file(repo / test_rel)}
+                        ],
+                    }
+                )
+            )
+            + "\n"
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "unmanifested main + encoder-covered test")
+
+        self._run(repo)
+        capsys.readouterr()
+
+        # The test's own encoder manifest is untouched.
+        test_payload = json.loads(test_manifest.read_text())
+        assert test_payload["backend"] == "codex"
+        assert test_payload["run_id"] == "ENCODER-TEST-77"
+        # The new manual manifest for the main covers only the main file,
+        # not the already-covered test.
+        main_manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.json"
+        assert main_manifest.exists()
+        main_payload = json.loads(main_manifest.read_text())
+        assert main_payload["backend"] == "manual"
+        assert [item["path"] for item in main_payload["applied_files"]] == [main_rel]
+
 
 class TestManifestCensus:
     """Per-repo encoder-% census stat (encode#1053, item 5)."""

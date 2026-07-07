@@ -50109,6 +50109,9 @@ def _sign_applied_backfill_targets(
         return rel
 
     # Group by main rule file; skip a group whose main is already covered.
+    # Also skip pulling in a companion test that already has its own valid
+    # manifest, so a new manual group never co-covers (and shadows) an
+    # encoder-covered test artifact.
     main_files = {_main_of(path) for path in protected}
     result: set[str] = set()
     for main_rel in main_files:
@@ -50117,7 +50120,7 @@ def _sign_applied_backfill_targets(
         if (repo_path / main_rel).exists():
             result.add(main_rel)
         test_rel = f"{main_rel[: -len('.yaml')]}.test.yaml"
-        if (repo_path / test_rel).exists():
+        if (repo_path / test_rel).exists() and not _covered(test_rel):
             result.add(test_rel)
     return sorted(result)
 
