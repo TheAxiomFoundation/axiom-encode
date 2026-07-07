@@ -127,6 +127,7 @@ from axiom_encode.cli import (
     _rulespec_anchor_base_for_output,
     _rulespec_apply_content_root,
     _rulespec_base_for_file,
+    _rulespec_checkout_root,
     _rulespec_scalar_matches,
     _scoped_source_text_for_encode_source_id,
     _sha256_file,
@@ -4776,10 +4777,15 @@ class TestCmdEncode:
                 },
             ),
         ):
+            # `cmd_encode` resolves --policy-repo-path to the jurisdiction
+            # content root (`<checkout>/uk`), NOT the checkout root, for a
+            # country-monorepo citation. Pass the content root here so the
+            # relocation is exercised exactly as it runs in the bulk-encode CI
+            # (the checkout root, which holds the gate, is recovered from it).
             applied = _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "uk",
                 run_id="run-123",
             )
 
@@ -4918,23 +4924,25 @@ class TestCmdEncode:
     def test_resolve_applied_manifest_placement_relocates_only_when_forbidden(
         self, tmp_path
     ):
+        # The checkout root (where the gate + canonical manifest tree live) is
+        # derived from the content root: `encode --apply` passes the
+        # jurisdiction content root (`<checkout>/uk`), not the checkout root.
         repo = tmp_path / "rulespec-uk"
         (repo / ".axiom").mkdir(parents=True)
         (repo / ".axiom" / "repository-structure.yaml").write_text(
             self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
         )
-        # Content lives under uk/ and the gate forbids `.json` there → relocate.
+        # Content lives under uk/ and the gate forbids `.json` there → relocate
+        # to the checkout-root mirror, recovered from the content root alone.
         manifest_root, manifest_rel = _resolve_applied_manifest_placement(
-            repo_root=repo,
             content_root=repo / "uk",
             relative_output=Path("statutes/26/36B.yaml"),
         )
         assert manifest_root == repo
         assert manifest_rel == Path("uk/statutes/26/36B.yaml")
 
-        # A flat content root (== repo root) is never relocated.
+        # A flat content root (the checkout root itself) is never relocated.
         manifest_root, manifest_rel = _resolve_applied_manifest_placement(
-            repo_root=repo,
             content_root=repo,
             relative_output=Path("statutes/26/36B.yaml"),
         )
@@ -4948,12 +4956,32 @@ class TestCmdEncode:
             self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
         )
         manifest_root, manifest_rel = _resolve_applied_manifest_placement(
-            repo_root=allowed,
             content_root=allowed / "us",
             relative_output=Path("statutes/26/36B.yaml"),
         )
         assert manifest_root == allowed / "us"
         assert manifest_rel == Path("statutes/26/36B.yaml")
+
+    def test_rulespec_checkout_root_recovers_checkout_from_content_root(self, tmp_path):
+        # Country monorepo: content root is <checkout>/<jurisdiction>.
+        assert (
+            _rulespec_checkout_root(tmp_path / "rulespec-uk" / "uk")
+            == tmp_path / "rulespec-uk"
+        )
+        assert (
+            _rulespec_checkout_root(tmp_path / "rulespec-us" / "us-ga")
+            == tmp_path / "rulespec-us"
+        )
+        # Legacy flat checkout: the content root is the checkout itself.
+        assert (
+            _rulespec_checkout_root(tmp_path / "rulespec-uk-kingston-upon-thames")
+            == tmp_path / "rulespec-uk-kingston-upon-thames"
+        )
+        # Nested checkout: the innermost rulespec-* ancestor wins.
+        nested = tmp_path / "rulespec-uk" / "_axiom" / "rulespec-us" / "us"
+        assert _rulespec_checkout_root(nested) == nested.parent
+        # No rulespec-* ancestor: falls back to the content root unchanged.
+        assert _rulespec_checkout_root(tmp_path / "somewhere") == tmp_path / "somewhere"
 
     def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
         output_root = tmp_path / "out"
