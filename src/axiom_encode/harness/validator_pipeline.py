@@ -3624,6 +3624,12 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     # of a longer token) and the amount is comma-grouped, so identifiers like
     # "N95" or gazette references like "N26" stay untouched.
     text = re.sub(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})", "N ", text)
+    # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
+    # glued to the amount ("200,000/=" and "200,000=" in the Local
+    # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
+    # Strip the glued suffix so grouped-thousands parsing sees a clean
+    # boundary; a spaced "=" (a real equation, "x = 5") is left untouched.
+    text = re.sub(r"(?<=\d)/?=(?=\s|$)", "", text)
     cleaned_lines: list[str] = []
     preserve_split_schedule_value = False
     for line in text.splitlines():

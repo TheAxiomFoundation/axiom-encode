@@ -6371,6 +6371,29 @@ def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     assert 50.0 in extract_numbers_from_text("costs 50¢ per unit")
 
 
+def test_numeric_extraction_handles_uganda_shilling_suffix():
+    # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts
+    # ("Exceeding 100,000= but not exceeding 200,000= 5,000=" in the Local
+    # Governments (Amendment) (No. 2) Act 2008 local-service-tax table).
+    # The suffixed amounts must extract fully.
+    numbers = extract_numbers_from_text(
+        "1 | Exceeding 100,000= but not exceeding 200,000= 5,000= "
+        "9 | Exceeding 900,000= but not exceeding 1,000,000= 90,000= "
+        "10 | Exceeding 1,000,000= on wards 100,000="
+    )
+    assert 100000.0 in numbers
+    assert 200000.0 in numbers
+    assert 5000.0 in numbers
+    assert 900000.0 in numbers
+    assert 1000000.0 in numbers
+    assert 90000.0 in numbers
+    # The slashed form resolves the same way.
+    assert 25000.0 in extract_numbers_from_text("a grant of 25,000/= per month")
+    # A spaced "=" is a real equation and stays untouched.
+    eq = extract_numbers_from_text("where x = 5 and y = 7")
+    assert 5.0 in eq and 7.0 in eq
+
+
 def test_numeric_extraction_handles_nigeria_naira_ascii_prefix():
     # Nigerian gazette prints glue an ASCII "N" to naira amounts
     # ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). The full
