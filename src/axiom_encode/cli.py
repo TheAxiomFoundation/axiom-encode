@@ -1269,6 +1269,68 @@ def main():
         help="Write the JSON/badge output to this path (durable badge file)",
     )
 
+    run_log_export_parser = subparsers.add_parser(
+        "run-log-export",
+        help=(
+            "Backfill axiom_encode.run_log.v1 JSONL from encodings.db + signed "
+            "apply-manifests (absent fields null; never fabricated)"
+        ),
+    )
+    run_log_export_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    run_log_export_parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Run-log output dir (default: $AXIOM_ENCODE_RUN_LOG_DIR or "
+            "./.axiom/run-logs)"
+        ),
+    )
+    run_log_export_parser.add_argument(
+        "--repos",
+        default=None,
+        help=(
+            "Space-separated rulespec repo checkouts to index apply-manifests from "
+            "(default: sibling rulespec-* dirs of the encodings.db repo)"
+        ),
+    )
+    run_log_export_parser.add_argument("--limit", type=int, default=100000)
+
+    run_log_publish_parser = subparsers.add_parser(
+        "run-log-publish",
+        help=(
+            "Fold run-log JSONL into committed dashboard artifacts "
+            "(pipeline spec + folded runs + capped events)"
+        ),
+    )
+    run_log_publish_parser.add_argument("--log-dir", type=Path, default=None)
+    run_log_publish_parser.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help=(
+            "Dashboard data dir to write run_log_*.json into "
+            "(e.g. axiom-oracles/dashboard/public/data)"
+        ),
+    )
+    run_log_publish_parser.add_argument("--max-detail-runs", type=int, default=800)
+
+    run_log_staleness_parser = subparsers.add_parser(
+        "run-log-staleness",
+        help=(
+            "Freshness guard: exit non-zero if the published run-log lags the "
+            "source beyond --max-lag-hours (corpus staleness-guard analog)"
+        ),
+    )
+    run_log_staleness_parser.add_argument("--log-dir", type=Path, default=None)
+    run_log_staleness_parser.add_argument("--out", type=Path, required=True)
+    run_log_staleness_parser.add_argument("--max-lag-hours", type=float, default=24.0)
+
+    subparsers.add_parser(
+        "run-log-spec",
+        help="Print the machine-readable pipeline stage DAG (renderer input)",
+    )
+
     retire_parser = subparsers.add_parser(
         "retire",
         help=(
@@ -3124,6 +3186,14 @@ def main():
         cmd_sync_applied_runs(args)
     elif args.command == "sign-applied-files":
         cmd_sign_applied_files(args)
+    elif args.command == "run-log-export":
+        cmd_run_log_export(args)
+    elif args.command == "run-log-publish":
+        cmd_run_log_publish(args)
+    elif args.command == "run-log-staleness":
+        cmd_run_log_staleness(args)
+    elif args.command == "run-log-spec":
+        cmd_run_log_spec(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -5333,6 +5403,69 @@ def cmd_manifest_census(args):
         print(f"wrote {out_path}")
     else:
         print(output, end="")
+
+
+def _run_log_repo_paths(repos_arg, db_path):
+    """Resolve rulespec repo checkouts to index apply-manifests from."""
+    if repos_arg:
+        return [Path(part) for part in str(repos_arg).split()]
+    org_dir = Path(db_path).resolve().parent.parent
+    return sorted(org_dir.glob("rulespec-*"))
+
+
+def cmd_run_log_spec(args):
+    """Print the machine-readable pipeline stage DAG."""
+    from .run_log import pipeline_spec_dict
+
+    print(json.dumps(pipeline_spec_dict(), indent=2, sort_keys=True))
+
+
+def cmd_run_log_export(args):
+    """Backfill run-log JSONL from encodings.db + apply-manifests."""
+    from .run_log_export import export_backfill
+
+    repos = _run_log_repo_paths(getattr(args, "repos", None), args.db)
+    report = export_backfill(
+        Path(args.db), repos, log_dir=args.log_dir, limit=args.limit
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
+def cmd_run_log_publish(args):
+    """Fold run-log JSONL into committed dashboard artifacts."""
+    from .run_log import run_log_dir
+    from .run_log_export import publish
+
+    log_dir = args.log_dir or run_log_dir(None)
+    meta = publish(log_dir, Path(args.out), max_detail_runs=args.max_detail_runs)
+    print(json.dumps(meta, indent=2, sort_keys=True))
+
+
+def cmd_run_log_staleness(args):
+    """Fail (exit 1) when the published run-log has gone stale."""
+    from .run_log import run_log_dir
+    from .run_log_export import check_staleness
+
+    log_dir = args.log_dir or run_log_dir(None)
+    result = check_staleness(Path(args.out), log_dir, max_lag_hours=args.max_lag_hours)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    if not result["ok"]:
+        sys.exit(1)
+
+
+def _emit_run_log_events_safe(result, run_id, outcome):
+    """Emit run-log events for a just-completed encode run; never fatal.
+
+    Set ``AXIOM_ENCODE_DISABLE_RUN_LOG=1`` to opt out.
+    """
+    if os.environ.get("AXIOM_ENCODE_DISABLE_RUN_LOG") == "1":
+        return
+    try:
+        from .run_log_export import emit_live_encode_events
+
+        emit_live_encode_events(result, run_id, outcome or {})
+    except Exception:  # noqa: BLE001 - run-log emission must never break a run
+        pass
 
 
 COLORADO_SNAP_FEDERAL_REF_REPAIR_MODEL = "colorado-snap-federal-refs-v1"
@@ -29841,6 +29974,7 @@ def cmd_encode(args):
         run=logged_run,
         outcome=outcome,
     )
+    _emit_run_log_events_safe(result, logged_run.id, outcome)
     if apply_requested:
         print(f"  outcome={outcome['status']} final_success={outcome['final_success']}")
     if repair_manifest and repair_manifest.exists():
