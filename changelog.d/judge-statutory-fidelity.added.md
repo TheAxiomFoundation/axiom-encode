@@ -1,0 +1,1 @@
+Statutory-fidelity referee (Stage 1): a cross-family Claude judge that checks each generated RuleSpec against the provision for untraceable branches, unrepresented clauses, boundary-inequality direction, and amount mismatches. Advisory (needs-review label + run-log event), with a calibration harness that replays it over historical generations from encodings.db.

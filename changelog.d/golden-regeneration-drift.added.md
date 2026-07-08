@@ -1,0 +1,1 @@
+Golden-regeneration drift check: a weekly scheduled workflow that re-generates a random 3-5 module sample with the current encoder and semantic-diffs against the merged modules (ignoring comments and ordering), opening an issue on any difference. This would have caught the 0.2.1187 silent wrong-root immediately.

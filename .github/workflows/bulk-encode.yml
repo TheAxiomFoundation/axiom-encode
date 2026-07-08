@@ -1,0 +1,117 @@
+name: Bulk encode
+
+# Bulk/cloud-parallel encoding entrypoint (#738). The load-bearing new step is
+# the cheap worklist pre-classifier, which routes amendment-act (#1079) and
+# xref-heavy (#1058) entries to skip-with-reason *before* paying for a generation
+# the compile gate would reject. Generation is gated behind an input so this
+# workflow can be run pre-classify-only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      worklist:
+        description: "Path to the worklist JSON (list of {citation, source_text})"
+        required: false
+        default: worklist.json
+      run_generation:
+        description: "Run generation on self-contained (generate-routed) entries"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: bulk-encode-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preclassify:
+    runs-on: ubuntu-latest
+    outputs:
+      generate_count: ${{ steps.pre.outputs.generate_count }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install
+        run: |
+          uv venv --python 3.13
+          uv pip install -e ".[api]"
+
+      - name: Pre-classify the worklist (cheap pre-step, before generation)
+        id: pre
+        env:
+          # Judges (and the ambiguous-entry arbiter) run cross-family on Claude.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Generator credential, provisioned the same way (agent-secret canonical).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          .venv/bin/axiom-encode preclassify \
+            --worklist "${{ inputs.worklist }}" \
+            --json > preclassify.json
+          .venv/bin/python - <<'PY'
+          import json, os
+          data = json.load(open("preclassify.json"))
+          gen = data["generate"]
+          print(f"generate={gen} skip={data['skip']} total={data['total']}")
+          # Route generate-routed entries to a downstream generation manifest.
+          keep = [r for r in data["results"] if r["route"] == "generate"]
+          json.dump(keep, open("generate_worklist.json", "w"), indent=2)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"generate_count={gen}\n")
+          # Skipped entries are recorded with a reason — never silently dropped.
+          for r in data["results"]:
+              if r["route"] == "skip":
+                  print(f"SKIP {r['classification']}: {r['entry_ref']} :: {r['reason']}")
+          PY
+
+      - name: Upload routing artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: preclassify-routing
+          path: |
+            preclassify.json
+            generate_worklist.json
+
+  generate:
+    needs: preclassify
+    if: ${{ inputs.run_generation && needs.preclassify.outputs.generate_count != '0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install
+        run: |
+          uv venv --python 3.13
+          uv pip install -e ".[api]"
+
+      - name: Download routing
+        uses: actions/download-artifact@v4
+        with:
+          name: preclassify-routing
+
+      - name: Encode generate-routed entries
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import json, subprocess
+          for r in json.load(open("generate_worklist.json")):
+              cite = r["entry_ref"]
+              print(f"encode {cite}")
+              subprocess.run(
+                  [".venv/bin/axiom-encode", "encode", cite, "--backend", "openai"],
+                  check=False,
+              )
+          PY
