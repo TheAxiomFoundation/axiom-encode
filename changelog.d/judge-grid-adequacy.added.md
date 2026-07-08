@@ -1,0 +1,1 @@
+Grid-adequacy judge (Stage 2): names untested boundaries/regions in an oracle suite as structured gaps, with a deterministic `gaps_to_cells` follow-up hook a lane or workflow can consume to add coverage.

@@ -1,0 +1,1 @@
+Disposition referee (Stage 3): verifies a new disposition's causal claim reproduces the residual on at least three sampled records — running the sampled arithmetic deterministically, then cross-family reading the claim.
