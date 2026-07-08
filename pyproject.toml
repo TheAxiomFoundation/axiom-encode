@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.1192"
+version = "0.2.1193"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "The Axiom Foundation", email = "hello@axiom-foundation.org" }
 ]
