@@ -6371,6 +6371,42 @@ def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     assert 50.0 in extract_numbers_from_text("costs 50¢ per unit")
 
 
+def test_deferred_outputs_cover_subparagraphs_for_unitary_jurisdictions():
+    # The sub-paragraph coverage gate fires for every jurisdiction, so its
+    # deferred_outputs matcher must resolve non-US corpus paths too. Before
+    # the generic branch, ug/statute/... resolved to an empty base and no
+    # deferral could ever satisfy the gate outside the US.
+    from axiom_encode.harness.validator_pipeline import (
+        _deferred_output_covered_subparagraphs,
+        _rulespec_base_parts_for_corpus_path,
+    )
+
+    assert _rulespec_base_parts_for_corpus_path(
+        "ug/statute/act-2008-8/local-governments-amendment-no2-2008"
+    ) == ("statutes", "act-2008-8", "local-governments-amendment-no2-2008")
+    assert _rulespec_base_parts_for_corpus_path(
+        "gh/policy/mogcsp-leap/payment-cycle-97-2025"
+    ) == ("policies", "mogcsp-leap", "payment-cycle-97-2025")
+
+    payload = {
+        "module": {
+            "deferred_outputs": [
+                {
+                    "output": (
+                        "ug:statutes/act-2008-8/"
+                        "local-governments-amendment-no2-2008/f#exemption"
+                    ),
+                    "reason": "out of scope",
+                }
+            ]
+        }
+    }
+    covered = _deferred_output_covered_subparagraphs(
+        payload, "ug/statute/act-2008-8/local-governments-amendment-no2-2008"
+    )
+    assert ("f",) in covered
+
+
 def test_numeric_extraction_handles_uganda_shilling_suffix():
     # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts
     # ("Exceeding 100,000= but not exceeding 200,000= 5,000=" in the Local
