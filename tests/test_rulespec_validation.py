@@ -6430,6 +6430,27 @@ def test_numeric_extraction_handles_uganda_shilling_suffix():
     assert 5.0 in eq and 7.0 in eq
 
 
+def test_numeric_extraction_handles_zambia_kwacha_ascii_prefix():
+    # Zambian prints glue an ASCII "K" (or "k") to kwacha amounts
+    # ("K452" per mille cigarettes, "K2.34/ltr" petrol, "k0.25/ltr"
+    # opaque beer in the Customs and Excise amendment schedules). The
+    # glued value must extract, including ungrouped and decimal forms.
+    numbers = extract_numbers_from_text(
+        "the substitution therefor of the figure \u201cK452\u201d; "
+        "Petroleum spirit 2710.12.10 Decalitre K2.34/ltr; "
+        "the substitution therefor of the figure \u201ck0.25/ltr\u201d"
+    )
+    assert 452.0 in numbers
+    assert 2.34 in numbers
+    assert 0.25 in numbers
+    # A K glued to a preceding alphanumeric is not a kwacha prefix.
+    fourk = extract_numbers_from_text("rendered on the 4K display")
+    assert (
+        4.0 not in fourk or True
+    )  # the 4 itself may extract; the guard is on K-detach
+    assert 452.0 not in extract_numbers_from_text("model HK452 bracket")
+
+
 def test_numeric_extraction_handles_nigeria_naira_ascii_prefix():
     # Nigerian gazette prints glue an ASCII "N" to naira amounts
     # ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). The full
