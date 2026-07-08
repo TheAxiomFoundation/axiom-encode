@@ -11030,6 +11030,19 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         and parts[1] in _RULESPEC_DOCUMENT_CLASS_DIRS
     ):
         return (_RULESPEC_DOCUMENT_CLASS_DIRS[parts[1]], *parts[2:])
+    generic_class_dirs = {
+        "statute": "statutes",
+        "regulation": "regulations",
+        **_RULESPEC_DOCUMENT_CLASS_DIRS,
+    }
+    if len(parts) >= 3 and len(parts[0]) == 2 and parts[1] in generic_class_dirs:
+        # Unitary jurisdictions (gh, ug, ng, be, uk, ...) mirror the corpus
+        # class directly under the country code; the rulespec layout uses the
+        # pluralized class dir. Without this branch the sub-paragraph
+        # coverage gate fires for these jurisdictions but deferred_outputs
+        # entries can never satisfy it (the base resolves empty), making the
+        # gate unsatisfiable outside the US.
+        return (generic_class_dirs[parts[1]], *parts[2:])
     return ()
 
 
