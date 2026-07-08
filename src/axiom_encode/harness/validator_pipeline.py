@@ -3624,6 +3624,13 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     # of a longer token) and the amount is comma-grouped, so identifiers like
     # "N95" or gazette references like "N26" stay untouched.
     text = re.sub(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})", "N ", text)
+    # Zambian prints denominate kwacha with an ASCII "K" (or lowercase "k")
+    # glued to the amount ("K452", "K2.34/ltr", "k0.25/ltr" in the Customs
+    # and Excise amendment schedules). Detach it the same way; the alnum
+    # lookbehind keeps mid-token letters ("4K", "HK5") untouched, and
+    # over-detaching a rare non-currency "K2" only adds a harmless
+    # candidate value to numeric extraction.
+    text = re.sub(r"(?<![A-Za-z0-9])[Kk](?=\d)", lambda m: m.group(0) + " ", text)
     # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
     # glued to the amount ("200,000/=" and "200,000=" in the Local
     # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
