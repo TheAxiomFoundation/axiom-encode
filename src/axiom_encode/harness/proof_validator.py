@@ -786,8 +786,23 @@ def _cited_proof_atom_paths(rule: dict[str, Any]) -> set[str]:
         if not path:
             continue
         if _atom_cites_provision(atom):
-            paths.add(_normalize_atom_path(path))
+            normalized = _normalize_atom_path(path)
+            paths.add(normalized)
+            if normalized == "versions" and atom.get("kind") == "parameter_table":
+                paths.update(_version_table_atom_paths(rule))
     return paths
+
+
+def _version_table_atom_paths(rule: dict[str, Any]) -> set[str]:
+    """Return table-value paths covered by a broad ``path: versions`` atom."""
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return set()
+    return {
+        f"versions[{index}].values"
+        for index, version in enumerate(versions)
+        if isinstance(version, dict) and isinstance(version.get("values"), dict)
+    }
 
 
 def _atom_cites_provision(atom: dict[str, Any]) -> bool:
