@@ -27244,3 +27244,25 @@ rules:
         )
         == []
     )
+
+
+def test_numeric_extraction_keeps_currency_code_denominated_amounts():
+    # An ISO 4217 currency code before a number denominates an amount,
+    # not a document reference: the Rwanda excise schedule states
+    # "Sweets and chewing gums FRW 322/kg" (and the CBHI orders state
+    # premiums as "FRW 3,000"), where the all-caps-reference pattern
+    # used to swallow the amount and numeric grounding failed.
+    numbers = extract_numbers_from_text(
+        "Sweets and chewing gums FRW 322/kg 1704.10.00; "
+        "an annual contribution of FRW 3,000 per person; "
+        "a value of GHS 100 per unit"
+    )
+    assert 322.0 in numbers
+    assert 3000.0 in numbers
+    assert 100.0 in numbers
+    # Genuine all-caps references keep being stripped.
+    stripped = extract_numbers_from_text(
+        "as provided in HB 1234 and HS 322 of the tariff nomenclature"
+    )
+    assert 1234.0 not in stripped
+    assert 322.0 not in stripped

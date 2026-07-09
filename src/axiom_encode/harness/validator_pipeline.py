@@ -981,7 +981,14 @@ _SOURCE_REFERENCE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b[A-Z]{2,6}[ \t]+\d+(?:\.\d+)*(?:\([^)]+\))*",
+        # An all-caps token followed by a number reads as a document
+        # reference ("HB 1234", "HS 322"), but an ISO 4217 currency code
+        # in that position denominates an amount ("FRW 322/kg" in the
+        # Rwanda excise schedule, "RWF 3,000", "GHS 100") - the amount
+        # must survive for numeric grounding, so currency codes are
+        # excluded from the reference pattern.
+        r"\b(?!(?:FRW|RWF|GHS|GHP|NGN|UGX|ZMW|ETB|USD|EUR|GBP|CAD|AUD|"
+        r"KES|TZS|XAF|XOF|ZAR)\b)[A-Z]{2,6}[ \t]+\d+(?:\.\d+)*(?:\([^)]+\))*",
     ),
     re.compile(r"\b(?:Act|Order|Regulations?)\s+\d{4}\b"),
 )
