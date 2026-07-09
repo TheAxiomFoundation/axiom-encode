@@ -1213,10 +1213,7 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
         if step.get("name") == "Install encoder"
     ]
     action_steps = [
-        step
-        for job in jobs.values()
-        for step in job["steps"]
-        if "uses" in step
+        step for job in jobs.values() for step in job["steps"] if "uses" in step
     ]
     setup_uv_steps = [
         step for step in action_steps if step["uses"].startswith("astral-sh/setup-uv@")
@@ -1248,8 +1245,7 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
         for step in install_steps
     )
     assert all(
-        re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
-        for step in action_steps
+        re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"]) for step in action_steps
     )
     assert all(step["with"]["version"] == "0.11.7" for step in setup_uv_steps)
 
@@ -1268,7 +1264,9 @@ def test_drift_rejects_yaml_alias_expansion_bomb():
     previous = "base"
     for index in range(8):
         current = f"level_{index}"
-        levels.append(f"{current}: &{current} [" + ", ".join([f"*{previous}"] * 10) + "]")
+        levels.append(
+            f"{current}: &{current} [" + ", ".join([f"*{previous}"] * 10) + "]"
+        )
         previous = current
     bomb = "\n".join(levels) + "\n"
 
@@ -1454,9 +1452,7 @@ def test_drift_publisher_reapplies_budgets_after_redaction(monkeypatch):
     assert len(body.encode("utf-8")) <= drift.MAX_GITHUB_ISSUE_BODY_BYTES
 
 
-def test_drift_error_publisher_neutralizes_markdown_and_mentions(
-    monkeypatch, tmp_path
-):
+def test_drift_error_publisher_neutralizes_markdown_and_mentions(monkeypatch, tmp_path):
     report = drift.DriftReport(
         checked=[
             drift.DriftResult(

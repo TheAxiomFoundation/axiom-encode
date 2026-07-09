@@ -618,9 +618,7 @@ def _create_drift_issues(report, repo: str) -> list[str]:
     created: list[str] = []
     for _result, body, title in items:
         body = drift.enforce_github_issue_body_budget(redact_sensitive_text(body))
-        title = drift.enforce_github_issue_title_budget(
-            redact_sensitive_text(title)
-        )
+        title = drift.enforce_github_issue_title_budget(redact_sensitive_text(title))
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
             fh.write(body)
             body_path = fh.name

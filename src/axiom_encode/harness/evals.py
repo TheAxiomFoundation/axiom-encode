@@ -2329,7 +2329,9 @@ def resolve_corpus_source_unit(
 
     candidates = ", ".join(_candidate_corpus_citation_paths(identifier)[:4])
     scope = "local corpus.provisions" if local_only else "corpus.provisions"
-    raise ValueError(f"No {scope} source text found for {identifier!r}. Tried: {candidates}")
+    raise ValueError(
+        f"No {scope} source text found for {identifier!r}. Tried: {candidates}"
+    )
 
 
 def _slice_parent_corpus_text_for_requested_path(
@@ -2851,9 +2853,7 @@ def _materialize_resolved_canonical_concept(
     policy_root: Path,
 ) -> EvalContextFile:
     """Copy one resolved canonical concept file into the eval workspace context."""
-    source = validate_rulespec_context_file(
-        resolved_concept.rulespec_file, policy_root
-    )
+    source = validate_rulespec_context_file(resolved_concept.rulespec_file, policy_root)
     relative_target = Path("context") / import_target_to_relative_rulespec_path(
         resolved_concept.import_target
     )

@@ -47,9 +47,7 @@ def _safe_load_drift_yaml(yaml_text: str) -> Any:
     """
 
     if len(yaml_text.encode("utf-8")) > MAX_YAML_BYTES:
-        raise ValueError(
-            f"drift YAML exceeds the {MAX_YAML_BYTES}-byte safety limit"
-        )
+        raise ValueError(f"drift YAML exceeds the {MAX_YAML_BYTES}-byte safety limit")
 
     depth = 0
     nodes = 0
@@ -116,9 +114,10 @@ def semantic_key(yaml_text: str) -> str:
 def _bounded_diff_path(path: str) -> str:
     """Return one control-free, bounded display path while traversing YAML."""
 
-    escaped = "".join(
-        f"\\u{ord(char):04x}" if ord(char) < 32 else char for char in path
-    ) or "(root)"
+    escaped = (
+        "".join(f"\\u{ord(char):04x}" if ord(char) < 32 else char for char in path)
+        or "(root)"
+    )
     if len(escaped) <= MAX_DIFF_PATH_CHARS:
         return escaped
     digest = hashlib.sha256(escaped.encode("utf-8")).hexdigest()[:12]
@@ -403,9 +402,7 @@ class DriftReport:
                             "path": _bounded_diff_path(str(diff.get("path") or "")),
                             "change": diff.get("change"),
                             "merged": _bounded_diff_value(diff.get("merged")),
-                            "regenerated": _bounded_diff_value(
-                                diff.get("regenerated")
-                            ),
+                            "regenerated": _bounded_diff_value(diff.get("regenerated")),
                         }
                         for diff in r.diffs[:MAX_RETAINED_DIFFS]
                     ],
@@ -455,9 +452,7 @@ def drift_issue_body(result: DriftResult) -> str:
         lines.append(row)
         displayed += 1
     if result.diff_count > displayed:
-        lines.append(
-            f"| … | … | {result.diff_count - displayed} more | … |"
-        )
+        lines.append(f"| … | … | {result.diff_count - displayed} more | … |")
     return _bounded_utf8("\n".join(lines), MAX_GITHUB_ISSUE_BODY_BYTES)
 
 

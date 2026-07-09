@@ -2309,16 +2309,11 @@ def test_rulespec_validation_overlay_copies_safe_cross_repo_context(tmp_path):
     generated = tmp_path / "out" / "openai" / "statutes" / "1" / "new.yaml"
     generated.parent.mkdir(parents=True)
     generated.write_text(
-        "format: rulespec/v1\n"
-        "imports:\n"
-        "  - uk:statutes/1/child\n"
-        "rules: []\n"
+        "format: rulespec/v1\nimports:\n  - uk:statutes/1/child\nrules: []\n"
     )
 
     with _rulespec_validation_target(generated, policy_repo) as validation_file:
-        target_ref = validator_pipeline._parse_rulespec_target(
-            "uk:statutes/1/child"
-        )
+        target_ref = validator_pipeline._parse_rulespec_target("uk:statutes/1/child")
         assert target_ref is not None
         resolved = validator_pipeline._resolve_rulespec_target_file(
             target_ref,
@@ -2334,9 +2329,7 @@ def test_rulespec_validation_overlay_accepts_system_temp_directory_alias(tmp_pat
     policy_repo.mkdir()
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        generated = (
-            Path(tmpdir) / "openai-gpt-5.5" / "statutes" / "1" / "new.yaml"
-        )
+        generated = Path(tmpdir) / "openai-gpt-5.5" / "statutes" / "1" / "new.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
 
@@ -3137,9 +3130,7 @@ def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_pa
 
 
 @pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
-def test_run_source_eval_appends_primary_source_continuation_context(
-    tmp_path, mode
-):
+def test_run_source_eval_appends_primary_source_continuation_context(tmp_path, mode):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()
     continuation = tmp_path / "continuation.txt"
@@ -3203,9 +3194,7 @@ def test_run_source_eval_appends_primary_source_continuation_context(
 
 
 @pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
-def test_run_source_eval_rejects_symlinked_primary_source_continuation(
-    tmp_path, mode
-):
+def test_run_source_eval_rejects_symlinked_primary_source_continuation(tmp_path, mode):
     policy_repo_root = tmp_path / "rulespec-us"
     policy_repo_root.mkdir()
     outside_file = tmp_path / "outside-continuation.txt"
@@ -9920,9 +9909,7 @@ class TestReadinessSummary:
 
 
 class TestRepoAugmentedContext:
-    def test_context_workspace_and_hydration_keep_authorities_separate(
-        self, tmp_path
-    ):
+    def test_context_workspace_and_hydration_keep_authorities_separate(self, tmp_path):
         rulespec_us = tmp_path / "rulespec-us"
         rulespec_uk = tmp_path / "rulespec-uk"
         relative = Path("statutes/1/shared.yaml")
@@ -9930,7 +9917,9 @@ class TestRepoAugmentedContext:
         uk_file = rulespec_uk / relative
         for path, marker in ((us_file, "US authority"), (uk_file, "UK authority")):
             path.parent.mkdir(parents=True)
-            path.write_text(f"format: rulespec/v1\nmodule:\n  summary: {marker}\nrules: []\n")
+            path.write_text(
+                f"format: rulespec/v1\nmodule:\n  summary: {marker}\nrules: []\n"
+            )
 
         workspace = prepare_eval_workspace(
             citation="custom-source",
@@ -9952,19 +9941,17 @@ class TestRepoAugmentedContext:
 
         eval_root = tmp_path / "eval-root"
         _hydrate_eval_root(eval_root, workspace)
-        assert "US authority" in (
-            eval_root / "_axiom/rulespec-us/statutes/1/shared.yaml"
-        ).read_text()
-        assert "UK authority" in (
-            eval_root / "_axiom/rulespec-uk/statutes/1/shared.yaml"
-        ).read_text()
-        assert "US authority" in (
-            eval_root / "statutes/1/shared.yaml"
-        ).read_text()
+        assert (
+            "US authority"
+            in (eval_root / "_axiom/rulespec-us/statutes/1/shared.yaml").read_text()
+        )
+        assert (
+            "UK authority"
+            in (eval_root / "_axiom/rulespec-uk/statutes/1/shared.yaml").read_text()
+        )
+        assert "US authority" in (eval_root / "statutes/1/shared.yaml").read_text()
 
-    def test_select_context_files_rejects_symlinked_section_scan_root(
-        self, tmp_path
-    ):
+    def test_select_context_files_rejects_symlinked_section_scan_root(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         section_root = policy_repo_root / "statutes" / "26" / "24"
         section_root.parent.mkdir(parents=True)
@@ -9978,9 +9965,7 @@ class TestRepoAugmentedContext:
         with pytest.raises(UnsafeRulespecContextPath, match="directory.*symlink"):
             select_context_files("26 USC 24(a)", policy_repo_root)
 
-    def test_prepare_eval_workspace_rejects_symlinked_child_scan_root(
-        self, tmp_path
-    ):
+    def test_prepare_eval_workspace_rejects_symlinked_child_scan_root(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         child_root = policy_repo_root / "statutes" / "26" / "152"
         child_root.parent.mkdir(parents=True)
@@ -10023,9 +10008,7 @@ class TestRepoAugmentedContext:
         self, tmp_path
     ):
         policy_repo_root = tmp_path / "rulespec-us"
-        context_file = (
-            policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
-        )
+        context_file = policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
         context_file.parent.mkdir(parents=True)
         outside_file = tmp_path / "outside-secret.yaml"
         outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
@@ -10059,15 +10042,10 @@ class TestRepoAugmentedContext:
         outside_file = tmp_path / "private" / "context.yaml"
         outside_file.parent.mkdir()
         outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
-        context_file = (
-            policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
-        )
+        context_file = policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
         context_file.parent.mkdir(parents=True)
         context_file.write_text(
-            "format: rulespec/v1\n"
-            "imports:\n"
-            f"  - {outside_file.as_posix()}\n"
-            "rules: []\n"
+            f"format: rulespec/v1\nimports:\n  - {outside_file.as_posix()}\nrules: []\n"
         )
 
         with pytest.raises(
@@ -11890,8 +11868,7 @@ def test_evaluate_artifact_keeps_local_corpus_scope_through_metrics(
     provisions = corpus / "data/corpus/provisions/us/statute"
     provisions.mkdir(parents=True)
     provisions.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/1", "body": "trusted source"})
-        + "\n",
+        json.dumps({"citation_path": "us/statute/1", "body": "trusted source"}) + "\n",
         encoding="utf-8",
     )
     policy_repo = tmp_path / "rulespec-us"

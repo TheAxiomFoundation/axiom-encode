@@ -489,8 +489,7 @@ def read_resolvable_citation(
     citation = read_citation(root, module)
     if resolve_local_citation(citation, corpus_path) is None:
         raise RegenerationInputError(
-            "manifest citation does not resolve in the local corpus: "
-            f"{citation!r}"
+            f"manifest citation does not resolve in the local corpus: {citation!r}"
         )
     return citation
 

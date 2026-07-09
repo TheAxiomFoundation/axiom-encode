@@ -4732,9 +4732,7 @@ def _validated_local_corpus_jsonl_files(
     files: list[Path] = []
     for candidate in sorted(resolved_root.rglob("*")):
         if candidate.is_symlink():
-            raise UnsafeRulespecContextPath(
-                f"{label} contains a symlink: {candidate}"
-            )
+            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {candidate}")
         if candidate.suffix != ".jsonl":
             continue
         resolved = candidate.resolve(strict=True)
@@ -20521,8 +20519,7 @@ def _resolve_rulespec_target_file(
             policy_repo_path,
         ):
             raise UnsafeRulespecContextPath(
-                "Ambient RuleSpec candidate root contains symlink indirection: "
-                f"{root}"
+                f"Ambient RuleSpec candidate root contains symlink indirection: {root}"
             )
         canonical_root = canonical_rulespec_repo_name(root)
         if canonical_root != target_ref.repo_name:
@@ -20549,9 +20546,9 @@ def _is_configured_rulespec_candidate(
     """Return whether ``root`` was derived from explicit trusted configuration."""
 
     raw_root = Path(os.path.abspath(Path(root).expanduser()))
-    for raw_configured in os.environ.get(
-        "AXIOM_RULESPEC_REPO_ROOTS", ""
-    ).split(os.pathsep):
+    for raw_configured in os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(
+        os.pathsep
+    ):
         if not raw_configured.strip():
             continue
         configured = Path(os.path.abspath(Path(raw_configured.strip()).expanduser()))
