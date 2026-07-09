@@ -219,6 +219,29 @@ def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     assert roots.index(str(existing_root)) < roots.index(str(repo_parent))
 
 
+def test_rulespec_compile_env_excludes_model_and_repository_credentials(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-secret")
+    monkeypatch.setenv("GH_TOKEN", "github-test-secret")
+    monkeypatch.setenv("AXIOM_REPO_TOKEN", "repository-test-secret")
+    monkeypatch.setenv("NON_SENSITIVE_SENTINEL", "preserved")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    env = pipeline._rulespec_compile_env()
+
+    assert env["NON_SENSITIVE_SENTINEL"] == "preserved"
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "GH_TOKEN" not in env
+    assert "AXIOM_REPO_TOKEN" not in env
+
+
 def test_rulespec_compile_env_prefers_configured_roots_over_stale_parent(
     monkeypatch,
     tmp_path,

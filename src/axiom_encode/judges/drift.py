@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 import yaml
@@ -131,6 +131,101 @@ class DriftResult:
 @dataclass
 class DriftReport:
     checked: list[DriftResult] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "DriftReport":
+        """Load the bounded JSON report passed to the isolated publisher job."""
+
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("results"), list
+        ):
+            raise ValueError("drift report must contain a results list")
+        raw_results = payload["results"]
+        if len(raw_results) > MAX_SAMPLE:
+            raise ValueError(f"drift report contains more than {MAX_SAMPLE} results")
+
+        checked: list[DriftResult] = []
+        seen_modules: set[str] = set()
+        for raw in raw_results:
+            if not isinstance(raw, dict):
+                raise ValueError("drift report result must be an object")
+            module = raw.get("module")
+            drifted = raw.get("drifted")
+            error = raw.get("error")
+            diffs = raw.get("diffs")
+            if (
+                not isinstance(module, str)
+                or not module
+                or len(module) > 4096
+                or "\\" in module
+                or any(ord(char) < 32 for char in module)
+            ):
+                raise ValueError("drift report result has an invalid module")
+            module_path = PurePosixPath(module)
+            if (
+                module_path.is_absolute()
+                or module_path.suffix != ".yaml"
+                or module_path.as_posix() != module
+                or any(part in {"", ".", ".."} for part in module_path.parts)
+                or module in seen_modules
+            ):
+                raise ValueError(
+                    "drift report result has an unsafe or duplicate module"
+                )
+            seen_modules.add(module)
+            if not isinstance(drifted, bool):
+                raise ValueError("drift report result has a non-boolean drifted field")
+            if error is not None and (
+                not isinstance(error, str) or not error or len(error) > 4096
+            ):
+                raise ValueError("drift report result has an invalid error")
+            if not isinstance(diffs, list):
+                raise ValueError("drift report result has an invalid diffs list")
+            for diff in diffs:
+                if not isinstance(diff, dict):
+                    raise ValueError("drift report diff must be an object")
+                path = diff.get("path")
+                change = diff.get("change")
+                if (
+                    not isinstance(path, str)
+                    or not path
+                    or len(path) > 4096
+                    or any(ord(char) < 32 for char in path)
+                    or not isinstance(change, str)
+                    or change
+                    not in {"added", "removed", "list_changed", "value_changed"}
+                    or "merged" not in diff
+                    or "regenerated" not in diff
+                ):
+                    raise ValueError("drift report diff has invalid required fields")
+            if error is not None:
+                if drifted or diffs:
+                    raise ValueError("drift report error result also claims drift")
+            elif drifted != bool(diffs):
+                raise ValueError("drift report drift flag does not match its diffs")
+            checked.append(
+                DriftResult(
+                    module=module,
+                    drifted=drifted,
+                    error=error,
+                    diffs=diffs,
+                )
+            )
+
+        report = cls(checked=checked)
+        expected_counts = {
+            "n_checked": len(report.checked),
+            "n_drifted": len(report.drifted),
+            "n_errors": len(report.errors),
+        }
+        if any(
+            not isinstance(payload.get(name), int)
+            or isinstance(payload.get(name), bool)
+            or payload.get(name) != value
+            for name, value in expected_counts.items()
+        ):
+            raise ValueError("drift report summary counts do not match its results")
+        return report
 
     @property
     def drifted(self) -> list[DriftResult]:

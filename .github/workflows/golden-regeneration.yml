@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: golden-regeneration
@@ -32,29 +31,34 @@ concurrency:
 jobs:
   drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
       - name: Checkout axiom-encode
         uses: actions/checkout@v6.0.2
         with:
           path: axiom-encode
+          persist-credentials: false
 
       # Cross-repo checkout of the merged-module source. GITHUB_TOKEN only
       # reaches this repo; set AXIOM_REPO_TOKEN (a PAT with read on the org) for
-      # rulespec-us and, for non-dry runs, axiom-corpus / axiom-rules-engine.
+      # rulespec-us and axiom-corpus, plus axiom-rules-engine for non-dry runs.
       - name: Checkout rulespec-us
         uses: actions/checkout@v6.0.2
         with:
           repository: TheAxiomFoundation/rulespec-us
           path: rulespec-us
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Checkout axiom-corpus
-        if: ${{ !inputs.dry_run }}
         uses: actions/checkout@v6.0.2
         with:
           repository: TheAxiomFoundation/axiom-corpus
           path: axiom-corpus
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Checkout axiom-rules-engine
         if: ${{ !inputs.dry_run }}
@@ -63,6 +67,98 @@ jobs:
           repository: TheAxiomFoundation/axiom-rules-engine
           path: axiom-rules-engine
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install Rust toolchain
+        if: ${{ !inputs.dry_run }}
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Build Axiom rules engine
+        if: ${{ !inputs.dry_run }}
+        working-directory: axiom-rules-engine
+        run: |
+          cargo build --release --locked
+          test -x target/release/axiom-rules-engine
+
+      - name: Install encoder
+        working-directory: axiom-encode
+        run: |
+          uv venv --python 3.13
+          uv pip install -e ".[api]"
+
+      - name: Validate dry-run wiring
+        if: ${{ inputs.dry_run }}
+        working-directory: axiom-encode
+        env:
+          AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
+          AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
+          DRIFT_SAMPLE_SIZE: ${{ inputs.k || '5' }}
+        run: |
+          case "$DRIFT_SAMPLE_SIZE" in
+            3|4|5) ;;
+            *) echo "k must be an integer from 3 through 5" >&2; exit 2 ;;
+          esac
+          .venv/bin/axiom-encode drift-check \
+            --root "$AXIOM_DRIFT_ROOT" --corpus-path "$AXIOM_CORPUS_ROOT" \
+            --k "$DRIFT_SAMPLE_SIZE" --dry-run --json
+
+      - name: Run live drift check
+        if: ${{ !inputs.dry_run }}
+        working-directory: axiom-encode
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
+          AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
+          DRIFT_REPORT: ${{ runner.temp }}/golden-drift-report.json
+          DRIFT_SAMPLE_SIZE: ${{ inputs.k || '5' }}
+        run: |
+          case "$DRIFT_SAMPLE_SIZE" in
+            3|4|5) ;;
+            *) echo "k must be an integer from 3 through 5" >&2; exit 2 ;;
+          esac
+          set +e
+          .venv/bin/axiom-encode drift-check \
+            --root "$AXIOM_DRIFT_ROOT" --corpus-path "$AXIOM_CORPUS_ROOT" \
+            --k "$DRIFT_SAMPLE_SIZE" \
+            --regenerate --regenerate-backend openai \
+            --report-file "$DRIFT_REPORT" --json
+          drift_status=$?
+          set -e
+          if [ "$drift_status" -gt 1 ]; then
+            exit "$drift_status"
+          fi
+          test -s "$DRIFT_REPORT"
+
+      - name: Upload sanitized drift report
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-drift-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/golden-drift-report.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    needs: drift
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout axiom-encode
+        uses: actions/checkout@v6.0.2
+        with:
+          path: axiom-encode
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -76,22 +172,17 @@ jobs:
           uv venv --python 3.13
           uv pip install -e ".[api]"
 
-      - name: Run drift check
+      - name: Download sanitized drift report
+        uses: actions/download-artifact@v4
+        with:
+          name: golden-drift-report-${{ github.run_id }}
+          path: drift-report
+
+      - name: Publish drift findings
         working-directory: axiom-encode
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
-          AXIOM_DRIFT_BACKEND: openai
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          K="${{ inputs.k || '5' }}"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            .venv/bin/axiom-encode drift-check \
-              --root "$AXIOM_DRIFT_ROOT" --k "$K" --dry-run --json
-          else
-            .venv/bin/axiom-encode drift-check \
-              --root "$AXIOM_DRIFT_ROOT" --k "$K" \
-              --regenerate-cmd "python ${{ github.workspace }}/axiom-encode/scripts/drift_regenerate.py {module} {merged} {output}" \
-              --create-issues --repo TheAxiomFoundation/axiom-encode --json
-          fi
+          .venv/bin/axiom-encode publish-drift-report \
+            --report-file "$GITHUB_WORKSPACE/drift-report/golden-drift-report.json" \
+            --repo TheAxiomFoundation/axiom-encode --json

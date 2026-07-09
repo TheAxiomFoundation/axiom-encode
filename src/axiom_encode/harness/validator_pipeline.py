@@ -79,6 +79,26 @@ from .proof_validator import find_rulespec_proof_issues, validate_rulespec_proof
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_ENV_NAME_MARKERS = (
+    "AUTH",
+    "CREDENTIAL",
+    "KEY",
+    "PASSWORD",
+    "SECRET",
+    "TOKEN",
+)
+
+
+def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
+    """Remove credentials before invoking deterministic validator subprocesses."""
+
+    return {
+        name: value
+        for name, value in env.items()
+        if not any(marker in name.upper() for marker in _SENSITIVE_ENV_NAME_MARKERS)
+    }
+
+
 DEFAULT_AXIOM_SUPABASE_URL = "https://swocpijqqahhuwtuahwc.supabase.co"
 DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
@@ -21246,8 +21266,8 @@ class ValidatorPipeline:
         return source_texts
 
     def _rulespec_compile_env(self) -> dict[str, str]:
-        """Build an env that can resolve canonical RuleSpec repo imports."""
-        env = self._pythonpath_env()
+        """Build a credential-free env for the deterministic RuleSpec engine."""
+        env = _without_sensitive_environment(self._pythonpath_env())
         roots: list[Path] = []
         if Path(self.policy_repo_path).parent.name.startswith("rulespec-"):
             # A monorepo jurisdiction directory: sibling checkouts live next
