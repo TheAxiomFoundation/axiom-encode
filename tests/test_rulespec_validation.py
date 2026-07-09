@@ -6430,6 +6430,16 @@ def test_numeric_extraction_handles_uganda_shilling_suffix():
     assert 5.0 in eq and 7.0 in eq
 
 
+def test_numeric_extraction_handles_ocr_range_hyphen():
+    # OCR'd band tables glue the range hyphen to the upper bound
+    # ("0 -2,000 0%" in the Ethiopia Proclamation 1395/2025 scan),
+    # which would otherwise parse as a negative amount.
+    numbers = extract_numbers_from_text("Tax Rate 0 -2,000 0% 2,001-4,000 15%")
+    assert 2000.0 in numbers
+    assert -2000.0 not in numbers
+    assert 2001.0 in numbers
+
+
 def test_numeric_extraction_handles_zambia_kwacha_ascii_prefix():
     # Zambian prints glue an ASCII "K" (or "k") to kwacha amounts
     # ("K452" per mille cigarettes, "K2.34/ltr" petrol, "k0.25/ltr"

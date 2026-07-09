@@ -3631,6 +3631,14 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     # over-detaching a rare non-currency "K2" only adds a harmless
     # candidate value to numeric extraction.
     text = re.sub(r"(?<![A-Za-z0-9])[Kk](?=\d)", lambda m: m.group(0) + " ", text)
+    # OCR'd schedule tables render band ranges with the hyphen glued to
+    # the upper bound ("0 -2,000 0%" in the Ethiopia Proclamation
+    # 1395/2025 scan), so the bound parses as a negative amount. A
+    # hyphen preceded by digit-plus-space and followed by a digit is a
+    # range separator, not a minus - detach it. True negative amounts
+    # ("a loss of -2,000") lose the sign only when directly preceded by
+    # a spaced digit, which statutory prose does not produce.
+    text = re.sub(r"(?<=\d )-(?=\d)", "- ", text)
     # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
     # glued to the amount ("200,000/=" and "200,000=" in the Local
     # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
