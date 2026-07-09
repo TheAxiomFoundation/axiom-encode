@@ -41,6 +41,7 @@ _MAX_MODULE_BYTES = 10 * 1024 * 1024
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _MAX_GENERATED_BYTES = 10 * 1024 * 1024
 _MAX_CORPUS_PROVISION_BYTES = 64 * 1024 * 1024
+_MAX_CORPUS_CLAIM_BYTES = 64 * 1024 * 1024
 
 
 class RegenerationInputError(ValueError):
@@ -393,11 +394,61 @@ def validate_corpus_path(corpus_path: Path) -> Path:
         raise RegenerationInputError(
             f"corpus checkout has no provision JSONL files: {resolved_corpus}"
         )
+
+    for candidate in dict.fromkeys(
+        (
+            resolved_corpus / "data" / "corpus" / "claims",
+            resolved_corpus / "claims",
+        )
+    ):
+        cursor = resolved_corpus
+        for part in candidate.relative_to(resolved_corpus).parts:
+            cursor /= part
+            if cursor.is_symlink():
+                raise UnsafeRegenerationPath(
+                    f"corpus claims path contains a symlink: {cursor}"
+                )
+        if not cursor.exists():
+            continue
+        if not cursor.is_dir():
+            raise UnsafeRegenerationPath(
+                f"corpus claims path is not a directory: {cursor}"
+            )
+        resolved_claims = cursor.resolve(strict=True)
+        try:
+            resolved_claims.relative_to(resolved_corpus)
+        except ValueError as exc:
+            raise UnsafeRegenerationPath(
+                f"corpus claims path escapes {resolved_corpus}: {cursor}"
+            ) from exc
+        for claim_file in resolved_claims.rglob("*"):
+            if claim_file.is_symlink():
+                raise UnsafeRegenerationPath(
+                    f"corpus claims tree contains a symlink: {claim_file}"
+                )
+            if claim_file.suffix != ".jsonl":
+                continue
+            resolved_claim = claim_file.resolve(strict=True)
+            try:
+                resolved_claim.relative_to(resolved_corpus)
+            except ValueError as exc:
+                raise UnsafeRegenerationPath(
+                    f"corpus claim escapes {resolved_corpus}: {claim_file}"
+                ) from exc
+            if not resolved_claim.is_file():
+                raise UnsafeRegenerationPath(
+                    f"corpus claim is not a regular file: {claim_file}"
+                )
+            if resolved_claim.stat().st_size > _MAX_CORPUS_CLAIM_BYTES:
+                raise UnsafeRegenerationPath(
+                    "corpus claim exceeds the "
+                    f"{_MAX_CORPUS_CLAIM_BYTES}-byte safety limit: {claim_file}"
+                )
     return resolved_corpus
 
 
-def citation_resolves_locally(citation: str, corpus_path: Path) -> bool:
-    """Return whether the encoder can resolve ``citation`` from this checkout.
+def resolve_local_citation(citation: str, corpus_path: Path) -> str | None:
+    """Return the first local candidate the encoder can resolve, if any.
 
     The live resolver falls back to Supabase, which would make a scheduled run
     depend on mutable remote state.  Use its exact normalization and
@@ -412,11 +463,19 @@ def citation_resolves_locally(citation: str, corpus_path: Path) -> bool:
         _fetch_local_corpus_source_text_from_repo,
     )
 
-    return any(
-        _fetch_local_corpus_source_text_from_repo(candidate, resolved_corpus)
-        is not None
-        for candidate in _candidate_corpus_citation_paths(citation)
-    )
+    for candidate in _candidate_corpus_citation_paths(citation):
+        if (
+            _fetch_local_corpus_source_text_from_repo(candidate, resolved_corpus)
+            is not None
+        ):
+            return candidate
+    return None
+
+
+def citation_resolves_locally(citation: str, corpus_path: Path) -> bool:
+    """Return whether ``citation`` has an exact or parent local candidate."""
+
+    return resolve_local_citation(citation, corpus_path) is not None
 
 
 def read_resolvable_citation(
@@ -428,9 +487,10 @@ def read_resolvable_citation(
     """Read a replay manifest citation that is available in the local corpus."""
 
     citation = read_citation(root, module)
-    if not citation_resolves_locally(citation, corpus_path):
+    if resolve_local_citation(citation, corpus_path) is None:
         raise RegenerationInputError(
-            f"manifest citation does not resolve in the local corpus: {citation!r}"
+            "manifest citation does not resolve in the local corpus: "
+            f"{citation!r}"
         )
     return citation
 
@@ -513,6 +573,7 @@ def regenerate_module(
             backend,
             "--corpus-path",
             str(resolved_corpus),
+            "--local-corpus-only",
             "--policy-repo-path",
             str(policy_root),
             "--no-sync",

@@ -345,8 +345,20 @@ def cmd_drift_check(args: argparse.Namespace) -> int:
 
     report = drift.run_drift_check(modules, regenerate, k=args.k, seed=args.seed)
     out = report.to_dict()
+    try:
+        drift.DriftReport.from_dict(out)
+    except ValueError as exc:
+        print(f"generated invalid drift report: {exc}", file=sys.stderr)
+        return 2
     out["note"] = note
     serialized = redact_sensitive_text(json.dumps(out, indent=2, default=str))
+    if len((serialized + "\n").encode("utf-8")) > _MAX_DRIFT_REPORT_BYTES:
+        print(
+            f"generated drift report exceeds the {_MAX_DRIFT_REPORT_BYTES}-byte "
+            "safety limit",
+            file=sys.stderr,
+        )
+        return 2
     if args.report_file:
         Path(args.report_file).write_text(serialized + "\n", encoding="utf-8")
 
@@ -358,7 +370,7 @@ def cmd_drift_check(args: argparse.Namespace) -> int:
             f"{len(report.drifted)} drifted, {len(report.errors)} errors"
         )
         for r in report.drifted:
-            print(f"  DRIFT {r.module}: {len(r.diffs)} diffs")
+            print(f"  DRIFT {r.module}: {r.diff_count} diffs")
         for r in report.errors:
             print(f"  ERROR {r.module}: {redact_sensitive_text(r.error or '')}")
     # Drift or a regeneration error is a signal worth a non-zero exit for CI.
@@ -591,21 +603,24 @@ def _create_drift_issues(report, repo: str) -> list[str]:
     # regeneration error is the least-visible outcome otherwise, and the drift
     # check's whole point is that failures are never silent.
     items = [
-        (r, drift.drift_issue_body(r), f"drift: {r.module}") for r in report.drifted
+        (r, drift.drift_issue_body(r), drift.drift_issue_title(r))
+        for r in report.drifted
     ]
     items += [
         (
             r,
-            f"Golden regeneration could not check `{r.module}`:\n\n> {r.error}\n",
-            f"regeneration error: {r.module}",
+            drift.drift_error_issue_body(r),
+            drift.drift_issue_title(r, regeneration_error=True),
         )
         for r in report.errors
     ]
 
     created: list[str] = []
     for _result, body, title in items:
-        body = redact_sensitive_text(body)
-        title = redact_sensitive_text(title)
+        body = drift.enforce_github_issue_body_budget(redact_sensitive_text(body))
+        title = drift.enforce_github_issue_title_budget(
+            redact_sensitive_text(title)
+        )
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
             fh.write(body)
             body_path = fh.name
@@ -618,7 +633,7 @@ def _create_drift_issues(report, repo: str) -> list[str]:
                     "-R",
                     repo,
                     "--title",
-                    f"Golden-regeneration {title}",
+                    title,
                     "--label",
                     "drift",
                     "--body-file",

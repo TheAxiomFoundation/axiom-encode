@@ -48,10 +48,14 @@ from axiom_encode.statute import (
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
     ResolvedDefinedTerm,
+    UnsafeRulespecContextPath,
     import_target_to_relative_rulespec_path,
     materialize_registered_stub,
     resolve_canonical_concepts_from_text,
     resolve_defined_terms_from_text,
+    validate_explicit_context_file,
+    validate_rulespec_context_directory,
+    validate_rulespec_context_file,
 )
 from .encoding_db import TokenUsage
 from .eval_prompt_surface import (
@@ -64,10 +68,13 @@ from .pricing import estimate_usage_cost_usd
 from .validator_pipeline import (
     ValidationResult,
     ValidatorPipeline,
+    _authoritative_corpus_scope,
     _candidate_local_corpus_provision_files,
     _fetch_supabase_corpus_source_text,
     _local_corpus_record_text,
+    _parse_rulespec_target,
     _read_local_corpus_provision_file,
+    _resolve_rulespec_target_file,
     _source_text_looks_like_table,
     extract_embedded_source_text,
     extract_grounding_values,
@@ -726,6 +733,7 @@ class EvalWorkspace:
     source_metadata_file: Path | None = None
     source_metadata: dict[str, object] | None = None
     context_files: list[EvalContextFile] = field(default_factory=list)
+    policy_prefix: str | None = None
 
 
 @dataclass(frozen=True)
@@ -943,12 +951,20 @@ def run_source_eval(
     policyengine_country: str = "auto",
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    local_corpus_root: Path | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one corpus-backed source unit."""
     results: list[EvalResult] = []
     continuations = _primary_source_continuations_from_context_paths(
-        extra_context_paths or []
+        extra_context_paths or [],
+        policy_path,
     )
+    continuation_paths = {item.source_path for item in continuations}
+    extra_context_paths = [
+        Path(path)
+        for path in extra_context_paths or []
+        if Path(path).resolve(strict=False) not in continuation_paths
+    ]
     source_text = _append_primary_source_continuations(source_text, continuations)
     source_metadata_payload = _source_metadata_with_continuations(
         source_metadata_payload,
@@ -966,11 +982,12 @@ def run_source_eval(
                 source_metadata_payload=source_metadata_payload,
                 runtime_axiom_rules_path=runtime_axiom_rules_path or policy_path,
                 mode=mode,
-                extra_context_paths=extra_context_paths or [],
+                extra_context_paths=extra_context_paths,
                 oracle=oracle,
                 policyengine_country=policyengine_country,
                 policyengine_rule_hint=policyengine_rule_hint,
                 skip_reviewers=skip_reviewers,
+                local_corpus_root=local_corpus_root,
             )
         )
 
@@ -1022,16 +1039,20 @@ _CORPUS_CITATION_PATH_LINE_PATTERN = re.compile(
 
 def _primary_source_continuations_from_context_paths(
     extra_context_paths: Sequence[Path],
+    policy_root: Path,
 ) -> list[PrimarySourceContinuation]:
     """Return explicit primary-source continuations supplied as context files."""
     continuations: list[PrimarySourceContinuation] = []
     for raw_path in extra_context_paths:
         path = Path(raw_path)
+        if path.is_symlink():
+            validate_explicit_context_file(path, policy_root)
         if not path.is_file():
             continue
+        path = validate_explicit_context_file(path, policy_root)
         try:
             raw_text = path.read_text()
-        except OSError:
+        except (OSError, UnicodeError):
             continue
         lines = raw_text.splitlines()
         first_nonempty = next((line for line in lines if line.strip()), "")
@@ -1102,6 +1123,29 @@ def _source_metadata_with_continuations(
         metadata["corpus_citation_paths"] = deduped_paths
     metadata["primary_source_continuations"] = continuation_records
     return metadata
+
+
+def _source_metadata_citation_paths(
+    source_metadata_payload: dict[str, object] | None,
+) -> tuple[str, ...] | None:
+    """Return trusted source paths supplied by the corpus resolver/workspace."""
+
+    if not isinstance(source_metadata_payload, dict):
+        return None
+    paths: list[str] = []
+    raw_path = source_metadata_payload.get("corpus_citation_path")
+    if isinstance(raw_path, str) and raw_path.strip().strip("/"):
+        paths.append(raw_path.strip().strip("/"))
+    raw_paths = source_metadata_payload.get("corpus_citation_paths")
+    if isinstance(raw_paths, list):
+        for item in raw_paths:
+            if not isinstance(item, str):
+                continue
+            normalized = item.strip().strip("/")
+            if normalized:
+                paths.append(normalized)
+    deduped = tuple(dict.fromkeys(paths))
+    return deduped or None
 
 
 def _combine_retry_response(
@@ -1955,8 +1999,9 @@ def _resolve_manifest_path(base_dir: Path, value: object) -> Path:
     — benchmark YAML stays unchanged across the consolidation.
     """
     path = Path(str(value))
-    if not path.is_absolute():
-        path = (base_dir / path).resolve()
+    path = Path(os.path.abspath(path if path.is_absolute() else base_dir / path))
+    if path.is_symlink():
+        return path
     if not path.exists():
         monorepo_path = monorepo_alternative_path(path)
         if monorepo_path is not None and monorepo_path.exists():
@@ -2026,13 +2071,21 @@ def select_context_files(
         else parse_usc_citation(citation)
     )
     repo_root = Path(policy_root)
-    statutes_root = repo_root / "statutes"
-    section_root = statutes_root / parts.title / parts.section
+    statutes_root = validate_rulespec_context_directory(
+        repo_root / "statutes",
+        repo_root,
+    )
+    if statutes_root is None:
+        return []
+    section_root = validate_rulespec_context_directory(
+        statutes_root / parts.title / parts.section,
+        repo_root,
+    )
     target_rel = citation_to_relative_rulespec_path(parts)
     target_path = repo_root / target_rel
 
     candidates: list[Path] = []
-    if section_root.exists():
+    if section_root is not None:
         candidates.extend(
             sorted(
                 path
@@ -2043,14 +2096,18 @@ def select_context_files(
         )
 
     if not candidates:
-        title_root = statutes_root / parts.title
-        candidates.extend(
-            sorted(
-                path
-                for path in title_root.rglob("*.yaml")
-                if path != target_path and not path.name.endswith(".test.yaml")
-            )
+        title_root = validate_rulespec_context_directory(
+            statutes_root / parts.title,
+            repo_root,
         )
+        if title_root is not None:
+            candidates.extend(
+                sorted(
+                    path
+                    for path in title_root.rglob("*.yaml")
+                    if path != target_path and not path.name.endswith(".test.yaml")
+                )
+            )
 
     # Bias toward nearby files first, then shallower paths for readability.
     candidates.sort(
@@ -2104,6 +2161,7 @@ def prepare_eval_workspace(
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
+    context_corpus_root = _repo_augmented_context_root(axiom_rules_path)
     target_rel = _target_rel_for_eval_identifier(citation)
     current_file = axiom_rules_path / target_rel if target_rel is not None else None
     for resolved_term in resolve_defined_terms_from_text(source_text):
@@ -2123,17 +2181,17 @@ def prepare_eval_workspace(
             context_root=context_root,
             resolved_concept=resolved_concept,
             workspace_root=workspace_root,
+            policy_root=context_corpus_root,
         )
         context_files.append(context_item)
         companion_item = _materialize_resolved_canonical_concept_companion_test(
             context_item=context_item,
             resolved_concept=resolved_concept,
             workspace_root=workspace_root,
+            policy_root=context_corpus_root,
         )
         if companion_item is not None:
             context_files.append(companion_item)
-
-    context_corpus_root = _repo_augmented_context_root(axiom_rules_path)
 
     if mode == "repo-augmented":
         selected = _auto_select_context_files(citation, context_corpus_root)
@@ -2154,18 +2212,26 @@ def prepare_eval_workspace(
                 context_corpus_root,
             )
         )
+        explicit_context_paths: set[Path] = set()
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
+            if path.is_symlink():
+                validate_explicit_context_file(path, context_corpus_root)
             if path.exists():
+                path = validate_explicit_context_file(path, context_corpus_root)
                 selected.append(path)
+                explicit_context_paths.add(path)
 
         expanded_context = _expand_context_files(
-            selected, context_corpus_root, target_rel
+            selected,
+            context_corpus_root,
+            target_rel,
+            explicit_context_paths=explicit_context_paths,
         )
 
         for source_path, kind in expanded_context:
             relative_target = _context_import_relative_target(
-                source_path, axiom_rules_path
+                source_path, context_corpus_root
             )
 
             workspace_relative_path = Path("context") / relative_target
@@ -2187,6 +2253,7 @@ def prepare_eval_workspace(
             {
                 "citation": citation,
                 "mode": mode,
+                "policy_prefix": jurisdiction_prefix(context_corpus_root),
                 "source_text_file": str(source_text_file.relative_to(workspace_root)),
                 "source_metadata_file": (
                     str(source_metadata_file.relative_to(workspace_root))
@@ -2208,12 +2275,15 @@ def prepare_eval_workspace(
         source_metadata_file=source_metadata_file,
         source_metadata=source_metadata,
         context_files=context_files,
+        policy_prefix=jurisdiction_prefix(context_corpus_root),
     )
 
 
 def resolve_corpus_source_unit(
     identifier: str,
     corpus_path: Path,
+    *,
+    local_only: bool = False,
 ) -> CorpusSourceUnit:
     """Resolve an encode target to normalized corpus.provisions text.
 
@@ -2242,25 +2312,24 @@ def resolve_corpus_source_unit(
                 body=body,
                 source="local",
             )
-        supabase_text = _fetch_supabase_corpus_source_text(citation_path)
-        if supabase_text is not None:
-            body = _slice_parent_corpus_text_for_requested_path(
-                supabase_text,
-                requested_path=primary,
-                resolved_path=citation_path,
-            )
-            return CorpusSourceUnit(
-                requested=identifier,
-                citation_path=citation_path,
-                body=body,
-                source="supabase",
-            )
+        if not local_only:
+            supabase_text = _fetch_supabase_corpus_source_text(citation_path)
+            if supabase_text is not None:
+                body = _slice_parent_corpus_text_for_requested_path(
+                    supabase_text,
+                    requested_path=primary,
+                    resolved_path=citation_path,
+                )
+                return CorpusSourceUnit(
+                    requested=identifier,
+                    citation_path=citation_path,
+                    body=body,
+                    source="supabase",
+                )
 
     candidates = ", ".join(_candidate_corpus_citation_paths(identifier)[:4])
-    raise ValueError(
-        "No corpus.provisions source text found for "
-        f"{identifier!r}. Tried: {candidates}"
-    )
+    scope = "local corpus.provisions" if local_only else "corpus.provisions"
+    raise ValueError(f"No {scope} source text found for {identifier!r}. Tried: {candidates}")
 
 
 def _slice_parent_corpus_text_for_requested_path(
@@ -2779,17 +2848,21 @@ def _materialize_resolved_canonical_concept(
     context_root: Path,
     resolved_concept: ResolvedCanonicalConcept,
     workspace_root: Path,
+    policy_root: Path,
 ) -> EvalContextFile:
     """Copy one resolved canonical concept file into the eval workspace context."""
+    source = validate_rulespec_context_file(
+        resolved_concept.rulespec_file, policy_root
+    )
     relative_target = Path("context") / import_target_to_relative_rulespec_path(
         resolved_concept.import_target
     )
     target = workspace_root / relative_target
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(resolved_concept.rulespec_file, target)
+    shutil.copy2(source, target)
     import_path = resolved_concept.import_target.split("#", 1)[0]
     return EvalContextFile(
-        source_path=str(resolved_concept.rulespec_file),
+        source_path=str(source),
         workspace_path=str(relative_target),
         import_path=import_path,
         kind="canonical_concept",
@@ -2802,11 +2875,15 @@ def _materialize_resolved_canonical_concept_companion_test(
     context_item: EvalContextFile,
     resolved_concept: ResolvedCanonicalConcept,
     workspace_root: Path,
+    policy_root: Path,
 ) -> EvalContextFile | None:
     """Copy the companion test for a resolved canonical concept when available."""
     test_source = _rulespec_test_path(resolved_concept.rulespec_file)
+    if test_source.is_symlink():
+        validate_rulespec_context_file(test_source, policy_root)
     if not test_source.exists():
         return None
+    test_source = validate_rulespec_context_file(test_source, policy_root)
 
     test_import_path = f"{context_item.import_path}.test"
     relative_target = Path("context") / import_target_to_relative_rulespec_path(
@@ -2831,8 +2908,12 @@ def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
         target_path = policy_root / target_rel
         if target_path.exists():
             selected.append(target_path)
-        if target_path.parent.exists():
-            for sibling in sorted(target_path.parent.glob("*.yaml")):
+        target_parent = validate_rulespec_context_directory(
+            target_path.parent,
+            policy_root,
+        )
+        if target_parent is not None:
+            for sibling in sorted(target_parent.glob("*.yaml")):
                 if sibling.name.endswith(".test.yaml") or sibling == target_path:
                     continue
                 selected.append(sibling)
@@ -3169,19 +3250,29 @@ def _cited_context_candidates(
     candidate = policy_root / candidate_rel
     child_root = policy_root / candidate_rel.with_suffix("")
     child_candidates: list[Path] = []
-    if child_root.is_dir():
+    validated_child_root = validate_rulespec_context_directory(
+        child_root,
+        policy_root,
+    )
+    if validated_child_root is not None:
         child_candidates = [
             path
-            for path in child_root.rglob("*.yaml")
+            for path in validated_child_root.rglob("*.yaml")
             if not path.name.endswith(".test.yaml")
         ]
         child_candidates.sort(
-            key=lambda path: (len(path.relative_to(child_root).parts), str(path))
+            key=lambda path: (
+                len(path.relative_to(validated_child_root).parts),
+                str(path),
+            )
         )
         if max_child_candidates is not None:
             child_candidates = child_candidates[:max_child_candidates]
 
+    if candidate.is_symlink():
+        validate_rulespec_context_file(candidate, policy_root)
     if candidate.exists():
+        candidate = validate_rulespec_context_file(candidate, policy_root)
         if include_exporting_candidate_children and child_candidates:
             return [candidate, *child_candidates]
         if _context_file_exports(str(candidate)) or not child_candidates:
@@ -3199,11 +3290,15 @@ def _select_child_fragment_context_files(
     if target_rel is None:
         return []
     child_root = policy_root / target_rel.with_suffix("")
-    if not child_root.is_dir():
+    validated_child_root = validate_rulespec_context_directory(
+        child_root,
+        policy_root,
+    )
+    if validated_child_root is None:
         return []
     return sorted(
         path
-        for path in child_root.rglob("*.yaml")
+        for path in validated_child_root.rglob("*.yaml")
         if not path.name.endswith(".test.yaml")
     )
 
@@ -3219,14 +3314,25 @@ def _repo_augmented_context_root(policy_path: Path) -> Path:
 
 
 def _context_import_relative_target(source_path: Path, policy_path: Path) -> Path:
-    """Prefer canonical repo-relative import targets for copied precedent files."""
-    repo_parent = policy_path.parent.resolve()
+    """Return a collision-free workspace path for copied precedent files."""
     resolved_source = source_path.resolve()
     source_policy_root = find_policy_repo_root(resolved_source)
     if source_policy_root is not None:
         with contextlib.suppress(ValueError):
-            return resolved_source.relative_to(source_policy_root.resolve())
+            relative = resolved_source.relative_to(source_policy_root.resolve())
+            resolved_policy = policy_path.resolve()
+            active_policy_root = find_policy_repo_root(resolved_policy)
+            same_content_root = (
+                active_policy_root is not None
+                and active_policy_root.resolve() == source_policy_root.resolve()
+            )
+            if not same_content_root:
+                source_repo = canonical_rulespec_repo_name(source_policy_root)
+                if source_repo:
+                    return Path(source_repo) / relative
+            return relative
 
+    repo_parent = policy_path.parent.resolve()
     for candidate in sorted(repo_parent.glob("rulespec-*")):
         if not candidate.is_dir():
             continue
@@ -3241,7 +3347,14 @@ def _context_import_relative_target(source_path: Path, policy_path: Path) -> Pat
 def _context_import_target(source_path: Path, relative_target: Path) -> str:
     """Return the canonical RuleSpec import target for a copied context file."""
     prefix = _rulespec_repo_import_prefix(source_path)
-    return _relative_rulespec_path_to_import_target(relative_target, prefix=prefix)
+    source_policy_root = find_policy_repo_root(source_path)
+    import_relative = relative_target
+    if source_policy_root is not None:
+        with contextlib.suppress(ValueError):
+            import_relative = source_path.resolve().relative_to(
+                source_policy_root.resolve()
+            )
+    return _relative_rulespec_path_to_import_target(import_relative, prefix=prefix)
 
 
 def _rulespec_repo_import_prefix(source_path: Path) -> str | None:
@@ -3304,6 +3417,37 @@ def evaluate_artifact(
     policyengine_country: str = "auto",
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    local_corpus_root: Path | None = None,
+    source_citation_paths: tuple[str, ...] | None = None,
+) -> EvalArtifactMetrics:
+    """Evaluate an artifact while preserving any local-only corpus boundary."""
+
+    with _authoritative_corpus_scope(local_corpus_root):
+        return _evaluate_artifact_in_scope(
+            rulespec_file=rulespec_file,
+            policy_repo_root=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            source_text=source_text,
+            oracle=oracle,
+            policyengine_country=policyengine_country,
+            policyengine_rule_hint=policyengine_rule_hint,
+            skip_reviewers=skip_reviewers,
+            local_corpus_root=local_corpus_root,
+            source_citation_paths=source_citation_paths,
+        )
+
+
+def _evaluate_artifact_in_scope(
+    rulespec_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    source_text: str,
+    oracle: EvalOracleMode = "none",
+    policyengine_country: str = "auto",
+    policyengine_rule_hint: str | None = None,
+    skip_reviewers: bool = False,
+    local_corpus_root: Path | None = None,
+    source_citation_paths: tuple[str, ...] | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     with _rulespec_validation_target(
@@ -3320,6 +3464,8 @@ def evaluate_artifact(
             policyengine_rule_hint=policyengine_rule_hint,
             require_policy_proofs=True,
             source_text=source_text,
+            local_corpus_root=local_corpus_root,
+            source_citation_paths=source_citation_paths,
         )
         compile_result = pipeline._run_compile_check(validation_file)
         ci_result = pipeline._run_ci(validation_file)
@@ -3552,6 +3698,8 @@ def _evaluate_generated_artifact_with_repairs(
     policyengine_country: str = "auto",
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    local_corpus_root: Path | None = None,
+    source_citation_paths: tuple[str, ...] | None = None,
 ) -> EvalArtifactMetrics | None:
     metrics = evaluate_artifact(
         rulespec_file=rulespec_file,
@@ -3562,6 +3710,8 @@ def _evaluate_generated_artifact_with_repairs(
         policyengine_country=policyengine_country,
         policyengine_rule_hint=policyengine_rule_hint,
         skip_reviewers=skip_reviewers,
+        local_corpus_root=local_corpus_root,
+        source_citation_paths=source_citation_paths,
     )
     if metrics is None:
         return None
@@ -3582,6 +3732,8 @@ def _evaluate_generated_artifact_with_repairs(
         policyengine_country=policyengine_country,
         policyengine_rule_hint=policyengine_rule_hint,
         skip_reviewers=skip_reviewers,
+        local_corpus_root=local_corpus_root,
+        source_citation_paths=source_citation_paths,
     )
 
 
@@ -3727,7 +3879,7 @@ def _imported_named_scalar_occurrences(
             )
         for path in _candidate_import_rule_files(import_target, policy_repo_root):
             resolved = path.resolve()
-            if resolved in seen or not path.exists():
+            if resolved in seen:
                 continue
             seen.add(resolved)
             with contextlib.suppress(OSError):
@@ -3784,15 +3936,62 @@ def _candidate_import_rule_files(
     import_target: str,
     policy_repo_root: Path,
 ) -> list[Path]:
-    """Return possible local files for an import target."""
+    """Return existing validated files for an import target."""
     target_path = _import_target_to_path(import_target)
-    candidates = [policy_repo_root / target_path]
     import_prefix = _import_target_prefix(import_target)
     if import_prefix:
-        candidates.append(
-            policy_repo_root.parent / f"rulespec-{import_prefix}" / target_path
+        target_ref = _parse_rulespec_target(import_target)
+        if target_ref is not None:
+            resolved = _resolve_rulespec_target_file(target_ref, policy_repo_root)
+            if resolved is not None:
+                return [resolved]
+        if canonical_rulespec_repo_name(policy_repo_root) is not None:
+            return []
+
+    candidate = policy_repo_root / target_path
+    if not candidate.exists() and not candidate.is_symlink():
+        return []
+    return [validate_rulespec_context_file(candidate, policy_repo_root)]
+
+
+_VALIDATION_OVERLAY_IGNORED_NAMES = frozenset(
+    {".git", ".venv", "__pycache__", ".pytest_cache"}
+)
+
+
+def _validation_overlay_ignore(directory: str, names: list[str]) -> set[str]:
+    """Reject repository indirection before snapshotting a validation tree."""
+    ignored = set(names) & _VALIDATION_OVERLAY_IGNORED_NAMES
+    for name in names:
+        if name in ignored:
+            continue
+        candidate = Path(directory) / name
+        if candidate.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"Validation overlay source contains a symlink: {candidate}"
+            )
+    return ignored
+
+
+def _copy_validation_overlay_tree(
+    source: Path,
+    destination: Path,
+    *,
+    dirs_exist_ok: bool = False,
+) -> None:
+    """Copy a validation tree without ever dereferencing source symlinks."""
+    safe_source = validate_rulespec_context_directory(source, source)
+    if safe_source is None:
+        raise UnsafeRulespecContextPath(
+            f"Validation overlay source directory does not exist: {source}"
         )
-    return candidates
+    shutil.copytree(
+        safe_source,
+        destination,
+        symlinks=True,
+        ignore=_validation_overlay_ignore,
+        dirs_exist_ok=dirs_exist_ok,
+    )
 
 
 @contextlib.contextmanager
@@ -3801,12 +4000,17 @@ def _rulespec_validation_target(
 ) -> Iterator[Path]:
     """Yield a validation path whose ancestors expose canonical repo identity."""
     if _is_under_root(rulespec_file, policy_repo_root):
-        yield rulespec_file
+        yield validate_rulespec_context_file(rulespec_file, policy_repo_root)
         return
     relative = _relative_rulespec_source_path(rulespec_file)
     if relative is None:
-        yield rulespec_file
+        yield validate_explicit_context_file(rulespec_file, rulespec_file.parent)
         return
+    generated_root = rulespec_file.parents[len(relative.parts) - 1]
+    if generated_root.is_symlink():
+        raise UnsafeRulespecContextPath(
+            f"Validation generated-artifact root is a symlink: {generated_root}"
+        )
 
     source_repo_root = policy_repo_root
     if not source_repo_root.name.startswith("rulespec-"):
@@ -3816,49 +4020,71 @@ def _rulespec_validation_target(
         ) and source_repo_root.name in jurisdiction_subdir_names(maybe_monorepo_root):
             source_repo_root = maybe_monorepo_root
         else:
-            yield rulespec_file
+            yield validate_explicit_context_file(rulespec_file, generated_root)
             return
 
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)
-        for sibling in source_repo_root.parent.glob("rulespec-*"):
-            if sibling.resolve() == source_repo_root.resolve() or not sibling.is_dir():
-                continue
-            sibling_target = overlay_parent / sibling.name
-            try:
-                sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
-            except OSError:
-                shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
         overlay_repo_name = (
             canonical_rulespec_repo_name(source_repo_root) or source_repo_root.name
         )
+        for sibling in source_repo_root.parent.glob("rulespec-*"):
+            if (
+                sibling.resolve() == source_repo_root.resolve()
+                or sibling.name == overlay_repo_name
+                or not sibling.is_dir()
+            ):
+                continue
+            if sibling.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"Validation overlay sibling checkout is a symlink: {sibling}"
+                )
+            sibling_target = overlay_parent / sibling.name
+            _copy_validation_overlay_tree(
+                sibling,
+                sibling_target,
+                dirs_exist_ok=True,
+            )
         overlay_repo = overlay_parent / overlay_repo_name
-        shutil.copytree(
+        _copy_validation_overlay_tree(
             source_repo_root,
             overlay_repo,
-            ignore=shutil.ignore_patterns(
-                ".git", ".venv", "__pycache__", ".pytest_cache"
-            ),
         )
         eval_workspaces_root = _nearby_eval_workspaces_root(rulespec_file)
         if eval_workspaces_root is not None:
-            eval_overlay = overlay_parent / "_eval_workspaces"
-            try:
-                eval_overlay.symlink_to(
-                    eval_workspaces_root.resolve(),
-                    target_is_directory=True,
+            safe_eval_workspaces_root = validate_rulespec_context_directory(
+                eval_workspaces_root,
+                eval_workspaces_root,
+            )
+            if safe_eval_workspaces_root is None:
+                raise UnsafeRulespecContextPath(
+                    "Validation eval-workspaces directory does not exist: "
+                    f"{eval_workspaces_root}"
                 )
-            except OSError:
-                shutil.copytree(eval_workspaces_root, eval_overlay)
+            eval_overlay = overlay_parent / "_eval_workspaces"
+            _copy_validation_overlay_tree(
+                safe_eval_workspaces_root,
+                eval_overlay,
+            )
         validation_content_root = jurisdiction_content_dir(
             overlay_repo,
             jurisdiction_prefix(policy_repo_root),
         )
         validation_file = validation_content_root / relative
         validation_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(rulespec_file, validation_file)
+        safe_rulespec_file = validate_explicit_context_file(
+            rulespec_file,
+            generated_root,
+        )
+        shutil.copy2(safe_rulespec_file, validation_file)
         companion_test = rulespec_file.with_name(f"{rulespec_file.stem}.test.yaml")
+        if companion_test.is_symlink():
+            validate_explicit_context_file(companion_test, generated_root)
         if companion_test.exists():
+            companion_test = validate_explicit_context_file(
+                companion_test,
+                generated_root,
+            )
             validation_test = validation_file.with_name(
                 f"{validation_file.stem}.test.yaml"
             )
@@ -4028,8 +4254,15 @@ def _run_single_eval(
 ) -> EvalResult:
     source_unit = resolve_corpus_source_unit(citation, corpus_path)
     continuations = _primary_source_continuations_from_context_paths(
-        extra_context_paths
+        extra_context_paths,
+        policy_path,
     )
+    continuation_paths = {item.source_path for item in continuations}
+    extra_context_paths = [
+        Path(path)
+        for path in extra_context_paths
+        if Path(path).resolve(strict=False) not in continuation_paths
+    ]
     source_text = source_unit.body
     source_text = _append_primary_source_continuations(source_text, continuations)
     prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
@@ -4120,6 +4353,9 @@ def _run_single_eval(
             source_text=source_text,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            source_citation_paths=_source_metadata_citation_paths(
+                source_metadata_payload
+            ),
         )
     validation_error = _eval_artifact_validation_error(metrics)
 
@@ -4179,6 +4415,7 @@ def _run_single_source_eval(
     policyengine_country: str,
     policyengine_rule_hint: str | None,
     skip_reviewers: bool = False,
+    local_corpus_root: Path | None = None,
 ) -> EvalResult:
     """Run one eval on a corpus-backed source unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
@@ -4260,6 +4497,10 @@ def _run_single_source_eval(
             policyengine_country=policyengine_country,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            local_corpus_root=local_corpus_root,
+            source_citation_paths=_source_metadata_citation_paths(
+                source_metadata_payload
+            ),
         )
     validation_error = _eval_artifact_validation_error(metrics)
 
@@ -6313,8 +6554,7 @@ def _first_existing_context_import_file(
 ) -> Path | None:
     """Resolve one copied context import to the first visible RuleSpec file."""
     for candidate in _candidate_import_rule_files(import_path, policy_repo_root):
-        if candidate.exists():
-            return candidate
+        return candidate
     return None
 
 
@@ -8209,11 +8449,14 @@ def _expand_context_files(
     selected_paths: list[Path],
     policy_root: Path,
     target_rel: Path | None,
+    *,
+    explicit_context_paths: set[Path] | None = None,
 ) -> list[tuple[Path, str]]:
     """Expand selected precedent files with their transitive canonical imports."""
     expanded: list[tuple[Path, str]] = []
-    pending: list[tuple[Path, str]] = []
+    pending: list[tuple[Path, str, bool]] = []
     seen: set[Path] = set()
+    explicit_context_paths = explicit_context_paths or set()
 
     for path in selected_paths:
         is_target = (
@@ -8229,11 +8472,17 @@ def _expand_context_files(
                 else "implementation_external"
             )
         )
-        pending.append((path, kind))
+        pending.append((path, kind, path.resolve() in explicit_context_paths))
 
     while pending:
-        source_path, kind = pending.pop(0)
-        resolved = source_path.resolve()
+        source_path, kind, is_explicit = pending.pop(0)
+        validator = (
+            validate_explicit_context_file
+            if is_explicit
+            else validate_rulespec_context_file
+        )
+        source_path = validator(source_path, policy_root)
+        resolved = source_path
         if resolved in seen:
             continue
         if (
@@ -8248,6 +8497,10 @@ def _expand_context_files(
             ".test.yaml"
         ):
             test_path = _rulespec_test_path(source_path)
+            if test_path.is_symlink():
+                validator(test_path, policy_root)
+            if test_path.exists():
+                test_path = validator(test_path, policy_root)
             resolved_test = test_path.resolve()
             if test_path.exists() and resolved_test not in seen:
                 seen.add(resolved_test)
@@ -8264,7 +8517,7 @@ def _expand_context_files(
         for dependency in _resolve_context_imports(source_path, policy_root):
             if dependency.resolve() in seen:
                 continue
-            pending.append((dependency, "implementation_dependency"))
+            pending.append((dependency, "implementation_dependency", False))
 
     return expanded
 
@@ -8275,12 +8528,8 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
     for import_target in _extract_import_targets(source_path.read_text()):
         import_prefix = _import_target_prefix(import_target)
         target_path = _import_target_to_path(import_target)
-        candidates = [policy_root / target_path]
-        if import_prefix:
-            candidates.append(
-                policy_root.parent / f"rulespec-{import_prefix}" / target_path
-            )
-        if target_path.parts:
+        candidates = _candidate_import_rule_files(import_target, policy_root)
+        if not import_prefix and target_path.parts:
             first = target_path.parts[0]
             if first == policy_root.name:
                 candidates.append(policy_root / Path(*target_path.parts[1:]))
@@ -8288,8 +8537,11 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
                 candidates.append(policy_root.parent / target_path)
 
         for candidate in candidates:
-            if candidate.exists():
-                dependencies.append(candidate)
+            if not candidate.exists() and not candidate.is_symlink():
+                continue
+            dependency = validate_rulespec_context_file(candidate, policy_root)
+            if dependency not in dependencies:
+                dependencies.append(dependency)
                 break
     return dependencies
 
@@ -8374,19 +8626,33 @@ def _relative_to_root(path: Path, root: Path) -> Path | None:
 
 def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
     """Copy allowed precedent files into the eval root so imports resolve."""
+
+    def copy_context(source: Path, target: Path) -> None:
+        if target.exists():
+            if target.read_bytes() != source.read_bytes():
+                raise ValueError(
+                    f"Conflicting eval context files target the same path: {target}"
+                )
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
     for item in workspace.context_files:
         workspace_path = Path(item.workspace_path)
         if not workspace_path.parts or workspace_path.parts[0] != "context":
             continue
 
         target_relative = _import_target_to_path(item.import_path)
-        target = eval_root / target_relative
-        if target.exists():
-            continue
-
         source = workspace.root / workspace_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        prefix = _import_target_prefix(item.import_path)
+        if prefix:
+            canonical_target = (
+                eval_root / "_axiom" / f"rulespec-{prefix}" / target_relative
+            )
+            copy_context(source, canonical_target)
+            if prefix != workspace.policy_prefix:
+                continue
+        copy_context(source, eval_root / target_relative)
 
 
 def _run_prompt_eval(

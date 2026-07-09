@@ -2484,6 +2484,14 @@ def main():
         help="Path to axiom-corpus repo (defaults to sibling checkout)",
     )
     encode_parser.add_argument(
+        "--local-corpus-only",
+        action="store_true",
+        help=(
+            "Resolve source text only from --corpus-path and never query the "
+            "remote corpus fallback. Requires --source-id."
+        ),
+    )
+    encode_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -27232,11 +27240,26 @@ def cmd_encode(args):
     os.environ.setdefault("AXIOM_CORPUS_REPO", str(corpus_path))
 
     source_id = getattr(args, "source_id", None)
+    local_corpus_only = getattr(args, "local_corpus_only", False) is True
+    if local_corpus_only and not source_id:
+        print("--local-corpus-only requires --source-id")
+        sys.exit(2)
+    if local_corpus_only:
+        from axiom_encode.judges.regeneration import validate_corpus_path
+
+        corpus_path = validate_corpus_path(corpus_path)
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
     policyengine_rule_hint = getattr(args, "policyengine_rule_hint", None)
     source_unit = None
     if source_id:
-        source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
+        if local_corpus_only:
+            source_unit = resolve_corpus_source_unit(
+                args.citation,
+                corpus_path,
+                local_only=True,
+            )
+        else:
+            source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
         prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
         source_text = _scoped_source_text_for_encode_source_id(
             source_unit.body,
@@ -27260,6 +27283,7 @@ def cmd_encode(args):
             extra_context_paths=[Path(path) for path in args.allow_context],
             skip_reviewers=skip_reviewers,
             policyengine_rule_hint=policyengine_rule_hint,
+            local_corpus_root=corpus_path if local_corpus_only else None,
         )
     else:
         results = run_model_eval(
@@ -49662,11 +49686,14 @@ def cmd_eval_suite_revalidate(args):
             continue
 
         source_text = ""
+        source_citation_paths = None
         if case.kind == "source" and case.corpus_citation_path:
-            source_text = resolve_corpus_source_unit(
+            source_unit = resolve_corpus_source_unit(
                 case.corpus_citation_path,
                 corpus_path,
-            ).body
+            )
+            source_text = source_unit.body
+            source_citation_paths = (_prompt_corpus_citation_path(source_unit),)
 
         result.metrics = evaluate_artifact(
             rulespec_file=rulespec_file,
@@ -49676,6 +49703,7 @@ def cmd_eval_suite_revalidate(args):
             oracle=case.oracle,
             policyengine_country=case.policyengine_country,
             policyengine_rule_hint=case.policyengine_rule_hint,
+            source_citation_paths=source_citation_paths,
         )
         entry["result"] = result.to_dict()
 

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import subprocess
+import tempfile
 from datetime import date
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -12,6 +13,7 @@ import requests
 import yaml
 
 from axiom_encode.harness import validator_pipeline
+from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.evals import (
     EvalArtifactMetrics,
     EvalContextFile,
@@ -24,6 +26,7 @@ from axiom_encode.harness.evals import (
     GroundingMetric,
     _build_empty_artifact_retry_prompt,
     _build_eval_prompt,
+    _candidate_import_rule_files,
     _canonical_target_ref_prefix,
     _clean_generated_file_content,
     _codex_prompt_timeouts,
@@ -35,6 +38,7 @@ from axiom_encode.harness.evals import (
     _evaluate_generated_artifact_with_repairs,
     _format_subparagraph_coverage_checklist,
     _hydrate_eval_root,
+    _imported_named_scalar_occurrences,
     _is_single_amount_table_slice,
     _materialize_eval_artifact,
     _normalize_nonannual_test_period_value,
@@ -44,6 +48,7 @@ from axiom_encode.harness.evals import (
     _post_openai_eval_request,
     _prepare_codex_eval_home,
     _prompt_corpus_citation_path,
+    _resolve_context_imports,
     _resolve_eval_output_path,
     _resolve_eval_reference_source_id,
     _rulespec_validation_target,
@@ -428,6 +433,38 @@ def test_resolve_corpus_source_unit_slices_before_bracketed_sibling(tmp_path):
     assert source_unit.body.startswith("(k) Agricultural labor")
     assert "[(l) Repealed" not in source_unit.body
     assert "(m) American vessel" not in source_unit.body
+
+
+def test_resolve_corpus_source_unit_local_only_preserves_child_request(
+    tmp_path, monkeypatch
+):
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/26/3306",
+        body=(
+            "(k) Agricultural labor. Child-specific authoritative text.\n\n"
+            "(l) Other rule. Sibling text."
+        ),
+    )
+
+    def fail_remote(_citation_path):
+        raise AssertionError("local-only resolution queried the remote corpus")
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals._fetch_supabase_corpus_source_text",
+        fail_remote,
+    )
+    source_unit = resolve_corpus_source_unit(
+        "us/statute/26/3306/k",
+        corpus_path,
+        local_only=True,
+    )
+
+    assert source_unit.requested == "us/statute/26/3306/k"
+    assert source_unit.citation_path == "us/statute/26/3306"
+    assert source_unit.source == "local"
+    assert source_unit.body.startswith("(k) Agricultural labor")
+    assert "Sibling text" not in source_unit.body
 
 
 def test_resolve_corpus_source_unit_slices_bracketed_repealed_subsection(tmp_path):
@@ -2242,6 +2279,71 @@ def test_rulespec_validation_overlay_preserves_eval_source_metadata(tmp_path):
     assert metadata["requested_source"] == "us-co/statute/39/39-22-104/1.5"
 
 
+@pytest.mark.parametrize("indirection", ["file", "directory"])
+def test_rulespec_validation_overlay_rejects_repo_symlinks(tmp_path, indirection):
+    policy_repo = tmp_path / "rulespec-us"
+    policy_repo.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel.yaml").write_text("secret: do-not-copy\n")
+    if indirection == "file":
+        (policy_repo / "unrelated.yaml").symlink_to(outside / "sentinel.yaml")
+    else:
+        (policy_repo / "unrelated").symlink_to(outside, target_is_directory=True)
+
+    generated = tmp_path / "out" / "openai" / "statutes" / "1" / "new.yaml"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("format: rulespec/v1\nrules: []\n")
+
+    with pytest.raises(UnsafeRulespecContextPath, match="overlay source.*symlink"):
+        with _rulespec_validation_target(generated, policy_repo):
+            pass
+
+
+def test_rulespec_validation_overlay_copies_safe_cross_repo_context(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    policy_repo.mkdir()
+    sibling = tmp_path / "rulespec-uk" / "statutes" / "1" / "child.yaml"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("format: rulespec/v1\nrules: []\n")
+    generated = tmp_path / "out" / "openai" / "statutes" / "1" / "new.yaml"
+    generated.parent.mkdir(parents=True)
+    generated.write_text(
+        "format: rulespec/v1\n"
+        "imports:\n"
+        "  - uk:statutes/1/child\n"
+        "rules: []\n"
+    )
+
+    with _rulespec_validation_target(generated, policy_repo) as validation_file:
+        target_ref = validator_pipeline._parse_rulespec_target(
+            "uk:statutes/1/child"
+        )
+        assert target_ref is not None
+        resolved = validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            validation_file.parents[2],
+        )
+
+        assert resolved is not None
+        assert resolved.read_text() == "format: rulespec/v1\nrules: []\n"
+
+
+def test_rulespec_validation_overlay_accepts_system_temp_directory_alias(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    policy_repo.mkdir()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        generated = (
+            Path(tmpdir) / "openai-gpt-5.5" / "statutes" / "1" / "new.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+
+        with _rulespec_validation_target(generated, policy_repo) as validation_file:
+            assert validation_file.read_text() == "format: rulespec/v1\nrules: []\n"
+
+
 def test_rulespec_validation_overlay_resolves_generated_nested_source_id(
     tmp_path,
 ):
@@ -3034,7 +3136,10 @@ def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_pa
     assert "Do not narrate your plan" in retry_prompt
 
 
-def test_run_source_eval_appends_primary_source_continuation_context(tmp_path):
+@pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
+def test_run_source_eval_appends_primary_source_continuation_context(
+    tmp_path, mode
+):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()
     continuation = tmp_path / "continuation.txt"
@@ -3075,7 +3180,7 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path):
                 "corpus_citation_path": "us/regulation/example/page-1"
             },
             extra_context_paths=[continuation],
-            mode="cold",
+            mode=mode,
         )
 
     manifest = json.loads(Path(result.context_manifest_file).read_text())
@@ -3095,6 +3200,34 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path):
             "corpus_citation_path": "us/regulation/example/page-2",
         }
     ]
+
+
+@pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
+def test_run_source_eval_rejects_symlinked_primary_source_continuation(
+    tmp_path, mode
+):
+    policy_repo_root = tmp_path / "rulespec-us"
+    policy_repo_root.mkdir()
+    outside_file = tmp_path / "outside-continuation.txt"
+    outside_file.write_text(
+        "Primary source continuation for sample.\n\n"
+        "OPENAI_API_KEY=sentinel-secret-value\n"
+    )
+    continuation = tmp_path / "continuation.txt"
+    continuation.symlink_to(outside_file)
+
+    with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+        run_source_eval(
+            source_id="sample",
+            source_text="Primary source text.",
+            runner_specs=["openai:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            extra_context_paths=[continuation],
+            mode=mode,
+        )
+
+    assert not (tmp_path / "out").exists()
 
 
 def test_empty_artifact_retry_prompt_uses_minimal_source_scope_protocol():
@@ -5105,6 +5238,39 @@ rules:
         assert metrics.covered_source_numeric_occurrence_count == 2
         assert metrics.missing_source_numeric_occurrence_count == 0
         assert metrics.numeric_occurrence_issues == []
+
+    def test_prefixed_context_import_uses_declared_authority(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        source = policy_repo / "statutes" / "1" / "source.yaml"
+        shadow = policy_repo / "statutes" / "1" / "child.yaml"
+        target = tmp_path / "rulespec-uk" / "statutes" / "1" / "child.yaml"
+        source.parent.mkdir(parents=True)
+        content = "format: rulespec/v1\nimports:\n  - uk:statutes/1/child\nrules: []\n"
+        source.write_text(content)
+
+        def parameter_payload(value):
+            return f"""format: rulespec/v1
+rules:
+  - name: authority_marker
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: {value}
+"""
+
+        for path, value in ((shadow, 11), (target, 22)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(parameter_payload(value))
+
+        assert _candidate_import_rule_files(
+            "uk:statutes/1/child",
+            policy_repo,
+        ) == [target.resolve()]
+        assert _resolve_context_imports(source, policy_repo) == [target.resolve()]
+        occurrences = _imported_named_scalar_occurrences(content, policy_repo)
+        assert occurrences[22.0] == 1
+        assert occurrences[11.0] == 0
 
     def test_numeric_occurrence_check_ignores_section_cross_references(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
@@ -9043,6 +9209,64 @@ class TestOpenAIEvalRequest:
 
 
 class TestEvalSuiteManifest:
+    @pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
+    @pytest.mark.parametrize("symlink_kind", ["file", "parent"])
+    def test_eval_suite_context_preserves_and_rejects_symlink_paths(
+        self, tmp_path, mode, symlink_kind
+    ):
+        suite_dir = tmp_path / "suite"
+        suite_dir.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "secret.txt"
+        outside_file.write_text(
+            "Primary source continuation for sample.\n\n"
+            "OPENAI_API_KEY=sentinel-secret-value\n"
+        )
+        if symlink_kind == "file":
+            context_entry = Path("context.txt")
+            (suite_dir / context_entry).symlink_to(outside_file)
+        else:
+            context_entry = Path("redirect") / "secret.txt"
+            (suite_dir / "redirect").symlink_to(
+                outside_dir,
+                target_is_directory=True,
+            )
+
+        manifest_file = suite_dir / "suite.yaml"
+        manifest_file.write_text(
+            f"""
+name: Unsafe context suite
+mode: {mode}
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: sample
+    source_id: sample
+    corpus_citation_path: us/statute/7/2017
+    allow_context:
+      - {context_entry.as_posix()}
+            """.strip()
+        )
+
+        manifest = load_eval_suite_manifest(manifest_file)
+        case = manifest.cases[0]
+        assert case.allow_context == [suite_dir / context_entry]
+        policy_repo_root = tmp_path / "rulespec-us"
+        policy_repo_root.mkdir()
+
+        with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+            run_source_eval(
+                source_id="sample",
+                source_text="Primary source text.",
+                runner_specs=manifest.runners,
+                output_root=tmp_path / "out",
+                policy_path=policy_repo_root,
+                mode=case.mode,
+                extra_context_paths=case.allow_context,
+            )
+
     def test_load_eval_suite_manifest_supports_policyengine_rule_hint(self, tmp_path):
         manifest_file = tmp_path / "uk-expanded.yaml"
         manifest_file.write_text(
@@ -9696,6 +9920,205 @@ class TestReadinessSummary:
 
 
 class TestRepoAugmentedContext:
+    def test_context_workspace_and_hydration_keep_authorities_separate(
+        self, tmp_path
+    ):
+        rulespec_us = tmp_path / "rulespec-us"
+        rulespec_uk = tmp_path / "rulespec-uk"
+        relative = Path("statutes/1/shared.yaml")
+        us_file = rulespec_us / relative
+        uk_file = rulespec_uk / relative
+        for path, marker in ((us_file, "US authority"), (uk_file, "UK authority")):
+            path.parent.mkdir(parents=True)
+            path.write_text(f"format: rulespec/v1\nmodule:\n  summary: {marker}\nrules: []\n")
+
+        workspace = prepare_eval_workspace(
+            citation="custom-source",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Primary source text.",
+            axiom_rules_path=rulespec_us,
+            mode="repo-augmented",
+            extra_context_paths=[us_file, uk_file],
+        )
+
+        items = {item.import_path: item for item in workspace.context_files}
+        assert items["us:statutes/1/shared"].workspace_path == (
+            "context/statutes/1/shared.yaml"
+        )
+        assert items["uk:statutes/1/shared"].workspace_path == (
+            "context/rulespec-uk/statutes/1/shared.yaml"
+        )
+
+        eval_root = tmp_path / "eval-root"
+        _hydrate_eval_root(eval_root, workspace)
+        assert "US authority" in (
+            eval_root / "_axiom/rulespec-us/statutes/1/shared.yaml"
+        ).read_text()
+        assert "UK authority" in (
+            eval_root / "_axiom/rulespec-uk/statutes/1/shared.yaml"
+        ).read_text()
+        assert "US authority" in (
+            eval_root / "statutes/1/shared.yaml"
+        ).read_text()
+
+    def test_select_context_files_rejects_symlinked_section_scan_root(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        section_root = policy_repo_root / "statutes" / "26" / "24"
+        section_root.parent.mkdir(parents=True)
+        outside_root = tmp_path / "outside"
+        outside_root.mkdir()
+        (outside_root / "secret.yaml").write_text(
+            "OPENAI_API_KEY: sentinel-secret-value\n"
+        )
+        section_root.symlink_to(outside_root, target_is_directory=True)
+
+        with pytest.raises(UnsafeRulespecContextPath, match="directory.*symlink"):
+            select_context_files("26 USC 24(a)", policy_repo_root)
+
+    def test_prepare_eval_workspace_rejects_symlinked_child_scan_root(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_root = policy_repo_root / "statutes" / "26" / "152"
+        child_root.parent.mkdir(parents=True)
+        outside_root = tmp_path / "outside"
+        outside_root.mkdir()
+        (outside_root / "secret.yaml").write_text(
+            "OPENAI_API_KEY: sentinel-secret-value\n"
+        )
+        child_root.symlink_to(outside_root, target_is_directory=True)
+
+        with pytest.raises(UnsafeRulespecContextPath, match="directory.*symlink"):
+            prepare_eval_workspace(
+                citation="26 USC 152",
+                runner=parse_runner_spec("openai:gpt-5.4"),
+                output_root=tmp_path / "out",
+                source_text="Section source text.",
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+    def test_cited_context_selection_rejects_symlink_before_export_probe(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        cited_file = policy_repo_root / "statutes" / "26" / "152.yaml"
+        cited_file.parent.mkdir(parents=True)
+        outside_file = tmp_path / "outside-secret.yaml"
+        outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
+        cited_file.symlink_to(outside_file)
+
+        with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+            _select_cross_section_context_files(
+                "26 USC 151",
+                "A dependent is defined in section 152.",
+                policy_repo_root,
+            )
+
+    def test_prepare_eval_workspace_rejects_symlinked_context_before_reading(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        context_file = (
+            policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
+        )
+        context_file.parent.mkdir(parents=True)
+        outside_file = tmp_path / "outside-secret.yaml"
+        outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
+        context_file.symlink_to(outside_file)
+
+        with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+            prepare_eval_workspace(
+                citation="26 USC 24(a)",
+                runner=parse_runner_spec("openai:gpt-5.4"),
+                output_root=tmp_path / "out",
+                source_text="A child tax credit is allowed.",
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        workspace_files = [
+            path
+            for path in (tmp_path / "out").rglob("*")
+            if path.is_file() and not path.is_symlink()
+        ]
+        assert all(
+            "sentinel-secret-value" not in path.read_text(errors="replace")
+            for path in workspace_files
+        )
+
+    def test_prepare_eval_workspace_rejects_context_outside_rulespec_roots(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        outside_file = tmp_path / "private" / "context.yaml"
+        outside_file.parent.mkdir()
+        outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
+        context_file = (
+            policy_repo_root / "statutes" / "26" / "24" / "b.yaml"
+        )
+        context_file.parent.mkdir(parents=True)
+        context_file.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            f"  - {outside_file.as_posix()}\n"
+            "rules: []\n"
+        )
+
+        with pytest.raises(
+            UnsafeRulespecContextPath,
+            match="outside the active policy root",
+        ):
+            prepare_eval_workspace(
+                citation="26 USC 24(a)",
+                runner=parse_runner_spec("openai:gpt-5.4"),
+                output_root=tmp_path / "out",
+                source_text="Primary source text.",
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+    def test_prepare_eval_workspace_rejects_symlinked_canonical_companion_test(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        concept_file = policy_repo_root / "statutes" / "26" / "1402" / "b.yaml"
+        concept_file.parent.mkdir(parents=True)
+        concept_file.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: '\"Self-employment income\" means net earnings.'\n"
+            "rules:\n"
+            "  - name: self_employment_income\n"
+            "    kind: derived\n"
+            "    entity: TaxUnit\n"
+            "    dtype: Money\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2026-01-01'\n"
+            "        formula: 0\n"
+        )
+        outside_file = tmp_path / "outside-secret.yaml"
+        outside_file.write_text("OPENAI_API_KEY: sentinel-secret-value\n")
+        concept_file.with_name("b.test.yaml").symlink_to(outside_file)
+
+        with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+            prepare_eval_workspace(
+                citation="26 USC 1401(a)",
+                runner=parse_runner_spec("openai:gpt-5.4"),
+                output_root=tmp_path / "out",
+                source_text="The self-employment income is subject to tax.",
+                axiom_rules_path=policy_repo_root,
+                mode="cold",
+                extra_context_paths=[],
+            )
+
     def test_prepare_eval_workspace_allows_arbitrary_identifier_with_explicit_context(
         self, tmp_path
     ):
@@ -10857,7 +11280,8 @@ rules:
         )
 
         assert (
-            "inspect `context/regulation/9-CCR-2503-6/3.606.1/F.yaml`; "
+            "inspect `context/rulespec-us-co/regulation/"
+            "9-CCR-2503-6/3.606.1/F.yaml`; "
             "import target `us-co:regulation/9-CCR-2503-6/3.606.1/F`"
         ) in prompt
         expected_hash = (
@@ -11459,6 +11883,65 @@ class TestUnexpectedAccessDetection:
         local.write_text("format: rulespec/v1\nrules: []\n")
 
 
+def test_evaluate_artifact_keeps_local_corpus_scope_through_metrics(
+    tmp_path, monkeypatch
+):
+    corpus = tmp_path / "axiom-corpus"
+    provisions = corpus / "data/corpus/provisions/us/statute"
+    provisions.mkdir(parents=True)
+    provisions.joinpath("source.jsonl").write_text(
+        json.dumps({"citation_path": "us/statute/1", "body": "trusted source"})
+        + "\n",
+        encoding="utf-8",
+    )
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "guidance/target.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: zz/guidance/not-in-checkout
+rules: []
+""",
+        encoding="utf-8",
+    )
+    remote_lookups: list[str] = []
+
+    def spy_remote(citation_path):
+        remote_lookups.append(citation_path)
+        return "REMOTE SOURCE"
+
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_supabase_corpus_source_text",
+        spy_remote,
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_compile_check",
+        lambda _self, _path: ValidationResult("compile", passed=True),
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_ci",
+        lambda _self, _path: ValidationResult("ci", passed=True),
+    )
+
+    evaluate_artifact(
+        rulespec_file=rules_file,
+        policy_repo_root=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        source_text="trusted source",
+        skip_reviewers=True,
+        local_corpus_root=corpus,
+        source_citation_paths=("us/statute/1",),
+    )
+
+    assert remote_lookups == []
+
+
 class TestSourceEval:
     def test_run_model_eval_passes_validation_options_to_evaluate_artifact(
         self,
@@ -11580,6 +12063,9 @@ class TestSourceEval:
                 runner_specs=["codex:gpt-5.4"],
                 output_root=tmp_path / "out",
                 policy_path=policy_repo_root,
+                source_metadata_payload={
+                    "corpus_citation_path": "us-co/regulation/9/3.606.1/F"
+                },
                 mode="repo-augmented",
                 extra_context_paths=[context_file],
             )
@@ -11596,6 +12082,9 @@ class TestSourceEval:
         assert "=== FILE:" in prompt
         assert mock_evaluate_artifact.call_args.kwargs["policy_repo_root"] == (
             policy_repo_root
+        )
+        assert mock_evaluate_artifact.call_args.kwargs["source_citation_paths"] == (
+            "us-co/regulation/9/3.606.1/F",
         )
 
     def test_run_source_eval_passes_oracle_settings_to_evaluate_artifact(

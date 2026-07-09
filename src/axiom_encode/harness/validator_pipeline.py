@@ -35,6 +35,7 @@ import urllib.request
 from calendar import monthrange
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -64,15 +65,18 @@ from axiom_encode.repo_routing import (
     find_policy_repo_root,
     is_jurisdiction_content_root,
     jurisdiction_subdir_names,
+    monorepo_checkout_name,
 )
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 from .dependency_stubs import (
+    UnsafeRulespecContextPath,
     has_corpus_provision_for_import_target,
     resolve_canonical_concepts_from_text,
     resolve_defined_terms_from_text,
     rulespec_content_has_stub_status,
     rulespec_file_has_stub_status,
+    validate_rulespec_context_file,
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
 from .proof_validator import find_rulespec_proof_issues, validate_rulespec_proofs
@@ -87,6 +91,27 @@ _SENSITIVE_ENV_NAME_MARKERS = (
     "SECRET",
     "TOKEN",
 )
+_AUTHORITATIVE_CORPUS_ROOT: ContextVar[Path | None] = ContextVar(
+    "axiom_authoritative_corpus_root",
+    default=None,
+)
+_MAX_LOCAL_CORPUS_JSONL_BYTES = 64 * 1024 * 1024
+
+
+@contextlib.contextmanager
+def _authoritative_corpus_scope(
+    corpus_root: Path | None,
+) -> Iterator[Path | None]:
+    """Restrict corpus lookups to one explicit checkout for the whole scope."""
+
+    resolved_root = (
+        Path(corpus_root).resolve(strict=True) if corpus_root is not None else None
+    )
+    token = _AUTHORITATIVE_CORPUS_ROOT.set(resolved_root)
+    try:
+        yield resolved_root
+    finally:
+        _AUTHORITATIVE_CORPUS_ROOT.reset(token)
 
 
 def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
@@ -4476,15 +4501,21 @@ def _validate_source_claim_record(
                 + ". Add the corpus path to `module.source_verification` or split "
                 "the claim reference."
             )
+        source_text = _fetch_corpus_source_text(evidence_path)
+        if source_text is None:
+            issues.append(
+                "Source claim evidence source missing: "
+                f"`{claim_id}.evidence[{index}]` cites `{evidence_path}`, "
+                "which was not found in corpus.provisions."
+            )
+            continue
         quote = str(evidence_item.get("quote") or "").strip()
-        if quote:
-            source_text = _fetch_corpus_source_text(evidence_path)
-            if source_text is not None and quote not in source_text:
-                issues.append(
-                    "Source claim quote not found: "
-                    f"`{claim_id}.evidence[{index}].quote` does not appear in "
-                    f"`{evidence_path}`."
-                )
+        if quote and quote not in source_text:
+            issues.append(
+                "Source claim quote not found: "
+                f"`{claim_id}.evidence[{index}].quote` does not appear in "
+                f"`{evidence_path}`."
+            )
 
     return issues
 
@@ -4538,14 +4569,31 @@ def _source_claim_executable_field_paths(value: Any, prefix: str = "") -> list[s
     return paths
 
 
-@functools.lru_cache(maxsize=512)
 def _fetch_local_source_claim_record(claim_id: str) -> dict[str, Any] | None:
+    """Fetch a claim using the current authoritative-corpus scope as a cache key."""
+
+    root = _AUTHORITATIVE_CORPUS_ROOT.get()
+    return _fetch_local_source_claim_record_cached(
+        claim_id,
+        str(root) if root is not None else None,
+    )
+
+
+@functools.lru_cache(maxsize=512)
+def _fetch_local_source_claim_record_cached(
+    claim_id: str,
+    authoritative_root: str | None,
+) -> dict[str, Any] | None:
     normalized_id = claim_id.strip()
     if not normalized_id:
         return None
 
-    for claims_root in _local_corpus_claims_roots():
-        for claim_file in sorted(claims_root.rglob("*.jsonl")):
+    root = Path(authoritative_root) if authoritative_root is not None else None
+    for claims_root in _local_corpus_claims_roots(root):
+        for claim_file in _validated_local_corpus_jsonl_files(
+            claims_root,
+            label="corpus claims tree",
+        ):
             claim = _read_local_source_claim_file(claim_file, normalized_id)
             if claim is not None:
                 return claim
@@ -4558,7 +4606,7 @@ def _read_local_source_claim_file(
 ) -> dict[str, Any] | None:
     try:
         lines = claim_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
     for line in lines:
         if not line.strip():
@@ -4573,51 +4621,140 @@ def _read_local_source_claim_file(
     return None
 
 
-def _local_corpus_claims_roots() -> tuple[Path, ...]:
+def _clear_local_source_claim_cache() -> None:
+    _fetch_local_source_claim_record_cached.cache_clear()
+
+
+_fetch_local_source_claim_record.cache_clear = (  # type: ignore[attr-defined]
+    _clear_local_source_claim_cache
+)
+
+
+def _local_corpus_claims_roots(
+    authoritative_root: Path | None = None,
+) -> tuple[Path, ...]:
     roots: list[Path] = []
-    for env_name in (
-        "AXIOM_CORPUS_CLAIMS_ROOT",
-        "AXIOM_CORPUS_ARTIFACT_ROOT",
-        "AXIOM_CORPUS_REPO",
-    ):
-        raw_root = os.environ.get(env_name)
-        if raw_root:
-            roots.append(Path(raw_root).expanduser())
+    if authoritative_root is not None:
+        roots.append(authoritative_root)
+    else:
+        for env_name in (
+            "AXIOM_CORPUS_CLAIMS_ROOT",
+            "AXIOM_CORPUS_ARTIFACT_ROOT",
+            "AXIOM_CORPUS_REPO",
+        ):
+            raw_root = os.environ.get(env_name)
+            if raw_root:
+                roots.append(Path(raw_root).expanduser())
 
-    with contextlib.suppress(OSError):
-        cwd = Path.cwd().resolve()
-        for base in (cwd, *cwd.parents):
-            roots.extend(
-                (
-                    base,
-                    base / "axiom-corpus",
-                    base / "TheAxiomFoundation" / "axiom-corpus",
-                    base.parent / "axiom-corpus",
-                    base / "_axiom" / "axiom-corpus",
+        with contextlib.suppress(OSError):
+            cwd = Path.cwd().resolve()
+            for base in (cwd, *cwd.parents):
+                roots.extend(
+                    (
+                        base,
+                        base / "axiom-corpus",
+                        base / "TheAxiomFoundation" / "axiom-corpus",
+                        base.parent / "axiom-corpus",
+                        base / "_axiom" / "axiom-corpus",
+                    )
                 )
-            )
 
-    with contextlib.suppress(RuntimeError, OSError):
-        roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
+        with contextlib.suppress(RuntimeError, OSError):
+            roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
 
     claims_roots: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        for candidate in (
-            root,
-            root / "claims",
-            root / "data" / "corpus",
-            root / "data" / "corpus" / "claims",
-        ):
-            claims_root = (
-                candidate if candidate.name == "claims" else candidate / "claims"
+        candidates = (
+            (root,)
+            if root.name == "claims"
+            else (root / "data" / "corpus" / "claims", root / "claims")
+        )
+        for candidate in candidates:
+            resolved = _resolve_local_corpus_subdirectory(
+                root,
+                candidate,
+                label="corpus claims root",
             )
-            with contextlib.suppress(OSError):
-                resolved = claims_root.resolve()
-                if resolved.is_dir() and resolved not in seen:
-                    seen.add(resolved)
-                    claims_roots.append(resolved)
+            if resolved is not None and resolved not in seen:
+                seen.add(resolved)
+                claims_roots.append(resolved)
+                if authoritative_root is not None:
+                    return tuple(claims_roots)
     return tuple(claims_roots)
+
+
+def _resolve_local_corpus_subdirectory(
+    root: Path,
+    candidate: Path,
+    *,
+    label: str,
+) -> Path | None:
+    """Resolve one contained corpus directory without following inner symlinks."""
+
+    raw_root = Path(os.path.abspath(Path(root).expanduser()))
+    raw_candidate = Path(os.path.abspath(Path(candidate).expanduser()))
+    if raw_root.is_symlink():
+        return None
+    try:
+        resolved_root = raw_root.resolve(strict=True)
+        relative = raw_candidate.relative_to(raw_root)
+    except (OSError, ValueError):
+        return None
+
+    cursor = resolved_root
+    for part in relative.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {cursor}")
+    if not cursor.exists():
+        return None
+    resolved = cursor.resolve(strict=True)
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise UnsafeRulespecContextPath(
+            f"{label} escapes {resolved_root}: {raw_candidate}"
+        ) from exc
+    if not resolved.is_dir():
+        raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw_candidate}")
+    return resolved
+
+
+def _validated_local_corpus_jsonl_files(
+    data_root: Path,
+    *,
+    label: str,
+) -> tuple[Path, ...]:
+    """Return bounded regular JSONL files without following corpus symlinks."""
+
+    resolved_root = Path(data_root).resolve(strict=True)
+    files: list[Path] = []
+    for candidate in sorted(resolved_root.rglob("*")):
+        if candidate.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"{label} contains a symlink: {candidate}"
+            )
+        if candidate.suffix != ".jsonl":
+            continue
+        resolved = candidate.resolve(strict=True)
+        try:
+            resolved.relative_to(resolved_root)
+        except ValueError as exc:
+            raise UnsafeRulespecContextPath(
+                f"{label} file escapes {resolved_root}: {candidate}"
+            ) from exc
+        if not resolved.is_file():
+            raise UnsafeRulespecContextPath(
+                f"{label} path is not a regular file: {candidate}"
+            )
+        if resolved.stat().st_size > _MAX_LOCAL_CORPUS_JSONL_BYTES:
+            raise UnsafeRulespecContextPath(
+                f"{label} file exceeds the {_MAX_LOCAL_CORPUS_JSONL_BYTES}-byte "
+                f"safety limit: {candidate}"
+            )
+        files.append(resolved)
+    return tuple(files)
 
 
 _INTERVAL_TABLE_SELECTOR_BOUND_KIND = "selector_inline_interval_bound"
@@ -17282,29 +17419,56 @@ def _resolve_rulespec_import_file_static(
     rules_file: Path,
     policy_repo_path: Path,
 ) -> Path | None:
-    """Resolve a normalized import path to a local RuleSpec file."""
+    """Resolve an import to a validated file in a recognized RuleSpec root."""
+
+    def validated_existing(candidate: Path) -> Path | None:
+        # ``Path.exists`` follows symlinks, so check ``is_symlink`` as well to
+        # fail closed for broken links rather than silently treating them as a
+        # missing import.  The shared validator also walks parent components
+        # without resolving them first, rejecting directory indirection and
+        # traversal outside the active or a recognized cross-repo root.
+        if not candidate.exists() and not candidate.is_symlink():
+            return None
+        return validate_rulespec_context_file(candidate, policy_repo_path)
+
     normalized = _normalize_rulespec_import_path_static(import_path)
     if not normalized:
         return None
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if candidate.exists():
-        return candidate
 
     repo_prefix = _rulespec_import_prefix_static(import_path)
     if repo_prefix:
-        candidate = (
-            policy_repo_path.parent / f"rulespec-{repo_prefix}" / f"{normalized}.yaml"
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return None
+        # A declared jurisdiction prefix is authoritative.  Route it through
+        # the shared monorepo/legacy resolver rather than probing the current
+        # repo first, where a same-relative-path file could shadow the target.
+        resolved = _resolve_rulespec_target_file(
+            target_ref,
+            policy_repo_path,
         )
-        if candidate.exists():
-            return candidate
+        if resolved is not None:
+            return resolved
+        # Standalone validation fixtures and legacy runner bundles can expose
+        # a single flat, non-checkout source root while retaining canonical
+        # prefixes in their imports. Permit that explicit root only when it
+        # has no RuleSpec repository identity; recognized checkouts must never
+        # fall back to a same-path shadow from the wrong jurisdiction.
+        if canonical_rulespec_repo_name(policy_repo_path) is None:
+            return validated_existing(policy_repo_path / f"{normalized}.yaml")
+        return None
+
+    candidate = policy_repo_path / f"{normalized}.yaml"
+    if resolved := validated_existing(candidate):
+        return resolved
 
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
         candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if candidate.exists():
-            return candidate
+        if resolved := validated_existing(candidate):
+            return resolved
     return None
 
 
@@ -18952,7 +19116,6 @@ def _find_source_text_value_issues(
     ]
 
 
-@functools.lru_cache(maxsize=512)
 def _fetch_corpus_source_text(citation_path: str) -> str | None:
     """Fetch a corpus.provisions body by citation path.
 
@@ -18960,9 +19123,27 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     normalized source text without re-reading original PDFs or HTML pages.
     Supabase is the network fallback for environments without local artifacts.
     """
-    local_text = _fetch_local_corpus_source_text(citation_path)
+
+    root = _AUTHORITATIVE_CORPUS_ROOT.get()
+    return _fetch_corpus_source_text_cached(
+        citation_path,
+        str(root) if root is not None else None,
+    )
+
+
+@functools.lru_cache(maxsize=512)
+def _fetch_corpus_source_text_cached(
+    citation_path: str,
+    authoritative_root: str | None,
+) -> str | None:
+    local_text = _fetch_local_corpus_source_text_cached(
+        citation_path,
+        authoritative_root,
+    )
     if local_text is not None:
         return local_text
+    if authoritative_root is not None:
+        return None
     for requested_path, candidate_path in _candidate_corpus_source_lookup_paths(
         citation_path
     ):
@@ -18976,13 +19157,27 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     return None
 
 
-@functools.lru_cache(maxsize=512)
 def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
+    """Fetch local text with authoritative corpus identity in the cache key."""
+
+    root = _AUTHORITATIVE_CORPUS_ROOT.get()
+    return _fetch_local_corpus_source_text_cached(
+        citation_path,
+        str(root) if root is not None else None,
+    )
+
+
+@functools.lru_cache(maxsize=512)
+def _fetch_local_corpus_source_text_cached(
+    citation_path: str,
+    authoritative_root: str | None,
+) -> str | None:
     normalized_path = citation_path.strip().strip("/")
     if not normalized_path:
         return None
 
-    for provisions_root in _local_corpus_provisions_roots():
+    root = Path(authoritative_root) if authoritative_root is not None else None
+    for provisions_root in _local_corpus_provisions_roots(root):
         for requested_path, candidate_path in _candidate_corpus_source_lookup_paths(
             normalized_path
         ):
@@ -19018,6 +19213,23 @@ def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
                 if source_text is not None:
                     return source_text
     return None
+
+
+def _clear_corpus_source_text_cache() -> None:
+    _fetch_corpus_source_text_cached.cache_clear()
+    _fetch_local_corpus_source_text_cached.cache_clear()
+
+
+def _clear_local_corpus_source_text_cache() -> None:
+    _fetch_local_corpus_source_text_cached.cache_clear()
+
+
+_fetch_corpus_source_text.cache_clear = (  # type: ignore[attr-defined]
+    _clear_corpus_source_text_cache
+)
+_fetch_local_corpus_source_text.cache_clear = (  # type: ignore[attr-defined]
+    _clear_local_corpus_source_text_cache
+)
 
 
 def _candidate_corpus_source_paths(citation_path: str) -> tuple[str, ...]:
@@ -19517,54 +19729,61 @@ def _next_alpha_parenthetical_marker(fragment: str) -> str:
     return r"\b\B"
 
 
-def _local_corpus_provisions_roots() -> tuple[Path, ...]:
+def _local_corpus_provisions_roots(
+    authoritative_root: Path | None = None,
+) -> tuple[Path, ...]:
     roots: list[Path] = []
     cwd: Path | None = None
-    with contextlib.suppress(OSError):
-        cwd = Path.cwd().resolve()
-        roots.append(cwd)
+    if authoritative_root is not None:
+        roots.append(authoritative_root)
+    else:
+        with contextlib.suppress(OSError):
+            cwd = Path.cwd().resolve()
+            roots.append(cwd)
 
-    for env_name in (
-        "AXIOM_CORPUS_ARTIFACT_ROOT",
-        "AXIOM_CORPUS_LOCAL_ROOT",
-        "AXIOM_CORPUS_REPO",
-    ):
-        raw_root = os.environ.get(env_name)
-        if raw_root:
-            roots.append(Path(raw_root).expanduser())
+        for env_name in (
+            "AXIOM_CORPUS_ARTIFACT_ROOT",
+            "AXIOM_CORPUS_LOCAL_ROOT",
+            "AXIOM_CORPUS_REPO",
+        ):
+            raw_root = os.environ.get(env_name)
+            if raw_root:
+                roots.append(Path(raw_root).expanduser())
 
-    if cwd is not None:
-        for base in (cwd, *cwd.parents):
-            roots.extend(
-                (
-                    base / "axiom-corpus",
-                    base / "TheAxiomFoundation" / "axiom-corpus",
-                    base.parent / "axiom-corpus",
+        if cwd is not None:
+            for base in (cwd, *cwd.parents):
+                roots.extend(
+                    (
+                        base / "axiom-corpus",
+                        base / "TheAxiomFoundation" / "axiom-corpus",
+                        base.parent / "axiom-corpus",
+                    )
                 )
-            )
 
-    with contextlib.suppress(RuntimeError, OSError):
-        roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
+        with contextlib.suppress(RuntimeError, OSError):
+            roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
 
     provisions_roots: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        for candidate in (
-            root / "data" / "corpus" / "provisions",
-            root / "data" / "corpus",
-            root / "provisions",
-            root,
-        ):
-            provisions_root = (
-                candidate
-                if candidate.name == "provisions"
-                else candidate / "provisions"
+        candidates = (
+            (root,)
+            if root.name == "provisions"
+            else (root / "data" / "corpus" / "provisions", root / "provisions")
+        )
+        for candidate in candidates:
+            resolved = _resolve_local_corpus_subdirectory(
+                root,
+                candidate,
+                label="corpus provisions root",
             )
-            with contextlib.suppress(OSError):
-                resolved = provisions_root.resolve()
-                if resolved.is_dir() and resolved not in seen:
-                    seen.add(resolved)
-                    provisions_roots.append(resolved)
+            if resolved is not None and resolved not in seen:
+                seen.add(resolved)
+                provisions_roots.append(resolved)
+                if authoritative_root is not None:
+                    # Match the encoder's canonical-then-legacy layout choice.
+                    # A secondary tree in the same checkout is not authoritative.
+                    return tuple(provisions_roots)
     return tuple(provisions_roots)
 
 
@@ -19577,22 +19796,42 @@ def _candidate_local_corpus_provision_files(
     seen: set[Path] = set()
 
     def add_files(base: Path) -> None:
-        for path in sorted(base.glob("*.jsonl")):
-            with contextlib.suppress(OSError):
-                resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    candidates.append(resolved)
+        safe_base = _resolve_local_corpus_subdirectory(
+            provisions_root,
+            base,
+            label="corpus provision directory",
+        )
+        if safe_base is None:
+            return
+        for path in sorted(safe_base.glob("*.jsonl")):
+            if path.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"corpus provision file contains a symlink: {path}"
+                )
+            resolved = path.resolve(strict=True)
+            if not resolved.is_file():
+                raise UnsafeRulespecContextPath(
+                    f"corpus provision path is not a regular file: {path}"
+                )
+            if resolved.stat().st_size > _MAX_LOCAL_CORPUS_JSONL_BYTES:
+                raise UnsafeRulespecContextPath(
+                    "corpus provision file exceeds the "
+                    f"{_MAX_LOCAL_CORPUS_JSONL_BYTES}-byte safety limit: {path}"
+                )
+            if resolved not in seen:
+                seen.add(resolved)
+                candidates.append(resolved)
 
     if len(parts) >= 2:
         add_files(provisions_root / parts[0] / parts[1])
     if not candidates:
-        for path in sorted(provisions_root.rglob("*.jsonl")):
-            with contextlib.suppress(OSError):
-                resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    candidates.append(resolved)
+        for resolved in _validated_local_corpus_jsonl_files(
+            provisions_root,
+            label="corpus provisions tree",
+        ):
+            if resolved not in seen:
+                seen.add(resolved)
+                candidates.append(resolved)
     return tuple(candidates)
 
 
@@ -19602,7 +19841,7 @@ def _read_local_corpus_provision_records(
 ) -> list[dict[str, Any]]:
     try:
         lines = provision_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeError):
         return []
     records: list[dict[str, Any]] = []
     for line in lines:
@@ -19661,7 +19900,7 @@ def _read_local_corpus_descendant_text(
     """Read body-bearing child provisions for a metadata-only source document."""
     try:
         lines = provision_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
 
     descendants: list[tuple[int, int, str | None, str]] = []
@@ -20265,16 +20504,94 @@ def _resolve_rulespec_target_file(
     target_ref: _RuleSpecTargetRef,
     policy_repo_path: Path | None,
 ) -> Path | None:
-    """Resolve a canonical RuleSpec target file across sibling/CI checkouts."""
+    """Resolve and validate a canonical target across sibling/CI checkouts."""
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
     ):
+        if not root.is_dir():
+            continue
+        configured_candidate = _is_configured_rulespec_candidate(
+            root,
+            target_ref,
+        )
+        if not configured_candidate and not _ambient_rulespec_candidate_is_direct(
+            root,
+            policy_repo_path,
+        ):
+            raise UnsafeRulespecContextPath(
+                "Ambient RuleSpec candidate root contains symlink indirection: "
+                f"{root}"
+            )
+        canonical_root = canonical_rulespec_repo_name(root)
+        if canonical_root != target_ref.repo_name:
+            continue
         target_file = root / target_ref.relative_path
-        if target_file.exists():
-            return target_file
+        if not target_file.exists() and not target_file.is_symlink():
+            continue
+        if target_file.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"Resolved RuleSpec target is a symlink: {target_file}"
+            )
+        # Validate against the recognized candidate content root that produced
+        # the target. This preserves configured lexical aliases (including
+        # macOS /var -> /private/var and an explicitly configured checkout
+        # symlink) while still rejecting every symlink below that trusted root.
+        return validate_rulespec_context_file(target_file, root)
     return None
+
+
+def _is_configured_rulespec_candidate(
+    root: Path,
+    target_ref: _RuleSpecTargetRef,
+) -> bool:
+    """Return whether ``root`` was derived from explicit trusted configuration."""
+
+    raw_root = Path(os.path.abspath(Path(root).expanduser()))
+    for raw_configured in os.environ.get(
+        "AXIOM_RULESPEC_REPO_ROOTS", ""
+    ).split(os.pathsep):
+        if not raw_configured.strip():
+            continue
+        configured = Path(os.path.abspath(Path(raw_configured.strip()).expanduser()))
+        for candidate in candidate_jurisdiction_content_dirs(
+            configured,
+            target_ref.prefix,
+        ):
+            if Path(os.path.abspath(candidate)) == raw_root:
+                return True
+    return False
+
+
+def _ambient_rulespec_candidate_is_direct(
+    root: Path,
+    policy_repo_path: Path | None,
+) -> bool:
+    """Reject repo-controlled symlinks in automatically discovered roots."""
+
+    raw_root = Path(os.path.abspath(Path(root).expanduser()))
+    anchors = [Path.cwd().resolve()]
+    if policy_repo_path is not None:
+        policy_root = Path(policy_repo_path).resolve()
+        anchors.extend((policy_root, policy_root.parent))
+        if policy_root.name in jurisdiction_subdir_names(policy_root.parent):
+            # Country-monorepo content roots legitimately import from direct
+            # sibling country checkouts in the shared workspace.
+            anchors.append(policy_root.parent.parent)
+
+    for anchor in sorted(set(anchors), key=lambda path: len(path.parts), reverse=True):
+        try:
+            relative = raw_root.relative_to(anchor)
+        except ValueError:
+            continue
+        cursor = anchor
+        for part in relative.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                return False
+        return True
+    return False
 
 
 def _candidate_rulespec_repo_roots(
@@ -20299,25 +20616,54 @@ def _candidate_rulespec_repo_roots(
             candidate_jurisdiction_content_dirs(base.expanduser(), jurisdiction)
         )
 
+    configured_roots = [
+        Path(raw_root.strip())
+        for raw_root in os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(
+            os.pathsep
+        )
+        if raw_root.strip()
+    ]
+
     if policy_repo_path is not None:
         policy_root = Path(policy_repo_path).resolve()
-        add(policy_root)
+        target_legacy_name = f"rulespec-{jurisdiction}"
+        target_monorepo_name = monorepo_checkout_name(jurisdiction)
+        active_name = canonical_rulespec_repo_name(policy_root)
+        parent_name = canonical_rulespec_repo_name(policy_root.parent)
+
+        # Only search inside the active content root when its canonical
+        # jurisdiction matches the explicit target.  Treating a different
+        # ``rulespec-*`` checkout as a generic workspace would let a nested
+        # repo-controlled directory shadow the declared authority.
+        if active_name == target_legacy_name:
+            add(policy_root)
+
+        # A matching active checkout is authoritative over stale configured
+        # copies. For cross-jurisdiction targets, explicitly configured roots
+        # still take precedence over ambient sibling discovery.
+        for configured_root in configured_roots:
+            add(configured_root)
+
+        parent_is_monorepo_checkout = (
+            policy_root.parent != policy_root
+            and policy_root.name in jurisdiction_subdir_names(policy_root.parent)
+        )
+        if parent_is_monorepo_checkout:
+            checkout_root = policy_root.parent
+            if parent_name == target_monorepo_name:
+                add(checkout_root)
+            workspace_root = checkout_root.parent
+        else:
+            workspace_root = policy_root.parent
+
+        # Prefer canonical sibling checkouts to vendored fallbacks, in
+        # monorepo-first order.
+        add(workspace_root)
+        add(workspace_root / "_axiom")
         add(policy_root / "_axiom")
-
-    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-    for raw_root in env_roots.split(os.pathsep):
-        if raw_root.strip():
-            add(Path(raw_root.strip()))
-
-    if policy_repo_path is not None:
-        policy_root = Path(policy_repo_path).resolve()
-        add(policy_root.parent)
-        add(policy_root.parent / "_axiom")
-        if policy_root.parent.name.startswith("rulespec-"):
-            # A monorepo jurisdiction directory: sibling checkouts live next
-            # to the monorepo itself.
-            add(policy_root.parent.parent)
-            add(policy_root.parent.parent / "_axiom")
+    else:
+        for configured_root in configured_roots:
+            add(configured_root)
 
     cwd = Path.cwd()
     add(cwd)
@@ -21202,6 +21548,8 @@ class ValidatorPipeline:
         require_policy_proofs: bool = False,
         enforce_repository_layout: bool = True,
         source_text: str | None = None,
+        local_corpus_root: Path | None = None,
+        source_citation_paths: tuple[str, ...] | None = None,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
@@ -21215,6 +21563,22 @@ class ValidatorPipeline:
         self.require_policy_proofs = require_policy_proofs
         self.enforce_repository_layout = enforce_repository_layout
         self.source_text = source_text
+        self.local_corpus_root = (
+            Path(local_corpus_root).resolve(strict=True)
+            if local_corpus_root is not None
+            else None
+        )
+        self.source_citation_paths = (
+            tuple(
+                dict.fromkeys(
+                    path.strip().strip("/")
+                    for path in source_citation_paths
+                    if path.strip().strip("/")
+                )
+            )
+            if source_citation_paths is not None
+            else None
+        )
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -21244,6 +21608,15 @@ class ValidatorPipeline:
         """Map declared RuleSpec source paths to the in-memory source text, if any."""
         if self.source_text is None:
             return None
+        if self.source_citation_paths is not None:
+            return {
+                citation_path: self.source_text
+                for citation_path in self.source_citation_paths
+            }
+        if self.local_corpus_root is not None:
+            # A local-only run without trusted source metadata must resolve every
+            # model-declared path from the authoritative checkout itself.
+            return {}
         try:
             payload = yaml.safe_load(content)
         except (yaml.YAMLError, ValueError):
@@ -21264,6 +21637,37 @@ class ValidatorPipeline:
         if source_label:
             source_texts[source_label] = self.source_text
         return source_texts
+
+    def _trusted_source_binding_issues(self, content: str) -> list[str]:
+        """Require generated metadata to retain the resolver-selected source."""
+
+        if not self.source_citation_paths:
+            return []
+        try:
+            payload = yaml.safe_load(content)
+        except (yaml.YAMLError, ValueError):
+            return []
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            return []
+        source_verification = _source_verification_block(payload)
+        declared_paths, _source_label = (
+            _source_verification_source_fields(source_verification)
+            if source_verification is not None
+            else ((), None)
+        )
+        trusted_primary = self.source_citation_paths[0]
+        if trusted_primary in declared_paths:
+            return []
+        declared = (
+            _format_source_verification_paths(declared_paths)
+            if declared_paths
+            else "no corpus citation path"
+        )
+        return [
+            "Source verification target mismatch: generated RuleSpec must include "
+            f"the trusted requested source `{trusted_primary}`, but declared "
+            f"{declared}."
+        ]
 
     def _rulespec_compile_env(self) -> dict[str, str]:
         """Build a credential-free env for the deterministic RuleSpec engine."""
@@ -22679,6 +23083,7 @@ class ValidatorPipeline:
             find_ungrounded_numeric_issues(content, source_text=validation_source_text)
         )
         issues.extend(find_deprecated_source_url_issues(content))
+        issues.extend(self._trusted_source_binding_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
         issues.extend(
@@ -22952,15 +23357,16 @@ class ValidatorPipeline:
 
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
-        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
-        if yaml_issue:
-            return ValidationResult(
-                validator_name="ci",
-                passed=False,
-                issues=[yaml_issue],
-                error=yaml_issue,
-            )
-        return self._run_rulespec_ci(rulespec_file)
+        with _authoritative_corpus_scope(self.local_corpus_root):
+            yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+            if yaml_issue:
+                return ValidationResult(
+                    validator_name="ci",
+                    passed=False,
+                    issues=[yaml_issue],
+                    error=yaml_issue,
+                )
+            return self._run_rulespec_ci(rulespec_file)
 
     def _copy_validation_import_closure(
         self,
@@ -22971,12 +23377,12 @@ class ValidatorPipeline:
     ) -> None:
         """Copy a RuleSpec file and dependencies into a temp tree."""
         source_root = self._validation_source_root(rulespec_file)
-        root_resolved = rulespec_file.resolve()
+        root_resolved = validate_rulespec_context_file(rulespec_file, source_root)
         pending = [root_resolved]
         copied: set[Path] = set()
 
         while pending:
-            current = pending.pop()
+            current = validate_rulespec_context_file(pending.pop(), source_root)
             resolved = current.resolve()
             if resolved in copied:
                 continue
@@ -22992,7 +23398,13 @@ class ValidatorPipeline:
 
             if include_root_companion_test and resolved == root_resolved:
                 companion_test = self._rulespec_test_path(current)
+                if companion_test.is_symlink():
+                    validate_rulespec_context_file(companion_test, source_root)
                 if companion_test.exists():
+                    companion_test = validate_rulespec_context_file(
+                        companion_test,
+                        source_root,
+                    )
                     companion_target = self._rulespec_test_path(target)
                     companion_target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(companion_test, companion_target)
@@ -23024,9 +23436,20 @@ class ValidatorPipeline:
     ) -> list[Path]:
         """Resolve imported RuleSpec files for a single file."""
         dependencies: list[Path] = []
-        for import_path in self._extract_import_paths(rulespec_file.read_text()):
-            target = source_root / self._import_to_relative_rulespec_path(import_path)
-            if target.exists():
+        for import_path in self._extract_import_items(rulespec_file.read_text()):
+            target = _resolve_rulespec_import_file_static(
+                import_path,
+                rules_file=rulespec_file,
+                policy_repo_path=source_root,
+            )
+            if target is None:
+                continue
+            # This helper materializes one content root. Cross-repository
+            # imports remain available through the configured RuleSpec roots;
+            # never substitute a same-path local shadow or try to flatten an
+            # external authority into this destination tree.
+            with contextlib.suppress(ValueError):
+                target.relative_to(source_root)
                 dependencies.append(target)
         return dependencies
 
@@ -24362,7 +24785,9 @@ class ValidatorPipeline:
         if not rulespec_content_has_stub_status(rulespec_file.read_text()):
             return []
         if not has_corpus_provision_for_import_target(
-            relative.with_suffix("").as_posix(), source_root
+            relative.with_suffix("").as_posix(),
+            source_root,
+            corpus_root=self.local_corpus_root,
         ):
             return []
 
@@ -24377,15 +24802,36 @@ class ValidatorPipeline:
         source_root = self._validation_source_root(rulespec_file)
         issues: list[str] = []
 
-        for import_path in self._extract_import_paths(rulespec_file.read_text()):
-            target = source_root / self._import_to_relative_rulespec_path(import_path)
+        for import_path in self._extract_import_items(rulespec_file.read_text()):
+            try:
+                target = _resolve_rulespec_import_file_static(
+                    import_path,
+                    rules_file=rulespec_file,
+                    policy_repo_path=source_root,
+                )
+            except UnsafeRulespecContextPath as exc:
+                issues.append(
+                    f"Unsafe imported RuleSpec dependency `{import_path}`: {exc}"
+                )
+                continue
+            if target is None:
+                continue
             if not rulespec_file_has_stub_status(target):
                 continue
-            if not has_corpus_provision_for_import_target(import_path, source_root):
+            import_base = import_path.split("#", 1)[0].strip()
+            if not has_corpus_provision_for_import_target(
+                import_base,
+                source_root,
+                corpus_root=self.local_corpus_root,
+            ):
                 continue
+            try:
+                target_label = target.relative_to(source_root).as_posix()
+            except ValueError:
+                target_label = str(target)
             issues.append(
                 "Imported stub dependency with corpus source: "
-                f"{rulespec_file.name} imports `{import_path}` but `{target.relative_to(source_root).as_posix()}` "
+                f"{rulespec_file.name} imports `{import_path}` but `{target_label}` "
                 "is still a stub while corpus.provisions has source text; encode the upstream file instead"
             )
 
@@ -24489,8 +24935,12 @@ class ValidatorPipeline:
             symbol = symbol.strip()
             if not symbol:
                 continue
-            target = source_root / self._import_to_relative_rulespec_path(base)
-            if not target.exists():
+            target = _resolve_rulespec_import_file_static(
+                base,
+                rules_file=rulespec_file,
+                policy_repo_path=source_root,
+            )
+            if target is None:
                 continue
             try:
                 payload = yaml.safe_load(target.read_text())

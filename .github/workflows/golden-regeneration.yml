@@ -36,7 +36,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout axiom-encode
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: axiom-encode
           persist-credentials: false
@@ -45,7 +45,7 @@ jobs:
       # reaches this repo; set AXIOM_REPO_TOKEN (a PAT with read on the org) for
       # rulespec-us and axiom-corpus, plus axiom-rules-engine for non-dry runs.
       - name: Checkout rulespec-us
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: TheAxiomFoundation/rulespec-us
           path: rulespec-us
@@ -53,7 +53,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout axiom-corpus
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: TheAxiomFoundation/axiom-corpus
           path: axiom-corpus
@@ -62,15 +62,18 @@ jobs:
 
       - name: Checkout axiom-rules-engine
         if: ${{ !inputs.dry_run }}
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: TheAxiomFoundation/axiom-rules-engine
+          ref: 38b5f646165f18f64307f1eef226c7a6f2d4936e
           path: axiom-rules-engine
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
 
       - name: Set up Python
         run: uv python install 3.13
@@ -88,9 +91,7 @@ jobs:
 
       - name: Install encoder
         working-directory: axiom-encode
-        run: |
-          uv venv --python 3.13
-          uv pip install -e ".[api]"
+        run: uv sync --locked --python 3.13 --extra api
 
       - name: Validate dry-run wiring
         if: ${{ inputs.dry_run }}
@@ -137,7 +138,7 @@ jobs:
 
       - name: Upload sanitized drift report
         if: ${{ !inputs.dry_run }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: golden-drift-report-${{ github.run_id }}
           path: ${{ runner.temp }}/golden-drift-report.json
@@ -155,25 +156,25 @@ jobs:
       issues: write
     steps:
       - name: Checkout axiom-encode
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: axiom-encode
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
 
       - name: Set up Python
         run: uv python install 3.13
 
       - name: Install encoder
         working-directory: axiom-encode
-        run: |
-          uv venv --python 3.13
-          uv pip install -e ".[api]"
+        run: uv sync --locked --python 3.13 --extra api
 
       - name: Download sanitized drift report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: golden-drift-report-${{ github.run_id }}
           path: drift-report
