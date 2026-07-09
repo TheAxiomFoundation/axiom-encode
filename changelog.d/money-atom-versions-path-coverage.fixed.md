@@ -1,0 +1,1 @@
+Treat cited `parameter_table` proof atoms at `path: versions` as covering each table-valued version in the money-atom gate, preserving compatibility with signed RuleSpec outputs that use the broader table anchor.

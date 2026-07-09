@@ -241,6 +241,36 @@ rules:
     assert report.missing_count == 0
 
 
+def test_versions_path_parameter_table_atom_covers_each_table_version():
+    table = """format: rulespec/v1
+rules:
+  - name: allotment_table
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    indexed_by: household_size
+    metadata:
+      proof:
+        atoms:
+          - path: versions
+            kind: parameter_table
+            source:
+              corpus_citation_path: be/statute/x
+    versions:
+      - effective_from: '2025-01-01'
+        values:
+          "1": "186.51"
+      - effective_from: '2026-01-01'
+        values:
+          "1": "198.94"
+"""
+
+    report = find_missing_money_proof_atoms(table)
+
+    assert report.obligation_count == 2
+    assert report.missing_count == 0
+
+
 def test_derived_formula_with_currency_literal_creates_obligation():
     content = """format: rulespec/v1
 rules:
