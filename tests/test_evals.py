@@ -11409,7 +11409,7 @@ rules:
 
         assert workspace.source_text_file.read_bytes() == b"First\nSecond\nThird\n"
         assert metadata["source_attestation"]["generation_input_sha256"] == (
-            hashlib.sha256(b"First\nSecond\nThird").hexdigest()
+            hashlib.sha256(workspace.source_text_file.read_bytes()).hexdigest()
         )
 
     def test_build_eval_prompt_lists_canonical_context_import_target(self, tmp_path):

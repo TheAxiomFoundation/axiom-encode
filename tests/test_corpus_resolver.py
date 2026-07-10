@@ -29,6 +29,7 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
     resolve_supabase_corpus_source,
     scope_resolved_corpus_source,
+    resolve_scoped_local_corpus_source,
 )
 
 CITATION = "us/statute/7/2014/e"
@@ -658,6 +659,56 @@ def test_resolver_owned_generation_scope_updates_exact_input_digest(tmp_path: Pa
     assert (
         scoped.resolved_text_sha256 == hashlib.sha256(scoped.body.encode()).hexdigest()
     )
+
+
+def test_scoped_resolver_rejects_raw_rulespec_identifier(tmp_path: Path):
+    version = "2026-01-01-scope"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": "us/statute/7/2014", "body": "(e) Target."}],
+    )
+    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+
+    with pytest.raises(InvalidCorpusCitationError, match="normalized"):
+        resolve_scoped_local_corpus_source(
+            parent, "us:statutes/7/2014/e", tmp_path
+        )
+
+
+def test_scoped_resolver_fails_when_exact_child_diverges_from_parent(tmp_path: Path):
+    version = "2026-01-01-scope"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"id": "parent", "citation_path": "us/statute/7/2014", "body": "(e) Parent."},
+            {"id": "child", "citation_path": CITATION, "body": "Exact child."},
+        ],
+    )
+    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+
+    with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
+        resolve_scoped_local_corpus_source(parent, CITATION, tmp_path)
+
+    assert {row.record_id for row in exc_info.value.rows} == {"parent", "child"}
+
+
+def test_scoped_resolver_uses_parent_slice_only_when_exact_child_absent(tmp_path: Path):
+    version = "2026-01-01-scope"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": "us/statute/7/2014", "body": "(a) Other.\n(e) Target."}],
+    )
+    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+
+    scoped = resolve_scoped_local_corpus_source(parent, CITATION, tmp_path)
+
+    assert scoped.body == "(e) Target."
 
 
 def test_guidance_parent_is_not_a_generation_fallback(tmp_path: Path):

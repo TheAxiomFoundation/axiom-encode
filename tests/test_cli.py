@@ -4895,8 +4895,8 @@ rules: []
             source_metadata_payload=metadata,
             extra_context_paths=[],
         )
-        canonical = b"First line\nSecond line"
-        assert workspace.source_text_file.read_bytes() == canonical + b"\n"
+        canonical = b"First line\nSecond line\n"
+        assert workspace.source_text_file.read_bytes() == canonical
         assert metadata["source_attestation"]["generation_input_sha256"] == (
             hashlib.sha256(canonical).hexdigest()
         )
@@ -4907,7 +4907,7 @@ rules: []
             workspace.context_files,
             target_file_name="1.yaml",
         )
-        assert workspace.source_text_file.read_text().strip() in prompt
+        assert workspace.source_text_file.read_text() in prompt
 
         generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
         generated.parent.mkdir(parents=True)
