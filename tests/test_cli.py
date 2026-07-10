@@ -1764,6 +1764,12 @@ class TestCmdEvalSuiteArchive:
 
 
 class TestCmdValidate:
+    @staticmethod
+    def _module(tmp_path: Path, name: str) -> Path:
+        module = tmp_path / "rulespec-us" / "us" / "statutes" / name
+        module.parent.mkdir(parents=True, exist_ok=True)
+        return module
+
     def test_file_not_found(self, capsys):
         args = MagicMock()
         args.files = [Path("/nonexistent/file.yaml")]
@@ -1774,7 +1780,7 @@ class TestCmdValidate:
         assert "File not found" in captured.out
 
     def test_validate_pass_text_output(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -1806,7 +1812,7 @@ class TestCmdValidate:
         assert "PASSED" in captured.out
 
     def test_validate_fail_json_output(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -1842,8 +1848,8 @@ class TestCmdValidate:
         assert output["all_passed"] is False
 
     def test_validate_multiple_files_reuses_pipeline(self, capsys, tmp_path):
-        first = tmp_path / "first.yaml"
-        second = tmp_path / "second.yaml"
+        first = self._module(tmp_path, "first.yaml")
+        second = self._module(tmp_path, "second.yaml")
         first.write_text("# test")
         second.write_text("# test")
         args = MagicMock()
@@ -1874,7 +1880,7 @@ class TestCmdValidate:
         ]
 
     def test_validate_with_oracle_policyengine_pass(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -1908,7 +1914,7 @@ class TestCmdValidate:
             )
 
     def test_validate_with_oracle_policyengine_fail(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -1944,7 +1950,7 @@ class TestCmdValidate:
     def test_validate_with_oracle_classification_required_fails_unmapped(
         self, capsys, tmp_path
     ):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -1992,7 +1998,7 @@ class TestCmdValidate:
     def test_validate_with_oracle_classification_required_allows_classified(
         self, capsys, tmp_path
     ):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2301,7 +2307,7 @@ class TestCmdValidate:
         assert "snap_new_exact_variable" in output
 
     def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2333,7 +2339,7 @@ class TestCmdValidate:
             assert exc_info.value.code == 1
 
     def test_validate_with_oracle_all(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2366,7 +2372,7 @@ class TestCmdValidate:
             assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
 
     def test_validate_json_output_with_reviewresults_object(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2425,7 +2431,7 @@ class TestCmdValidate:
         assert output["oracle_scores"]["policyengine"] == 1.0
 
     def test_validate_passes_skip_reviewers_to_pipeline(self, tmp_path):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2460,7 +2466,7 @@ class TestCmdValidate:
     def test_validate_json_output_uses_null_scores_when_reviewers_skipped(
         self, capsys, tmp_path
     ):
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2492,7 +2498,7 @@ class TestCmdValidate:
 
     def test_validate_rules_us_not_found_uses_defaults(self, capsys, tmp_path):
         """When rules_us can't be found by walking, use default paths."""
-        rulespec_file = tmp_path / "test.yaml"
+        rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
@@ -2676,7 +2682,7 @@ class TestCmdTest:
         expected_benefit: int,
     ) -> Path:
         repo = tmp_path / "rulespec-us"
-        target = repo / "statutes/1/1.yaml"
+        target = repo / "us/statutes/1/1.yaml"
         target.parent.mkdir(parents=True)
         target.write_text(
             """format: rulespec/v1
@@ -2738,7 +2744,7 @@ rules:
     def test_repairs_child_numeric_reencoding_parent_aliases(self, tmp_path):
         repo = tmp_path / "rulespec-us"
         rules_file = tmp_path / "out" / "codex-test-model" / "statutes/26/36B.yaml"
-        child_file = repo / "statutes/26/36B/b.yaml"
+        child_file = repo / "us/statutes/26/36B/b.yaml"
         child_file.parent.mkdir(parents=True)
         rules_file.parent.mkdir(parents=True)
         child_file.write_text(
@@ -2859,8 +2865,8 @@ rules:
     def test_repairs_child_fragment_reencoding_parent_aliases(self, tmp_path):
         repo = tmp_path / "rulespec-us"
         rules_file = tmp_path / "out" / "codex-test-model" / "statutes/42/426.yaml"
-        child_a2 = repo / "statutes/42/426/a/2.yaml"
-        child_d = repo / "statutes/42/426/d.yaml"
+        child_a2 = repo / "us/statutes/42/426/a/2.yaml"
+        child_d = repo / "us/statutes/42/426/d.yaml"
         rules_file.parent.mkdir(parents=True)
         child_a2.parent.mkdir(parents=True)
         child_d.parent.mkdir(parents=True, exist_ok=True)
@@ -2981,7 +2987,7 @@ rules:
 
     def test_executes_companion_tests_with_custom_period_name(self, capsys, tmp_path):
         repo = tmp_path / "rulespec-us"
-        target = repo / "policies/ssa/base.yaml"
+        target = repo / "us/policies/ssa/base.yaml"
         target.parent.mkdir(parents=True)
         target.write_text(
             """format: rulespec/v1
@@ -3016,7 +3022,7 @@ rules:
 
     def test_executes_companion_tests_with_table_rows(self, capsys, tmp_path):
         repo = tmp_path / "rulespec-us"
-        target = repo / "statutes/1/payment.yaml"
+        target = repo / "us/statutes/1/payment.yaml"
         target.parent.mkdir(parents=True)
         target.write_text(
             """format: rulespec/v1
@@ -3061,7 +3067,7 @@ rules:
         self, capsys, tmp_path
     ):
         repo = tmp_path / "rulespec-us"
-        target = repo / "statutes/1/relation.yaml"
+        target = repo / "us/statutes/1/relation.yaml"
         target.parent.mkdir(parents=True)
         target.write_text(
             """format: rulespec/v1
@@ -3114,7 +3120,7 @@ rules:
         self, capsys, monkeypatch, tmp_path
     ):
         stale_repo = tmp_path / "canonical" / "rulespec-us"
-        stale_child = stale_repo / "statutes/1/child.yaml"
+        stale_child = stale_repo / "us/statutes/1/child.yaml"
         stale_child.parent.mkdir(parents=True)
         stale_child.write_text(
             """format: rulespec/v1
@@ -3132,7 +3138,7 @@ rules:
         )
 
         repo = tmp_path / "workspace" / "rulespec-us"
-        child = repo / "statutes/1/child.yaml"
+        child = repo / "us/statutes/1/child.yaml"
         child.parent.mkdir(parents=True)
         child.write_text(
             """format: rulespec/v1
@@ -3148,7 +3154,7 @@ rules:
         formula: current_income + 1
 """
         )
-        parent = repo / "statutes/1/parent.yaml"
+        parent = repo / "us/statutes/1/parent.yaml"
         parent.write_text(
             """format: rulespec/v1
 imports:
@@ -3187,7 +3193,7 @@ rules:
         self, capsys, monkeypatch, tmp_path
     ):
         repo = tmp_path / "workspace" / "rulespec-us"
-        rules_file = repo / "statutes/1/1.yaml"
+        rules_file = repo / "us/statutes/1/1.yaml"
         rules_file.parent.mkdir(parents=True)
         rules_file.write_text(
             """format: rulespec/v1
@@ -3303,233 +3309,6 @@ rules:
             assert roots.index(str(stale_repo)) < roots.index(
                 str(repo.resolve().parent)
             )
-
-    def test_executes_companion_tests_from_canonical_alias_checkout(
-        self, capsys, monkeypatch, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us-clean.abcd"
-        rules_file = repo / "statutes/1/alias.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: benefit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2024-01-01'
-        formula: income + 1
-"""
-        )
-        rules_file.with_name("alias.test.yaml").write_text(
-            """- name: canonical_temp_checkout_output
-  period: 2026-01
-  input:
-    us:statutes/1/alias#input.income: 5
-  output:
-    us:statutes/1/alias#benefit: 6
-"""
-        )
-
-        engine_root = tmp_path / "axiom-rules-engine"
-        binary = engine_root / "target/debug/axiom-rules-engine"
-        compiled_ids: list[str] = []
-        compile_programs: list[Path] = []
-
-        def fake_binary(self):
-            return binary
-
-        def fake_run(cmd, **kwargs):
-            if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(repo)]:
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
-                    stderr="",
-                )
-            if "compile" in cmd:
-                program_path = Path(cmd[cmd.index("--program") + 1])
-                compile_programs.append(program_path)
-                item_id = "us:statutes/1/alias#benefit"
-                compiled_ids.append(item_id)
-                output_path = Path(cmd[cmd.index("--output") + 1])
-                output_path.write_text(
-                    json.dumps(
-                        {
-                            "program": {
-                                "parameters": [],
-                                "derived": [
-                                    {
-                                        "id": item_id,
-                                        "name": "benefit",
-                                        "entity": "Household",
-                                    }
-                                ],
-                            }
-                        }
-                    )
-                )
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-            if "run-compiled" in cmd:
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout=json.dumps(
-                        {
-                            "results": [
-                                {
-                                    "outputs": {
-                                        "us:statutes/1/alias#benefit": {
-                                            "kind": "scalar",
-                                            "value": {"kind": "integer", "value": 6},
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    ),
-                    stderr="",
-                )
-            raise AssertionError(f"unexpected command: {cmd}")
-
-        args = MagicMock()
-        args.root = repo
-        args.paths = []
-        args.json = True
-        args.axiom_rules_path = engine_root
-
-        monkeypatch.setattr(
-            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
-            fake_binary,
-        )
-        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
-
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_test(args)
-
-        assert exc_info.value.code == 0
-        assert json.loads(capsys.readouterr().out)["success"] is True
-        assert compiled_ids == ["us:statutes/1/alias#benefit"]
-        assert len(compile_programs) == 1
-        assert "rulespec-us" in compile_programs[0].parts
-        assert "rulespec-us-clean.abcd" not in str(compile_programs[0])
-
-    def test_executes_relation_tests_from_canonical_alias_checkout(
-        self, capsys, monkeypatch, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us-clean.abcd"
-        rules_file = repo / "statutes/1/relation.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: members
-    kind: data_relation
-    data_relation:
-      arity: 2
-  - name: benefit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2024-01-01'
-        formula: sum(members.income)
-"""
-        )
-        rules_file.with_name("relation.test.yaml").write_text(
-            """- name: canonical_temp_checkout_relation_input
-  period: 2026-01
-  input:
-    us:statutes/1/relation#relation.members:
-      - us:statutes/1/relation#input.income: 5
-  output:
-    us:statutes/1/relation#benefit: 5
-"""
-        )
-
-        engine_root = tmp_path / "axiom-rules-engine"
-        binary = engine_root / "target/debug/axiom-rules-engine"
-        relation_names: list[str] = []
-
-        def fake_binary(self):
-            return binary
-
-        def fake_run(cmd, **kwargs):
-            if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(repo)]:
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
-                    stderr="",
-                )
-            if "compile" in cmd:
-                output_path = Path(cmd[cmd.index("--output") + 1])
-                output_path.write_text(
-                    json.dumps(
-                        {
-                            "program": {
-                                "parameters": [],
-                                "derived": [
-                                    {
-                                        "id": "us-clean.abcd:statutes/1/relation#benefit",
-                                        "name": "benefit",
-                                        "entity": "Household",
-                                    }
-                                ],
-                            }
-                        }
-                    )
-                )
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-            if "run-compiled" in cmd:
-                request = json.loads(kwargs["input"])
-                relation_names.extend(
-                    relation["name"] for relation in request["dataset"]["relations"]
-                )
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout=json.dumps(
-                        {
-                            "results": [
-                                {
-                                    "outputs": {
-                                        "us:statutes/1/relation#benefit": {
-                                            "kind": "scalar",
-                                            "value": {"kind": "integer", "value": 5},
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    ),
-                    stderr="",
-                )
-            raise AssertionError(f"unexpected command: {cmd}")
-
-        args = MagicMock()
-        args.root = repo
-        args.paths = []
-        args.json = True
-        args.axiom_rules_path = engine_root
-
-        monkeypatch.setattr(
-            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
-            fake_binary,
-        )
-        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
-
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_test(args)
-
-        assert exc_info.value.code == 0
-        assert json.loads(capsys.readouterr().out)["success"] is True
-        assert relation_names == ["us:statutes/1/relation#relation.members"]
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
@@ -36041,8 +35820,8 @@ class TestTranscriptSyncCommands:
 
 class TestCmdValidateEdgeCases:
     def test_validate_rules_us_found_in_path(self, capsys, tmp_path):
-        """Test validate when file is inside a rulespec-us directory (line 350)."""
-        rules_us = tmp_path / "rulespec-us" / "statutes" / "26" / "1"
+        """Validation uses the country checkout, never a jurisdiction subroot."""
+        rules_us = tmp_path / "rulespec-us" / "us" / "statutes" / "26" / "1"
         rules_us.mkdir(parents=True)
         rulespec_file = rules_us / "test.yaml"
         rulespec_file.write_text("# test")
@@ -36075,9 +35854,8 @@ class TestCmdValidateEdgeCases:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 0
-            # Verify axiom_rules_path was resolved via rules_us.parent / "axiom-rules-engine"
             call_kwargs = mock_pipeline_cls.call_args[1]
-            assert "rulespec-us" in str(call_kwargs["policy_repo_path"])
+            assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us"
 
     def test_validate_uses_enclosing_non_federal_policy_repo(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us-tn" / "sources"
@@ -36107,14 +35885,9 @@ class TestCmdValidateEdgeCases:
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
-            mock_pipeline_cls.return_value.validate.return_value = mock_result
-            with pytest.raises(SystemExit) as exc_info:
+            with pytest.raises(ValueError, match="country-monorepo layout"):
                 cmd_validate(args)
-            assert exc_info.value.code == 0
-
-        call_kwargs = mock_pipeline_cls.call_args[1]
-        assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us-tn"
-        assert call_kwargs["axiom_rules_path"] == tmp_path / "axiom-rules-engine"
+            mock_pipeline_cls.assert_not_called()
 
     def test_validate_fallback_prefers_workspace_repo_roots(
         self, monkeypatch, tmp_path
@@ -36149,22 +35922,10 @@ class TestCmdValidateEdgeCases:
             taxsim_match=None,
         )
 
-        with (
-            patch(
-                "axiom_encode.cli._resolve_policy_repo_for_prefix",
-                return_value=rules_us_path,
-            ),
-            patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls,
-        ):
-            mock_pipeline = mock_pipeline_cls.return_value
-            mock_pipeline.validate.return_value = mock_result
-            with pytest.raises(SystemExit) as exc_info:
+        with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
+            with pytest.raises(ValueError, match="not inside a canonical country"):
                 cmd_validate(args)
-            assert exc_info.value.code == 0
-
-        call_kwargs = mock_pipeline_cls.call_args[1]
-        assert call_kwargs["policy_repo_path"] == rules_us_path
-        assert call_kwargs["axiom_rules_path"] == axiom_rules_path
+            mock_pipeline_cls.assert_not_called()
 
 
 class TestCmdCalibrationEdgeCases:
