@@ -597,32 +597,37 @@ def _create_drift_issues(report, repo: str) -> list[str]:
         capture_output=True,
         text=True,
         env=github_env,
+        shell=False,
     )
 
     # File an issue for every drifted module AND every regeneration error — a
     # regeneration error is the least-visible outcome otherwise, and the drift
     # check's whole point is that failures are never silent.
-    items = [
-        (r, drift.drift_issue_body(r), drift.drift_issue_title(r))
-        for r in report.drifted
-    ]
-    items += [
-        (
-            r,
-            drift.drift_error_issue_body(r),
-            drift.drift_issue_title(r, regeneration_error=True),
-        )
-        for r in report.errors
-    ]
+    items = [(result, False) for result in report.drifted]
+    items.extend((result, True) for result in report.errors)
 
     created: list[str] = []
-    for _result, body, title in items:
-        body = drift.enforce_github_issue_body_budget(redact_sensitive_text(body))
-        title = drift.enforce_github_issue_title_budget(redact_sensitive_text(title))
-        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
-            fh.write(body)
-            body_path = fh.name
+    for result, regeneration_error in items:
+        body_path: str | None = None
         try:
+            if regeneration_error:
+                body = drift.drift_error_issue_body(result)
+                title = drift.drift_issue_title(result, regeneration_error=True)
+            else:
+                body = drift.drift_issue_body(result)
+                title = drift.drift_issue_title(result)
+            body = drift.enforce_github_issue_body_budget(redact_sensitive_text(body))
+            title = drift.enforce_github_issue_title_budget(
+                redact_sensitive_text(title)
+            )
+            with tempfile.NamedTemporaryFile(
+                "w",
+                suffix=".md",
+                delete=False,
+                encoding="utf-8",
+            ) as fh:
+                fh.write(body)
+                body_path = fh.name
             proc = subprocess.run(
                 [
                     "gh",
@@ -640,6 +645,7 @@ def _create_drift_issues(report, repo: str) -> list[str]:
                 capture_output=True,
                 text=True,
                 env=github_env,
+                shell=False,
             )
             if proc.returncode == 0:
                 created.append(proc.stdout.strip())
@@ -649,8 +655,23 @@ def _create_drift_issues(report, repo: str) -> list[str]:
                     f"{title}: {redact_sensitive_text(proc.stderr)}",
                     file=sys.stderr,
                 )
+        except Exception as exc:  # noqa: BLE001 - isolate every publication
+            diagnostic = ascii(redact_sensitive_text(str(exc)))
+            print(
+                f"failed to create issue for {ascii(result.module)}: {diagnostic}",
+                file=sys.stderr,
+            )
         finally:
-            os.unlink(body_path)
+            if body_path is not None:
+                try:
+                    os.unlink(body_path)
+                except OSError as exc:
+                    diagnostic = ascii(redact_sensitive_text(str(exc)))
+                    print(
+                        "failed to remove temporary issue body for "
+                        f"{ascii(result.module)}: {diagnostic}",
+                        file=sys.stderr,
+                    )
     return created
 
 

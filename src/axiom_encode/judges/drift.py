@@ -17,11 +17,14 @@ import hashlib
 import html
 import json
 import random
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 import yaml
+
+from .regeneration import _SAFE_PATH_PART
 
 MIN_SAMPLE = 3
 MAX_SAMPLE = 5
@@ -35,6 +38,7 @@ MAX_ERROR_CHARS = 4096
 MAX_GITHUB_ISSUE_BODY_BYTES = 60_000
 MAX_GITHUB_ISSUE_TITLE_CHARS = 240
 MAX_GITHUB_ISSUE_PATH_PREVIEW_CHARS = 256
+_UNSAFE_DISPLAY_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 
 def _safe_load_drift_yaml(yaml_text: str) -> Any:
@@ -111,13 +115,61 @@ def semantic_key(yaml_text: str) -> str:
     )
 
 
+def _is_unsafe_display_character(
+    character: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> bool:
+    """Return whether a character must not cross a display trust boundary raw."""
+
+    if preserve_lf_tab and character in {"\n", "\t"}:
+        return False
+    return unicodedata.category(character) in _UNSAFE_DISPLAY_CATEGORIES
+
+
+def _contains_unsafe_display_characters(
+    value: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> bool:
+    """Return whether text contains controls or display-direction metadata."""
+
+    return any(
+        _is_unsafe_display_character(
+            character,
+            preserve_lf_tab=preserve_lf_tab,
+        )
+        for character in value
+    )
+
+
+def _sanitize_display_text(
+    value: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> str:
+    """Render unsafe Unicode categories as visible, UTF-8-safe escapes."""
+
+    sanitized: list[str] = []
+    for character in value:
+        if not _is_unsafe_display_character(
+            character,
+            preserve_lf_tab=preserve_lf_tab,
+        ):
+            sanitized.append(character)
+            continue
+        code_point = ord(character)
+        if code_point <= 0xFFFF:
+            sanitized.append(f"\\u{code_point:04X}")
+        else:
+            sanitized.append(f"\\U{code_point:08X}")
+    return "".join(sanitized)
+
+
 def _bounded_diff_path(path: str) -> str:
     """Return one control-free, bounded display path while traversing YAML."""
 
-    escaped = (
-        "".join(f"\\u{ord(char):04x}" if ord(char) < 32 else char for char in path)
-        or "(root)"
-    )
+    escaped = _sanitize_display_text(path) or "(root)"
     if len(escaped) <= MAX_DIFF_PATH_CHARS:
         return escaped
     digest = hashlib.sha256(escaped.encode("utf-8")).hexdigest()[:12]
@@ -140,11 +192,12 @@ def _bounded_diff_value(value: Any) -> Any:
 def _bounded_error(error: str) -> str:
     """Bound diagnostics so every producer report satisfies publisher schema."""
 
-    if len(error) <= MAX_ERROR_CHARS:
-        return error
-    digest = hashlib.sha256(error.encode("utf-8")).hexdigest()[:12]
+    sanitized = _sanitize_display_text(error, preserve_lf_tab=True)
+    if len(sanitized) <= MAX_ERROR_CHARS:
+        return sanitized
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:12]
     suffix = f"…[truncated; sha256:{digest}]"
-    return error[: MAX_ERROR_CHARS - len(suffix)] + suffix
+    return sanitized[: MAX_ERROR_CHARS - len(suffix)] + suffix
 
 
 def _record_diff(
@@ -299,9 +352,7 @@ class DriftReport:
             if (
                 not isinstance(module, str)
                 or not module
-                or len(module) > 4096
-                or "\\" in module
-                or any(ord(char) < 32 for char in module)
+                or len(module) > MAX_DIFF_PATH_CHARS
             ):
                 raise ValueError("drift report result has an invalid module")
             module_path = PurePosixPath(module)
@@ -310,6 +361,10 @@ class DriftReport:
                 or module_path.suffix != ".yaml"
                 or module_path.as_posix() != module
                 or any(part in {"", ".", ".."} for part in module_path.parts)
+                or any(
+                    _SAFE_PATH_PART.fullmatch(part) is None
+                    for part in module_path.parts
+                )
                 or module in seen_modules
             ):
                 raise ValueError(
@@ -319,7 +374,13 @@ class DriftReport:
             if not isinstance(drifted, bool):
                 raise ValueError("drift report result has a non-boolean drifted field")
             if error is not None and (
-                not isinstance(error, str) or not error or len(error) > 4096
+                not isinstance(error, str)
+                or not error
+                or len(error) > MAX_ERROR_CHARS
+                or _contains_unsafe_display_characters(
+                    error,
+                    preserve_lf_tab=True,
+                )
             ):
                 raise ValueError("drift report result has an invalid error")
             if not isinstance(diffs, list):
@@ -339,8 +400,8 @@ class DriftReport:
                 if (
                     not isinstance(path, str)
                     or not path
-                    or len(path) > 4096
-                    or any(ord(char) < 32 for char in path)
+                    or len(path) > MAX_DIFF_PATH_CHARS
+                    or _contains_unsafe_display_characters(path)
                     or not isinstance(change, str)
                     or change
                     not in {"added", "removed", "list_changed", "value_changed"}
@@ -462,7 +523,7 @@ def drift_error_issue_body(result: DriftResult) -> str:
     body = (
         "Golden regeneration could not check "
         f"{_github_inline_code(result.module)}:\n\n"
-        f"<pre>{_github_safe_text(result.error or '')}</pre>\n"
+        f"<pre>{_github_safe_text(result.error or '', preserve_lf_tab=True)}</pre>\n"
     )
     return _bounded_utf8(body, MAX_GITHUB_ISSUE_BODY_BYTES)
 
@@ -480,19 +541,21 @@ def drift_issue_title(result: DriftResult, *, regeneration_error: bool = False) 
 def _bounded_text_with_digest(value: str, max_chars: int) -> str:
     """Truncate display text with a stable identity-preserving digest."""
 
-    if len(value) <= max_chars:
-        return value
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    sanitized = _sanitize_display_text(value)
+    if len(sanitized) <= max_chars:
+        return sanitized
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:12]
     suffix = f"…[sha256:{digest}]"
-    return value[: max_chars - len(suffix)] + suffix
+    return sanitized[: max_chars - len(suffix)] + suffix
 
 
 def _bounded_utf8(value: str, max_bytes: int) -> str:
     """Apply a final byte budget to text passed to an external publisher."""
 
-    encoded = value.encode("utf-8")
+    sanitized = _sanitize_display_text(value, preserve_lf_tab=True)
+    encoded = sanitized.encode("utf-8")
     if len(encoded) <= max_bytes:
-        return value
+        return sanitized
     digest = hashlib.sha256(encoded).hexdigest()[:12]
     suffix = f"\n\n[truncated; sha256:{digest}]"
     available = max_bytes - len(suffix.encode("utf-8"))
@@ -512,10 +575,13 @@ def enforce_github_issue_title_budget(value: str) -> str:
     return _bounded_text_with_digest(value, MAX_GITHUB_ISSUE_TITLE_CHARS)
 
 
-def _github_safe_text(value: object) -> str:
+def _github_safe_text(value: object, *, preserve_lf_tab: bool = False) -> str:
     """Escape untrusted report text and neutralize GitHub mentions."""
 
-    safe = html.escape(str(value), quote=True)
+    safe = html.escape(
+        _sanitize_display_text(str(value), preserve_lf_tab=preserve_lf_tab),
+        quote=True,
+    )
     for character, entity in (
         ("@", "&#64;"),
         ("`", "&#96;"),
