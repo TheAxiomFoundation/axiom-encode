@@ -256,9 +256,7 @@ def _manifest_is_replayable_encode(manifest: dict[str, object]) -> bool:
         "openai",
         "claude",
         "anthropic",
-    } and str(
-        manifest.get("tool", "")
-    ).startswith("axiom-encode encode")
+    } and str(manifest.get("tool", "")).startswith("axiom-encode encode")
 
 
 def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]:

@@ -28,9 +28,9 @@ from axiom_encode.corpus_resolver import (
     iter_active_local_corpus_rows,
     load_release_selector,
     resolve_local_corpus_source,
+    resolve_scoped_local_corpus_source,
     resolve_supabase_corpus_source,
     scope_resolved_corpus_source,
-    resolve_scoped_local_corpus_source,
 )
 
 CITATION = "us/statute/7/2014/e"
@@ -673,9 +673,7 @@ def test_scoped_resolver_rejects_raw_rulespec_identifier(tmp_path: Path):
     parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
 
     with pytest.raises(InvalidCorpusCitationError, match="normalized"):
-        resolve_scoped_local_corpus_source(
-            parent, "us:statutes/7/2014/e", tmp_path
-        )
+        resolve_scoped_local_corpus_source(parent, "us:statutes/7/2014/e", tmp_path)
 
 
 def test_scoped_resolver_fails_when_exact_child_diverges_from_parent(tmp_path: Path):
@@ -685,7 +683,11 @@ def test_scoped_resolver_fails_when_exact_child_diverges_from_parent(tmp_path: P
         tmp_path,
         version,
         [
-            {"id": "parent", "citation_path": "us/statute/7/2014", "body": "(e) Parent."},
+            {
+                "id": "parent",
+                "citation_path": "us/statute/7/2014",
+                "body": "(e) Parent.",
+            },
             {"id": "child", "citation_path": CITATION, "body": "Exact child."},
         ],
     )

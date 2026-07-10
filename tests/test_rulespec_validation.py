@@ -7865,6 +7865,9 @@ def test_rulespec_rejects_executable_or_unaccepted_source_claim(tmp_path, monkey
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
+    monkeypatch.setattr(
+        validator_pipeline, "_fetch_corpus_source_text", lambda _citation: None
+    )
 
     _write_local_source_claim(
         repo_parent,
@@ -7905,6 +7908,9 @@ def test_rulespec_rejects_source_claim_placeholder_subject(tmp_path, monkeypatch
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
+    monkeypatch.setattr(
+        validator_pipeline, "_fetch_corpus_source_text", lambda _citation: None
+    )
 
     _write_local_source_claim(
         repo_parent,
@@ -17963,7 +17969,7 @@ def test_ambient_axiom_corpus_repo_invalid_layout_fails_closed(
         validator_pipeline._fetch_corpus_source_text("us/statute/1")
 
 
-def test_source_verification_prefers_current_repo_corpus_artifact(
+def test_source_verification_prefers_explicit_ambient_corpus_artifact(
     tmp_path,
     monkeypatch,
 ):
@@ -18009,7 +18015,7 @@ def test_source_verification_prefers_current_repo_corpus_artifact(
             "uk/regulation/example/schedule/1",
             require_release=False,
         )
-        == "Local source states the issue fee is GBP 180.00."
+        == "External source states the issue fee is GBP 999.00."
     )
 
 

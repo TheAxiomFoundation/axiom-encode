@@ -63,7 +63,6 @@ from .corpus_resolver import (
     CorpusResolutionError,
     CorpusRowStructureError,
     CorpusSourceNotFoundError,
-    CorpusSourceSliceError,
     InactiveCorpusSourceError,
     InvalidReleaseSelectorError,
     iter_active_local_corpus_rows,
@@ -71,7 +70,6 @@ from .corpus_resolver import (
     normalize_corpus_identifier,
     resolve_local_corpus_source,
     resolve_scoped_local_corpus_source,
-    scope_resolved_corpus_source,
     slice_corpus_source_text,
 )
 from .harness.encoding_db import (
@@ -31556,9 +31554,7 @@ def _local_source_text_for_corpus_path(
 def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
     candidates: list[Path] = []
     env_path = os.environ.get("AXIOM_CORPUS_REPO")
-    normalized_env_path = (
-        Path(env_path).expanduser().resolve() if env_path else None
-    )
+    normalized_env_path = Path(env_path).expanduser().resolve() if env_path else None
     if normalized_env_path is not None:
         candidates.append(normalized_env_path)
     rules_repo = Path(rules_repo_path).resolve()

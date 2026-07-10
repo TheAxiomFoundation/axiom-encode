@@ -498,7 +498,7 @@ def _complete_source_attestation(
         "component_rows": [],
         "source_sha256": source_sha256,
         "resolved_text_sha256": source_sha256,
-        "generation_input_sha256": hashlib.sha256(b"test source").hexdigest(),
+        "generation_input_sha256": hashlib.sha256(b"test source\n").hexdigest(),
         "source_as_of": "2026-01-01",
         "expression_date": "2026-01-01",
     }
@@ -4507,7 +4507,7 @@ class TestCmdEncode:
                 ),
             ) as mock_resolve,
             patch(
-                "axiom_encode.cli.scope_resolved_corpus_source",
+                "axiom_encode.cli.resolve_scoped_local_corpus_source",
                 return_value=self._scoped_source("authoritative local source"),
             ),
             patch(
@@ -4554,7 +4554,7 @@ class TestCmdEncode:
                 ),
             ),
             patch(
-                "axiom_encode.cli.scope_resolved_corpus_source",
+                "axiom_encode.cli.resolve_scoped_local_corpus_source",
                 return_value=self._scoped_source("standard deduction source text"),
             ),
             patch(
@@ -4594,7 +4594,7 @@ class TestCmdEncode:
                 ),
             ),
             patch(
-                "axiom_encode.cli.scope_resolved_corpus_source",
+                "axiom_encode.cli.resolve_scoped_local_corpus_source",
                 return_value=self._scoped_source("medicaid source text"),
             ),
             patch(
@@ -37200,10 +37200,24 @@ class TestManifestCensus:
         _git(repo, "init")
         _git(repo, "config", "user.email", "test@example.com")
         _git(repo, "config", "user.name", "Test User")
-        self._add_rule(repo, "statutes/be/encoded.yaml")
-        self._add_manifest(repo, "statutes/be/encoded.yaml", backend="codex")
+        _rule, manifest = _write_legacy_model_manifest(repo)
         _git(repo, "add", ".")
         _git(repo, "commit", "-m", "baseline")
+        inventory = tmp_path / "rollout-inventory.json"
+        inventory.write_text(
+            json.dumps(
+                {
+                    "repositories": {
+                        "rulespec-be": [
+                            {
+                                "path": manifest.relative_to(repo).as_posix(),
+                                "sha256": _sha256_file(manifest),
+                            }
+                        ]
+                    }
+                }
+            )
+        )
         args = SimpleNamespace(
             repo=repo,
             roots="policies programs regulations statutes",
@@ -37212,8 +37226,11 @@ class TestManifestCensus:
             out=None,
         )
 
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+        with (
+            patch.dict(
+                os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+            ),
+            patch("axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY", inventory),
         ):
             cmd_manifest_census(args)
 
@@ -37222,6 +37239,10 @@ class TestManifestCensus:
         assert census["remaining_v1_compat_lane_count"] == len(
             census["remaining_v1_compat_lane"]
         )
+        assert census["remaining_v1_compat_lane_count"] == 1
+        assert census["remaining_v1_compat_lane"] == [
+            manifest.relative_to(repo).as_posix()
+        ]
 
 
 def test_local_corpus_auto_repair_fails_only_for_differing_checkout_bodies(
