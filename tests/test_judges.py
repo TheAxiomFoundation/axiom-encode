@@ -1250,6 +1250,9 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     assert all(step["with"]["version"] == "0.11.7" for step in setup_uv_steps)
 
 
+_UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
+
+
 def test_drift_ignores_order_and_comments_catches_change():
     a = "outputs:\n  r:\n    value: 0.34\ninputs: [x, y]\n"
     reordered = "inputs: [y, x]  # comment\noutputs:\n  r:\n    value: 0.34\n"
@@ -1272,6 +1275,112 @@ def test_drift_rejects_yaml_alias_expansion_bomb():
 
     with pytest.raises(ValueError, match="aliases are not allowed"):
         drift.semantic_diff(bomb, bomb)
+
+
+@pytest.mark.parametrize("code_point", _UNSAFE_DRIFT_CODE_POINTS)
+def test_drift_unicode_is_escaped_through_report_and_issue_body(code_point):
+    dangerous = chr(code_point)
+    regenerated = f"{json.dumps(dangerous)}: 1\n"
+    result = drift.check_module(
+        "us/statutes/1.yaml",
+        "safe: 1\n",
+        lambda _module, _merged: regenerated,
+    )
+
+    payload = json.loads(json.dumps(drift.DriftReport([result]).to_dict()))
+    loaded = drift.DriftReport.from_dict(payload)
+    body = drift.drift_issue_body(loaded.drifted[0])
+    expected_escape = f"\\u{code_point:04X}"
+
+    assert result.drifted
+    assert body.encode("utf-8")
+    assert dangerous not in body
+    assert expected_escape in body
+
+
+@pytest.mark.parametrize("code_point", _UNSAFE_DRIFT_CODE_POINTS)
+@pytest.mark.parametrize("field", ("module", "path", "error"))
+def test_drift_report_rejects_raw_unsafe_unicode_in_strict_fields(
+    code_point,
+    field,
+):
+    dangerous = chr(code_point)
+    if field == "error":
+        payload = drift.DriftReport(
+            [
+                drift.DriftResult(
+                    module="us/statutes/1.yaml",
+                    drifted=False,
+                    error="safe error",
+                )
+            ]
+        ).to_dict()
+        payload["results"][0]["error"] = f"unsafe{dangerous}error"
+    else:
+        payload = drift.DriftReport(
+            [
+                drift.DriftResult(
+                    module="us/statutes/1.yaml",
+                    drifted=True,
+                    diffs=[
+                        {
+                            "path": "safe",
+                            "change": "value_changed",
+                            "merged": 1,
+                            "regenerated": 2,
+                        }
+                    ],
+                )
+            ]
+        ).to_dict()
+        if field == "module":
+            payload["results"][0]["module"] = f"us/statutes/unsafe{dangerous}.yaml"
+        else:
+            payload["results"][0]["diffs"][0]["path"] = f"unsafe{dangerous}path"
+
+    with pytest.raises(ValueError):
+        drift.DriftReport.from_dict(payload)
+
+
+def test_drift_report_module_uses_regenerator_ascii_component_allowlist():
+    payload = drift.DriftReport(
+        [drift.DriftResult(module="us/statutes/1.yaml", drifted=False)]
+    ).to_dict()
+    payload["results"][0]["module"] = "us/statutes/café.yaml"
+
+    with pytest.raises(ValueError, match="unsafe or duplicate module"):
+        drift.DriftReport.from_dict(payload)
+
+
+def test_drift_error_allows_intentional_line_feed_and_tab():
+    error = "first line\n\tindented line"
+    payload = drift.DriftReport(
+        [
+            drift.DriftResult(
+                module="us/statutes/1.yaml",
+                drifted=False,
+                error=error,
+            )
+        ]
+    ).to_dict()
+
+    loaded = drift.DriftReport.from_dict(payload)
+
+    assert loaded.errors[0].error == error
+
+
+def test_drift_display_sanitizer_uses_long_escape_above_bmp():
+    dangerous = chr(0xE0001)
+
+    assert drift._sanitize_display_text(dangerous) == "\\U000E0001"
+    assert drift._sanitize_display_text("\n\t") == "\\u000A\\u0009"
+    assert (
+        drift._sanitize_display_text(
+            "\n\t",
+            preserve_lf_tab=True,
+        )
+        == "\n\t"
+    )
 
 
 def test_drift_report_round_trip_bounds_paths_values_and_diff_count():
@@ -1401,6 +1510,127 @@ def test_drift_issue_publisher_bounds_body_and_title_at_report_maxima():
     assert len(title) <= drift.MAX_GITHUB_ISSUE_TITLE_CHARS
     assert "sha256:" in title
     assert drift.drift_issue_title(result) == title
+
+
+def test_drift_issue_publisher_uses_fixed_gh_argv(monkeypatch):
+    result = drift.DriftResult(
+        module="us/statutes/1.yaml",
+        drifted=True,
+        diffs=[
+            {
+                "path": "value",
+                "change": "value_changed",
+                "merged": 1,
+                "regenerated": 2,
+            }
+        ],
+    )
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_github(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[1:3] == ["issue", "create"]:
+            body_path = Path(command[command.index("--body-file") + 1])
+            assert body_path.is_file()
+            return types.SimpleNamespace(returncode=0, stdout="issue-url\n", stderr="")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_commands.subprocess, "run", fake_github)
+
+    assert cli_commands._create_drift_issues(
+        drift.DriftReport([result]),
+        "owner/repo",
+    ) == ["issue-url"]
+    assert len(calls) == 2
+    label_argv, label_kwargs = calls[0]
+    issue_argv, issue_kwargs = calls[1]
+    assert label_argv == [
+        "gh",
+        "label",
+        "create",
+        "drift",
+        "-R",
+        "owner/repo",
+        "--color",
+        "B60205",
+        "--description",
+        "Golden-regeneration drift",
+        "--force",
+    ]
+    assert issue_argv == [
+        "gh",
+        "issue",
+        "create",
+        "-R",
+        "owner/repo",
+        "--title",
+        drift.drift_issue_title(result),
+        "--label",
+        "drift",
+        "--body-file",
+        issue_argv[-1],
+    ]
+    assert isinstance(label_argv, list)
+    assert isinstance(issue_argv, list)
+    assert label_kwargs["shell"] is False
+    assert issue_kwargs["shell"] is False
+
+
+def test_drift_issue_publisher_isolates_body_rendering_failures(
+    monkeypatch,
+    capsys,
+):
+    poisoned = drift.DriftResult(
+        module="us/statutes/poisoned.yaml",
+        drifted=True,
+        diffs=[
+            {
+                "path": "poisoned",
+                "change": "value_changed",
+                "merged": 1,
+                "regenerated": 2,
+            }
+        ],
+    )
+    healthy = drift.DriftResult(
+        module="us/statutes/healthy.yaml",
+        drifted=True,
+        diffs=[
+            {
+                "path": "healthy",
+                "change": "value_changed",
+                "merged": 1,
+                "regenerated": 2,
+            }
+        ],
+    )
+    original_body_builder = drift.drift_issue_body
+
+    def render_body(result):
+        if result is poisoned:
+            raise UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogate")
+        return original_body_builder(result)
+
+    issue_commands: list[list[str]] = []
+
+    def fake_github(command, **_kwargs):
+        if command[1:3] == ["issue", "create"]:
+            issue_commands.append(command)
+            return types.SimpleNamespace(returncode=0, stdout="issue-url\n", stderr="")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(drift, "drift_issue_body", render_body)
+    monkeypatch.setattr(cli_commands.subprocess, "run", fake_github)
+
+    created = cli_commands._create_drift_issues(
+        drift.DriftReport([poisoned, healthy]),
+        "owner/repo",
+    )
+
+    assert created == ["issue-url"]
+    assert len(issue_commands) == 1
+    assert "healthy.yaml" in issue_commands[0][issue_commands[0].index("--title") + 1]
+    assert "poisoned.yaml" in capsys.readouterr().err
 
 
 def test_drift_publisher_reapplies_budgets_after_redaction(monkeypatch):
