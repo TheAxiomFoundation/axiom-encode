@@ -251,7 +251,12 @@ def _manifest_binds_module(
 
 
 def _manifest_is_replayable_encode(manifest: dict[str, object]) -> bool:
-    return manifest.get("backend") in {"codex", "openai", "claude"} and str(
+    return manifest.get("backend") in {
+        "codex",
+        "openai",
+        "claude",
+        "anthropic",
+    } and str(
         manifest.get("tool", "")
     ).startswith("axiom-encode encode")
 

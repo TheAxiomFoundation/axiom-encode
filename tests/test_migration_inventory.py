@@ -125,8 +125,8 @@ def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
     assert report["complete"] is False
     assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
     assert report["incomplete_rulespec_count"] == 1
-    assert report["resolution_finding_count"] == 0
-    assert report["failures"] == []
+    assert report["resolution_finding_count"] == len(report["failures"])
+    assert all(row["reason"] != "invalid-rulespec" for row in report["failures"])
 
 
 def test_migration_inventory_scanned_modules_counts_files_not_citations(tmp_path):

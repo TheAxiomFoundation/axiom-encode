@@ -191,6 +191,41 @@ def scope_resolved_corpus_source(
     return replace(source, body=body, resolved_text_sha256=_sha256_text(body))
 
 
+def resolve_scoped_local_corpus_source(
+    source: ResolvedCorpusSource,
+    normalized_target_identifier: str,
+    corpus_root: Path,
+) -> ResolvedCorpusSource:
+    """Resolve an exact child before considering a slice of ``source``.
+
+    This API deliberately accepts only normalized corpus paths so callers cannot
+    accidentally give exact-child lookup and parent slicing different identities.
+    """
+
+    if ":" in normalized_target_identifier:
+        raise InvalidCorpusCitationError(
+            "Scoped corpus target must be a normalized corpus citation path"
+        )
+    target = _normalize_citation_path(normalized_target_identifier)
+    if target != normalized_target_identifier:
+        raise InvalidCorpusCitationError(
+            "Scoped corpus target must be a normalized corpus citation path"
+        )
+    try:
+        exact = resolve_local_corpus_source(
+            target,
+            corpus_root,
+            release_name=source.release_name or "current",
+            require_release=source.release_name is not None,
+            _exact_only=True,
+        )
+    except CorpusSourceNotFoundError:
+        return scope_resolved_corpus_source(source, target)
+    if exact.row != source.row:
+        raise AmbiguousCorpusSourceError(target, (exact.row, source.row))
+    return exact
+
+
 def slice_corpus_source_text(
     body: str, *, target_identifier: str, resolved_identifier: str | None = None
 ) -> str:
@@ -496,6 +531,7 @@ def resolve_local_corpus_source(
     *,
     release_name: str = "current",
     require_release: bool = True,
+    _exact_only: bool = False,
 ) -> ResolvedCorpusSource:
     """Resolve exactly one active local provision row, or fail closed."""
 
@@ -550,7 +586,10 @@ def resolve_local_corpus_source(
     )
     active_scopes = frozenset(scopes) if selector is not None else None
     inactive_match = False
-    for group in _citation_lookup_groups(citation_path):
+    lookup_groups = _citation_lookup_groups(citation_path)
+    if _exact_only:
+        lookup_groups = lookup_groups[:1]
+    for group in lookup_groups:
         records: list[_StoredRecord] = []
         by_path = {candidate.citation_path: candidate for candidate in group}
         for artifact in artifacts:
@@ -1327,7 +1366,7 @@ def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
     try:
         root = raw_root.resolve(strict=True)
     except OSError as exc:
-        raise UnsafeCorpusPathError(f"corpus root does not exist: {raw_root}") from exc
+        raise CorpusLayoutError(f"corpus root does not exist: {raw_root}") from exc
     if not root.is_dir():
         raise UnsafeCorpusPathError(f"corpus root is not a directory: {raw_root}")
     if root.name == "provisions":
@@ -1560,12 +1599,12 @@ def _read_descendant_records(
         try:
             normalized_record_path = _normalize_citation_path(record_path)
         except InvalidCorpusCitationError as exc:
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 f"Invalid descendant citation_path at {path}:{line_number}: "
                 f"{record_path!r}"
             ) from exc
         if normalized_record_path != record_path:
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 f"citation_path must be normalized at {path}:{line_number}"
             )
         citation_parts = record_path.split("/")
@@ -1573,7 +1612,7 @@ def _read_descendant_records(
             row_scope.jurisdiction,
             row_scope.document_class,
         ]:
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 f"Active corpus descendant does not match its scope at "
                 f"{path}:{line_number}"
             )
@@ -1596,13 +1635,20 @@ def _read_descendant_records(
             expression_date=_optional_string(record.get("expression_date")),
             body_sha256=_sha256_text(body) if body is not None else None,
         )
+        try:
+            level = _optional_int(record.get("level"))
+            ordinal = _optional_int(record.get("ordinal"))
+        except CorpusResolutionError as exc:
+            raise CorpusDescendantStructureError(
+                f"Malformed descendant ordering metadata at {path}:{line_number}: {exc}"
+            ) from exc
         records.append(
             _StoredRecord(
                 row=row,
                 body=body,
                 heading=_optional_string(record.get("heading")),
-                level=_optional_int(record.get("level")),
-                ordinal=_optional_int(record.get("ordinal")),
+                level=level,
+                ordinal=ordinal,
                 file_path=path,
                 file_sha256=artifact.sha256,
             )
@@ -1660,12 +1706,12 @@ def _compose_descendant_text(
                 composition_nodes += 1
                 composition_prefix_bytes += 4 * len(child.encode("utf-8"))
                 if composition_nodes > MAX_COMPOSITION_NODES:
-                    raise CorpusResolutionError(
+                    raise CorpusDescendantStructureError(
                         "Corpus descendant composition exceeds the "
                         f"{MAX_COMPOSITION_NODES}-node safety limit"
                     )
                 if composition_prefix_bytes > MAX_COMPOSITION_PREFIX_BYTES:
-                    raise CorpusResolutionError(
+                    raise CorpusDescendantStructureError(
                         "Corpus descendant composition exceeds the "
                         f"{MAX_COMPOSITION_PREFIX_BYTES}-byte prefix safety limit"
                     )

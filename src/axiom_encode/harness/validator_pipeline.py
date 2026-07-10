@@ -19168,6 +19168,19 @@ def _fetch_local_corpus_source_text(
         except UnsafeCorpusPathError as exc:
             raise UnsafeRulespecContextPath(str(exc)) from exc
 
+    ambient_root = os.environ.get("AXIOM_CORPUS_REPO")
+    if ambient_root:
+        try:
+            return resolve_local_corpus_source(
+                normalized_path,
+                Path(ambient_root).expanduser().resolve(),
+                require_release=require_release,
+            ).body
+        except CorpusSourceNotFoundError:
+            return None
+        except UnsafeCorpusPathError as exc:
+            raise UnsafeRulespecContextPath(str(exc)) from exc
+
     for provisions_root in _local_corpus_provisions_roots(root):
         corpus_root = (
             root

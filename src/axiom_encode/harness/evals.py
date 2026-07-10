@@ -2186,13 +2186,14 @@ def prepare_eval_workspace(
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     source_text_file = workspace_root / "source.txt"
-    generation_input = source_text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    source_text_file.write_text(generation_input + "\n")
+    generation_input = source_text.replace("\r\n", "\n").replace("\r", "\n")
+    source_text_file.write_text(generation_input)
+    generation_input_bytes = source_text_file.read_bytes()
     source_metadata = dict(source_metadata_payload or {})
     attestation = source_metadata.get("source_attestation")
     if isinstance(attestation, dict):
         attestation["generation_input_sha256"] = hashlib.sha256(
-            generation_input.encode("utf-8")
+            generation_input_bytes
         ).hexdigest()
     if not source_metadata:
         source_metadata = None
@@ -4581,7 +4582,7 @@ def _build_rulespec_eval_prompt(
     policyengine_rule_hint: str | None,
 ) -> str:
     """Build the RuleSpec authoring prompt used by current evals."""
-    source_text = workspace.source_text_file.read_text().strip()
+    source_text = workspace.source_text_file.read_text()
     corpus_citation_path = _workspace_corpus_citation_path(workspace)
     backend_section = ""
     if runner_backend == "openai":

@@ -70,6 +70,7 @@ from .corpus_resolver import (
     load_release_selector,
     normalize_corpus_identifier,
     resolve_local_corpus_source,
+    resolve_scoped_local_corpus_source,
     scope_resolved_corpus_source,
     slice_corpus_source_text,
 )
@@ -4807,15 +4808,6 @@ def migration_inventory(
         ):
             relative = module_path.relative_to(checkout).as_posix()
             if scan_reason is not None:
-                failures.append(
-                    {
-                        "checkout": str(checkout),
-                        "module": relative,
-                        "citation": "",
-                        "reason": scan_reason,
-                        "detail": detail or "",
-                    }
-                )
                 continue
             assert citation is not None
             try:
@@ -4859,6 +4851,7 @@ def _migration_inventory_report(
     failures = migration_inventory(checkouts, corpus_root)
     resolved_checkouts = [Path(path).expanduser().resolve() for path in checkouts]
     scanned_modules = 0
+    incomplete_rulespec_count = 0
     incomplete_reasons: list[str] = []
     checkout_metadata: list[dict[str, object]] = []
     for checkout in resolved_checkouts:
@@ -4866,6 +4859,7 @@ def _migration_inventory_report(
         scanned_modules += len(_rulespec_module_paths(checkout))
         for path, _citation, reason, detail in module_rows:
             if reason is not None:
+                incomplete_rulespec_count += 1
                 incomplete_reasons.append(
                     f"{checkout}:{path.relative_to(checkout)}: {reason}: {detail or ''}"
                 )
@@ -4912,6 +4906,7 @@ def _migration_inventory_report(
         "complete": not incomplete_reasons,
         "incomplete_scan_reasons": incomplete_reasons,
         "incomplete_scan_reason_count": len(incomplete_reasons),
+        "incomplete_rulespec_count": incomplete_rulespec_count,
     }
 
 
@@ -27843,30 +27838,17 @@ def cmd_encode(args):
         resolved_source = getattr(source_unit, "resolved_source", None)
         if resolved_source is not None:
             try:
-                scoped_source = scope_resolved_corpus_source(resolved_source, source_id)
-            except CorpusSourceSliceError:
-                try:
-                    mapped_source = resolve_local_corpus_source(
-                        source_id, corpus_path, require_release=True
-                    )
-                except CorpusResolutionError as mapping_error:
-                    print(
-                        f"Cannot map logical --source-id {source_id!r} to a "
-                        f"resolver-owned slice of corpus citation {args.citation!r}: "
-                        f"{type(mapping_error).__name__}: {mapping_error}"
-                    )
-                    sys.exit(1)
-                if (
-                    mapped_source.provision_file != resolved_source.provision_file
-                    or mapped_source.row.record_id != resolved_source.row.record_id
-                ):
-                    print(
-                        f"Cannot map logical --source-id {source_id!r} to a "
-                        f"resolver-owned slice of corpus citation {args.citation!r}: "
-                        "the mapped identifier resolves to an unrelated corpus row"
-                    )
-                    sys.exit(1)
-                scoped_source = mapped_source
+                normalized_source_id = normalize_corpus_identifier(source_id)
+                scoped_source = resolve_scoped_local_corpus_source(
+                    resolved_source, normalized_source_id, corpus_path
+                )
+            except CorpusResolutionError as mapping_error:
+                print(
+                    f"Cannot map logical --source-id {source_id!r} to a "
+                    f"resolver-owned slice of corpus citation {args.citation!r}: "
+                    f"{type(mapping_error).__name__}: {mapping_error}"
+                )
+                sys.exit(1)
             source_text = scoped_source.body
             source_unit = replace(
                 source_unit,
@@ -31575,7 +31557,7 @@ def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
     candidates: list[Path] = []
     env_path = os.environ.get("AXIOM_CORPUS_REPO")
     normalized_env_path = (
-        Path(os.path.abspath(Path(env_path).expanduser())) if env_path else None
+        Path(env_path).expanduser().resolve() if env_path else None
     )
     if normalized_env_path is not None:
         candidates.append(normalized_env_path)
@@ -45452,7 +45434,7 @@ def _generated_result_source_attestation(result) -> dict[str, object] | None:
     try:
         context = json.loads(manifest_file.read_text())
         source_file = manifest_file.parent / str(context["source_text_file"])
-        generation_input = source_file.read_text().strip()
+        generation_input = source_file.read_bytes()
     except (
         OSError,
         UnicodeError,
@@ -45464,7 +45446,7 @@ def _generated_result_source_attestation(result) -> dict[str, object] | None:
         raise RuntimeError(
             "Cannot recompute generation input digest from the eval workspace"
         ) from exc
-    recomputed = hashlib.sha256(generation_input.encode("utf-8")).hexdigest()
+    recomputed = hashlib.sha256(generation_input).hexdigest()
     attested = normalized.get("generation_input_sha256")
     if attested != recomputed:
         raise RuntimeError(

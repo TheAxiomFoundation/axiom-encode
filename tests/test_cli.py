@@ -4956,6 +4956,36 @@ rules: []
             == hashlib.sha256(canonical).hexdigest()
         )
 
+        for mutated in (canonical + b"x", canonical[:-1]):
+            workspace.source_text_file.write_bytes(mutated)
+            with (
+                patch.dict(
+                    os.environ,
+                    {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                ),
+                patch(
+                    "axiom_encode.cli._git_repo_provenance",
+                    return_value={
+                        "root": "/repo/axiom-encode",
+                        "commit": "abc123",
+                        "dirty_tracked": False,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._require_axiom_encode_version_provenance",
+                    return_value={
+                        "version": AXIOM_ENCODE_TEST_VERSION,
+                        "version_commit": "version123",
+                    },
+                ),
+                pytest.raises(RuntimeError, match="Generation input digest mismatch"),
+            ):
+                _apply_generated_encoding_result(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=policy_repo,
+                )
+
     def test_apply_rejects_source_verifying_model_result_without_attestation(
         self, tmp_path
     ):
