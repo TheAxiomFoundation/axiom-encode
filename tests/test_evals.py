@@ -3333,7 +3333,8 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path, m
             output_root=tmp_path / "out",
             policy_path=policy_repo_root,
             source_metadata_payload={
-                "corpus_citation_path": "us/regulation/example/page-1"
+                "corpus_citation_path": "us/regulation/example/page-1",
+                "source_attestation": {},
             },
             extra_context_paths=[continuation],
             mode=mode,
@@ -3356,6 +3357,11 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path, m
             "corpus_citation_path": "us/regulation/example/page-2",
         }
     ]
+    generation_input = source_text.strip().encode()
+    assert (
+        manifest["source_metadata"]["source_attestation"]["generation_input_sha256"]
+        == hashlib.sha256(generation_input).hexdigest()
+    )
 
 
 @pytest.mark.parametrize("mode", ["cold", "repo-augmented"])

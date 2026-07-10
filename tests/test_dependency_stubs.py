@@ -9,6 +9,7 @@ import pytest
 
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
+    CorpusSourceSliceError,
     InvalidReleaseSelectorError,
 )
 from axiom_encode.harness.dependency_stubs import (
@@ -174,3 +175,59 @@ def test_find_corpus_provision_artifacts_fails_closed_on_active_duplicate(tmp_pa
         )
     assert not _corpus_file_contains_citation_path(first, CITATION_PATH)
     assert not _corpus_file_contains_citation_path(second, CITATION_PATH)
+
+
+def test_uk_legislation_dependency_uses_shared_resolver_parent_fallback(tmp_path):
+    corpus_root = tmp_path / "axiom-corpus"
+    rules_root = tmp_path / "rulespec-uk"
+    rules_root.mkdir()
+    version = "2026-uk-legislation"
+    selector = corpus_root / "manifests/releases/current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "uk",
+                        "document_class": "legislation",
+                        "version": version,
+                    }
+                ],
+            }
+        )
+    )
+    artifact = corpus_root / "data/corpus/provisions/uk/legislation/ukpga-2007-3.jsonl"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(
+        json.dumps(
+            {
+                "id": "ukpga-2007-3",
+                "citation_path": "uk/legislation/ukpga/2007/3",
+                "jurisdiction": "uk",
+                "document_class": "legislation",
+                "version": version,
+                "body": "(35) Personal allowance applies.\n\n(36) A sibling rule.",
+                "source_path": "sources/uk/legislation/ukpga-2007-3.xml",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+        )
+        + "\n"
+    )
+
+    assert find_corpus_provision_artifacts(
+        "uk:legislation/ukpga/2007/3/35",
+        rules_root,
+        corpus_root=corpus_root,
+    ) == [artifact.resolve()]
+
+    # Legislation participates in parent fallback, but still fails closed when
+    # the requested child marker cannot be isolated from the parent body.
+    with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
+        find_corpus_provision_artifacts(
+            "uk:legislation/ukpga/2007/3/999",
+            rules_root,
+            corpus_root=corpus_root,
+        )
