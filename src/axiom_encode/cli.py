@@ -57,7 +57,14 @@ from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_pre
 from .constants import DEFAULT_OPENAI_MODEL
 from .corpus_resolver import (
     ActiveCorpusBodyRow,
+    AmbiguousCorpusSourceError,
+    CorpusDescendantStructureError,
+    CorpusLayoutError,
     CorpusResolutionError,
+    CorpusRowStructureError,
+    CorpusSourceNotFoundError,
+    InactiveCorpusSourceError,
+    InvalidReleaseSelectorError,
     iter_active_local_corpus_rows,
     load_release_selector,
     normalize_corpus_identifier,
@@ -232,7 +239,9 @@ APPLIED_ENCODING_MANUAL_EXCEPTION_CLASSES = frozenset(
     {"composition", "repair", "fixtures"}
 )
 # Genuine encoder backends (the model-generated path).
-APPLIED_ENCODING_ENCODER_BACKENDS = frozenset({"codex", "openai", "claude"})
+APPLIED_ENCODING_ENCODER_BACKENDS = frozenset(
+    {"codex", "openai", "claude", "anthropic"}
+)
 # Machine-generator backends whose manifests exempt a NEW rule file from the
 # manual-exception marker: the encoder backends plus `deterministic` (the
 # signed, versioned deterministic-repair commands, which carry a `tool`/`model`
@@ -4763,28 +4772,20 @@ def _module_corpus_citations(checkout: Path):
 
 
 def _migration_failure_reason(exc: CorpusResolutionError) -> str:
-    name = type(exc).__name__
-    message = str(exc).lower()
-    if name == "AmbiguousCorpusSourceError":
+    if isinstance(exc, AmbiguousCorpusSourceError):
         return "duplicated"
-    if name == "InvalidReleaseSelectorError":
+    if isinstance(exc, InvalidReleaseSelectorError):
         return "unversioned-checkout"
-    if "jurisdiction" in message:
-        return "missing-jurisdiction"
-    if "document_class" in message or "document class" in message:
-        return "missing-document-class"
-    if "version" in message:
-        return "missing-version"
-    if (
-        "metadata" in message
-        or "source_as_of" in message
-        or "expression_date" in message
-    ):
-        return "missing-release-metadata"
-    if "body" in message or "descendant" in message or "compose" in message:
-        return "bodyless-branch"
-    if name == "CorpusSourceNotFoundError":
+    if isinstance(exc, CorpusLayoutError):
+        return "missing-layout"
+    if isinstance(exc, InactiveCorpusSourceError):
         return "inactive-only"
+    if isinstance(exc, CorpusDescendantStructureError):
+        return "malformed-descendants"
+    if isinstance(exc, CorpusRowStructureError):
+        return exc.reason
+    if isinstance(exc, CorpusSourceNotFoundError):
+        return "absent"
     return "resolution-error"
 
 
@@ -4833,7 +4834,6 @@ def migration_inventory(
                 )
                 continue
             if resolved.citation_path != requested:
-                is_parent_slice = requested.startswith(f"{resolved.citation_path}/")
                 failures.append(
                     {
                         "checkout": str(checkout),
@@ -4841,7 +4841,7 @@ def migration_inventory(
                         "citation": citation,
                         "reason": (
                             "parent-slice-dependency"
-                            if is_parent_slice
+                            if resolved.slice_required
                             else "exact-alias-dependency"
                         ),
                         "detail": f"resolved through {resolved.citation_path}",
@@ -4884,6 +4884,10 @@ def _migration_inventory_report(
                 else None,
             }
         )
+        if (checkout / ".git").exists() and completed.returncode != 0:
+            incomplete_reasons.append(
+                f"{checkout}: unable to determine git checkout commit"
+            )
     corpus = Path(corpus_root).expanduser().resolve()
     selector_path = corpus / "manifests/releases/current.json"
     selector_digest = (
@@ -4893,14 +4897,20 @@ def _migration_inventory_report(
         if selector_path.is_file()
         else None
     )
+    if selector_digest is None:
+        incomplete_reasons.append(
+            f"{corpus}: current release selector digest is unavailable"
+        )
     return {
         "failures": failures,
         "count": len(failures),
+        "resolution_finding_count": len(failures),
         "scanned_modules": scanned_modules,
         "checkouts": checkout_metadata,
         "release_selector_sha256": selector_digest,
         "complete": not incomplete_reasons,
         "incomplete_scan_reasons": incomplete_reasons,
+        "incomplete_scan_reason_count": len(incomplete_reasons),
     }
 
 
@@ -27840,9 +27850,12 @@ def cmd_encode(args):
                 resolved_source=scoped_source,
             )
         else:
-            # Compatibility for injected source-unit test doubles. Production
-            # resolver results always retain provenance and are scoped above.
-            source_text = source_unit.body
+            print(
+                "Cannot scope --source-id "
+                f"{source_id!r} for corpus citation {args.citation!r}: "
+                "the resolved source is missing resolver provenance"
+            )
+            sys.exit(1)
         results = run_source_eval(
             source_id=source_id,
             source_text=source_text,
@@ -31551,7 +31564,13 @@ def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
     for candidate in candidates:
         with contextlib.suppress(OSError):
             candidate = candidate.resolve()
-        if candidate in seen or not candidate.exists():
+        if candidate in seen:
+            continue
+        if env_path and candidate == Path(env_path).expanduser() and not candidate.exists():
+            raise RuntimeError(
+                f"AXIOM_CORPUS_REPO does not exist: {candidate}"
+            )
+        if not candidate.exists():
             continue
         seen.add(candidate)
         resolved.append(candidate)

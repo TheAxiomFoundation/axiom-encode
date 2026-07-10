@@ -14,6 +14,7 @@ from axiom_encode import corpus_resolver
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
     CorpusRemoteError,
+    CorpusLayoutError,
     CorpusResolutionError,
     CorpusSourceNotFoundError,
     CorpusSourceSliceError,
@@ -57,6 +58,11 @@ def _scope(version: str) -> dict[str, str]:
         "document_class": "statute",
         "version": version,
     }
+
+
+def test_existing_checkout_without_provisions_is_structural_error(tmp_path):
+    with pytest.raises(CorpusLayoutError, match="No provisions directory"):
+        resolve_local_corpus_source(CITATION, tmp_path, require_release=False)
 
 
 def _write_rows(
@@ -214,7 +220,7 @@ def test_inactive_only_citation_is_not_found(tmp_path: Path):
         [{"citation_path": CITATION, "body": "inactive body"}],
     )
 
-    with pytest.raises(CorpusSourceNotFoundError, match="No active corpus source"):
+    with pytest.raises(CorpusSourceNotFoundError, match="exists but is inactive"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 

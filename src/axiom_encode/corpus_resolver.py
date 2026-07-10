@@ -49,6 +49,7 @@ _DOCUMENT_CLASSES = frozenset(
     {
         "form",
         "guidance",
+        "legislation",
         "manual",
         "other",
         "policy",
@@ -71,8 +72,28 @@ class CorpusSourceNotFoundError(CorpusResolutionError):
     """No active corpus record exists for the requested citation."""
 
 
+class InactiveCorpusSourceError(CorpusSourceNotFoundError):
+    """The requested citation exists, but only outside the active release."""
+
+
+class CorpusLayoutError(CorpusResolutionError):
+    """A corpus checkout exists but its required provisions layout is malformed."""
+
+
 class InvalidActiveCorpusSourceError(CorpusResolutionError):
     """An active corpus record exists but cannot produce a valid source body."""
+
+
+class CorpusRowStructureError(CorpusResolutionError):
+    """A matching corpus row is missing required scope or release metadata."""
+
+    def __init__(self, reason: str, detail: str):
+        self.reason = reason
+        super().__init__(detail)
+
+
+class CorpusDescendantStructureError(InvalidActiveCorpusSourceError):
+    """Active descendants are malformed, cross-scope, or cannot be composed."""
 
 
 class AmbiguousCorpusSourceError(CorpusResolutionError):
@@ -265,6 +286,7 @@ class ResolvedCorpusSource:
     component_rows: tuple[CorpusRowIdentity, ...]
     release_name: str | None
     release_selector_sha256: str | None
+    slice_required: bool = False
 
     def to_attestation(self) -> dict[str, Any]:
         """Return the JSON-compatible provenance bound into apply manifests."""
@@ -527,6 +549,7 @@ def resolve_local_corpus_source(
         budget=_LocalCorpusReadBudget(),
     )
     active_scopes = frozenset(scopes) if selector is not None else None
+    inactive_match = False
     for group in _citation_lookup_groups(citation_path):
         records: list[_StoredRecord] = []
         by_path = {candidate.citation_path: candidate for candidate in group}
@@ -541,6 +564,12 @@ def resolve_local_corpus_source(
                     )
                 )
         if not records:
+            inactive_match = inactive_match or any(
+                record.get("citation_path") == candidate.citation_path
+                for artifact in artifacts
+                for _line, record in artifact.rows
+                for candidate in group
+            )
             continue
         if len(records) > 1:
             raise AmbiguousCorpusSourceError(
@@ -591,6 +620,11 @@ def resolve_local_corpus_source(
             selected=selected,
             selector=selector,
             component_rows=component_rows,
+            slice_required=candidate.slice_required,
+        )
+    if inactive_match:
+        raise InactiveCorpusSourceError(
+            f"Corpus source exists but is inactive for {citation_path!r}"
         )
     raise CorpusSourceNotFoundError(
         f"No active corpus source found for {citation_path!r}"
@@ -907,6 +941,7 @@ def resolve_supabase_corpus_source(
             component_rows=component_rows,
             release_name=selector.name,
             release_selector_sha256=selector.sha256,
+            slice_required=candidate.slice_required,
         )
     raise CorpusSourceNotFoundError(
         f"No active Supabase corpus source found for {citation_path!r}"
@@ -922,6 +957,7 @@ def _resolved_source(
     selected: _StoredRecord,
     selector: ReleaseSelector | None,
     component_rows: tuple[CorpusRowIdentity, ...] = (),
+    slice_required: bool = False,
 ) -> ResolvedCorpusSource:
     return ResolvedCorpusSource(
         requested=requested,
@@ -936,6 +972,7 @@ def _resolved_source(
         component_rows=component_rows,
         release_name=selector.name if selector is not None else None,
         release_selector_sha256=selector.sha256 if selector is not None else None,
+        slice_required=slice_required,
     )
 
 
@@ -1307,7 +1344,7 @@ def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
         None,
     )
     if provisions_root is None:
-        raise CorpusSourceNotFoundError(f"No provisions directory under {root}")
+        raise CorpusLayoutError(f"No provisions directory under {root}")
     provisions_root = provisions_root.resolve(strict=True)
     repository_root = _repository_root_for_provisions(provisions_root)
     return root, provisions_root, repository_root
@@ -1580,7 +1617,7 @@ def _compose_descendant_text(
     expected_scope: ReleaseScope,
 ) -> tuple[str, tuple[CorpusRowIdentity, ...]]:
     if not records:
-        raise InvalidActiveCorpusSourceError(
+        raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     by_path: dict[str, list[_StoredRecord]] = {}
@@ -1591,7 +1628,7 @@ def _compose_descendant_text(
             record.row.version,
         )
         if record_scope != expected_scope:
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 f"Corpus descendants for {citation_path!r} cross active release scopes"
             )
         by_path.setdefault(record.row.citation_path, []).append(record)
@@ -1602,7 +1639,7 @@ def _compose_descendant_text(
             tuple(record.row for record in ambiguous),
         )
     if not any(record.body is not None for record in records):
-        raise InvalidActiveCorpusSourceError(
+        raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     unique_by_path = {path: items[0] for path, items in by_path.items()}
@@ -1612,7 +1649,7 @@ def _compose_descendant_text(
     composition_prefix_bytes = 4 * len(citation_path.encode("utf-8"))
     for path in unique_by_path:
         if not path.startswith(prefix):
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 f"Corpus descendant {path!r} is outside parent {citation_path!r}"
             )
         parent = citation_path
@@ -1647,7 +1684,7 @@ def _compose_descendant_text(
             return
         child_paths = children.get(path, set())
         if not child_paths:
-            raise InvalidActiveCorpusSourceError(
+            raise CorpusDescendantStructureError(
                 f"Active corpus source {citation_path!r} has uncovered "
                 f"bodyless descendant {path!r}"
             )
@@ -1668,7 +1705,7 @@ def _compose_descendant_text(
 
     visit(citation_path)
     if not ordered:
-        raise InvalidActiveCorpusSourceError(
+        raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     chunks: list[str] = []
@@ -1683,7 +1720,7 @@ def _compose_descendant_text(
         if chunks:
             composed_bytes += 2
         if composed_bytes > MAX_COMPOSED_CORPUS_BYTES:
-            raise CorpusResolutionError(
+            raise CorpusDescendantStructureError(
                 "Composed corpus source exceeds the "
                 f"{MAX_COMPOSED_CORPUS_BYTES}-byte safety limit"
             )
@@ -1756,7 +1793,7 @@ def _uk_source_path_aliases(citation_path: str) -> tuple[str, ...]:
     if (
         len(parts) >= 6
         and parts[0] == "uk"
-        and parts[1] in {"statute", "regulation"}
+        and parts[1] in {"statute", "regulation", "legislation"}
         and parts[2] != "legislation.gov.uk"
     ):
         source_type, year, chapter, *section_parts = parts[2:]
@@ -1779,7 +1816,7 @@ def _uk_source_path_aliases(citation_path: str) -> tuple[str, ...]:
 
 def _parent_citation_paths(citation_path: str) -> tuple[str, ...]:
     parts = citation_path.split("/")
-    if len(parts) < 4 or parts[1] not in {"statute", "regulation"}:
+    if len(parts) < 4 or parts[1] not in {"statute", "regulation", "legislation"}:
         return ()
     return tuple("/".join(parts[:end]) for end in range(len(parts) - 1, 2, -1))
 
@@ -1790,7 +1827,7 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
     if (
         len(requested_parts) <= len(resolved_parts)
         or requested_parts[: len(resolved_parts)] != resolved_parts
-        or resolved_parts[1] not in {"statute", "regulation"}
+        or resolved_parts[1] not in {"statute", "regulation", "legislation"}
     ):
         raise CorpusSourceSliceError(
             f"Cannot slice {requested_path!r} from unrelated parent {resolved_path!r}"
@@ -3940,10 +3977,13 @@ def _record_scope(
     if raw_document_class is None and fallback is not None:
         document_class = fallback.document_class
     else:
-        document_class = _clean_string_value(
-            raw_document_class,
-            label=f"document_class at {path}:{line_number}",
-        )
+        try:
+            document_class = _clean_string_value(
+                raw_document_class,
+                label=f"document_class at {path}:{line_number}",
+            )
+        except CorpusResolutionError as exc:
+            raise CorpusRowStructureError("missing-document-class", str(exc)) from exc
     version = _row_string(
         record,
         "version",
@@ -3961,7 +4001,8 @@ def _require_release_row_metadata(
         try:
             _clean_string_value(record.get(key), label=f"{key} at {path}:{line_number}")
         except CorpusResolutionError as exc:
-            raise CorpusResolutionError(
+            raise CorpusRowStructureError(
+                "missing-release-metadata",
                 f"Active release row is missing required metadata: {exc}"
             ) from exc
 
@@ -4235,7 +4276,16 @@ def _row_string(
 ) -> str:
     if record.get(key) is None and fallback is not None:
         return fallback
-    return _clean_string_value(record.get(key), label=f"{key} at {path}:{line_number}")
+    try:
+        return _clean_string_value(
+            record.get(key), label=f"{key} at {path}:{line_number}"
+        )
+    except CorpusResolutionError as exc:
+        reason = {
+            "jurisdiction": "missing-jurisdiction",
+            "version": "missing-version",
+        }.get(key, "resolution-error")
+        raise CorpusRowStructureError(reason, str(exc)) from exc
 
 
 def _optional_string(value: Any) -> str | None:

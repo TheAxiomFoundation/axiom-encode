@@ -2186,7 +2186,7 @@ def prepare_eval_workspace(
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     source_text_file = workspace_root / "source.txt"
-    generation_input = source_text.strip()
+    generation_input = source_text.replace("\r\n", "\n").replace("\r", "\n").strip()
     source_text_file.write_text(generation_input + "\n")
     source_metadata = dict(source_metadata_payload or {})
     attestation = source_metadata.get("source_attestation")

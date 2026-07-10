@@ -19,6 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from axiom_encode.harness.evals import CorpusSourceUnit
+
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
@@ -4278,6 +4280,12 @@ class TestCmdEncode:
         self._write_result_context(result, context_root)
         return result
 
+    def _scoped_source(self, body: str):
+        scoped = MagicMock()
+        scoped.body = body
+        scoped.to_attestation.return_value = _complete_source_attestation()
+        return scoped
+
     def _write_result_context(self, result, tmp_path: Path) -> None:
         source = tmp_path / "source.txt"
         source.write_text("test source\n")
@@ -4446,7 +4454,7 @@ class TestCmdEncode:
         with (
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=SimpleNamespace(
+                return_value=CorpusSourceUnit(
                     body="standard deduction source text",
                     citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
                     source="local",
@@ -4462,33 +4470,13 @@ class TestCmdEncode:
         ):
             cmd_encode(args)
 
-        assert exc_info.value.code == 0
+        assert exc_info.value.code == 1
         mock_resolve.assert_called_once_with(args.citation, args.corpus_path)
         mock_run_model.assert_not_called()
-        assert mock_run_source.call_args.kwargs["source_id"] == args.source_id
-        assert (
-            mock_run_source.call_args.kwargs["source_text"]
-            == "standard deduction source text"
-        )
-        assert mock_run_source.call_args.kwargs["runner_specs"] == ["codex:test-model"]
-        assert mock_run_source.call_args.kwargs["skip_reviewers"] is False
-        assert mock_run_source.call_args.kwargs["policyengine_rule_hint"] is None
-        assert mock_run_source.call_args.kwargs["policy_path"] == args.policy_repo_path
-        assert (
-            mock_run_source.call_args.kwargs["runtime_axiom_rules_path"]
-            == args.axiom_rules_path
-        )
-        assert mock_run_source.call_args.kwargs["source_metadata_payload"] == {
-            "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
-            "corpus_source": "local",
-            "requested_source": "us/guidance/irs/rev-proc-2025-32/page-18",
-            "resolved_corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
-        }
+        mock_run_source.assert_not_called()
         output = capsys.readouterr().out
-        assert (
-            "RuleSpec source id: us/policies/irs/rev-proc-2025-32/standard-deduction"
-            in output
-        )
+        assert "missing resolver provenance" in output
+        assert args.citation in output
 
     def test_encode_local_corpus_only_propagates_authoritative_root(
         self, capsys, tmp_path
@@ -4510,13 +4498,18 @@ class TestCmdEncode:
             ) as mock_validate,
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=SimpleNamespace(
+                return_value=CorpusSourceUnit(
                     body="authoritative local source",
                     citation_path="us/statute/1",
                     source="local",
                     requested="us/statute/1",
+                    resolved_source=object(),
                 ),
             ) as mock_resolve,
+            patch(
+                "axiom_encode.cli.scope_resolved_corpus_source",
+                return_value=self._scoped_source("authoritative local source"),
+            ),
             patch(
                 "axiom_encode.cli.run_source_eval",
                 return_value=[result],
@@ -4552,12 +4545,17 @@ class TestCmdEncode:
         with (
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=SimpleNamespace(
+                return_value=CorpusSourceUnit(
                     body="standard deduction source text",
                     citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
                     source="local",
                     requested="us/guidance/irs/rev-proc-2025-32/page-18",
+                    resolved_source=object(),
                 ),
+            ),
+            patch(
+                "axiom_encode.cli.scope_resolved_corpus_source",
+                return_value=self._scoped_source("standard deduction source text"),
             ),
             patch(
                 "axiom_encode.cli.run_source_eval", return_value=[result]
@@ -4587,12 +4585,17 @@ class TestCmdEncode:
         with (
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=SimpleNamespace(
+                return_value=CorpusSourceUnit(
                     body="medicaid source text",
                     citation_path="us/statute/42/1396a/a/10",
                     source="local",
                     requested="us/statute/42/1396a/a/10",
+                    resolved_source=object(),
                 ),
+            ),
+            patch(
+                "axiom_encode.cli.scope_resolved_corpus_source",
+                return_value=self._scoped_source("medicaid source text"),
             ),
             patch(
                 "axiom_encode.cli.run_source_eval", return_value=[result]

@@ -147,7 +147,7 @@ def test_migration_inventory_scanned_modules_counts_files_not_citations(tmp_path
     ("mutation", "expected"),
     [
         ("inactive", "inactive-only"),
-        ("bodyless", "bodyless-branch"),
+        ("bodyless", "malformed-descendants"),
         ("missing-version", "missing-version"),
         ("missing-jurisdiction", "missing-jurisdiction"),
         ("missing-document-class", "missing-document-class"),
@@ -220,3 +220,43 @@ def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_pat
     provision.write_text(json.dumps(row) + "\n")
     rows = migration_inventory([rules], corpus)
     assert rows[0]["reason"] == "exact-alias-dependency"
+
+
+def test_migration_inventory_labels_uk_alias_parent_from_resolver_flag(tmp_path):
+    rules = tmp_path / "rulespec-uk"
+    module = rules / "legislation/ukpga/2020/1/3/a.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        "    corpus_citation_path: uk/statute/ukpga/2020/1/3/a\nrules: []\n"
+    )
+    corpus = tmp_path / "axiom-corpus"
+    selector = corpus / "manifests/releases/current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "uk",
+                        "document_class": "statute",
+                        "version": "active",
+                    }
+                ],
+            }
+        )
+    )
+    provision = corpus / "data/corpus/provisions/uk/statute/active.jsonl"
+    provision.parent.mkdir(parents=True)
+    row = _record(
+        "uk/statute/legislation.gov.uk/ukpga/2020/1/section/3",
+        record_id="alias-parent",
+        body="(a) Target.\n(b) Sibling.",
+    )
+    row["jurisdiction"] = "uk"
+    provision.write_text(json.dumps(row) + "\n")
+
+    rows = migration_inventory([rules], corpus)
+
+    assert rows[0]["reason"] == "parent-slice-dependency"

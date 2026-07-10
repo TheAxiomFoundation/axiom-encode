@@ -11386,6 +11386,26 @@ rules:
         assert workspace.source_metadata_file is not None
         assert workspace.source_metadata_file.exists()
 
+    def test_prepare_eval_workspace_canonicalizes_crlf_before_hash_and_write(
+        self, tmp_path
+    ):
+        metadata = {"source_attestation": {}}
+        workspace = prepare_eval_workspace(
+            citation="us/statute/1",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="First\r\nSecond\rThird\r\n",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            source_metadata_payload=metadata,
+            extra_context_paths=[],
+        )
+
+        assert workspace.source_text_file.read_bytes() == b"First\nSecond\nThird\n"
+        assert metadata["source_attestation"]["generation_input_sha256"] == (
+            hashlib.sha256(b"First\nSecond\nThird").hexdigest()
+        )
+
     def test_build_eval_prompt_lists_canonical_context_import_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules-engine"
