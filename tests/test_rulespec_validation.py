@@ -17975,9 +17975,7 @@ def test_ambient_axiom_corpus_repo_missing_citation_does_not_fall_through(
     provisions = tmp_path / "data/corpus/provisions/us/statute"
     provisions.mkdir(parents=True)
     (provisions / "empty.jsonl").write_text("")
-    _write_current_release_scope(
-        tmp_path, jurisdiction="us", document_class="statute"
-    )
+    _write_current_release_scope(tmp_path, jurisdiction="us", document_class="statute")
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
     monkeypatch.setattr(
         validator_pipeline,
