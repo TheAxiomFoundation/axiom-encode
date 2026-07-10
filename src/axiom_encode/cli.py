@@ -55,6 +55,12 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import DEFAULT_OPENAI_MODEL
+from .corpus_resolver import (
+    ActiveCorpusBodyRow,
+    CorpusResolutionError,
+    iter_active_local_corpus_rows,
+    resolve_local_corpus_source,
+)
 from .harness.encoding_db import (
     EncodingDB,
     EncodingRun,
@@ -71,6 +77,7 @@ from .harness.evals import (
     _looks_like_corpus_citation_path,
     _prompt_corpus_citation_path,
     _source_identifier_to_relative_rulespec_path,
+    _source_metadata_with_attestation,
     _target_source_scope_for_heuristics,
     evaluate_artifact,
     load_eval_suite_manifest,
@@ -82,9 +89,11 @@ from .harness.evals import (
 )
 from .harness.proof_validator import (
     MoneyAtomRatchet,
+    ProofValidationResult,
     emit_money_atom_ratchet,
     evaluate_money_atoms,
     load_money_atom_ratchet,
+    proof_source_citation_paths,
     validate_rulespec_proofs,
 )
 from .harness.validator_pipeline import (
@@ -92,6 +101,7 @@ from .harness.validator_pipeline import (
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
     ValidatorPipeline,
+    _authoritative_corpus_scope,
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
@@ -196,7 +206,15 @@ DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db
 DEFAULT_GPT_RUNNER = f"codex:{DEFAULT_OPENAI_MODEL}"
 RULESPEC_SOURCE_ROOTS = {"policies", "programs", "regulations", "statutes"}
 APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
-APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v1"
+APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v1"
+APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v2"
+APPLIED_ENCODING_MANIFEST_SCHEMAS = frozenset(
+    {APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA, APPLIED_ENCODING_MANIFEST_SCHEMA}
+)
+# v2 and resolver-owned source attestations rolled out on 2026-07-10. A v1
+# model manifest can use the compatibility lane only when Git history proves
+# the path was last committed before this fixed boundary.
+APPLIED_ENCODING_SOURCE_ATTESTATION_GIT_CUTOFF = "2026-07-10T00:00:00Z"
 APPLIED_ENCODING_SIGNING_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "hmac-sha256"
 APPLIED_ENCODING_SIGNATURE_KEY_ID = "axiom-encode-apply-v1"
@@ -660,6 +678,17 @@ def main():
     )
     proof_validate_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
+    )
+    proof_validate_parser.add_argument(
+        "--corpus-path",
+        "--corpus-root",
+        dest="corpus_path",
+        type=Path,
+        default=None,
+        help=(
+            "Axiom corpus checkout used to resolve direct proof sources "
+            "(defaults to AXIOM_CORPUS_REPO or the sibling axiom-corpus checkout)"
+        ),
     )
     proof_validate_parser.add_argument(
         "--require-money-atoms",
@@ -2267,10 +2296,10 @@ def main():
         type=Path,
         default=None,
         help=(
-            "Optional official CMS CHIP FCEP SPA provisions JSONL. When "
-            "provided, state CHIP composition files include source-backed "
-            "FCEP availability and income-limit rules for states with a "
-            "matched FCEP threshold."
+            "Optional official CMS CHIP FCEP SPA provision artifact from an "
+            "axiom-corpus active release. State CHIP composition files then "
+            "include source-backed FCEP availability and income-limit rules "
+            "for states with a matched FCEP threshold."
         ),
     )
     generate_cms_chip_composition_parser.add_argument(
@@ -3468,14 +3497,63 @@ def cmd_proof_validate(args):
         _emit_money_atoms_only(money_run, args.json)
         sys.exit(1 if not money_run.passed else 0)
 
+    configured_corpus_path = getattr(args, "corpus_path", None)
+    environment_corpus_path = os.environ.get("AXIOM_CORPUS_REPO")
+    corpus_path = (
+        Path(configured_corpus_path).expanduser()
+        if configured_corpus_path is not None
+        else (
+            Path(environment_corpus_path).expanduser()
+            if environment_corpus_path
+            else _resolve_repo_checkout("axiom-corpus")
+        )
+    )
+    source_text_cache: dict[str, str | None] = {}
+    source_error_cache: dict[str, str] = {}
+
     json_outputs = []
     failed_files = []
     for index, file in enumerate(args.files):
         rulespec_file = file.resolve()
-        result = validate_rulespec_proofs(
-            money_atom_files[index][1],
-            validate_claim_records=True,
-        )
+        content = money_atom_files[index][1]
+        with _authoritative_corpus_scope(corpus_path):
+            proof_paths = proof_source_citation_paths(content)
+            for citation_path in proof_paths:
+                if citation_path in source_text_cache:
+                    continue
+                try:
+                    source_text_cache[citation_path] = resolve_local_corpus_source(
+                        citation_path,
+                        corpus_path,
+                        require_release=True,
+                    ).body
+                except CorpusResolutionError as exc:
+                    source_text_cache[citation_path] = None
+                    source_error_cache[citation_path] = (
+                        "Proof corpus resolution failed for "
+                        f"`{citation_path}`: {type(exc).__name__}: {exc}"
+                    )
+            source_texts = {
+                citation_path: source_text_cache[citation_path]
+                for citation_path in proof_paths
+            }
+            result = validate_rulespec_proofs(
+                content,
+                validate_claim_records=True,
+                source_texts=source_texts,
+            )
+            resolution_issues = [
+                source_error_cache[citation_path]
+                for citation_path in proof_paths
+                if citation_path in source_error_cache
+            ]
+        if resolution_issues:
+            result = ProofValidationResult(
+                passed=False,
+                issues=[*result.issues, *resolution_issues],
+                atoms_checked=result.atoms_checked,
+                proof_required=result.proof_required,
+            )
         if not result.passed:
             failed_files.append(file)
 
@@ -9374,30 +9452,50 @@ def _cms_chip_composition_rule_block(
 """
 
 
-def _cms_chip_fcep_record_state_code(record: dict[str, Any]) -> str | None:
-    metadata = record.get("metadata")
-    if isinstance(metadata, dict):
-        code = str(metadata.get("state_abbr") or "").strip().upper()
-        if code:
-            return code
-    citation_path = str(record.get("citation_path") or "")
+def _cms_chip_fcep_record_state_code(record: ActiveCorpusBodyRow) -> str | None:
+    code = str(record.metadata.get("state_abbr") or "").strip().upper()
+    if code:
+        return code
+    citation_path = record.row.citation_path
     match = re.search(r"/chip-spa/([a-z]{2})/", citation_path)
     if match:
         return match.group(1).upper()
     return None
 
 
-def _cms_chip_fcep_effective_from(record: dict[str, Any]) -> str:
-    metadata = record.get("metadata")
-    if isinstance(metadata, dict):
-        for key in ("effective_date", "approval_date"):
-            value = str(metadata.get(key) or "").strip()
-            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-                return value
-    value = str(record.get("expression_date") or "").strip()
+def _cms_chip_fcep_effective_from(record: ActiveCorpusBodyRow) -> str:
+    for key in ("effective_date", "approval_date"):
+        value = str(record.metadata.get(key) or "").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return value
+    value = str(record.row.expression_date or "").strip()
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         return value
     return CMS_MEDICAID_CHIP_EFFECTIVE_DATE
+
+
+def _cms_chip_fcep_corpus_artifact_scope(
+    path: Path,
+) -> tuple[Path, str, str, str]:
+    """Identify one canonical provision artifact without reading its rows."""
+
+    absolute_path = Path(os.path.abspath(path.expanduser()))
+    if (
+        absolute_path.suffix != ".jsonl"
+        or len(absolute_path.parents) < 6
+        or absolute_path.parents[2].name != "provisions"
+        or absolute_path.parents[3].name != "corpus"
+        or absolute_path.parents[4].name != "data"
+    ):
+        raise RuntimeError(
+            "CMS CHIP FCEP corpus artifact must be a direct JSONL child of "
+            "data/corpus/provisions/<jurisdiction>/<document_class>"
+        )
+    jurisdiction = absolute_path.parent.parent.name
+    document_class = absolute_path.parent.name
+    repository_root = absolute_path.parents[5]
+    relative_file = absolute_path.relative_to(repository_root).as_posix()
+    return repository_root, jurisdiction, document_class, relative_file
 
 
 def _cms_chip_fcep_text_segments(body: str) -> list[str]:
@@ -9516,34 +9614,40 @@ def _cms_chip_fcep_source_excerpt(segment: str) -> str:
     return excerpt[:497].rstrip() + "..."
 
 
-def _cms_chip_fcep_sources_from_jsonl(path: Path) -> dict[str, _CmsChipFcepSource]:
-    if not path.exists():
-        raise RuntimeError(f"CMS CHIP FCEP corpus JSONL not found: {path}")
+def _cms_chip_fcep_sources_from_active_corpus_artifact(
+    path: Path,
+) -> dict[str, _CmsChipFcepSource]:
+    repository_root, jurisdiction, document_class, relative_file = (
+        _cms_chip_fcep_corpus_artifact_scope(path)
+    )
+    try:
+        records = tuple(
+            record
+            for record in iter_active_local_corpus_rows(
+                repository_root,
+                jurisdiction=jurisdiction,
+                document_class=document_class,
+            )
+            if record.row.provision_file == relative_file
+        )
+    except CorpusResolutionError as exc:
+        raise RuntimeError(
+            f"Could not resolve active CMS CHIP FCEP corpus artifact {path}: {exc}"
+        ) from exc
+    if not records:
+        raise RuntimeError(
+            "CMS CHIP FCEP corpus artifact has no body-bearing rows in the active "
+            f"release: {path}"
+        )
 
     candidates: dict[str, list[_CmsChipFcepSource]] = defaultdict(list)
-    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"Invalid CMS CHIP FCEP corpus JSONL at line {line_number}: {exc}"
-            ) from exc
-        if not isinstance(record, dict):
-            continue
+    for record in records:
         state_code = _cms_chip_fcep_record_state_code(record)
         if not state_code:
             continue
-        body = str(record.get("body") or "")
-        if not body.strip():
-            continue
-        metadata = record.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-        citation_path = str(record.get("citation_path") or "").strip()
-        if not citation_path:
-            continue
+        body = record.body
+        metadata = dict(record.metadata)
+        citation_path = record.row.citation_path
         effective_from = _cms_chip_fcep_effective_from(record)
         segments = _cms_chip_fcep_text_segments(body)
         for index, segment in enumerate(segments):
@@ -12025,8 +12129,8 @@ def cmd_generate_cms_chip_eligibility_composition(args):
     fcep_corpus_jsonl = getattr(args, "fcep_corpus_jsonl", None)
     if fcep_corpus_jsonl is not None:
         try:
-            fcep_sources = _cms_chip_fcep_sources_from_jsonl(
-                Path(fcep_corpus_jsonl).resolve()
+            fcep_sources = _cms_chip_fcep_sources_from_active_corpus_artifact(
+                Path(fcep_corpus_jsonl)
             )
         except RuntimeError as exc:
             print(str(exc))
@@ -16948,8 +17052,20 @@ def _ensure_generated_dependency_files_safe(
         return
 
     manifest_paths = _all_applied_encoding_manifest_paths(repo_path)
+    legacy_source_attestation_manifest_paths = (
+        _unchanged_legacy_source_attestation_manifest_paths(
+            repo_path,
+            manifest_paths,
+            base_ref=None,
+            head_ref="HEAD",
+        )
+    )
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, manifest_paths
+        repo_path,
+        manifest_paths,
+        legacy_source_attestation_manifest_paths=(
+            legacy_source_attestation_manifest_paths
+        ),
     )
     current_hashes: dict[str, set[str]] = {}
     if not manifest_issues:
@@ -26392,8 +26508,23 @@ def guard_generated_change_issues(
     missing_manifest_paths = [
         path for path in manifest_paths if not (repo_path / path).exists()
     ]
+    legacy_source_attestation_manifest_paths = (
+        _unchanged_legacy_source_attestation_manifest_paths(
+            repo_path,
+            surviving_manifest_paths,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+        if all_files
+        else set()
+    )
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, surviving_manifest_paths, roots=roots
+        repo_path,
+        surviving_manifest_paths,
+        roots=roots,
+        legacy_source_attestation_manifest_paths=(
+            legacy_source_attestation_manifest_paths
+        ),
     )
     if manifest_issues:
         return manifest_issues
@@ -26599,6 +26730,78 @@ def _git_changed_files(
     return sorted(set(changed))
 
 
+def _unchanged_legacy_source_attestation_manifest_paths(
+    repo_path: Path,
+    manifest_paths: list[str],
+    *,
+    base_ref: str | None,
+    head_ref: str,
+) -> set[str]:
+    """Return manifest paths eligible for the pre-attestation compatibility lane.
+
+    Source attestations were added after thousands of signed v1 manifests had
+    already landed.  Those historical manifests remain useful evidence of the
+    exact applied-file hashes, but rewriting every one is neither possible nor
+    a stronger proof of its original source.  Grandfather only manifests that
+    Git proves predate the fixed rollout boundary and remain unchanged:
+    relative to ``base_ref`` when CI supplies one, and always relative to the
+    checked-out ``head_ref`` so local edits and untracked manifests cannot
+    enter the compatibility lane.
+
+    Failure to establish Git history is fail-closed.  Callers still verify the
+    v1 schema, HMAC signature, and applied-file hash; this helper only permits
+    an unchanged historical model manifest to omit the newer resolver-owned
+    source provenance contract.
+    """
+
+    if not manifest_paths:
+        return set()
+    try:
+        changed = set(
+            _git_changed_files(
+                repo_path,
+                base_ref=base_ref,
+                head_ref=head_ref,
+            )
+        )
+        if base_ref is not None:
+            changed.update(
+                _git_changed_files(
+                    repo_path,
+                    base_ref=None,
+                    head_ref=head_ref,
+                )
+            )
+        recent_history = subprocess.run(
+            [
+                "git",
+                "log",
+                f"--since={APPLIED_ENCODING_SOURCE_ATTESTATION_GIT_CUTOFF}",
+                "--name-only",
+                "--format=",
+                head_ref,
+                "--",
+            ],
+            cwd=repo_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if recent_history.returncode != 0:
+            return set()
+    except (OSError, RuntimeError):
+        return set()
+    committed_since_rollout = {
+        line.strip() for line in recent_history.stdout.splitlines() if line.strip()
+    }
+    return {
+        path
+        for path in manifest_paths
+        if path not in changed and path not in committed_since_rollout
+    }
+
+
 def _protected_rulespec_root_index(path: Path, *, roots: tuple[str, ...]) -> int | None:
     parts = path.parts
     if len(parts) < 2:
@@ -26769,7 +26972,7 @@ def _manifest_coverage_by_file(
             payload = json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             continue
-        if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+        if payload.get("schema_version") not in APPLIED_ENCODING_MANIFEST_SCHEMAS:
             continue
         backend = _normalized_manifest_backend(payload)
         is_generated = backend in APPLIED_ENCODING_GENERATED_BACKENDS
@@ -26799,14 +27002,161 @@ def _manifest_coverage_by_file(
     return dict(result)
 
 
+def _applied_manifest_source_attestation_issues(
+    payload: dict,
+    *,
+    repo_path: Path,
+    root_prefix: str,
+    manifest_label: str,
+    allow_legacy_missing_attestation: bool = False,
+) -> list[str]:
+    """Validate source provenance claimed by an applied encoding manifest."""
+
+    backend = _normalized_manifest_backend(payload)
+    attestation_claimed = "source_attestation" in payload
+    attestation = payload.get("source_attestation")
+    issues: list[str] = []
+    if attestation_claimed:
+        structure_issues = _source_attestation_structure_issues(attestation)
+        issues.extend(
+            f"{manifest_label} has invalid source_attestation: {issue}"
+            for issue in structure_issues
+        )
+
+    model_backend = backend in APPLIED_ENCODING_ENCODER_BACKENDS
+    if model_backend and not attestation_claimed and allow_legacy_missing_attestation:
+        # Compatibility is deliberately all-or-nothing for the new provenance
+        # contract. Historical model outputs predate both resolver attestations
+        # and source_sha256 pins, so enforcing only half of the contract would
+        # still make a full-corpus guard permanently red. The caller grants
+        # this lane only to a Git-unchanged, signature-valid v1 manifest.
+        return issues
+
+    rulespec_verifications: list[tuple[str, dict[str, object] | None]] = []
+    covered_rulespec_paths: list[str] = []
+    applied_files = payload.get("applied_files")
+    if isinstance(applied_files, list):
+        for item in applied_files:
+            if not isinstance(item, dict) or item.get("deleted") is True:
+                continue
+            file_path = item.get("path")
+            file_name = Path(file_path).name if isinstance(file_path, str) else ""
+            if (
+                not isinstance(file_path, str)
+                or Path(file_path).suffix not in {".yaml", ".yml"}
+                or file_name.endswith((".test.yaml", ".test.yml"))
+            ):
+                continue
+            prefixed_path = _prefix_applied_manifest_path(file_path, root_prefix)
+            covered_rulespec_paths.append(prefixed_path)
+            rulespec_path = repo_path / prefixed_path
+            if not rulespec_path.is_file():
+                if model_backend:
+                    issues.append(
+                        f"{manifest_label} model-generated RuleSpec "
+                        f"{prefixed_path} is missing or is not a regular file"
+                    )
+                continue
+            try:
+                rulespec_text = rulespec_path.read_text()
+            except (OSError, UnicodeError) as exc:
+                if model_backend:
+                    issues.append(
+                        f"{manifest_label} model-generated RuleSpec "
+                        f"{prefixed_path} cannot be read: {exc}"
+                    )
+                continue
+            try:
+                rulespec = yaml.safe_load(rulespec_text)
+            except (yaml.YAMLError, ValueError) as exc:
+                if model_backend:
+                    issues.append(
+                        f"{manifest_label} model-generated RuleSpec "
+                        f"{prefixed_path} is not valid YAML: {exc}"
+                    )
+                continue
+            if not isinstance(rulespec, dict):
+                if model_backend:
+                    issues.append(
+                        f"{manifest_label} model-generated RuleSpec "
+                        f"{prefixed_path} must be a YAML mapping"
+                    )
+                continue
+            if rulespec.get("format") != "rulespec/v1":
+                if model_backend:
+                    issues.append(
+                        f"{manifest_label} model-generated RuleSpec "
+                        f"{prefixed_path} must declare format: rulespec/v1"
+                    )
+                continue
+            module = rulespec.get("module")
+            verification = (
+                module.get("source_verification") if isinstance(module, dict) else None
+            )
+            rulespec_verifications.append(
+                (
+                    prefixed_path,
+                    verification if isinstance(verification, dict) else None,
+                )
+            )
+
+    requires_attestation = model_backend and bool(covered_rulespec_paths)
+    if model_backend:
+        for rulespec_path, verification in rulespec_verifications:
+            if verification is None:
+                issues.append(
+                    f"{manifest_label} model-generated RuleSpec {rulespec_path} "
+                    "is missing module.source_verification"
+                )
+                continue
+            if not _source_verification_citation_paths(verification):
+                issues.append(
+                    f"{manifest_label} source-backed model-generated RuleSpec "
+                    f"{rulespec_path} is missing a corpus citation path"
+                )
+            source_sha256 = verification.get("source_sha256")
+            if (
+                not isinstance(source_sha256, str)
+                or _SHA256_HEX_PATTERN.fullmatch(source_sha256) is None
+            ):
+                issues.append(
+                    f"{manifest_label} source-backed model-generated RuleSpec "
+                    f"{rulespec_path} is missing a lowercase source_sha256 pin"
+                )
+    if requires_attestation and not attestation_claimed:
+        issues.append(
+            f"{manifest_label} is missing source_attestation for a "
+            "source-verifying model-generated RuleSpec"
+        )
+        return issues
+    if not attestation_claimed or not isinstance(attestation, dict):
+        return issues
+    if _source_attestation_structure_issues(attestation):
+        return issues
+
+    for rulespec_path, verification in rulespec_verifications:
+        if verification is None:
+            continue
+        issues.extend(
+            f"{manifest_label} source_attestation does not bind {rulespec_path}: "
+            f"{issue}"
+            for issue in _source_attestation_binding_issues(attestation, verification)
+        )
+    return issues
+
+
 def _load_applied_encoding_manifest_entries(
     repo_path: Path,
     manifest_paths: list[str],
     *,
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+    legacy_source_attestation_manifest_paths: set[str] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
+    legacy_source_attestation_manifest_paths = (
+        legacy_source_attestation_manifest_paths or set()
+    )
     signing_key = _applied_encoding_manifest_signing_key()
     if not signing_key:
         return (
@@ -26832,7 +27182,8 @@ def _load_applied_encoding_manifest_entries(
         except json.JSONDecodeError:
             issues.append(f"{manifest_label} is not valid JSON")
             continue
-        if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+        schema_version = payload.get("schema_version")
+        if schema_version not in APPLIED_ENCODING_MANIFEST_SCHEMAS:
             issues.append(f"{manifest_label} is not an encoder apply manifest")
             continue
         signature_issue = _applied_encoding_manifest_signature_issue(
@@ -26845,6 +27196,18 @@ def _load_applied_encoding_manifest_entries(
         if not isinstance(applied_files, list):
             issues.append(f"{manifest_label} does not list applied files")
             continue
+        issues.extend(
+            _applied_manifest_source_attestation_issues(
+                payload,
+                repo_path=repo_path,
+                root_prefix=root_prefix,
+                manifest_label=manifest_label,
+                allow_legacy_missing_attestation=(
+                    schema_version == APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA
+                    and manifest_label in legacy_source_attestation_manifest_paths
+                ),
+            )
+        )
         for item in applied_files:
             if not isinstance(item, dict):
                 continue
@@ -27272,12 +27635,15 @@ def cmd_encode(args):
             runner_specs=[runner],
             output_root=args.output,
             policy_path=policy_repo_path,
-            source_metadata_payload={
-                "corpus_citation_path": prompt_corpus_citation_path,
-                "corpus_source": source_unit.source,
-                "requested_source": source_unit.requested,
-                "resolved_corpus_citation_path": source_unit.citation_path,
-            },
+            source_metadata_payload=_source_metadata_with_attestation(
+                {
+                    "corpus_citation_path": prompt_corpus_citation_path,
+                    "corpus_source": source_unit.source,
+                    "requested_source": source_unit.requested,
+                    "resolved_corpus_citation_path": source_unit.citation_path,
+                },
+                source_unit,
+            ),
             runtime_axiom_rules_path=axiom_rules_path,
             mode=args.mode,
             extra_context_paths=[Path(path) for path in args.allow_context],
@@ -37970,7 +38336,9 @@ def _extend_anaphoric_scope_proof_excerpts(
     except (OSError, yaml.YAMLError, ValueError):
         return
     if not isinstance(payload, dict):
-        return
+        raise RuntimeError(
+            "Cannot stamp source attestation: generated RuleSpec must be an object"
+        )
     source_text = _extract_source_verification_text(content)
     if not source_text:
         return
@@ -44795,6 +45163,409 @@ def _enforce_no_apply_collision(*, source_file: Path, target_file: Path) -> None
     )
 
 
+_SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _generated_result_source_attestation(result) -> dict[str, object] | None:
+    """Return a manifest-safe copy of the resolver-owned source attestation.
+
+    The resolver calls its sliced/composed text digest ``resolved_text_sha256``.
+    That text is the resolver output, but the generation pipeline does not yet
+    attest that it is byte-for-byte identical to the final model input.  Name
+    the field precisely at the apply/manifest trust boundary rather than
+    implying a stronger generation-input claim.
+    """
+
+    attestation = getattr(result, "source_attestation", None)
+    if not isinstance(attestation, dict):
+        return None
+    normalized = copy.deepcopy(attestation)
+    resolved_text_sha256 = normalized.pop("resolved_text_sha256", None)
+    if "resolver_text_sha256" not in normalized:
+        normalized["resolver_text_sha256"] = resolved_text_sha256
+    return normalized
+
+
+def _source_attestation_structure_issues(
+    attestation: object,
+) -> list[str]:
+    """Validate the provenance fields required to bind an applied RuleSpec."""
+
+    if not isinstance(attestation, dict):
+        return ["source_attestation must be an object"]
+
+    issues: list[str] = []
+
+    def require_string(field: str) -> str:
+        value = attestation.get(field)
+        if not isinstance(value, str) or not value.strip():
+            issues.append(f"source_attestation.{field} must be a non-empty string")
+            return ""
+        return value.strip()
+
+    def require_sha256(field: str) -> str:
+        value = require_string(field)
+        if value and _SHA256_HEX_PATTERN.fullmatch(value) is None:
+            issues.append(
+                f"source_attestation.{field} must be a lowercase sha256 digest"
+            )
+        return value
+
+    requested = require_string("requested_corpus_citation_path")
+    resolved = require_string("resolved_corpus_citation_path")
+    source = require_string("corpus_source")
+    if source and source not in {"local", "supabase"}:
+        issues.append("source_attestation.corpus_source must be local or supabase")
+    require_string("corpus_release")
+    require_sha256("corpus_release_selector_sha256")
+    provision_file = require_string("provision_file")
+    provision_file_sha256 = require_sha256("provision_file_sha256")
+    source_sha256 = require_sha256("source_sha256")
+    require_sha256("resolver_text_sha256")
+
+    require_string("source_as_of")
+    require_string("expression_date")
+
+    row = attestation.get("row")
+    if not isinstance(row, dict):
+        issues.append("source_attestation.row must be an object")
+    else:
+        for field in (
+            "provision_file",
+            "record_id",
+            "citation_path",
+            "jurisdiction",
+            "document_class",
+            "version",
+            "source_path",
+            "source_as_of",
+            "expression_date",
+        ):
+            value = row.get(field)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(
+                    f"source_attestation.row.{field} must be a non-empty string"
+                )
+        line_number = row.get("line_number")
+        if (
+            not isinstance(line_number, int)
+            or isinstance(line_number, bool)
+            or line_number < 1
+        ):
+            issues.append(
+                "source_attestation.row.line_number must be a positive integer"
+            )
+        row_file_sha256 = row.get("provision_file_sha256")
+        if (
+            not isinstance(row_file_sha256, str)
+            or _SHA256_HEX_PATTERN.fullmatch(row_file_sha256) is None
+        ):
+            issues.append(
+                "source_attestation.row.provision_file_sha256 must be a "
+                "lowercase sha256 digest"
+            )
+        row_body_sha256 = row.get("body_sha256")
+        component_rows = attestation.get("component_rows")
+        row_is_composed_parent = row_body_sha256 is None and bool(component_rows)
+        if not row_is_composed_parent and (
+            not isinstance(row_body_sha256, str)
+            or _SHA256_HEX_PATTERN.fullmatch(row_body_sha256) is None
+        ):
+            issues.append(
+                "source_attestation.row.body_sha256 must be a lowercase sha256 digest"
+            )
+        if provision_file and row.get("provision_file") != provision_file:
+            issues.append(
+                "source_attestation.row.provision_file does not match provision_file"
+            )
+        if provision_file_sha256 and row_file_sha256 != provision_file_sha256:
+            issues.append(
+                "source_attestation.row.provision_file_sha256 does not match "
+                "provision_file_sha256"
+            )
+        if row_body_sha256 is not None and source_sha256 != row_body_sha256:
+            issues.append(
+                "source_attestation.row.body_sha256 does not match source_sha256"
+            )
+        if resolved and row.get("citation_path") != resolved:
+            issues.append(
+                "source_attestation.row.citation_path does not match resolved path"
+            )
+        for field in ("source_as_of", "expression_date"):
+            top_value = attestation.get(field)
+            if top_value is not None and row.get(field) != top_value:
+                issues.append(f"source_attestation.row.{field} does not match {field}")
+
+    component_rows = attestation.get("component_rows")
+    if not isinstance(component_rows, list) or not all(
+        isinstance(item, dict) for item in component_rows
+    ):
+        issues.append("source_attestation.component_rows must be a list of objects")
+    elif component_rows:
+        seen_components: set[tuple[str, int, str]] = set()
+        for index, component in enumerate(component_rows):
+            for field in (
+                "provision_file",
+                "record_id",
+                "citation_path",
+                "jurisdiction",
+                "document_class",
+                "version",
+            ):
+                value = component.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(
+                        "source_attestation.component_rows"
+                        f"[{index}].{field} must be a non-empty string"
+                    )
+            component_file_sha256 = component.get("provision_file_sha256")
+            if (
+                not isinstance(component_file_sha256, str)
+                or _SHA256_HEX_PATTERN.fullmatch(component_file_sha256) is None
+            ):
+                issues.append(
+                    "source_attestation.component_rows"
+                    f"[{index}].provision_file_sha256 must be a lowercase "
+                    "sha256 digest"
+                )
+            component_line = component.get("line_number")
+            if (
+                not isinstance(component_line, int)
+                or isinstance(component_line, bool)
+                or component_line < 1
+            ):
+                issues.append(
+                    "source_attestation.component_rows"
+                    f"[{index}].line_number must be a positive integer"
+                )
+            body_sha256 = component.get("body_sha256")
+            if (
+                not isinstance(body_sha256, str)
+                or _SHA256_HEX_PATTERN.fullmatch(body_sha256) is None
+            ):
+                issues.append(
+                    "source_attestation.component_rows"
+                    f"[{index}].body_sha256 must be a lowercase sha256 digest"
+                )
+            for field in ("source_path", "source_as_of", "expression_date"):
+                value = component.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(
+                        "source_attestation.component_rows"
+                        f"[{index}].{field} must be a non-empty string"
+                    )
+            component_identity = (
+                str(component.get("provision_file") or ""),
+                component_line if isinstance(component_line, int) else 0,
+                str(component.get("record_id") or ""),
+            )
+            if component_identity in seen_components:
+                issues.append(
+                    "source_attestation.component_rows contains duplicate row "
+                    f"identity at index {index}"
+                )
+            seen_components.add(component_identity)
+
+    if requested and not requested.strip("/"):
+        issues.append("source_attestation requested path must not be empty")
+    if resolved and not resolved.strip("/"):
+        issues.append("source_attestation resolved path must not be empty")
+    return issues
+
+
+def _source_verification_citation_paths(
+    source_verification: dict[str, object],
+) -> tuple[str, ...]:
+    paths: list[str] = []
+    singular = source_verification.get("corpus_citation_path")
+    if isinstance(singular, str) and singular.strip():
+        paths.append(singular.strip().strip("/"))
+    plural = source_verification.get("corpus_citation_paths")
+    if isinstance(plural, list):
+        paths.extend(
+            item.strip().strip("/")
+            for item in plural
+            if isinstance(item, str) and item.strip()
+        )
+    return tuple(dict.fromkeys(paths))
+
+
+def _source_attestation_binding_issues(
+    attestation: dict[str, object],
+    source_verification: dict[str, object],
+) -> list[str]:
+    """Check that the attested source matches the RuleSpec's source pin."""
+
+    issues = _source_attestation_structure_issues(attestation)
+    if issues:
+        return issues
+    source_sha256 = source_verification.get("source_sha256")
+    if source_sha256 != attestation.get("source_sha256"):
+        issues.append(
+            "module.source_verification.source_sha256 does not match "
+            "source_attestation.source_sha256"
+        )
+    declared_paths = set(_source_verification_citation_paths(source_verification))
+    attested_paths = {
+        str(attestation[field]).strip().strip("/")
+        for field in (
+            "requested_corpus_citation_path",
+            "resolved_corpus_citation_path",
+        )
+    }
+    unattested_paths = declared_paths - attested_paths
+    if not declared_paths:
+        issues.append("module.source_verification does not declare a corpus path")
+    elif unattested_paths:
+        issues.append(
+            "module.source_verification declares corpus path(s) not bound by "
+            "source_attestation: " + ", ".join(sorted(unattested_paths))
+        )
+    return issues
+
+
+def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> None:
+    """Mechanically bind model output to the resolver's full stored source body."""
+
+    backend = str(getattr(result, "backend", "") or "").strip().lower()
+    if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
+        return
+    try:
+        payload = yaml.safe_load(output_file.read_text())
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise RuntimeError(
+            f"Cannot stamp source attestation in generated RuleSpec: {output_file}"
+        ) from exc
+    if not isinstance(payload, dict):
+        return
+    module = payload.get("module")
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    attestation = _generated_result_source_attestation(result)
+    if attestation is None:
+        raise RuntimeError(
+            "Cannot apply a model-generated RuleSpec without resolver "
+            "source_attestation"
+        )
+    structure_issues = _source_attestation_structure_issues(attestation)
+    if structure_issues:
+        raise RuntimeError(
+            "Cannot apply model result with incomplete source_attestation: "
+            + "; ".join(structure_issues)
+        )
+    if module is None:
+        module = {}
+        payload["module"] = module
+    if not isinstance(module, dict):
+        raise RuntimeError("Cannot stamp source attestation: module must be an object")
+    if source_verification is None:
+        source_verification = {
+            "corpus_citation_path": attestation["requested_corpus_citation_path"]
+        }
+        module["source_verification"] = source_verification
+    if not isinstance(source_verification, dict):
+        raise RuntimeError(
+            "Cannot stamp source attestation: module.source_verification "
+            "must be an object"
+        )
+    declared_paths = _source_verification_citation_paths(source_verification)
+    attested_paths = {
+        str(attestation[field]).strip().strip("/")
+        for field in (
+            "requested_corpus_citation_path",
+            "resolved_corpus_citation_path",
+        )
+    }
+    unattested_paths = set(declared_paths) - attested_paths
+    if unattested_paths:
+        raise RuntimeError(
+            "Cannot apply model result: module.source_verification declares "
+            "corpus path(s) not bound by resolver source_attestation: "
+            + ", ".join(sorted(unattested_paths))
+        )
+    # ``source_sha256`` has one value, so always stamp the singular locator it
+    # binds even when the model also declares supplementary plural sources.
+    # The staleness command uses this singular path to recompute the same hash.
+    source_verification["corpus_citation_path"] = attestation[
+        "requested_corpus_citation_path"
+    ]
+    source_verification["source_sha256"] = attestation["source_sha256"]
+    output_file.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def _supplemental_source_attestation_issues(
+    supplemental_files: dict[Path, str],
+    *,
+    attestation: dict[str, object] | None,
+    require_source_verification: bool = False,
+) -> list[str]:
+    """Reject supplemental RuleSpecs that cannot share the primary source pin.
+
+    An apply manifest currently carries one primary source attestation.  It
+    must not cover an automatically repaired dependent whose own corpus path or
+    stored-body hash points somewhere else.  Test companions are not RuleSpec
+    modules and therefore do not participate in source pinning.
+    """
+
+    issues: list[str] = []
+    for relative_path, content in sorted(
+        supplemental_files.items(), key=lambda item: item[0].as_posix()
+    ):
+        if relative_path.suffix not in {".yaml", ".yml"} or relative_path.name.endswith(
+            (".test.yaml", ".test.yml")
+        ):
+            continue
+        try:
+            payload = yaml.safe_load(content)
+        except (UnicodeError, yaml.YAMLError, ValueError) as exc:
+            if require_source_verification:
+                issues.append(f"{relative_path.as_posix()} is not valid YAML: {exc}")
+            continue
+        if not isinstance(payload, dict):
+            if require_source_verification:
+                issues.append(
+                    f"{relative_path.as_posix()} must be a RuleSpec YAML mapping"
+                )
+            continue
+        if payload.get("format") != "rulespec/v1":
+            if require_source_verification:
+                issues.append(
+                    f"{relative_path.as_posix()} must declare format: rulespec/v1"
+                )
+            continue
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            if require_source_verification:
+                issues.append(
+                    f"{relative_path.as_posix()} is missing module.source_verification"
+                )
+            continue
+        source_pinned = bool(_source_verification_citation_paths(verification)) or (
+            "source_sha256" in verification
+        )
+        if not source_pinned and not require_source_verification:
+            continue
+        label = relative_path.as_posix()
+        if attestation is None:
+            issues.append(
+                f"{label} declares source_verification without the primary "
+                "resolver source_attestation"
+            )
+            continue
+        issues.extend(
+            f"{label}: {issue}"
+            for issue in _source_attestation_binding_issues(attestation, verification)
+        )
+    return issues
+
+
 def _apply_generated_encoding_result(
     result,
     *,
@@ -44808,6 +45579,19 @@ def _apply_generated_encoding_result(
     relative_output = _relative_generated_output_path(result, output_root=output_root)
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    backend = str(getattr(result, "backend", "") or "").strip().lower()
+
+    supplemental_source_issues = _supplemental_source_attestation_issues(
+        supplemental_files or {},
+        attestation=_generated_result_source_attestation(result),
+        require_source_verification=backend in APPLIED_ENCODING_ENCODER_BACKENDS,
+    )
+    if supplemental_source_issues:
+        raise RuntimeError(
+            "Cannot apply supplemental source-verifying RuleSpec(s): "
+            + "; ".join(supplemental_source_issues)
+        )
+    _stamp_generated_source_attestation_for_apply(result, output_file)
 
     _enforce_canonical_concept_registry(
         candidate_files=[output_file, _rulespec_test_path(output_file)],
@@ -44954,6 +45738,9 @@ def _write_applied_encoding_manifest(
             for path in unique_applied_files
         ],
     }
+    source_attestation = _generated_result_source_attestation(result)
+    if source_attestation is not None:
+        payload["source_attestation"] = source_attestation
     if supersedes is not None:
         payload["supersedes"] = supersedes
     manual_exception = getattr(result, "manual_exception", None)
@@ -45271,6 +46058,10 @@ def _validate_generated_encoding_in_policy_overlay(
         )
     except RuntimeError as exc:
         return False, [str(exc)], {}
+    try:
+        _stamp_generated_source_attestation_for_apply(result, output_file)
+    except RuntimeError as exc:
+        return False, [f"{relative_output}: {exc}"], {}
 
     generated_content = output_file.read_text()
     output_test = _rulespec_test_path(output_file)
@@ -49282,12 +50073,15 @@ def cmd_eval_source(args):
         runner_specs=runners,
         output_root=args.output,
         policy_path=policy_repo_path,
-        source_metadata_payload={
-            "corpus_citation_path": prompt_corpus_citation_path,
-            "corpus_source": source_unit.source,
-            "requested_source": source_unit.requested,
-            "resolved_corpus_citation_path": source_unit.citation_path,
-        },
+        source_metadata_payload=_source_metadata_with_attestation(
+            {
+                "corpus_citation_path": prompt_corpus_citation_path,
+                "corpus_source": source_unit.source,
+                "requested_source": source_unit.requested,
+                "resolved_corpus_citation_path": source_unit.citation_path,
+            },
+            source_unit,
+        ),
         runtime_axiom_rules_path=runtime_axiom_rules_path,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],

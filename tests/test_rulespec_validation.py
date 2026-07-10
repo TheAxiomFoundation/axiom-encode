@@ -10,6 +10,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from axiom_encode.corpus_resolver import (
+    AmbiguousCorpusSourceError,
+    InvalidReleaseSelectorError,
+)
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.proof_validator import (
     find_rulespec_proof_issues,
@@ -1919,14 +1923,73 @@ def _write_local_corpus_provision(
     citation_path: str,
     body: str = "Authoritative source text.",
 ) -> None:
+    version = "test-release"
     parts = citation_path.split("/")
-    provisions_dir = repo_parent / "axiom-corpus" / "data" / "corpus" / "provisions"
+    corpus_root = repo_parent / "axiom-corpus"
+    provisions_dir = corpus_root / "data" / "corpus" / "provisions"
     provisions_dir = provisions_dir / parts[0] / parts[1]
     provisions_dir.mkdir(parents=True, exist_ok=True)
     (provisions_dir / "test.jsonl").write_text(
-        json.dumps({"citation_path": citation_path, "body": body}) + "\n",
+        json.dumps(
+            _active_corpus_record(
+                citation_path,
+                body,
+                version=version,
+            )
+        )
+        + "\n",
         encoding="utf-8",
     )
+    _write_current_release_scope(
+        corpus_root,
+        jurisdiction=parts[0],
+        document_class=parts[1],
+        version=version,
+    )
+
+
+def _active_corpus_record(
+    citation_path: str,
+    body: str | None,
+    *,
+    version: str = "test-release",
+    **extra,
+) -> dict:
+    jurisdiction, document_class, *_rest = citation_path.split("/")
+    return {
+        "id": f"test:{citation_path}",
+        "citation_path": citation_path,
+        "body": body,
+        "jurisdiction": jurisdiction,
+        "document_class": document_class,
+        "version": version,
+        "source_path": f"sources/{jurisdiction}/{document_class}/test",
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+        **extra,
+    }
+
+
+def _write_current_release_scope(
+    corpus_root: Path,
+    *,
+    jurisdiction: str,
+    document_class: str,
+    version: str = "test-release",
+) -> None:
+    selector = corpus_root / "manifests" / "releases" / "current.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"name": "current", "scopes": []}
+    if selector.exists():
+        payload = json.loads(selector.read_text(encoding="utf-8"))
+    scope = {
+        "jurisdiction": jurisdiction,
+        "document_class": document_class,
+        "version": version,
+    }
+    if scope not in payload["scopes"]:
+        payload["scopes"].append(scope)
+    selector.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _write_local_source_claim(repo_parent: Path, record: dict) -> None:
@@ -1975,8 +2038,13 @@ def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
     explicit_provisions = explicit_corpus / "data/corpus/provisions/us/statute"
     explicit_provisions.mkdir(parents=True)
     explicit_provisions.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/2", "body": "unrelated"}) + "\n",
+        json.dumps(_active_corpus_record("us/statute/2", "unrelated")) + "\n",
         encoding="utf-8",
+    )
+    _write_current_release_scope(
+        explicit_corpus,
+        jurisdiction="us",
+        document_class="statute",
     )
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
@@ -1989,10 +2057,10 @@ def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
 
     explicit_provisions.joinpath("source.jsonl").write_text(
         json.dumps(
-            {
-                "citation_path": "us/statute/7/2014/e/4",
-                "body": "authoritative",
-            }
+            _active_corpus_record(
+                "us/statute/7/2014/e/4",
+                "authoritative",
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -7711,8 +7779,6 @@ def test_rulespec_accepts_accepted_source_claim_reference(tmp_path, monkeypatch)
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     _write_local_corpus_provision(
         repo_parent,
@@ -7881,6 +7947,66 @@ rules:
     assert result.issues == []
 
 
+def _corpus_checked_proof_content() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/example/page-1
+rules:
+  - name: official_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us/guidance/example/page-1
+              excerpt: The official amount is $298.
+              quote: $298
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '298'
+"""
+
+
+def test_rulespec_proof_validator_checks_direct_source_evidence_text():
+    content = _corpus_checked_proof_content()
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": "The official amount is $298."},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_rulespec_proof_validator_rejects_unresolved_direct_source():
+    result = validate_rulespec_proofs(
+        _corpus_checked_proof_content(),
+        source_texts={},
+    )
+
+    assert result.passed is False
+    assert any("Proof source unresolved" in issue for issue in result.issues)
+
+
+def test_rulespec_proof_validator_rejects_direct_source_evidence_mismatch():
+    result = validate_rulespec_proofs(
+        _corpus_checked_proof_content(),
+        source_texts={"us/guidance/example/page-1": "The official amount is $299."},
+    )
+
+    assert result.passed is False
+    assert any("source.excerpt" in issue for issue in result.issues)
+    assert any("source.quote" in issue for issue in result.issues)
+
+
 def _anchor_probe_content(atom_path: str, *, version: str) -> str:
     """A single money parameter with a table version and one proof atom.
 
@@ -7989,8 +8115,6 @@ def test_rulespec_proof_validator_checks_declared_source_claim_records(
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     _write_local_corpus_provision(
         repo_parent,
@@ -11658,8 +11782,6 @@ def test_same_section_import_check_ignores_broad_parent_source_for_child_file(
     repo_parent = tmp_path / "repos"
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
     _write_local_corpus_provision(
         repo_parent,
         "us-co/statute/39/39-22-104",
@@ -11930,8 +12052,6 @@ def test_same_section_import_check_slices_compact_cfr_parent_source(
     repo_parent = tmp_path / "repos"
     corpus_repo = repo_parent / "axiom-corpus"
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
     source = (
         "(a)(1) This section only applies to MAGI-excepted individuals.\n\n"
         "(2) Basic requirements. Subject to the provisions of paragraphs (b) "
@@ -14672,8 +14792,6 @@ def test_rulespec_ci_executes_companion_test_outputs(tmp_path, monkeypatch):
         "AXIOM_CORPUS_ARTIFACT_ROOT",
         str(tmp_path / "axiom-corpus" / "data" / "corpus"),
     )
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -17307,18 +17425,21 @@ def test_source_verification_reads_local_corpus_artifact(
     provisions_dir.mkdir(parents=True)
     (provisions_dir / "test-source.jsonl").write_text(
         json.dumps(
-            {
-                "citation_path": "us/guidance/example/page-1",
-                "body": "The official normalized corpus source states the amount is $123.",
-            },
+            _active_corpus_record(
+                "us/guidance/example/page-1",
+                "The official normalized corpus source states the amount is $123.",
+            ),
             sort_keys=True,
         )
         + "\n",
         encoding="utf-8",
     )
+    _write_current_release_scope(
+        tmp_path,
+        jurisdiction="us",
+        document_class="guidance",
+    )
     monkeypatch.setenv("AXIOM_CORPUS_ARTIFACT_ROOT", str(tmp_path))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     content = """format: rulespec/v1
 module:
@@ -17338,6 +17459,36 @@ rules:
 
     assert find_source_verification_issues(content) == []
     assert find_ungrounded_numeric_issues(content) == []
+
+
+def test_production_validation_requires_current_release_selector(
+    tmp_path,
+    monkeypatch,
+):
+    provisions = tmp_path / "provisions" / "us" / "guidance"
+    provisions.mkdir(parents=True)
+    provisions.joinpath("legacy.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "us/guidance/example/page-1",
+                "body": "Legacy unversioned source.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_ARTIFACT_ROOT", str(tmp_path))
+
+    with pytest.raises(InvalidReleaseSelectorError, match="Release selector not found"):
+        validator_pipeline._fetch_local_corpus_source_text("us/guidance/example/page-1")
+
+    assert (
+        validator_pipeline._fetch_local_corpus_source_text(
+            "us/guidance/example/page-1",
+            require_release=False,
+        )
+        == "Legacy unversioned source."
+    )
 
 
 def test_local_only_pipeline_uses_only_explicit_corpus_and_never_supabase(
@@ -17368,8 +17519,13 @@ def test_local_only_pipeline_uses_only_explicit_corpus_and_never_supabase(
     explicit_provisions = explicit_corpus / "data/corpus/provisions/us/statute"
     explicit_provisions.mkdir(parents=True)
     explicit_provisions.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/1", "body": "local quote"}) + "\n",
+        json.dumps(_active_corpus_record("us/statute/1", "local quote")) + "\n",
         encoding="utf-8",
+    )
+    _write_current_release_scope(
+        explicit_corpus,
+        jurisdiction="us",
+        document_class="statute",
     )
 
     workspace = tmp_path / "workspace"
@@ -17396,8 +17552,6 @@ def test_local_only_pipeline_uses_only_explicit_corpus_and_never_supabase(
     )
     monkeypatch.chdir(workspace)
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     def fail_remote(_citation_path):
         raise AssertionError("local-only validation reached Supabase")
@@ -17448,15 +17602,19 @@ def test_local_only_source_text_is_bound_only_to_trusted_metadata_paths(tmp_path
     provisions.mkdir(parents=True)
     provisions.joinpath("sources.jsonl").write_text(
         json.dumps(
-            {
-                "citation_path": "us/guidance/model-declared-path",
-                "body": "This different source sets the official amount at 999.",
-            }
+            _active_corpus_record(
+                "us/guidance/model-declared-path",
+                "This different source sets the official amount at 999.",
+            )
         )
         + "\n",
         encoding="utf-8",
     )
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    _write_current_release_scope(
+        corpus,
+        jurisdiction="us",
+        document_class="guidance",
+    )
     source_text = "The trusted requested source sets the official amount at 1055."
     content = """format: rulespec/v1
 module:
@@ -17503,8 +17661,13 @@ def test_authoritative_corpus_uses_only_primary_provisions_layout(tmp_path):
     canonical = corpus / "data/corpus/provisions/us/statute"
     canonical.mkdir(parents=True)
     canonical.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/1", "body": "CANONICAL"}) + "\n",
+        json.dumps(_active_corpus_record("us/statute/1", "CANONICAL")) + "\n",
         encoding="utf-8",
+    )
+    _write_current_release_scope(
+        corpus,
+        jurisdiction="us",
+        document_class="statute",
     )
     legacy = corpus / "provisions/zz/guidance"
     legacy.mkdir(parents=True)
@@ -17515,7 +17678,6 @@ def test_authoritative_corpus_uses_only_primary_provisions_layout(tmp_path):
     from axiom_encode.judges.regeneration import validate_corpus_path
 
     validate_corpus_path(corpus)
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
     with validator_pipeline._authoritative_corpus_scope(corpus):
         assert validator_pipeline._fetch_corpus_source_text("us/statute/1") == (
             "CANONICAL"
@@ -17547,7 +17709,6 @@ def test_source_claim_rejects_missing_evidence_source(tmp_path):
         encoding="utf-8",
     )
     validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
     content = f"""format: rulespec/v1
 module:
   source_verification:
@@ -17561,6 +17722,47 @@ rules: []
         issues = find_source_claim_reference_issues(content)
 
     assert any("Source claim evidence source missing" in issue for issue in issues)
+
+
+def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_corpus(
+    tmp_path,
+):
+    citation_path = "us/guidance/example/page-1"
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data" / "corpus" / "provisions" / "us" / "guidance"
+    provisions.mkdir(parents=True)
+    (provisions / "example.jsonl").write_text(
+        json.dumps(
+            _active_corpus_record(
+                citation_path,
+                "The official amount is $298.",
+                version="example",
+            )
+        )
+        + "\n"
+    )
+    _write_current_release_scope(
+        corpus_root,
+        jurisdiction="us",
+        document_class="guidance",
+        version="example",
+    )
+    content = _corpus_checked_proof_content()
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_root=corpus_root,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(corpus_root):
+        source_texts = pipeline._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+
+    assert source_texts == {citation_path: "The official amount is $298."}
+    assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
 
 
 def test_validator_pipeline_maps_in_memory_source_text_to_declared_corpus_path(
@@ -17633,23 +17835,26 @@ def test_source_verification_slices_local_parent_corpus_artifact(
     provisions_dir.mkdir(parents=True)
     (provisions_dir / "wic.jsonl").write_text(
         json.dumps(
-            {
-                "citation_path": "us-ca/statute/wic/11450",
-                "body": (
+            _active_corpus_record(
+                "us-ca/statute/wic/11450",
+                (
                     "(a) (1) (A) Aid shall be paid to families. "
                     "For family size 1, the maximum aid payment is $326. "
                     "(B) Different aid is $999. "
                     "\n(b) Pregnancy aid is $47."
                 ),
-            },
+            ),
             sort_keys=True,
         )
         + "\n",
         encoding="utf-8",
     )
+    _write_current_release_scope(
+        tmp_path,
+        jurisdiction="us-ca",
+        document_class="statute",
+    )
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     content = """format: rulespec/v1
 module:
@@ -17720,12 +17925,11 @@ def test_source_verification_prefers_current_repo_corpus_artifact(
 
     monkeypatch.chdir(workspace)
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(external_corpus))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     assert (
         validator_pipeline._fetch_local_corpus_source_text(
-            "uk/regulation/example/schedule/1"
+            "uk/regulation/example/schedule/1",
+            require_release=False,
         )
         == "Local source states the issue fee is GBP 180.00."
     )
@@ -17739,20 +17943,21 @@ def test_source_verification_resolves_compact_uk_statute_corpus_path(
     provisions_dir.mkdir(parents=True)
     (provisions_dir / "uk-statute.jsonl").write_text(
         json.dumps(
-            {
-                "citation_path": (
-                    "uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"
-                ),
-                "body": "Income tax is charged at the savings basic rate.",
-            },
+            _active_corpus_record(
+                ("uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"),
+                "Income tax is charged at the savings basic rate.",
+            ),
             sort_keys=True,
         )
         + "\n",
         encoding="utf-8",
     )
+    _write_current_release_scope(
+        tmp_path,
+        jurisdiction="uk",
+        document_class="statute",
+    )
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     content = """format: rulespec/v1
 module:
@@ -17790,26 +17995,26 @@ def test_source_verification_reads_local_corpus_child_blocks(
         "\n".join(
             [
                 json.dumps(
-                    {
-                        "citation_path": citation,
-                        "body": None,
-                        "heading": "Medicaid, CHIP, and BHP Eligibility Levels",
-                        "level": 1,
-                        "ordinal": 1,
-                    },
+                    _active_corpus_record(
+                        citation,
+                        None,
+                        heading="Medicaid, CHIP, and BHP Eligibility Levels",
+                        level=1,
+                        ordinal=1,
+                    ),
                     sort_keys=True,
                 ),
                 json.dumps(
-                    {
-                        "citation_path": f"{citation}/block-1",
-                        "body": (
+                    _active_corpus_record(
+                        f"{citation}/block-1",
+                        (
                             "Colorado Medicaid children 142% and CHIP 260% "
                             "income eligibility standards."
                         ),
-                        "heading": "State Medicaid, CHIP and BHP Income Eligibility Standards",
-                        "level": 2,
-                        "ordinal": 1,
-                    },
+                        heading="State Medicaid, CHIP and BHP Income Eligibility Standards",
+                        level=2,
+                        ordinal=1,
+                    ),
                     sort_keys=True,
                 ),
             ]
@@ -17817,9 +18022,12 @@ def test_source_verification_reads_local_corpus_child_blocks(
         + "\n",
         encoding="utf-8",
     )
+    _write_current_release_scope(
+        tmp_path,
+        jurisdiction="us",
+        document_class="form",
+    )
     monkeypatch.setenv("AXIOM_CORPUS_LOCAL_ROOT", str(tmp_path))
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     content = """format: rulespec/v1
 module:
@@ -25646,24 +25854,35 @@ rules:
     assert issues == []
 
 
-def test_local_corpus_source_text_prefers_newer_official_duplicate(
+def test_validator_reloads_local_corpus_when_current_release_changes(
     monkeypatch, tmp_path: Path
 ):
+    citation_path = "uk/regulation/uksi/2013/376/22"
     provisions = tmp_path / "data" / "corpus" / "provisions" / "uk" / "regulation"
     provisions.mkdir(parents=True)
     older = {
-        "citation_path": "uk/regulation/uksi/2013/376/22",
+        "id": "row-older",
+        "citation_path": citation_path,
         "body": "Older microsim text says £684.00.",
+        "source_path": "sources/uk/regulation/older.xml",
         "source_as_of": "2026-06-01-uk-frs-microsim",
+        "expression_date": "2026-06-01",
         "source_format": "lex.lab.i.ai.gov.uk",
         "version": "2026-06-01-uk-frs-microsim",
+        "jurisdiction": "uk",
+        "document_class": "regulation",
     }
     newer = {
-        "citation_path": "uk/regulation/uksi/2013/376/22",
+        "id": "row-newer",
+        "citation_path": citation_path,
         "body": "Newer official text says £710.00.",
+        "source_path": "sources/uk/regulation/newer.xml",
         "source_as_of": "2026-06-03",
+        "expression_date": "2026-06-03",
         "source_format": "legislation.gov.uk-clml",
         "version": "2026-06-03-uk-universal-credit",
+        "jurisdiction": "uk",
+        "document_class": "regulation",
     }
     (provisions / "2026-06-01-uk-frs-microsim.jsonl").write_text(
         json.dumps(older) + "\n"
@@ -25671,16 +25890,170 @@ def test_local_corpus_source_text_prefers_newer_official_duplicate(
     (provisions / "2026-06-03-uk-universal-credit.jsonl").write_text(
         json.dumps(newer) + "\n"
     )
+    selector = tmp_path / "manifests" / "releases" / "current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "uk",
+                        "document_class": "regulation",
+                        "version": "2026-06-01-uk-frs-microsim",
+                    }
+                ],
+            }
+        )
+    )
 
     monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
-    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    def rulespec_content(amount: int) -> str:
+        return f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation_path}
+    values:
+      official_amount: {amount}
+rules:
+  - name: official_amount
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '{amount}'
+"""
+
+    assert find_source_verification_issues(rulespec_content(684)) == []
+
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "uk",
+                        "document_class": "regulation",
+                        "version": "2026-06-03-uk-universal-credit",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert find_source_verification_issues(rulespec_content(710)) == []
+    assert any(
+        "does not contain `official_amount` = 684" in issue
+        for issue in find_source_verification_issues(rulespec_content(684))
+    )
+
+
+def test_local_corpus_source_text_rejects_ambiguous_active_duplicates(
+    monkeypatch, tmp_path: Path
+):
+    provisions = tmp_path / "provisions" / "uk" / "regulation"
+    provisions.mkdir(parents=True)
+    citation_path = "uk/regulation/uksi/2013/376/22"
+    for version, body in (("release-a", "active A"), ("release-b", "active B")):
+        (provisions / f"{version}.jsonl").write_text(
+            json.dumps(
+                {
+                    "id": f"row-{version}",
+                    "citation_path": citation_path,
+                    "body": body,
+                    "version": version,
+                    "jurisdiction": "uk",
+                    "document_class": "regulation",
+                    "source_path": f"sources/uk/regulation/{version}.xml",
+                    "source_as_of": "2026-01-01",
+                    "expression_date": "2026-01-01",
+                }
+            )
+            + "\n"
+        )
+    selector = tmp_path / "manifests" / "releases" / "current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "uk",
+                        "document_class": "regulation",
+                        "version": version,
+                    }
+                    for version in ("release-a", "release-b")
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
+
+    with pytest.raises(AmbiguousCorpusSourceError):
+        validator_pipeline._fetch_local_corpus_source_text(citation_path)
+
+
+def test_supabase_source_text_wrapper_delegates_to_shared_resolver(monkeypatch):
+    citation_path = "us/statute/26/24"
+    observed: dict[str, object] = {}
+
+    class Resolved:
+        body = "Shared resolver body"
+
+    def fake_resolver(identifier, **kwargs):
+        observed["identifier"] = identifier
+        observed.update(kwargs)
+        return Resolved()
+
+    monkeypatch.setattr(
+        validator_pipeline,
+        "resolve_supabase_corpus_source",
+        fake_resolver,
+    )
 
     assert (
-        validator_pipeline._fetch_local_corpus_source_text(
-            "uk/regulation/uksi/2013/376/22"
-        )
-        == "Newer official text says £710.00."
+        validator_pipeline._fetch_supabase_corpus_source_text(citation_path)
+        == "Shared resolver body"
     )
+    assert observed["identifier"] == citation_path
+    assert observed["supabase_url"] == validator_pipeline.DEFAULT_AXIOM_SUPABASE_URL
+    assert observed["anon_key"] == validator_pipeline.DEFAULT_AXIOM_SUPABASE_ANON_KEY
+
+
+def test_corpus_source_text_reresolves_supabase_on_every_lookup(monkeypatch):
+    citation_path = "us/statute/26/24"
+    bodies = iter(("Old remote body", "New remote body"))
+    resolved_identifiers: list[str] = []
+
+    class Resolved:
+        def __init__(self, body: str):
+            self.body = body
+
+    def fake_resolver(identifier, **_kwargs):
+        resolved_identifiers.append(identifier)
+        return Resolved(next(bodies))
+
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_local_corpus_source_text",
+        lambda _citation_path: None,
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "resolve_supabase_corpus_source",
+        fake_resolver,
+    )
+
+    assert validator_pipeline._fetch_corpus_source_text(citation_path) == (
+        "Old remote body"
+    )
+    assert validator_pipeline._fetch_corpus_source_text(citation_path) == (
+        "New remote body"
+    )
+    assert resolved_identifiers == [citation_path, citation_path]
 
 
 def test_source_verification_rejects_source_value_mismatch():

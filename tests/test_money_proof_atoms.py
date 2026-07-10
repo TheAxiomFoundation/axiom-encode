@@ -392,6 +392,199 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _write_active_corpus(root: Path, bodies: list[str]) -> Path:
+    selector = root / "manifests" / "releases" / "current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "be",
+                        "document_class": "statute",
+                        "version": "v1",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    provision = root / "data/corpus/provisions/be/statute/v1.jsonl"
+    provision.parent.mkdir(parents=True)
+    rows = [
+        {
+            "id": f"be-x-{index}",
+            "citation_path": "be/statute/x",
+            "body": body,
+            "jurisdiction": "be",
+            "document_class": "statute",
+            "version": "v1",
+            "source_path": f"sources/be-x-{index}.xml",
+            "source_as_of": "2026-01-01",
+            "expression_date": "2026-01-01",
+        }
+        for index, body in enumerate(bodies, start=1)
+    ]
+    provision.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    return root
+
+
+def _write_corpus_claim(root: Path, *, quote: str) -> None:
+    claims = root / "data/corpus/claims/be/claims.jsonl"
+    claims.parent.mkdir(parents=True, exist_ok=True)
+    claims.write_text(
+        json.dumps(
+            {
+                "id": "claim.test",
+                "status": "accepted",
+                "kind": "sets",
+                "subject": {"id": "be:statutes/x", "type": "legal"},
+                "evidence": [
+                    {
+                        "corpus_citation_path": "be/statute/x",
+                        "quote": quote,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _claim_backed_proof_content() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: be/statute/x
+  source_claims:
+    - claim.test
+rules:
+  - name: benefit_amount
+    kind: parameter
+    dtype: Money
+    unit: EUR
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            claim:
+              id: claim.test
+    versions:
+      - effective_from: '2025-01-01'
+        formula: |-
+          186.51
+"""
+
+
+def test_cli_proof_validate_rejects_excerpt_absent_from_active_source(tmp_path):
+    corpus = _write_active_corpus(
+        tmp_path / "axiom-corpus",
+        ["The benefit amount is 186.51."],
+    )
+    content = MONEY_PARAM_WITH_ATOM.replace(
+        "              corpus_citation_path: be/statute/x",
+        "              corpus_citation_path: be/statute/x\n"
+        "              excerpt: This text was invented.",
+    )
+    module = _write(tmp_path / "be" / "x.yaml", content)
+
+    result = _run_cli(
+        "proof-validate",
+        str(module),
+        "--corpus-path",
+        str(corpus),
+    )
+
+    assert result.returncode == 1
+    assert "source.excerpt" in result.stdout
+    assert "does not appear" in result.stdout
+
+
+def test_cli_proof_validate_rejects_ambiguous_active_source(tmp_path):
+    corpus = _write_active_corpus(
+        tmp_path / "axiom-corpus",
+        ["first active body", "second active body"],
+    )
+    module = _write(tmp_path / "be" / "x.yaml", MONEY_PARAM_WITH_ATOM)
+
+    result = _run_cli(
+        "proof-validate",
+        str(module),
+        "--corpus-root",
+        str(corpus),
+    )
+
+    assert result.returncode == 1
+    assert "Proof source unresolved" in result.stdout
+    assert "AmbiguousCorpusSourceError" in result.stdout
+
+
+def test_cli_proof_validate_binds_claim_lookup_to_explicit_corpus(
+    tmp_path,
+    monkeypatch,
+):
+    explicit_corpus = _write_active_corpus(
+        tmp_path / "explicit-corpus",
+        ["EXPLICIT BODY WITHOUT CLAIM QUOTE"],
+    )
+    ambient_corpus = _write_active_corpus(
+        tmp_path / "ambient-corpus",
+        ["AMBIENT QUOTE"],
+    )
+    _write_corpus_claim(ambient_corpus, quote="AMBIENT QUOTE")
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(ambient_corpus))
+    module = _write(tmp_path / "be" / "x.yaml", _claim_backed_proof_content())
+
+    result = _run_cli(
+        "proof-validate",
+        str(module),
+        "--corpus-path",
+        str(explicit_corpus),
+    )
+
+    assert result.returncode == 1
+    assert "Source claim missing" in result.stdout
+    assert "claim.test" in result.stdout
+
+
+def test_cli_proof_validate_binds_claim_quote_to_explicit_corpus(
+    tmp_path,
+    monkeypatch,
+):
+    explicit_corpus = _write_active_corpus(
+        tmp_path / "explicit-corpus",
+        ["EXPLICIT BODY WITHOUT CLAIM QUOTE"],
+    )
+    _write_corpus_claim(explicit_corpus, quote="AMBIENT QUOTE")
+    ambient_corpus = _write_active_corpus(
+        tmp_path / "ambient-corpus",
+        ["AMBIENT QUOTE"],
+    )
+    _write_corpus_claim(ambient_corpus, quote="AMBIENT QUOTE")
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(ambient_corpus))
+    module = _write(tmp_path / "be" / "x.yaml", _claim_backed_proof_content())
+
+    result = _run_cli(
+        "proof-validate",
+        str(module),
+        "--corpus-path",
+        str(explicit_corpus),
+    )
+
+    assert result.returncode == 1
+    assert "Source claim quote not found" in result.stdout
+    assert "claim.test" in result.stdout
+
+
 def test_cli_require_money_atoms_fails_without_ratchet(tmp_path):
     module = _write(tmp_path / "be" / "x.yaml", MONEY_PARAM_ATOM_LESS)
 
@@ -424,6 +617,23 @@ def test_cli_require_money_atoms_passes_with_seed_ratchet(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "within ratchet allowance" in result.stdout
+
+
+def test_cli_proof_validate_allows_corpus_free_rulespec_with_missing_root(tmp_path):
+    module = _write(
+        tmp_path / "be" / "x.yaml",
+        "format: rulespec/v1\nrules: []\n",
+    )
+
+    result = _run_cli(
+        "proof-validate",
+        str(module),
+        "--corpus-path",
+        str(tmp_path / "missing-corpus"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Result: ✓ PASSED" in result.stdout
 
 
 def test_cli_emit_ratchet_round_trips(tmp_path):

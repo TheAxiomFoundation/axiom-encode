@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
 import requests
 import yaml
 
+from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.codex_cli import resolve_codex_cli
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
@@ -66,14 +67,12 @@ from .eval_prompt_surface import (
 from .observability import emit_eval_result, extract_reasoning_output_tokens
 from .pricing import estimate_usage_cost_usd
 from .validator_pipeline import (
+    DEFAULT_AXIOM_SUPABASE_ANON_KEY,
+    DEFAULT_AXIOM_SUPABASE_URL,
     ValidationResult,
     ValidatorPipeline,
     _authoritative_corpus_scope,
-    _candidate_local_corpus_provision_files,
-    _fetch_supabase_corpus_source_text,
-    _local_corpus_record_text,
     _parse_rulespec_target,
-    _read_local_corpus_provision_file,
     _resolve_rulespec_target_file,
     _source_text_looks_like_table,
     extract_embedded_source_text,
@@ -744,6 +743,7 @@ class CorpusSourceUnit:
     citation_path: str
     body: str
     source: Literal["local", "supabase"]
+    source_attestation: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -796,6 +796,7 @@ class EvalResult:
     metrics: EvalArtifactMetrics | None
     generation_prompt_sha256: str | None = None
     retry_count: int = 0
+    source_attestation: dict[str, object] | None = None
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -915,9 +916,14 @@ def run_model_eval(
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     results: list[EvalResult] = []
+    runners = [parse_runner_spec(spec) for spec in runner_specs]
+    resolved_sources = [
+        (citation, resolve_corpus_source_unit(citation, corpus_path))
+        for citation in citations
+    ]
 
-    for runner in [parse_runner_spec(spec) for spec in runner_specs]:
-        for citation in citations:
+    for runner in runners:
+        for citation, source_unit in resolved_sources:
             results.append(
                 _run_single_eval(
                     citation=citation,
@@ -931,6 +937,7 @@ def run_model_eval(
                     include_tests=include_tests,
                     skip_reviewers=skip_reviewers,
                     policyengine_rule_hint=policyengine_rule_hint,
+                    source_unit=source_unit,
                 )
             )
 
@@ -1123,6 +1130,28 @@ def _source_metadata_with_continuations(
         metadata["corpus_citation_paths"] = deduped_paths
     metadata["primary_source_continuations"] = continuation_records
     return metadata
+
+
+def _source_metadata_with_attestation(
+    source_metadata_payload: dict[str, object],
+    source_unit: CorpusSourceUnit,
+) -> dict[str, object]:
+    """Attach the resolver-owned source binding without trusting model output."""
+
+    metadata = dict(source_metadata_payload)
+    source_attestation = getattr(source_unit, "source_attestation", None)
+    if isinstance(source_attestation, dict):
+        metadata["source_attestation"] = dict(source_attestation)
+    return metadata
+
+
+def _source_metadata_attestation(
+    source_metadata_payload: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if not isinstance(source_metadata_payload, dict):
+        return None
+    attestation = source_metadata_payload.get("source_attestation")
+    return dict(attestation) if isinstance(attestation, dict) else None
 
 
 def _source_metadata_citation_paths(
@@ -1398,11 +1427,14 @@ def run_eval_suite(
                             source_unit.citation_path,
                             axiom_rules_path,
                         )
-                        source_metadata_payload = {
-                            "corpus_citation_path": source_unit.citation_path,
-                            "corpus_source": source_unit.source,
-                            "requested_source": source_unit.requested,
-                        }
+                        source_metadata_payload = _source_metadata_with_attestation(
+                            {
+                                "corpus_citation_path": source_unit.citation_path,
+                                "corpus_source": source_unit.source,
+                                "requested_source": source_unit.requested,
+                            },
+                            source_unit,
+                        )
                         case_results = run_source_eval(
                             source_id=case.source_id or case.name,
                             source_text=source_text,
@@ -1728,6 +1760,11 @@ def _eval_result_from_payload(payload: dict) -> EvalResult:
         unexpected_accesses=list(payload.get("unexpected_accesses") or []),
         metrics=metrics,
         retry_count=int(payload.get("retry_count", 0) or 0),
+        source_attestation=(
+            dict(payload["source_attestation"])
+            if isinstance(payload.get("source_attestation"), dict)
+            else None
+        ),
     )
 
 
@@ -2284,6 +2321,7 @@ def resolve_corpus_source_unit(
     corpus_path: Path,
     *,
     local_only: bool = False,
+    require_release: bool = True,
 ) -> CorpusSourceUnit:
     """Resolve an encode target to normalized corpus.provisions text.
 
@@ -2292,39 +2330,36 @@ def resolve_corpus_source_unit(
     resolver falls back to the nearest available section-level corpus provision
     and slices that body to the requested fragment when the parent text carries
     structural markers such as ``(a)``, ``(2)``, or ``(C)``.
+
+    Production resolution requires the current release selector.  The explicit
+    ``require_release=False`` option is retained for legacy fixture callers.
     """
     candidates = _candidate_corpus_citation_paths(identifier)
-    primary = candidates[0] if candidates else ""
     for citation_path in candidates:
         local_text = _fetch_local_corpus_source_text_from_repo(
             citation_path,
             corpus_path,
+            require_release=require_release,
         )
         if local_text is not None:
-            body = _slice_parent_corpus_text_for_requested_path(
-                local_text,
-                requested_path=primary,
-                resolved_path=citation_path,
-            )
+            resolved = local_text.resolved_source
             return CorpusSourceUnit(
                 requested=identifier,
-                citation_path=citation_path,
-                body=body,
-                source="local",
+                citation_path=resolved.citation_path,
+                body=resolved.body,
+                source=resolved.source,
+                source_attestation=resolved.to_attestation(),
             )
         if not local_only:
             supabase_text = _fetch_supabase_corpus_source_text(citation_path)
             if supabase_text is not None:
-                body = _slice_parent_corpus_text_for_requested_path(
-                    supabase_text,
-                    requested_path=primary,
-                    resolved_path=citation_path,
-                )
+                resolved = supabase_text.resolved_source
                 return CorpusSourceUnit(
                     requested=identifier,
-                    citation_path=citation_path,
-                    body=body,
-                    source="supabase",
+                    citation_path=resolved.citation_path,
+                    body=resolved.body,
+                    source=resolved.source,
+                    source_attestation=resolved.to_attestation(),
                 )
 
     candidates = ", ".join(_candidate_corpus_citation_paths(identifier)[:4])
@@ -2332,218 +2367,6 @@ def resolve_corpus_source_unit(
     raise ValueError(
         f"No {scope} source text found for {identifier!r}. Tried: {candidates}"
     )
-
-
-def _slice_parent_corpus_text_for_requested_path(
-    text: str,
-    *,
-    requested_path: str,
-    resolved_path: str,
-) -> str:
-    """Slice section-granular source text to the requested child fragment."""
-    requested_parts = requested_path.strip("/").split("/")
-    resolved_parts = resolved_path.strip("/").split("/")
-    if (
-        len(requested_parts) <= len(resolved_parts)
-        or requested_parts[: len(resolved_parts)] != resolved_parts
-        or not _citation_path_supports_parenthetical_slicing(resolved_parts)
-    ):
-        return text
-    missing_fragments = tuple(requested_parts[len(resolved_parts) :])
-    if _corpus_citation_path_is_us_cfr(resolved_parts):
-        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
-            text,
-            list(missing_fragments),
-        )
-        if cfr_sliced is not None:
-            return cfr_sliced.strip()
-    sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
-    return sliced if sliced is not None else text
-
-
-def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
-    return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
-
-
-def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
-    return (
-        len(parts) >= 5
-        and parts[0] == "us"
-        and parts[1] == "regulation"
-        and parts[2].isdigit()
-    )
-
-
-def _slice_legal_text_by_parenthetical_fragments(
-    text: str,
-    fragments: tuple[str, ...],
-) -> str | None:
-    sliced = _slice_legal_text_by_parenthetical_fragments_from(
-        text,
-        fragments,
-        depth=0,
-    )
-    return sliced.strip() if sliced is not None else None
-
-
-def _slice_legal_text_by_parenthetical_fragments_from(
-    text: str,
-    fragments: tuple[str, ...],
-    *,
-    depth: int,
-) -> str | None:
-    if not fragments:
-        return text
-
-    fragment = fragments[0]
-    simple_slice = _slice_legal_text_by_parenthetical_fragment(
-        text,
-        fragment,
-        top_level=depth == 0,
-    )
-    if simple_slice is not None:
-        simple_result = _slice_legal_text_by_parenthetical_fragments_from(
-            simple_slice,
-            fragments[1:],
-            depth=depth + 1,
-        )
-        if simple_result is not None:
-            return simple_result
-
-    if len(fragments) >= 2:
-        combined = _combined_dotted_parenthetical_fragment(fragment, fragments[1])
-        if combined is not None:
-            combined_slice = _slice_legal_text_by_parenthetical_fragment(
-                text,
-                combined,
-                top_level=depth == 0,
-            )
-            if combined_slice is not None:
-                return _slice_legal_text_by_parenthetical_fragments_from(
-                    combined_slice,
-                    fragments[2:],
-                    depth=depth + 2,
-                )
-
-    return None
-
-
-def _combined_dotted_parenthetical_fragment(
-    fragment: str, next_fragment: str
-) -> str | None:
-    if not next_fragment.isdigit():
-        return None
-    if re.fullmatch(r"(?:[A-Za-z]|\d+)(?:\.\d+)*", fragment):
-        return f"{fragment}.{next_fragment}"
-    return None
-
-
-def _slice_legal_text_by_parenthetical_fragment(
-    text: str,
-    fragment: str,
-    *,
-    top_level: bool,
-) -> str | None:
-    escaped = re.escape(fragment)
-    if top_level:
-        marker_pattern = re.compile(rf"(?:^|\n\s*)(\[?\({escaped}\)\s+)")
-    else:
-        marker_pattern = re.compile(rf"(?<![A-Za-z0-9])(\({escaped}\)\s+)")
-    marker_match = next(
-        (
-            match
-            for match in marker_pattern.finditer(text)
-            if _parenthetical_marker_context_is_structural(text, match.start(1))
-        ),
-        None,
-    )
-    if marker_match is None:
-        return None
-
-    start = marker_match.start(1)
-    body_start = marker_match.end(1)
-    sibling_pattern = _sibling_parenthetical_marker_pattern(fragment, top_level)
-    end = len(text)
-    for sibling_match in sibling_pattern.finditer(text, body_start):
-        if sibling_match.start(
-            1
-        ) > start and _parenthetical_marker_context_is_structural(
-            text,
-            sibling_match.start(1),
-        ):
-            end = sibling_match.start(1)
-            break
-    return text[start:end]
-
-
-_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL = (
-    r"(?:paragraphs?|subparagraphs?|clauses?|subclauses?|sections?|"
-    r"subsections?|chapters?|titles?|parts?|items?|sentences?|regulations?)"
-)
-_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX = re.compile(
-    rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\s+$",
-    re.IGNORECASE,
-)
-
-
-def _parenthetical_marker_context_is_structural(text: str, marker_start: int) -> bool:
-    prefix = text[max(0, marker_start - 60) : marker_start]
-    previous = prefix.rstrip()[-1:] if prefix.rstrip() else ""
-    if previous == ")" and not re.search(
-        r"(?:^|\n)\s*\([A-Za-z0-9]+(?:\.[0-9]+)*\)\s+$",
-        prefix,
-    ):
-        return False
-    if _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix):
-        return False
-    return not _parenthetical_marker_is_in_reference_list(prefix)
-
-
-def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
-    segment = re.split(r"(?:[.;]\s+|\n+)", prefix)[-1]
-    if not re.search(
-        rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\b",
-        segment,
-        flags=re.IGNORECASE,
-    ):
-        return False
-    if not re.search(r"\([A-Za-z0-9]+\)", segment):
-        return False
-    return (
-        re.search(
-            r"(?:,\s*|\b(?:or|and|through|to)\s+|[-–—]\s*)$",
-            segment,
-            flags=re.IGNORECASE,
-        )
-        is not None
-    )
-
-
-def _sibling_parenthetical_marker_pattern(
-    fragment: str,
-    top_level: bool,
-) -> re.Pattern[str]:
-    if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
-        marker = _numeric_sibling_parenthetical_marker(fragment)
-    elif re.fullmatch(r"[A-Z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
-    elif re.fullmatch(r"[a-z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
-    elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
-        marker = (
-            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
-        )
-    elif len(fragment) == 1 and fragment.isalpha() and fragment.islower():
-        marker = (
-            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([a-z]\)"
-        )
-    elif re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE):
-        marker = r"\([ivxlcdm]+\)"
-    else:
-        marker = r"\([A-Za-z0-9]+\)"
-    if top_level:
-        return re.compile(rf"\n\s*(\[?{marker}\s+)")
-    return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
 
 
 def _numeric_sibling_parenthetical_marker(fragment: str) -> str:
@@ -2605,15 +2428,6 @@ def _same_stem_dotted_sibling_marker(stem: str, fragment: str) -> str:
         return rf"{escaped_stem}(?:\.[0-9]+)+"
     suffix = re.escape(fragment.split(".", 1)[1])
     return rf"{escaped_stem}\.(?!{suffix}(?:\.|\)))[0-9]+(?:\.[0-9]+)*"
-
-
-def _next_alpha_parenthetical_marker(fragment: str) -> str:
-    next_codepoint = ord(fragment) + 1
-    if fragment.islower() and next_codepoint <= ord("z"):
-        return rf"\({chr(next_codepoint)}\)"
-    if fragment.isupper() and next_codepoint <= ord("Z"):
-        return rf"\({chr(next_codepoint)}\)"
-    return r"\b\B"
 
 
 def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
@@ -2723,81 +2537,77 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
     }
 
 
+class _ResolvedCorpusText(str):
+    """String-compatible wrapper carrying the resolver result for attestation."""
+
+    resolved_source: _corpus_resolver.ResolvedCorpusSource
+
+    def __new__(
+        cls, resolved_source: _corpus_resolver.ResolvedCorpusSource
+    ) -> _ResolvedCorpusText:
+        value = super().__new__(cls, resolved_source.body)
+        value.resolved_source = resolved_source
+        return value
+
+
 def _fetch_local_corpus_source_text_from_repo(
     citation_path: str,
     corpus_path: Path,
-) -> str | None:
-    normalized_path = citation_path.strip().strip("/")
-    if not normalized_path:
-        return None
-    provisions_root = _corpus_provisions_root(corpus_path)
-    if provisions_root is None:
-        return None
-    for provision_file in _candidate_local_corpus_provision_files(
-        provisions_root,
-        normalized_path,
-    ):
-        source_text = _read_local_corpus_provision_file(
-            provision_file,
-            normalized_path,
-        )
-        if source_text is not None:
-            return source_text
-        source_text = _read_local_corpus_descendant_text(
-            provision_file,
-            normalized_path,
-        )
-        if source_text is not None:
-            return source_text
-    return None
+    *,
+    require_release: bool = True,
+) -> _ResolvedCorpusText | None:
+    """Resolve local source text through the selected corpus release.
 
-
-def _read_local_corpus_descendant_text(
-    provision_file: Path,
-    citation_path: str,
-) -> str | None:
-    """Read body-bearing child provisions for a metadata-only source document."""
+    Production callers require ``manifests/releases/current.json``.  The
+    explicit ``require_release=False`` escape hatch exists only for callers
+    reading legacy, unversioned fixtures.
+    """
     try:
-        lines = provision_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-
-    descendants: list[tuple[int, int, str, str, str]] = []
-    child_prefix = f"{citation_path}/"
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        record_path = str(record.get("citation_path") or "")
-        if not record_path.startswith(child_prefix):
-            continue
-        body = _local_corpus_record_text(record)
-        if body is None:
-            continue
-        descendants.append(
-            (
-                int(record.get("level") or 0),
-                int(record.get("ordinal") or 0),
-                str(record.get("heading") or ""),
-                record_path,
-                body,
-            )
+        resolved = _corpus_resolver.resolve_local_corpus_source(
+            citation_path,
+            corpus_path,
+            require_release=require_release,
         )
-
-    if not descendants:
+    except (
+        _corpus_resolver.CorpusSourceNotFoundError,
+        _corpus_resolver.InvalidCorpusCitationError,
+    ):
         return None
-    chunks: list[str] = []
-    for _, _, heading, _, body in sorted(descendants):
-        if heading:
-            chunks.append(f"{heading}\n\n{body}")
-        else:
-            chunks.append(body)
-    return "\n\n".join(chunks)
+    return _ResolvedCorpusText(resolved)
+
+
+def _resolve_supabase_corpus_source(
+    citation_path: str,
+) -> _corpus_resolver.ResolvedCorpusSource | None:
+    """Resolve one remote row while retaining its attested provenance."""
+
+    resolver = getattr(_corpus_resolver, "resolve_supabase_corpus_source", None)
+    if resolver is None:
+        return None
+    try:
+        return resolver(
+            citation_path,
+            supabase_url=os.environ.get(
+                "AXIOM_SUPABASE_URL",
+                DEFAULT_AXIOM_SUPABASE_URL,
+            ),
+            anon_key=(
+                os.environ.get("SUPABASE_ANON_KEY")
+                or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+                or DEFAULT_AXIOM_SUPABASE_ANON_KEY
+            ),
+        )
+    except _corpus_resolver.CorpusSourceNotFoundError:
+        return None
+
+
+def _fetch_supabase_corpus_source_text(
+    citation_path: str,
+) -> _ResolvedCorpusText | None:
+    """Compatibility wrapper for callers that only consume remote text."""
+
+    resolved = _resolve_supabase_corpus_source(citation_path)
+    return _ResolvedCorpusText(resolved) if resolved is not None else None
 
 
 def _corpus_provisions_root(corpus_path: Path) -> Path | None:
@@ -4251,8 +4061,10 @@ def _run_single_eval(
     include_tests: bool = False,
     skip_reviewers: bool = False,
     policyengine_rule_hint: str | None = None,
+    source_unit: CorpusSourceUnit | None = None,
 ) -> EvalResult:
-    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+    if source_unit is None:
+        source_unit = resolve_corpus_source_unit(citation, corpus_path)
     continuations = _primary_source_continuations_from_context_paths(
         extra_context_paths,
         policy_path,
@@ -4267,12 +4079,15 @@ def _run_single_eval(
     source_text = _append_primary_source_continuations(source_text, continuations)
     prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
     source_metadata_payload = _source_metadata_with_continuations(
-        {
-            "corpus_citation_path": prompt_corpus_citation_path,
-            "corpus_source": source_unit.source,
-            "requested_source": source_unit.requested,
-            "resolved_corpus_citation_path": source_unit.citation_path,
-        },
+        _source_metadata_with_attestation(
+            {
+                "corpus_citation_path": prompt_corpus_citation_path,
+                "corpus_source": source_unit.source,
+                "requested_source": source_unit.requested,
+                "resolved_corpus_citation_path": source_unit.citation_path,
+            },
+            source_unit,
+        ),
         continuations,
     )
 
@@ -4386,6 +4201,7 @@ def _run_single_eval(
         unexpected_accesses=response.unexpected_accesses,
         metrics=metrics,
         retry_count=retry_count,
+        source_attestation=source_unit.source_attestation,
     )
     emit_eval_result(result, response.trace)
     return result
@@ -4531,6 +4347,7 @@ def _run_single_source_eval(
         unexpected_accesses=response.unexpected_accesses,
         metrics=metrics,
         retry_count=retry_count,
+        source_attestation=_source_metadata_attestation(source_metadata_payload),
     )
     emit_eval_result(result, response.trace)
     return result

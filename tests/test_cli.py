@@ -20,6 +20,7 @@ import yaml
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
+    APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
@@ -28,9 +29,11 @@ from axiom_encode.cli import (
     _append_generated_judgment_positive_tests_if_missing,
     _append_generated_zero_branch_tests_if_missing,
     _applied_encoding_manifest_signature_issue,
+    _applied_manifest_source_attestation_issues,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
     _changed_manifest_group_files,
+    _cms_chip_fcep_sources_from_active_corpus_artifact,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -133,6 +136,7 @@ from axiom_encode.cli import (
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
+    _source_attestation_structure_issues,
     _source_relation_preservation_issues,
     _split_colorado_snap_program_utility_outputs,
     _split_table_row_relation_test_cases,
@@ -461,6 +465,114 @@ def _signed_manifest_payload(payload: dict) -> dict:
     return payload
 
 
+def _complete_source_attestation(
+    citation_path: str = "us/statute/26/1",
+    *,
+    source_sha256: str = "a" * 64,
+) -> dict[str, object]:
+    provision_file = "corpus/provisions/us/statute/2026.jsonl"
+    return {
+        "requested_corpus_citation_path": citation_path,
+        "resolved_corpus_citation_path": citation_path,
+        "corpus_source": "local",
+        "corpus_release": "current",
+        "corpus_release_selector_sha256": "b" * 64,
+        "provision_file": provision_file,
+        "provision_file_sha256": "c" * 64,
+        "row": {
+            "provision_file": provision_file,
+            "provision_file_sha256": "c" * 64,
+            "line_number": 17,
+            "record_id": "26-usc-1",
+            "citation_path": citation_path,
+            "jurisdiction": "us",
+            "document_class": "statute",
+            "version": "2026",
+            "source_path": "sources/26-usc-1.xml",
+            "source_as_of": "2026-01-01",
+            "expression_date": "2026-01-01",
+            "body_sha256": source_sha256,
+        },
+        "component_rows": [],
+        "source_sha256": source_sha256,
+        "resolver_text_sha256": source_sha256,
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+    }
+
+
+def _write_legacy_model_manifest(
+    repo: Path,
+    *,
+    rule_rel: str = "statutes/26/1.yaml",
+) -> tuple[Path, Path]:
+    """Write the signed pre-attestation v1 shape used by compatibility tests."""
+
+    rule = repo / rule_rel
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text(
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules: []
+"""
+    )
+    manifest = repo / ".axiom/encoding-manifests" / Path(rule_rel).with_suffix(".json")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            _signed_manifest_payload(
+                {
+                    "schema_version": APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
+                    "generated_at": "2026-07-01T00:00:00+00:00",
+                    "axiom_encode_version": "0.2.1190",
+                    "backend": "codex",
+                    "model": "gpt-5.5",
+                    "applied_files": [{"path": rule_rel, "sha256": _sha256_file(rule)}],
+                }
+            )
+        )
+        + "\n"
+    )
+    return rule, manifest
+
+
+def test_source_attestation_requires_concrete_remote_artifact_identity():
+    attestation = _complete_source_attestation()
+    attestation["corpus_source"] = "supabase"
+    attestation["provision_file_sha256"] = None
+    row = attestation["row"]
+    assert isinstance(row, dict)
+    row["provision_file_sha256"] = None
+    row["line_number"] = 0
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any("provision_file_sha256" in issue for issue in issues)
+    assert any("line_number must be a positive integer" in issue for issue in issues)
+
+
+def test_composed_source_attestation_requires_component_artifact_identity():
+    attestation = _complete_source_attestation()
+    row = attestation["row"]
+    assert isinstance(row, dict)
+    row["body_sha256"] = None
+    attestation["component_rows"] = [
+        {
+            **row,
+            "record_id": "26-usc-1-a",
+            "citation_path": "us/statute/26/1/a",
+            "body_sha256": "d" * 64,
+            "provision_file_sha256": None,
+        }
+    ]
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any("component_rows[0].provision_file_sha256" in issue for issue in issues)
+
+
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -475,6 +587,61 @@ def _init_test_git_repo(repo: Path) -> None:
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test User")
+
+
+def _write_active_corpus_row(
+    corpus_root: Path,
+    citation_path: str,
+    body: str,
+    *,
+    filename: str = "test.jsonl",
+    version: str = "test-release",
+) -> Path:
+    jurisdiction, document_class, *_rest = citation_path.split("/")
+    provision_file = (
+        corpus_root
+        / "data/corpus/provisions"
+        / jurisdiction
+        / document_class
+        / filename
+    )
+    provision_file.parent.mkdir(parents=True, exist_ok=True)
+    provision_file.write_text(
+        json.dumps(
+            {
+                "id": f"test:{citation_path}",
+                "citation_path": citation_path,
+                "body": body,
+                "jurisdiction": jurisdiction,
+                "document_class": document_class,
+                "version": version,
+                "source_path": f"sources/{jurisdiction}/{document_class}/test",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selector = corpus_root / "manifests/releases/current.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": jurisdiction,
+                        "document_class": document_class,
+                        "version": version,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return provision_file
 
 
 def _write_test_encoder_version(repo: Path, version: str) -> None:
@@ -4103,6 +4270,7 @@ class TestCmdEncode:
         result.output_file = "/tmp/out.yaml"
         result.trace_file = "/tmp/trace.json"
         result.context_manifest_file = "/tmp/context.json"
+        result.source_attestation = _complete_source_attestation()
         return result
 
     def _run_encode(self, args, result):
@@ -4610,6 +4778,356 @@ class TestCmdEncode:
                 "sha256": _sha256_file(target_test),
             },
         ]
+
+    def test_apply_stamps_and_signs_complete_source_attestation(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/statute/26/1
+    source_sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+rules: []
+"""
+        )
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = _complete_source_attestation()
+        result.source_attestation["resolved_text_sha256"] = (
+            result.source_attestation.pop("resolver_text_sha256")
+        )
+        result.generation_prompt_sha256 = None
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        target = policy_repo / "statutes/26/1.yaml"
+        stamped_verification = yaml.safe_load(target.read_text())["module"][
+            "source_verification"
+        ]
+        assert stamped_verification["source_sha256"] == "a" * 64
+        assert stamped_verification["corpus_citation_path"] == "us/statute/26/1"
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest_payload = json.loads(manifest.read_text())
+        manifest_attestation = manifest_payload["source_attestation"]
+        assert manifest_attestation["resolver_text_sha256"] == "a" * 64
+        assert "resolved_text_sha256" not in manifest_attestation
+        assert (
+            _applied_encoding_manifest_signature_issue(
+                manifest_payload, TEST_APPLY_SIGNING_KEY
+            )
+            is None
+        )
+
+        manifest_payload["source_attestation"]["source_sha256"] = "e" * 64
+        assert (
+            _applied_encoding_manifest_signature_issue(
+                manifest_payload, TEST_APPLY_SIGNING_KEY
+            )
+            == "has an invalid encoder apply manifest signature"
+        )
+
+    def test_apply_rejects_source_verifying_model_result_without_attestation(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules: []
+"""
+        )
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = None
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match="without resolver source_attestation"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        assert not (policy_repo / "statutes/26/1.yaml").exists()
+
+    def test_apply_rejects_model_result_without_any_source_provenance(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = None
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match="without resolver source_attestation"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        assert not (policy_repo / "statutes/26/1.yaml").exists()
+
+    def test_apply_rejects_unattested_continuation_source_path(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/statute/26/1
+      - us/statute/26/2
+rules: []
+"""
+        )
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = _complete_source_attestation()
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match="us/statute/26/2"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        assert not (policy_repo / "statutes/26/1.yaml").exists()
+
+    def test_apply_rejects_supplemental_rulespec_with_different_source_pin(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules: []
+"""
+        )
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = _complete_source_attestation()
+        supplemental = {
+            Path("statutes/26/2.yaml"): f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/2
+    source_sha256: {"d" * 64}
+rules: []
+"""
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(
+                RuntimeError,
+                match="supplemental source-verifying RuleSpec.*statutes/26/2.yaml",
+            ),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                supplemental_files=supplemental,
+            )
+
+        assert not (policy_repo / "statutes/26/1.yaml").exists()
+        assert not (policy_repo / "statutes/26/2.yaml").exists()
+
+    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize(
+        ("supplemental_content", "expected_issue"),
+        [
+            ("format: rulespec/v1\nmodule: [\n", "is not valid YAML"),
+            ("- not-a-rulespec\n", "must be a RuleSpec YAML mapping"),
+            (
+                "format: unrelated/v1\nmodule: {}\nrules: []\n",
+                "must declare format: rulespec/v1",
+            ),
+            (
+                "format: rulespec/v1\nmodule: {}\nrules: []\n",
+                "is missing module.source_verification",
+            ),
+        ],
+    )
+    def test_apply_rejects_unverifiable_supplemental_rulespec_before_writes(
+        self,
+        tmp_path,
+        suffix,
+        supplemental_content,
+        expected_issue,
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        original_generated = generated.read_text()
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.source_attestation = _complete_source_attestation()
+        supplemental_path = Path(f"statutes/26/2{suffix}")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match=expected_issue),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                supplemental_files={supplemental_path: supplemental_content},
+            )
+
+        assert generated.read_text() == original_generated
+        assert not (policy_repo / "statutes/26/1.yaml").exists()
+        assert not (policy_repo / supplemental_path).exists()
 
     def test_apply_generated_encoding_routes_country_monorepo_root(self, tmp_path):
         output_root = tmp_path / "out"
@@ -11926,10 +12444,16 @@ rules:
         _git(policy_repo, "add", ".")
         _git(policy_repo, "commit", "-m", "initial")
 
-        fcep_corpus_jsonl = tmp_path / "cms-chip-fcep.jsonl"
+        corpus_repo = tmp_path / "axiom-corpus"
+        fcep_version = "2024-01-01-cms-chip-spa"
+        fcep_corpus_jsonl = (
+            corpus_repo / "data/corpus/provisions/us/policy/2024-cms-chip-fcep.jsonl"
+        )
+        fcep_corpus_jsonl.parent.mkdir(parents=True)
         fcep_corpus_jsonl.write_text(
             json.dumps(
                 {
+                    "id": "co-24-0001-summary-block-1",
                     "body": (
                         "Through this SPA, Colorado extends CHIP eligibility "
                         "for children from conception to birth with family "
@@ -11941,10 +12465,33 @@ rules:
                         "us/policy/cms/chip-spa/co/co-24-0001/summary/block-1"
                     ),
                     "expression_date": "2024-01-01",
+                    "jurisdiction": "us",
                     "metadata": {
                         "effective_date": "2024-01-01",
                         "state_abbr": "CO",
                     },
+                    "document_class": "policy",
+                    "source_as_of": "2024-01-02",
+                    "source_path": "sources/us/policy/cms/chip-spa/co-24-0001.pdf",
+                    "version": fcep_version,
+                }
+            )
+            + "\n"
+        )
+        release_selector = corpus_repo / "manifests/releases/current.json"
+        release_selector.parent.mkdir(parents=True)
+        release_selector.write_text(
+            json.dumps(
+                {
+                    "description": "test active corpus scopes",
+                    "name": "current",
+                    "scopes": [
+                        {
+                            "document_class": "policy",
+                            "jurisdiction": "us",
+                            "version": fcep_version,
+                        }
+                    ],
                 }
             )
             + "\n"
@@ -12078,6 +12625,24 @@ rules:
             "us-co/policies/cms/colorado-chip-eligibility.yaml",
             "us-co/policies/cms/colorado-chip-eligibility.test.yaml",
         ]
+
+    def test_cms_chip_fcep_rejects_unreleased_standalone_jsonl(self, tmp_path):
+        standalone_jsonl = tmp_path / "cms-chip-fcep.jsonl"
+        standalone_jsonl.write_text("{}\n")
+
+        with pytest.raises(RuntimeError, match="direct JSONL child"):
+            _cms_chip_fcep_sources_from_active_corpus_artifact(standalone_jsonl)
+
+    def test_cms_chip_fcep_requires_active_release_selector(self, tmp_path):
+        artifact = (
+            tmp_path
+            / "axiom-corpus/data/corpus/provisions/us/policy/cms-chip-fcep.jsonl"
+        )
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("{}\n")
+
+        with pytest.raises(RuntimeError, match="Could not resolve active"):
+            _cms_chip_fcep_sources_from_active_corpus_artifact(artifact)
 
     def test_generate_cms_chip_composition_keeps_unavailable_pregnant_path_false(
         self, tmp_path
@@ -21545,29 +22110,12 @@ imports:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
         rules_file.parent.mkdir(parents=True)
         rules_repo = tmp_path / "rulespec-us"
-        corpus_file = (
-            tmp_path
-            / "axiom-corpus"
-            / "data"
-            / "corpus"
-            / "provisions"
-            / "us"
-            / "statute"
-            / "2026-06-29-medicaid.jsonl"
-        )
-        corpus_file.parent.mkdir(parents=True)
-        corpus_file.write_text(
-            json.dumps(
-                {
-                    "citation_path": "us/statute/42/1396a/xx",
-                    "body": (
-                        "Beginning in 2027, a State shall verify that an "
-                        "individual has completed not less than 80 hours of "
-                        "community engagement activities."
-                    ),
-                }
-            )
-            + "\n"
+        _write_active_corpus_row(
+            tmp_path / "axiom-corpus",
+            "us/statute/42/1396a/xx",
+            "Beginning in 2027, a State shall verify that an individual has "
+            "completed not less than 80 hours of community engagement activities.",
+            filename="2026-06-29-medicaid.jsonl",
         )
         rules_file.write_text(
             """format: rulespec/v1
@@ -21689,25 +22237,11 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
         rules_file.parent.mkdir(parents=True)
         rules_repo = tmp_path / "rulespec-us"
-        corpus_file = (
-            tmp_path
-            / "axiom-corpus"
-            / "data"
-            / "corpus"
-            / "provisions"
-            / "us"
-            / "statute"
-            / "2026-06-29-medicaid.jsonl"
-        )
-        corpus_file.parent.mkdir(parents=True)
-        corpus_file.write_text(
-            json.dumps(
-                {
-                    "citation_path": "us/statute/42/1396a/xx",
-                    "body": "A State shall verify community engagement.",
-                }
-            )
-            + "\n"
+        _write_active_corpus_row(
+            tmp_path / "axiom-corpus",
+            "us/statute/42/1396a/xx",
+            "A State shall verify community engagement.",
+            filename="2026-06-29-medicaid.jsonl",
         )
         rules_file.write_text(
             """format: rulespec/v1
@@ -24058,6 +24592,512 @@ class TestGuardGenerated:
             )
 
         assert issues == []
+
+    def test_accepts_model_manifest_with_complete_matching_source_attestation(
+        self, tmp_path
+    ):
+        rule = tmp_path / "statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {"a" * 64}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": _complete_source_attestation(),
+                "applied_files": [
+                    {
+                        "path": "statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert issues == []
+
+    def test_rejects_model_manifest_missing_required_source_attestation(self, tmp_path):
+        rule = tmp_path / "statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {"a" * 64}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "applied_files": [
+                    {
+                        "path": "statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    def test_all_mode_accepts_unchanged_historical_model_manifest_without_attestation(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        _write_legacy_model_manifest(repo)
+        _git(repo, "add", ".")
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
+                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
+            },
+        ):
+            _git(repo, "commit", "-m", "historical encoder output")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                repo,
+                roots=("statutes",),
+                all_files=True,
+            )
+
+        assert issues == []
+
+    def test_all_mode_rejects_changed_historical_manifest_without_attestation(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        _rule, manifest = _write_legacy_model_manifest(repo)
+        _git(repo, "add", ".")
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
+                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
+            },
+        ):
+            _git(repo, "commit", "-m", "historical encoder output")
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "newly-resigned-model"
+        manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                repo,
+                roots=("statutes",),
+                all_files=True,
+            )
+
+        assert any("missing a lowercase source_sha256 pin" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    def test_all_mode_rejects_newly_committed_v1_shape_without_attestation(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        (repo / "README.md").write_text("baseline\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "baseline")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _write_legacy_model_manifest(repo)
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "new manifest with historical shape")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues_without_base = guard_generated_change_issues(
+                repo,
+                roots=("statutes",),
+                all_files=True,
+            )
+            issues_since_base = guard_generated_change_issues(
+                repo,
+                base_ref=base_ref,
+                roots=("statutes",),
+                all_files=True,
+            )
+
+        assert any(
+            "is missing source_attestation" in issue for issue in issues_without_base
+        )
+        assert any(
+            "is missing source_attestation" in issue for issue in issues_since_base
+        )
+
+    def test_rejects_model_manifest_missing_source_pin_and_attestation(self, tmp_path):
+        rule = tmp_path / "statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "applied_files": [
+                    {
+                        "path": "statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("missing a lowercase source_sha256 pin" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    def test_rejects_model_manifest_without_source_verification_or_attestation(
+        self, tmp_path, suffix
+    ):
+        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "applied_files": [
+                    {
+                        "path": f"statutes/26/1{suffix}",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    f"statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("is missing module.source_verification" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize(
+        ("content", "expected_issue"),
+        [
+            ("format: rulespec/v1\nmodule: [\n", "is not valid YAML"),
+            ("- not-a-rulespec\n", "must be a YAML mapping"),
+            (
+                "format: unrelated/v1\nmodule: {}\nrules: []\n",
+                "must declare format: rulespec/v1",
+            ),
+        ],
+    )
+    def test_rejects_model_manifest_with_unparseable_or_nonmapping_rulespec(
+        self,
+        tmp_path,
+        suffix,
+        content,
+        expected_issue,
+    ):
+        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(content)
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "applied_files": [
+                    {
+                        "path": f"statutes/26/1{suffix}",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    f"statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any(expected_issue in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    def test_rejects_model_manifest_with_missing_covered_rulespec(
+        self, tmp_path, suffix
+    ):
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "applied_files": [
+                    {
+                        "path": f"statutes/26/1{suffix}",
+                        "sha256": "a" * 64,
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    f"statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("is missing or is not a regular file" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    def test_rejects_model_manifest_with_unreadable_covered_rulespec(
+        self, tmp_path, suffix
+    ):
+        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "backend": "codex",
+            "applied_files": [
+                {
+                    "path": f"statutes/26/1{suffix}",
+                    "sha256": _sha256_file(rule),
+                }
+            ],
+        }
+
+        with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+            issues = _applied_manifest_source_attestation_issues(
+                payload,
+                repo_path=tmp_path,
+                root_prefix="",
+                manifest_label=".axiom/encoding-manifests/statutes/26/1.json",
+            )
+
+        assert any("cannot be read: permission denied" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
+    def test_rejects_model_manifest_with_unattested_continuation_path(self, tmp_path):
+        rule = tmp_path / "statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    corpus_citation_paths:
+      - us/statute/26/1
+      - us/statute/26/2
+    source_sha256: {"a" * 64}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "openai",
+                "source_attestation": _complete_source_attestation(),
+                "applied_files": [
+                    {
+                        "path": "statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("path(s) not bound" in issue for issue in issues)
+        assert any("us/statute/26/2" in issue for issue in issues)
+
+    def test_rejects_manifest_source_attestation_hash_or_path_mismatch(self, tmp_path):
+        rule = tmp_path / "statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/2
+    source_sha256: {"d" * 64}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "openai",
+                "source_attestation": _complete_source_attestation(),
+                "applied_files": [
+                    {
+                        "path": "statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/statutes/26/1.json",
+                ],
+            )
+
+        assert any("source_sha256 does not match" in issue for issue in issues)
+        assert any("corpus path(s) not bound" in issue for issue in issues)
+
+    def test_rejects_incomplete_attestation_claimed_by_manual_manifest(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "manual",
+                "source_attestation": {"source_sha256": "a" * 64},
+                "applied_files": [
+                    {
+                        "path": "regulations/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert any("has invalid source_attestation" in issue for issue in issues)
 
     def test_accepts_monorepo_rulespec_change_with_nested_encoder_manifest(
         self, tmp_path
@@ -29560,6 +30600,75 @@ rules:
         with pytest.raises(
             RuntimeError,
             match="Refusing to overwrite existing RuleSpec dependency files",
+        ):
+            _ensure_generated_dependency_files_safe(
+                repo,
+                generated_files={
+                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
+                },
+            )
+
+    def test_generated_dependency_guard_accepts_unchanged_historical_manifest(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        target, _manifest = _write_legacy_model_manifest(
+            repo,
+            rule_rel="statutes/26/931.yaml",
+        )
+        _git(repo, "add", ".")
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
+                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
+            },
+        ):
+            _git(repo, "commit", "-m", "historical encoder dependency")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            _ensure_generated_dependency_files_safe(
+                repo,
+                generated_files={
+                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
+                },
+            )
+
+    def test_generated_dependency_guard_rejects_changed_historical_manifest(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        target, manifest = _write_legacy_model_manifest(
+            repo,
+            rule_rel="statutes/26/931.yaml",
+        )
+        _git(repo, "add", ".")
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
+                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
+            },
+        ):
+            _git(repo, "commit", "-m", "historical encoder dependency")
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "newly-resigned-model"
+        manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(
+                RuntimeError,
+                match="Refusing to overwrite existing RuleSpec dependency files",
+            ),
         ):
             _ensure_generated_dependency_files_safe(
                 repo,
@@ -35230,6 +36339,16 @@ class TestManualExceptionGate:
         content=None,
         backend="manual",
     ) -> None:
+        normalized_backend = backend.lower() if isinstance(backend, str) else ""
+        encoder_backends = {"codex", "openai", "claude"}
+        if content is None and normalized_backend in encoder_backends:
+            content = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {"a" * 64}
+rules: []
+"""
         rule = repo / rule_rel
         rule.parent.mkdir(parents=True, exist_ok=True)
         rule.write_text(content or "format: rulespec/v1\nrules: []\n")
@@ -35248,6 +36367,8 @@ class TestManualExceptionGate:
         # entirely (to exercise an absent backend); otherwise write the value.
         if backend is not self._BACKEND_UNSET:
             payload["backend"] = backend
+        if normalized_backend in encoder_backends:
+            payload["source_attestation"] = _complete_source_attestation()
         if manual_exception is not None:
             payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] = manual_exception
         manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")

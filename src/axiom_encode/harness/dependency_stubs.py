@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-import json
+import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -12,6 +12,12 @@ from typing import Sequence
 
 import yaml
 
+from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
+    CorpusSourceNotFoundError,
+    ResolvedCorpusSource,
+    resolve_local_corpus_source,
+)
 from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     find_policy_repo_root,
@@ -471,7 +477,13 @@ def find_corpus_provision_artifacts(
     *,
     corpus_root: Path | None = None,
 ) -> list[Path]:
-    """Locate corpus.provisions files containing the import target."""
+    """Locate active corpus artifacts that resolve the import target.
+
+    Resolution is delegated to the shared corpus resolver so dependency checks
+    use the same release selector, ambiguity handling, and parent slicing as
+    generation and validation. A malformed or ambiguous corpus fails closed
+    instead of being mistaken for authoritative source coverage.
+    """
     artifacts: list[Path] = []
     seen: set[Path] = set()
     citation_paths = _candidate_corpus_paths_for_import_target(
@@ -486,13 +498,23 @@ def find_corpus_provision_artifacts(
         corpus_root=corpus_root,
     ):
         for citation_path in citation_paths:
-            for candidate in _candidate_corpus_provision_files(
+            try:
+                source = resolve_local_corpus_source(
+                    citation_path,
+                    provisions_root,
+                    require_release=True,
+                )
+            except CorpusSourceNotFoundError:
+                continue
+            except CorpusResolutionError:
+                return []
+            resolved_artifacts = _resolved_local_corpus_artifacts(
                 provisions_root,
-                citation_path,
-            ):
-                if not _corpus_file_contains_citation_path(candidate, citation_path):
-                    continue
-                resolved = candidate.resolve()
+                source,
+            )
+            if resolved_artifacts is None:
+                return []
+            for resolved in resolved_artifacts:
                 if resolved not in seen:
                     seen.add(resolved)
                     artifacts.append(resolved)
@@ -636,45 +658,92 @@ def _corpus_kind_and_rest(parts: tuple[str, ...]) -> tuple[str, tuple[str, ...]]
     return "policy", parts
 
 
-def _candidate_corpus_provision_files(
-    provisions_root: Path,
-    citation_path: str,
-) -> list[Path]:
-    parts = citation_path.split("/")
-    if len(parts) < 2:
-        return []
-    bucket = _safe_corpus_directory(
-        provisions_root,
-        provisions_root / parts[0] / parts[1],
-        label="corpus provision bucket",
-    )
-    if bucket is None:
-        return []
-    files: list[Path] = []
-    for candidate in sorted(bucket.glob("*.jsonl")):
-        resolved = _safe_corpus_file(
-            provisions_root,
-            candidate,
-            label="corpus provision",
-        )
-        if resolved is not None:
-            files.append(resolved)
-    return files
-
-
 def _corpus_file_contains_citation_path(
     provision_file: Path,
     citation_path: str,
 ) -> bool:
-    with contextlib.suppress(OSError):
-        for line in provision_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            with contextlib.suppress(json.JSONDecodeError):
-                payload = json.loads(line)
-                if payload.get("citation_path") == citation_path:
-                    return True
-    return False
+    """Return whether a file participates in the active resolved provenance."""
+
+    provisions_root = next(
+        (parent for parent in provision_file.parents if parent.name == "provisions"),
+        None,
+    )
+    if provisions_root is None:
+        return False
+    try:
+        source = resolve_local_corpus_source(
+            citation_path,
+            provisions_root,
+            require_release=True,
+        )
+    except CorpusResolutionError:
+        return False
+    artifacts = _resolved_local_corpus_artifacts(provisions_root, source)
+    if artifacts is None:
+        return False
+    try:
+        candidate = provision_file.resolve(strict=True)
+    except OSError:
+        return False
+    return candidate in artifacts
+
+
+def _resolved_local_corpus_artifacts(
+    provisions_root: Path,
+    source: ResolvedCorpusSource,
+) -> tuple[Path, ...] | None:
+    """Map resolver provenance back to unchanged, contained local artifacts."""
+
+    if source.source != "local":
+        return None
+    repository_root = (
+        provisions_root.parent.parent.parent
+        if provisions_root.parent.name == "corpus"
+        and provisions_root.parent.parent.name == "data"
+        else provisions_root.parent
+    )
+    artifacts: list[Path] = []
+    seen: set[Path] = set()
+    for row in (source.row, *source.component_rows):
+        if not row.provision_file_sha256:
+            return None
+        relative_file = Path(row.provision_file)
+        if relative_file.is_absolute():
+            return None
+        try:
+            artifact = _safe_corpus_file(
+                provisions_root,
+                repository_root / relative_file,
+                label="resolved corpus provision",
+            )
+            if artifact is None:
+                return None
+            digest = _bounded_corpus_artifact_sha256(artifact)
+        except (OSError, UnsafeRulespecContextPath):
+            return None
+        if digest != row.provision_file_sha256:
+            return None
+        if artifact not in seen:
+            seen.add(artifact)
+            artifacts.append(artifact)
+    return tuple(artifacts)
+
+
+def _bounded_corpus_artifact_sha256(path: Path) -> str:
+    """Hash a corpus artifact incrementally while enforcing its size bound."""
+
+    digest = hashlib.sha256()
+    total = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            total += len(chunk)
+            if total > _MAX_CORPUS_PROVISION_BYTES:
+                raise UnsafeRulespecContextPath(
+                    "resolved corpus provision exceeds the "
+                    f"{_MAX_CORPUS_PROVISION_BYTES}-byte safety limit: {path}"
+                )
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _safe_corpus_directory(

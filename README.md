@@ -19,10 +19,19 @@ axiom-encode proof-validate /tmp/axiom-encode-encodings/codex-gpt-5.5/statutes/2
 axiom-encode inventory --root ~/TheAxiomFoundation
 ```
 
-`encode` resolves the requested citation to `corpus.provisions` before model
-generation. Local `axiom-corpus/data/corpus/provisions` artifacts are used first;
-Supabase is the fallback. If no corpus provision exists, encoding stops before
-calling a model.
+`encode` resolves the requested citation to exactly one active
+`corpus.provisions` row before model generation. The active release selector at
+`axiom-corpus/manifests/releases/current.json` scopes rows by jurisdiction,
+document class, and record version; multiple matching active rows are rejected
+as ambiguous instead of being ranked or selected by file order. Local
+`axiom-corpus/data/corpus/provisions` artifacts are used first; Supabase is the
+fallback. If no unambiguous active corpus provision exists, encoding stops
+before calling a model.
+
+Supabase resolution retains the active row and release identity for evaluation,
+but `--apply` additionally requires a concrete provision artifact digest and
+line identity. A remote row that cannot supply those fields may be evaluated
+but cannot be signed and installed as a complete source attestation.
 
 `encode` defaults to `--backend codex` with `gpt-5.5`; Claude/Fable capacity is
 reserved for orchestration, gating, and review rather than YAML generation. The
@@ -94,6 +103,13 @@ not by editing YAML in place. `--apply` validates the generated main file,
 companion test, and direct dependent RuleSpec modules inside a temporary
 policy-repo overlay, copies the validated files into the target rules repo, and
 writes a signed JSON apply manifest under `.axiom/encoding-manifests/`.
+For model-generated RuleSpec, the apply step mechanically stamps
+`module.source_verification.source_sha256` and records the resolver-owned source
+attestation in that manifest. The attestation binds the active-release selector
+digest, provision artifact digest and row identity, stored source-body digest,
+resolved corpus-text digest, and source/effective dates. Model output cannot
+override those values, and apply fails if the attestation is incomplete or does
+not match the RuleSpec source path.
 Set `AXIOM_ENCODE_APPLY_SIGNING_KEY` when running `--apply`; without it the
 encoder refuses to install generated RuleSpec into a live repo.
 
@@ -121,7 +137,8 @@ lower source was encoded. This makes lower-authority sources reviewable instead
 of silently treating them as maximally upstream.
 
 The schema also accepts an optional `source_sha256` pin — the SHA-256 hex
-digest of the exact corpus provision text the module was encoded from — plus
+digest of the full stored corpus provision body that supplied the encoding
+source — plus
 in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
 `reviewed_by`) and `module.validation` (oracle, `matches`/`mismatches`/
 `pending` status, `last_run` date) blocks. These fields are inert at runtime.
@@ -135,29 +152,33 @@ axiom-encode check-source-staleness \
   --corpus-root ~/TheAxiomFoundation/axiom-corpus
 ```
 
-The command exits `0` when every `source_sha256` pin still matches the
-current corpus text and `1` when any module is stale (hash mismatch, or the
-pinned provision text can no longer be found). It reads the same provision
-JSONL layout the validator pipeline reads, including best-body selection for
-duplicate citations and the descendant fallback for metadata-only nodes.
+The command exits `0` when every `source_sha256` pin still matches the active
+corpus body and `1` when any module is stale (hash mismatch, ambiguity,
+resolution failure, or a provision that can no longer be found). Generation,
+validation, proof checking, staleness, and oracle corpus inspection all use the
+same release-aware resolver. Metadata-only parent nodes are composed from their
+unambiguous active descendants; child requests resolved from a stored parent
+pin the complete parent body so any parent-body change flips staleness red.
 
 `axiom_encode.source_hash` exposes the building blocks for stamping at
 encode time:
 
 - `source_verification_block(citation_path, source_text)` builds the
-  `module.source_verification` block, hashing the provision text exactly as
-  read from the corpus.
+  `module.source_verification` block, hashing the supplied text. This legacy
+  helper is safe only when `source_text` is the complete stored body; the normal
+  model apply path stamps the resolver's `stored_body_sha256` mechanically.
+- `resolved_source_verification_block(corpus_root, citation_path)` resolves an
+  active corpus citation and safely pins its complete stored body, including
+  when the requested child is sliced from a parent row.
 - `provenance_block(model, run_id)` builds `module.encoding_provenance`
   with the current `axiom-encode/<version>` as the encoder.
 - `check_staleness(rulespec_root, corpus_root)` returns
-  `(module_path, pinned_sha, current_sha)` tuples for stale modules, for
-  programmatic use.
+  `StaleModule(module_path, pinned_sha, current_sha, resolution_error)` records
+  for stale modules, for programmatic use.
 
-Generation pipelines should stamp both blocks into `module:` when writing a
-main file: pass the same provision text fed to the encoding prompt to
-`source_verification_block`, and the run's model and run id to
-`provenance_block`. Oracle runners can then append `module.validation`
-entries as results land.
+`axiom-encode encode --apply` owns source-pin stamping for generated RuleSpec;
+callers should not derive that pin from sliced prompt text. Oracle runners can
+append `module.validation` entries as results land.
 
 ## Eval suites and readiness gates
 
