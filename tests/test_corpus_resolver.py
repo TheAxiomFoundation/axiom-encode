@@ -17,6 +17,7 @@ from axiom_encode.corpus_resolver import (
     CorpusResolutionError,
     CorpusSourceNotFoundError,
     CorpusSourceSliceError,
+    InvalidActiveCorpusSourceError,
     InvalidCorpusCitationError,
     InvalidReleaseSelectorError,
     ReleaseScope,
@@ -2893,7 +2894,7 @@ def test_metadata_parent_rejects_uncovered_bodyless_branch(tmp_path: Path):
         ],
     )
 
-    with pytest.raises(CorpusSourceNotFoundError, match="uncovered bodyless"):
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
@@ -2915,7 +2916,7 @@ def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
         ],
     )
 
-    with pytest.raises(CorpusSourceNotFoundError, match="uncovered bodyless"):
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
@@ -2938,7 +2939,7 @@ def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(
         ],
     )
 
-    with pytest.raises(CorpusSourceNotFoundError, match="uncovered bodyless"):
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
@@ -3771,7 +3772,7 @@ def test_supabase_metadata_parent_rejects_uncovered_bodyless_branch():
         ),
     ]
 
-    with pytest.raises(CorpusSourceNotFoundError, match="uncovered bodyless"):
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_supabase_corpus_source(
             CITATION,
             supabase_url="https://example.supabase.co",
@@ -3798,7 +3799,7 @@ def test_supabase_metadata_parent_rejects_bodyless_reserved_heading_leaf():
         ),
     ]
 
-    with pytest.raises(CorpusSourceNotFoundError, match="uncovered bodyless"):
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_supabase_corpus_source(
             CITATION,
             supabase_url="https://example.supabase.co",

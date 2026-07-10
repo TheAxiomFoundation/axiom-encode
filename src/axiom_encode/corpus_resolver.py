@@ -71,6 +71,10 @@ class CorpusSourceNotFoundError(CorpusResolutionError):
     """No active corpus record exists for the requested citation."""
 
 
+class InvalidActiveCorpusSourceError(CorpusResolutionError):
+    """An active corpus record exists but cannot produce a valid source body."""
+
+
 class AmbiguousCorpusSourceError(CorpusResolutionError):
     """More than one active corpus record claims the requested citation."""
 
@@ -591,6 +595,57 @@ def resolve_local_corpus_source(
     raise CorpusSourceNotFoundError(
         f"No active corpus source found for {citation_path!r}"
     )
+
+
+def resolve_local_corpus_dependency_artifacts(
+    identifier: str,
+    corpus_root: Path,
+    *,
+    release_name: str = "current",
+) -> tuple[Path, ...]:
+    """Resolve one dependency source and return its attested local artifacts.
+
+    This is the dependency-check API: alias handling, statutes/regulations-only
+    parent fallback, slicing, and ambiguity are decided once by the resolver.
+    """
+
+    source = resolve_local_corpus_source(
+        identifier,
+        corpus_root,
+        release_name=release_name,
+        require_release=True,
+    )
+    root, _provisions_root, repository_root = _resolve_corpus_layout(corpus_root)
+    artifacts: list[Path] = []
+    seen: set[Path] = set()
+    for row in (source.row, *source.component_rows):
+        if not row.provision_file_sha256:
+            raise CorpusResolutionError(
+                f"Resolved local corpus row lacks artifact digest: {row.provision_file}"
+            )
+        relative = Path(row.provision_file)
+        if relative.is_absolute():
+            raise UnsafeCorpusPathError(
+                f"Resolved corpus artifact path is absolute: {row.provision_file}"
+            )
+        artifact = _safe_file(
+            root,
+            repository_root / relative,
+            label="resolved corpus provision",
+            max_bytes=MAX_CORPUS_PROVISION_BYTES,
+        )
+        if (
+            artifact is None
+            or hashlib.sha256(artifact.read_bytes()).hexdigest()
+            != row.provision_file_sha256
+        ):
+            raise CorpusResolutionError(
+                f"Resolved corpus artifact changed after resolution: {row.provision_file}"
+            )
+        if artifact not in seen:
+            seen.add(artifact)
+            artifacts.append(artifact)
+    return tuple(artifacts)
 
 
 def iter_active_local_corpus_rows(
@@ -1592,7 +1647,7 @@ def _compose_descendant_text(
             return
         child_paths = children.get(path, set())
         if not child_paths:
-            raise CorpusSourceNotFoundError(
+            raise InvalidActiveCorpusSourceError(
                 f"Active corpus source {citation_path!r} has uncovered "
                 f"bodyless descendant {path!r}"
             )
@@ -1613,7 +1668,7 @@ def _compose_descendant_text(
 
     visit(citation_path)
     if not ordered:
-        raise CorpusSourceNotFoundError(
+        raise InvalidActiveCorpusSourceError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     chunks: list[str] = []

@@ -16,6 +16,7 @@ from axiom_encode.corpus_resolver import (
     CorpusResolutionError,
     CorpusSourceNotFoundError,
     ResolvedCorpusSource,
+    resolve_local_corpus_dependency_artifacts,
     resolve_local_corpus_source,
 )
 from axiom_encode.repo_routing import (
@@ -497,24 +498,14 @@ def find_corpus_provision_artifacts(
         rules_repo_root,
         corpus_root=corpus_root,
     ):
-        for citation_path in citation_paths:
+        for citation_path in citation_paths[:1]:
             try:
-                source = resolve_local_corpus_source(
+                resolved_artifacts = resolve_local_corpus_dependency_artifacts(
                     citation_path,
                     provisions_root,
-                    require_release=True,
                 )
             except CorpusSourceNotFoundError:
                 continue
-            resolved_artifacts = _resolved_local_corpus_artifacts(
-                provisions_root,
-                source,
-            )
-            if resolved_artifacts is None:
-                raise CorpusResolutionError(
-                    "Resolved corpus provenance could not be bound to local artifacts "
-                    f"for {citation_path!r}"
-                )
             for resolved in resolved_artifacts:
                 if resolved not in seen:
                     seen.add(resolved)
@@ -543,7 +534,9 @@ def _candidate_corpus_provisions_roots(
             )
             if provisions_root is not None:
                 return [provisions_root]
-        return []
+        raise CorpusResolutionError(
+            f"Explicit corpus root has no provisions directory: {root}"
+        )
 
     candidates: list[Path] = []
     env_root = os.environ.get("AXIOM_CORPUS_ROOT")
@@ -617,18 +610,7 @@ def _candidate_corpus_paths_for_import_target(
         kind, rest = _corpus_kind_and_rest(parts)
         primary = "/".join((jurisdiction, kind, *rest))
 
-    candidates: list[str] = []
-
-    def add(candidate: str) -> None:
-        cleaned = candidate.strip().strip("/")
-        if cleaned and cleaned not in candidates:
-            candidates.append(cleaned)
-
-    add(primary)
-    parts = primary.split("/")
-    for end in range(len(parts) - 1, 2, -1):
-        add("/".join(parts[:end]))
-    return tuple(candidates)
+    return (primary.strip().strip("/"),)
 
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:

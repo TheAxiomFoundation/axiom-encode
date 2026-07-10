@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -44,7 +45,8 @@ def build_inventory(workspace: Path) -> dict[str, object]:
                 continue
             if (
                 payload.get("schema_version") != "axiom-encode/applied-rulespec/v1"
-                or payload.get("backend") not in {"codex", "openai", "anthropic"}
+                or payload.get("backend")
+                not in {"codex", "openai", "anthropic", "claude"}
                 or "source_attestation" in payload
             ):
                 continue
@@ -68,7 +70,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--force-regenerate", action="store_true")
     args = parser.parse_args()
+    if args.output.exists() and not args.force_regenerate:
+        parser.error(
+            "refusing to overwrite the frozen rollout inventory; "
+            "--force-regenerate is legitimate only before rollout"
+        )
+    if args.force_regenerate:
+        print(
+            "WARNING: REGENERATING THE FROZEN INVENTORY IS LEGITIMATE ONLY BEFORE ROLLOUT",
+            file=sys.stderr,
+        )
     payload = build_inventory(args.workspace.resolve())
     args.output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 

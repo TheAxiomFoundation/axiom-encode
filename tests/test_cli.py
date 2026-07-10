@@ -5,6 +5,7 @@ Tests all CLI commands using subprocess invocation and direct function calls.
 All external dependencies are mocked.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -495,7 +496,8 @@ def _complete_source_attestation(
         },
         "component_rows": [],
         "source_sha256": source_sha256,
-        "generation_input_sha256": source_sha256,
+        "resolved_text_sha256": source_sha256,
+        "generation_input_sha256": hashlib.sha256(b"test source").hexdigest(),
         "source_as_of": "2026-01-01",
         "expression_date": "2026-01-01",
     }
@@ -4271,7 +4273,20 @@ class TestCmdEncode:
         result.trace_file = "/tmp/trace.json"
         result.context_manifest_file = "/tmp/context.json"
         result.source_attestation = _complete_source_attestation()
+        context_root = Path(tempfile.mkdtemp(prefix="axiom-test-context-"))
+        result.context_manifest_file = str(context_root / "context.json")
+        self._write_result_context(result, context_root)
         return result
+
+    def _write_result_context(self, result, tmp_path: Path) -> None:
+        source = tmp_path / "source.txt"
+        source.write_text("test source\n")
+        result.source_attestation["generation_input_sha256"] = hashlib.sha256(
+            b"test source"
+        ).hexdigest()
+        Path(result.context_manifest_file).write_text(
+            json.dumps({"source_text_file": source.name}) + "\n"
+        )
 
     def _run_encode(self, args, result):
         with patch(
@@ -4717,7 +4732,7 @@ class TestCmdEncode:
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = "prompt-sha"
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (
@@ -4798,9 +4813,6 @@ rules: []
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
-        result.source_attestation["resolved_text_sha256"] = (
-            result.source_attestation.pop("generation_input_sha256")
-        )
         result.generation_prompt_sha256 = None
 
         with (
@@ -4839,8 +4851,11 @@ rules: []
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1.json"
         manifest_payload = json.loads(manifest.read_text())
         manifest_attestation = manifest_payload["source_attestation"]
-        assert manifest_attestation["generation_input_sha256"] == "a" * 64
-        assert "resolved_text_sha256" not in manifest_attestation
+        assert (
+            manifest_attestation["generation_input_sha256"]
+            == hashlib.sha256(b"test source").hexdigest()
+        )
+        assert manifest_attestation["resolved_text_sha256"] == "a" * 64
         assert (
             _applied_encoding_manifest_signature_issue(
                 manifest_payload, TEST_APPLY_SIGNING_KEY
@@ -5142,7 +5157,7 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = None
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (
@@ -5224,7 +5239,7 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = None
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (
@@ -5327,7 +5342,7 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = "prompt-sha-256"
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (
@@ -5418,7 +5433,7 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = None
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (
@@ -5578,7 +5593,7 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = None
-        Path(result.context_manifest_file).write_text("{}\n")
+        self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
 
         with (

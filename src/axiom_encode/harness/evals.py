@@ -2186,8 +2186,14 @@ def prepare_eval_workspace(
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     source_text_file = workspace_root / "source.txt"
-    source_text_file.write_text(source_text.strip() + "\n")
+    generation_input = source_text.strip()
+    source_text_file.write_text(generation_input + "\n")
     source_metadata = dict(source_metadata_payload or {})
+    attestation = source_metadata.get("source_attestation")
+    if isinstance(attestation, dict):
+        attestation["generation_input_sha256"] = hashlib.sha256(
+            generation_input.encode("utf-8")
+        ).hexdigest()
     if not source_metadata:
         source_metadata = None
     source_metadata_file: Path | None = None
@@ -2427,35 +2433,6 @@ def _same_stem_dotted_sibling_marker(stem: str, fragment: str) -> str:
         return rf"{escaped_stem}(?:\.[0-9]+)+"
     suffix = re.escape(fragment.split(".", 1)[1])
     return rf"{escaped_stem}\.(?!{suffix}(?:\.|\)))[0-9]+(?:\.[0-9]+)*"
-
-
-def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
-    """Return exact and nearest-parent corpus citation path candidates."""
-    normalized = identifier.strip().strip("/")
-    if not normalized:
-        return ()
-
-    try:
-        if _looks_like_corpus_citation_path(normalized):
-            primary = normalized
-        else:
-            primary = _citation_to_corpus_citation_path(normalized)
-    except ValueError:
-        primary = normalized
-
-    candidates: list[str] = []
-
-    def add(candidate: str) -> None:
-        cleaned = candidate.strip().strip("/")
-        if cleaned and cleaned not in candidates:
-            candidates.append(cleaned)
-
-    primary = _normalize_rulespec_source_id_to_corpus_path(primary)
-    add(primary)
-    parts = primary.split("/")
-    for end in range(len(parts) - 1, 2, -1):
-        add("/".join(parts[:end]))
-    return tuple(candidates)
 
 
 def _normalize_rulespec_source_id_to_corpus_path(identifier: str) -> str:
@@ -4200,7 +4177,7 @@ def _run_single_eval(
         unexpected_accesses=response.unexpected_accesses,
         metrics=metrics,
         retry_count=retry_count,
-        source_attestation=source_unit.source_attestation,
+        source_attestation=_source_metadata_attestation(source_metadata_payload),
     )
     emit_eval_result(result, response.trace)
     return result
@@ -4408,8 +4385,8 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
     if not resolved or not requested:
         return resolved
     try:
-        primary_requested = _candidate_corpus_citation_paths(requested)[0]
-    except (IndexError, ValueError):
+        primary_requested = _corpus_resolver.normalize_corpus_identifier(requested)
+    except _corpus_resolver.CorpusResolutionError:
         return resolved
     primary_requested = primary_requested.strip().strip("/")
     if (

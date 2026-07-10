@@ -59,6 +59,7 @@ from .corpus_resolver import (
     ActiveCorpusBodyRow,
     CorpusResolutionError,
     iter_active_local_corpus_rows,
+    load_release_selector,
     normalize_corpus_identifier,
     resolve_local_corpus_source,
     scope_resolved_corpus_source,
@@ -4761,6 +4762,12 @@ def _migration_failure_reason(exc: CorpusResolutionError) -> str:
         return "duplicated"
     if name == "InvalidReleaseSelectorError":
         return "unversioned-checkout"
+    if "jurisdiction" in message:
+        return "missing-jurisdiction"
+    if "document_class" in message or "document class" in message:
+        return "missing-document-class"
+    if "version" in message:
+        return "missing-version"
     if (
         "metadata" in message
         or "source_as_of" in message
@@ -4779,7 +4786,13 @@ def migration_inventory(
 ) -> list[dict[str, str]]:
     """Return every module citation that is not exact under the release selector."""
     failures: list[dict[str, str]] = []
-    for checkout in (Path(path).resolve() for path in checkouts):
+    for raw_checkout in checkouts:
+        raw_checkout = Path(raw_checkout).expanduser()
+        if not raw_checkout.exists() or not raw_checkout.is_dir():
+            raise ValueError(
+                f"Checkout root is not an existing directory: {raw_checkout}"
+            )
+        checkout = raw_checkout.resolve()
         for module_path, citation, scan_reason, detail in _module_corpus_citations(
             checkout
         ):
@@ -4813,25 +4826,83 @@ def migration_inventory(
                 )
                 continue
             if resolved.citation_path != requested:
+                is_parent_slice = requested.startswith(f"{resolved.citation_path}/")
                 failures.append(
                     {
                         "checkout": str(checkout),
                         "module": relative,
                         "citation": citation,
-                        "reason": "slice-fallback-dependency",
+                        "reason": (
+                            "parent-slice-dependency"
+                            if is_parent_slice
+                            else "exact-alias-dependency"
+                        ),
                         "detail": f"resolved through {resolved.citation_path}",
                     }
                 )
     return failures
 
 
+def _migration_inventory_report(
+    checkouts: list[Path], corpus_root: Path
+) -> dict[str, object]:
+    """Build the reproducible release-migration census and completeness metadata."""
+
+    failures = migration_inventory(checkouts, corpus_root)
+    resolved_checkouts = [Path(path).expanduser().resolve() for path in checkouts]
+    scanned_modules = 0
+    incomplete_reasons: list[str] = []
+    checkout_metadata: list[dict[str, object]] = []
+    for checkout in resolved_checkouts:
+        module_rows = list(_module_corpus_citations(checkout))
+        scanned_modules += len(module_rows)
+        for path, _citation, reason, detail in module_rows:
+            if reason is not None:
+                incomplete_reasons.append(
+                    f"{checkout}:{path.relative_to(checkout)}: {reason}: {detail or ''}"
+                )
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=checkout,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        checkout_metadata.append(
+            {
+                "path": str(checkout),
+                "git_commit": completed.stdout.strip()
+                if completed.returncode == 0
+                else None,
+            }
+        )
+    corpus = Path(corpus_root).expanduser().resolve()
+    selector_path = corpus / "manifests/releases/current.json"
+    selector_digest = (
+        load_release_selector(
+            selector_path, expected_name="current", repository_root=corpus
+        ).sha256
+        if selector_path.is_file()
+        else None
+    )
+    return {
+        "failures": failures,
+        "count": len(failures),
+        "scanned_modules": scanned_modules,
+        "checkouts": checkout_metadata,
+        "release_selector_sha256": selector_digest,
+        "complete": not incomplete_reasons,
+        "incomplete_scan_reasons": incomplete_reasons,
+    }
+
+
 def cmd_migration_inventory(args):
     """Print release-migration failures as JSON or a compact operator table."""
-    rows = migration_inventory(args.checkouts, args.corpus_root)
+    report = _migration_inventory_report(args.checkouts, args.corpus_root)
+    rows = report["failures"]
     if args.json:
-        print(
-            json.dumps({"failures": rows, "count": len(rows)}, indent=2, sort_keys=True)
-        )
+        print(json.dumps(report, indent=2, sort_keys=True))
         return
     if not rows:
         print("No module citation failures under the current release selector.")
@@ -5633,6 +5704,10 @@ def cmd_manifest_census(args):
             head_ref="HEAD",
         )
     )
+    census["captured_at"] = (
+        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    census["remaining_v1_compat_lane_count"] = len(census["remaining_v1_compat_lane"])
     if getattr(args, "badge", False):
         output = json.dumps(_manifest_census_badge(census), indent=2) + "\n"
     elif getattr(args, "json", False):
@@ -31433,14 +31508,22 @@ def _local_source_text_for_corpus_path(
     *,
     rules_repo_path: Path,
 ) -> str | None:
+    matches: list[tuple[Path, str]] = []
     for corpus_path in _candidate_local_axiom_corpus_paths(rules_repo_path):
         source_text = _fetch_local_corpus_source_text_from_repo(
             corpus_citation_path,
             corpus_path,
         )
-        if source_text:
-            return source_text
-    return None
+        if source_text is not None:
+            matches.append((corpus_path, str(source_text)))
+    bodies = {body for _path, body in matches}
+    if len(bodies) > 1:
+        locations = ", ".join(str(path) for path, _body in matches)
+        raise RuntimeError(
+            "Cross-checkout corpus ambiguity for "
+            f"{corpus_citation_path!r}: different bodies resolved in {locations}"
+        )
+    return matches[0][1] if matches else None
 
 
 def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
@@ -45309,9 +45392,29 @@ def _generated_result_source_attestation(result) -> dict[str, object] | None:
     if not isinstance(attestation, dict):
         return None
     normalized = copy.deepcopy(attestation)
-    resolved_text_sha256 = normalized.pop("resolved_text_sha256", None)
-    if "generation_input_sha256" not in normalized:
-        normalized["generation_input_sha256"] = resolved_text_sha256
+    manifest_file = Path(str(getattr(result, "context_manifest_file", "") or ""))
+    try:
+        context = json.loads(manifest_file.read_text())
+        source_file = manifest_file.parent / str(context["source_text_file"])
+        generation_input = source_file.read_text().strip()
+    except (
+        OSError,
+        UnicodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise RuntimeError(
+            "Cannot recompute generation input digest from the eval workspace"
+        ) from exc
+    recomputed = hashlib.sha256(generation_input.encode("utf-8")).hexdigest()
+    attested = normalized.get("generation_input_sha256")
+    if attested != recomputed:
+        raise RuntimeError(
+            "Generation input digest mismatch: workspace source text does not match "
+            "source_attestation.generation_input_sha256"
+        )
     return normalized
 
 
@@ -45350,6 +45453,7 @@ def _source_attestation_structure_issues(
     provision_file = require_string("provision_file")
     provision_file_sha256 = require_sha256("provision_file_sha256")
     source_sha256 = require_sha256("source_sha256")
+    require_sha256("resolved_text_sha256")
     require_sha256("generation_input_sha256")
 
     require_string("source_as_of")

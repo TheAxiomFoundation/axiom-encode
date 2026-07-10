@@ -404,7 +404,11 @@ rules:
 
 def test_rulespec_target_resolution_accepts_system_path_alias(monkeypatch, tmp_path):
     temp_parent = Path("/var/tmp") if Path("/var/tmp").is_dir() else None
-    with tempfile.TemporaryDirectory(dir=temp_parent) as raw_tmpdir:
+    try:
+        temporary_directory = tempfile.TemporaryDirectory(dir=temp_parent)
+    except PermissionError:
+        pytest.skip("sandbox does not permit creating the system-path alias fixture")
+    with temporary_directory as raw_tmpdir:
         configured_parent = Path(raw_tmpdir) / "configured"
         target = configured_parent / "rulespec-us" / "statutes/1/target.yaml"
         target.parent.mkdir(parents=True)
