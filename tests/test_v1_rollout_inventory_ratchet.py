@@ -43,8 +43,21 @@ def test_v1_rollout_inventory_is_removal_only_against_pr_merge_base() -> None:
         if completed.returncode == 0:
             merge_base = completed.stdout.strip()
             break
-    if not merge_base:
-        pytest.skip(f"base ref {base_ref!r} is unavailable in this checkout")
+    assert merge_base, f"base ref {base_ref!r} is unavailable in this checkout"
+    exists = subprocess.run(
+        ["git", "ls-tree", "--name-only", merge_base, INVENTORY.as_posix()],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert exists.returncode == 0, (
+        "failed to inspect the rollout inventory at the PR merge base: "
+        f"{exists.stderr.strip()}"
+    )
+    if not exists.stdout.strip():
+        return
     previous = subprocess.run(
         ["git", "show", f"{merge_base}:{INVENTORY.as_posix()}"],
         cwd=repo,
