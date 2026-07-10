@@ -351,11 +351,24 @@ def _audit_args(root: Path, protected_base: Path, changed_paths: Path):
         "us/statutes/a.yaml\nsecond",
         "us/statutes/\x7fa.yaml",
         "us/statutes/\u202ea.yaml",
+        "us/statutes/\u2028a.yaml",
     ],
 )
 def test_transition_paths_reject_control_characters(value: str):
     with pytest.raises(ValueError, match="control characters"):
         cli._validation_waiver_repo_relative_path(value, label="changed path")
+
+
+def test_changed_paths_rejects_unicode_separator_before_deduplication(
+    tmp_path: Path,
+):
+    changed_paths = tmp_path / "changed.txt"
+    changed_paths.write_text(
+        "known-validation-gaps.yaml\nknown-validation-gaps.yaml\u2028\n"
+    )
+
+    with pytest.raises(ValueError, match="control characters"):
+        cli._validation_waiver_changed_paths(changed_paths)
 
 
 def test_audit_checks_active_pending_and_removed_waivers(tmp_path: Path, capsys):

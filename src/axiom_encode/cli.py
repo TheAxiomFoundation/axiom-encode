@@ -3811,7 +3811,7 @@ def _fingerprint_validation_waiver_modules(
 
 def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
     """Validate and normalize an opinionated POSIX repository-relative path."""
-    value = str(raw).strip()
+    value = str(raw)
     if not value:
         raise ValueError(f"{label} must not be empty")
     if _validation_waivers._contains_control_or_format(value):
@@ -3819,6 +3819,8 @@ def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
             f"{label} must not contain control characters or Unicode format "
             f"characters: {raw!r}"
         )
+    if value != value.strip():
+        raise ValueError(f"{label} must not contain surrounding whitespace: {raw!r}")
     if "\\" in value:
         raise ValueError(f"{label} must use POSIX separators: {raw}")
     if value.startswith("/") or value.endswith("/"):
@@ -3835,13 +3837,9 @@ def _validation_waiver_changed_paths(path: Path) -> set[str]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"changed-paths input must be a regular file: {path}")
     changed: set[str] = set()
-    for line_number, raw in enumerate(path.read_text().splitlines(), 1):
-        if not raw.strip():
+    for line_number, raw in enumerate(path.read_text().split("\n"), 1):
+        if raw == "":
             continue
-        if raw != raw.strip():
-            raise ValueError(
-                f"changed path line {line_number} has surrounding whitespace"
-            )
         changed.add(
             _validation_waiver_repo_relative_path(
                 raw,

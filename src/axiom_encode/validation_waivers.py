@@ -198,7 +198,8 @@ def _load_strict_yaml(path: Path) -> object:
 
 def _contains_control_or_format(value: str) -> bool:
     return any(
-        unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in value
     )
 
 
