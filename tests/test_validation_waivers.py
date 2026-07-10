@@ -92,7 +92,11 @@ def test_requires_file_and_section_but_accepts_empty_mapping(tmp_path: Path):
 
     waiver_file = root / "known-validation-gaps.yaml"
     waiver_file.write_text("shape_issues: []\n")
-    with pytest.raises(WaiverSchemaError, match="required validate_failures"):
+    with pytest.raises(WaiverSchemaError, match="exactly validate_failures"):
+        load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
+
+    waiver_file.write_text("validate_failures: {}\nschema_typo: true\n")
+    with pytest.raises(WaiverSchemaError, match="exactly validate_failures"):
         load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
 
     waiver_file.write_text("validate_failures: {}\n")
@@ -226,6 +230,7 @@ def test_rejects_duplicate_keys_aliases_anchors_and_merges(
         "US/statutes/26/1.yaml",
         "us/sources/26/1.yaml",
         "us/statutes/26/1.test.yaml",
+        "us/statutes/26/\u202e1.yaml",
     ],
 )
 def test_rejects_noncanonical_module_paths(tmp_path: Path, unsafe_path: str):
@@ -269,6 +274,30 @@ def test_requires_existing_regular_head_paths_but_not_base_paths(tmp_path: Path)
         today=TODAY,
         require_paths=False,
     ).active_paths == {PATH}
+
+
+def test_rejects_symlinked_waiver_file(tmp_path: Path):
+    root = _repo(tmp_path, PATH)
+    target = root / "waiver-target.yaml"
+    target.write_text(_valid_yaml())
+    waiver_file = root / "known-validation-gaps.yaml"
+    waiver_file.symlink_to(target.name)
+
+    with pytest.raises(WaiverSchemaError, match="regular file"):
+        load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
+
+
+def test_rejects_symlinked_module_path_components(tmp_path: Path):
+    root = _repo(tmp_path)
+    target_directory = root / "us/statutes/actual"
+    target_directory.mkdir(parents=True)
+    (target_directory / "1.yaml").write_text("format: rulespec/v1\n")
+    (root / "us/statutes/alias").symlink_to(target_directory.name)
+    waiver_file = root / "known-validation-gaps.yaml"
+    waiver_file.write_text(_valid_yaml().replace(PATH, "us/statutes/alias/1.yaml"))
+
+    with pytest.raises(WaiverSchemaError, match="symlink alias"):
+        load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
 
 
 def test_new_or_changed_pending_is_waiver_only():

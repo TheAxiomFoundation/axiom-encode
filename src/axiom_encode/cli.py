@@ -741,21 +741,15 @@ def main():
         help="RuleSpec repository root (default: current directory)",
     )
     validation_waivers_audit_parser.add_argument(
-        "--waivers",
-        type=Path,
-        default=None,
-        help="Waiver YAML (default: ROOT/known-validation-gaps.yaml)",
-    )
-    validation_waivers_audit_parser.add_argument(
         "--protected-base",
         type=Path,
-        default=None,
+        required=True,
         help="Strict waiver YAML from the protected base revision",
     )
     validation_waivers_audit_parser.add_argument(
         "--changed-paths",
         type=Path,
-        default=None,
+        required=True,
         help="File containing one repository-relative changed path per line",
     )
     validation_waivers_audit_parser.add_argument(
@@ -780,12 +774,6 @@ def main():
         type=Path,
         default=Path.cwd(),
         help="RuleSpec repository root (default: current directory)",
-    )
-    validation_waivers_paths_parser.add_argument(
-        "--waivers",
-        type=Path,
-        default=None,
-        help="Waiver YAML (default: ROOT/known-validation-gaps.yaml)",
     )
     validation_waivers_paths_parser.add_argument(
         "--json",
@@ -3640,13 +3628,7 @@ def _validation_waiver_companion_outcome(
     companion = _validation_waiver_companion_path(module)
     relative = companion.relative_to(root).as_posix()
     if companion.is_symlink():
-        resolved_companion = companion.resolve(strict=True)
-        try:
-            resolved_companion.relative_to(root)
-        except ValueError as error:
-            raise ValueError(
-                f"RuleSpec companion is outside repository root: {relative}"
-            ) from error
+        raise ValueError(f"RuleSpec companion must not be a symlink: {relative}")
     if not companion.exists():
         return {
             "present": False,
@@ -3832,8 +3814,11 @@ def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
     value = str(raw).strip()
     if not value:
         raise ValueError(f"{label} must not be empty")
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
-        raise ValueError(f"{label} must not contain control characters: {raw!r}")
+    if _validation_waivers._contains_control_or_format(value):
+        raise ValueError(
+            f"{label} must not contain control characters or Unicode format "
+            f"characters: {raw!r}"
+        )
     if "\\" in value:
         raise ValueError(f"{label} must use POSIX separators: {raw}")
     if value.startswith("/") or value.endswith("/"):
@@ -3846,8 +3831,11 @@ def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
 
 def _validation_waiver_changed_paths(path: Path) -> set[str]:
     """Read the strict one-repository-relative-path-per-line transition input."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"changed-paths input must be a regular file: {path}")
     changed: set[str] = set()
-    for line_number, raw in enumerate(Path(path).read_text().splitlines(), 1):
+    for line_number, raw in enumerate(path.read_text().splitlines(), 1):
         if not raw.strip():
             continue
         if raw != raw.strip():
@@ -3861,14 +3849,6 @@ def _validation_waiver_changed_paths(path: Path) -> set[str]:
             )
         )
     return changed
-
-
-def _validation_waiver_file(args, *, root: Path) -> Path:
-    configured = getattr(args, "waivers", None)
-    if configured is None:
-        return root / "known-validation-gaps.yaml"
-    path = Path(configured)
-    return path if path.is_absolute() else root / path
 
 
 def _emit_validation_waiver_error(args, error: Exception | str) -> None:
@@ -3906,7 +3886,7 @@ def _cmd_validation_waivers_fingerprint(args) -> int:
 
 def _cmd_validation_waivers_active_paths(args) -> int:
     root = Path(args.root).resolve()
-    waiver_file = _validation_waiver_file(args, root=root)
+    waiver_file = root / _validation_waivers.DEFAULT_WAIVER_PATH
     waivers = _validation_waivers.load_validation_waivers(
         waiver_file,
         repo_root=root,
@@ -3924,41 +3904,31 @@ def _cmd_validation_waivers_audit(args) -> int:
     root = Path(args.root).resolve()
     if not root.is_dir():
         raise ValueError(f"RuleSpec repository root does not exist: {root}")
-    waiver_file = _validation_waiver_file(args, root=root).resolve()
-    try:
-        waiver_path = waiver_file.relative_to(root).as_posix()
-    except ValueError as error:
-        raise ValueError(
-            "head waiver YAML must be inside the repository root"
-        ) from error
+    waiver_path = _validation_waivers.DEFAULT_WAIVER_PATH
+    waiver_file = root / waiver_path
 
     protected_base_path = getattr(args, "protected_base", None)
     changed_paths_file = getattr(args, "changed_paths", None)
-    if (protected_base_path is None) != (changed_paths_file is None):
-        raise ValueError(
-            "--protected-base and --changed-paths must be supplied together"
-        )
+    if protected_base_path is None or changed_paths_file is None:
+        raise ValueError("--protected-base and --changed-paths are required")
 
     head = _validation_waivers.load_validation_waivers(
         waiver_file,
         repo_root=root,
     )
-    base = None
-    transition_issues: tuple[str, ...] = ()
-    if protected_base_path is not None:
-        base = _validation_waivers.load_validation_waivers(
-            Path(protected_base_path),
-            repo_root=root,
-            allow_expired=True,
-            require_paths=False,
-        )
-        changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
-        transition_issues = _validation_waivers.protected_base_transition_issues(
-            base,
-            head,
-            changed_paths=changed_paths,
-            waiver_path=waiver_path,
-        )
+    base = _validation_waivers.load_validation_waivers(
+        Path(protected_base_path),
+        repo_root=root,
+        allow_expired=True,
+        require_paths=False,
+    )
+    changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
+    transition_issues = _validation_waivers.protected_base_transition_issues(
+        base,
+        head,
+        changed_paths=changed_paths,
+        waiver_path=waiver_path,
+    )
 
     if transition_issues:
         report = {
@@ -3974,9 +3944,7 @@ def _cmd_validation_waivers_audit(args) -> int:
 
     active_paths = set(head.active_paths)
     pending_only_paths = set(head.pending_paths) - active_paths
-    removed_active_paths = (
-        set(base.active_paths) - active_paths if base is not None else set()
-    )
+    removed_active_paths = set(base.active_paths) - active_paths
     classified: dict[str, str] = {path: "active" for path in active_paths}
     classified.update({path: "pending" for path in pending_only_paths})
     for path in removed_active_paths:

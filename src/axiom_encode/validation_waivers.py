@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import stat
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -177,7 +178,10 @@ def _scan_bounded_yaml(text: str, *, source: Path) -> None:
 
 def _load_strict_yaml(path: Path) -> object:
     try:
-        size = path.stat().st_size
+        metadata = path.lstat()
+        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+            raise WaiverSchemaError(f"{path}: waiver file must be a regular file")
+        size = metadata.st_size
         if size > MAX_WAIVER_FILE_BYTES:
             raise WaiverSchemaError(
                 f"{path}: file exceeds {MAX_WAIVER_FILE_BYTES} bytes"
@@ -192,15 +196,19 @@ def _load_strict_yaml(path: Path) -> object:
         raise WaiverSchemaError(f"cannot parse {path}: {error}") from error
 
 
+def _contains_control_or_format(value: str) -> bool:
+    return any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value
+    )
+
+
 def _module_path(raw_path: object) -> str:
     if not isinstance(raw_path, str) or not raw_path:
         raise WaiverSchemaError(f"{WAIVER_SECTION} keys must be non-empty strings")
     if (
         raw_path != raw_path.strip()
         or "\\" in raw_path
-        or any(
-            ord(character) < 0x20 or ord(character) == 0x7F for character in raw_path
-        )
+        or _contains_control_or_format(raw_path)
     ):
         raise WaiverSchemaError(f"unsafe {WAIVER_SECTION} path: {raw_path!r}")
     pure = PurePosixPath(raw_path)
@@ -219,17 +227,26 @@ def _module_path(raw_path: object) -> str:
 
 
 def _require_regular_module(repo_root: Path, module_path: str) -> None:
-    module = repo_root.joinpath(*PurePosixPath(module_path).parts)
-    try:
-        metadata = module.lstat()
-    except OSError as error:
-        raise WaiverSchemaError(
-            f"{WAIVER_SECTION} path does not exist: {module_path}"
-        ) from error
-    if module.is_symlink() or not stat.S_ISREG(metadata.st_mode):
-        raise WaiverSchemaError(
-            f"{WAIVER_SECTION} path is not a regular file: {module_path}"
-        )
+    parts = PurePosixPath(module_path).parts
+    current = repo_root
+    for index, part in enumerate(parts):
+        current /= part
+        try:
+            metadata = current.lstat()
+        except OSError as error:
+            raise WaiverSchemaError(
+                f"{WAIVER_SECTION} path does not exist: {module_path}"
+            ) from error
+        if current.is_symlink():
+            raise WaiverSchemaError(
+                f"{WAIVER_SECTION} path contains a symlink alias: {module_path}"
+            )
+        expected_type = stat.S_ISREG if index == len(parts) - 1 else stat.S_ISDIR
+        if not expected_type(metadata.st_mode):
+            raise WaiverSchemaError(
+                f"{WAIVER_SECTION} path is not a regular module path: {module_path}"
+            )
+    module = current
     root = repo_root.resolve()
     resolved = module.resolve()
     if root not in resolved.parents:
@@ -320,9 +337,12 @@ def load_validation_waivers(
     payload = _load_strict_yaml(source)
     if not isinstance(payload, Mapping):
         raise WaiverSchemaError(f"{source}: document root must be a mapping")
-    if WAIVER_SECTION not in payload:
+    root_keys = frozenset(payload)
+    if root_keys != frozenset({WAIVER_SECTION}):
+        extras = sorted(repr(key) for key in root_keys if key != WAIVER_SECTION)
         raise WaiverSchemaError(
-            f"{source}: required {WAIVER_SECTION} section is missing"
+            f"{source}: document root must contain exactly {WAIVER_SECTION} "
+            f"(extra={extras})"
         )
     raw_entries = payload[WAIVER_SECTION]
     if not isinstance(raw_entries, Mapping):

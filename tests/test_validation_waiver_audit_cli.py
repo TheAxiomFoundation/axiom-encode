@@ -215,6 +215,26 @@ def test_independent_companion_matches_shared_test_command_root(tmp_path: Path):
     assert companion_policy_roots == [root]
 
 
+def test_fingerprint_rejects_symlinked_companion(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    module = root / "us/statutes/module.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+    target = module.with_name("target.test.yaml")
+    target.write_text("cases: []\n")
+    module.with_name("module.test.yaml").symlink_to(target.name)
+
+    with (
+        patch.object(cli, "ValidatorPipeline", _FakePipeline),
+        pytest.raises(ValueError, match="must not be a symlink"),
+    ):
+        cli._fingerprint_validation_waiver_modules(
+            [Path("us/statutes/module.yaml")],
+            root=root,
+            axiom_rules_path=_engine(tmp_path),
+        )
+
+
 def test_companion_parse_failure_is_deterministic_and_paths_are_normalized(
     tmp_path: Path,
 ):
@@ -326,7 +346,12 @@ def _audit_args(root: Path, protected_base: Path, changed_paths: Path):
 
 
 @pytest.mark.parametrize(
-    "value", ["us/statutes/a.yaml\nsecond", "us/statutes/\x7fa.yaml"]
+    "value",
+    [
+        "us/statutes/a.yaml\nsecond",
+        "us/statutes/\x7fa.yaml",
+        "us/statutes/\u202ea.yaml",
+    ],
 )
 def test_transition_paths_reject_control_characters(value: str):
     with pytest.raises(ValueError, match="control characters"):
@@ -563,14 +588,50 @@ def test_active_paths_emits_active_entries_only(tmp_path: Path, capsys):
         cli._validation_waivers,
         "load_validation_waivers",
         return_value=waivers,
-    ):
+    ) as loader:
         exit_code = cli._cmd_validation_waivers_active_paths(args)
 
     assert exit_code == 0
+    assert loader.call_args.args[0] == tmp_path / "known-validation-gaps.yaml"
     assert capsys.readouterr().out.splitlines() == [
         "us/statutes/26/1.yaml",
         "us/statutes/26/2.yaml",
     ]
+
+
+def test_audit_requires_protected_base_and_changed_paths(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    root.mkdir()
+    (root / "known-validation-gaps.yaml").write_text("validate_failures: {}\n")
+    args = SimpleNamespace(
+        root=root,
+        protected_base=None,
+        changed_paths=None,
+        axiom_rules_path=None,
+        json=True,
+    )
+
+    with pytest.raises(ValueError, match="are required"):
+        cli._cmd_validation_waivers_audit(args)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["validation-waivers", "audit"],
+        ["validation-waivers", "active-paths", "--waivers", "alternate.yaml"],
+    ],
+)
+def test_cli_rejects_missing_transition_inputs_and_alternate_waiver_files(
+    argv: list[str],
+):
+    with (
+        patch("sys.argv", ["axiom-encode", *argv]),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        cli.main()
+
+    assert exc_info.value.code == 2
 
 
 def test_main_registers_validation_waiver_subcommands(tmp_path: Path):
