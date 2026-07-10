@@ -44,6 +44,7 @@ from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
 
+from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
 from .concepts import (
     audit_corpus as audit_concept_corpus,
@@ -197,6 +198,7 @@ from .repo_routing import (
     canonical_rulespec_repo_name,
     find_policy_repo_root,
     jurisdiction_content_dir,
+    jurisdiction_subdir_names,
     monorepo_checkout_name,
     resolve_jurisdiction_content_dir,
 )
@@ -332,11 +334,24 @@ def _override_is_country_monorepo_for_jurisdiction(
     return jurisdiction != repo_name.removeprefix("rulespec-")
 
 
+def _canonical_validation_checkout_root(rulespec_file: Path) -> Path:
+    """Require and return ``rulespec-country/jurisdiction/...`` checkout root."""
+    content_root = find_policy_repo_root(rulespec_file)
+    if content_root is None:
+        raise ValueError(
+            f"RuleSpec module is not inside a canonical country checkout: {rulespec_file}"
+        )
+    if content_root.name not in jurisdiction_subdir_names(content_root.parent):
+        raise ValueError(
+            "validation requires the country-monorepo layout "
+            f"(<rulespec-country>/<jurisdiction>/...): {rulespec_file}"
+        )
+    return content_root.parent
+
+
 def _resolve_validation_repo_roots(rulespec_file: Path) -> tuple[Path, Path]:
-    """Resolve the policy repo root plus the Axiom rules engine for validation."""
-    policy_repo_root = find_policy_repo_root(
-        rulespec_file
-    ) or _resolve_policy_repo_for_prefix("us")
+    """Resolve validation against one canonical RuleSpec checkout root."""
+    policy_repo_root = _canonical_validation_checkout_root(rulespec_file)
     return policy_repo_root, _resolve_runtime_axiom_rules_checkout(policy_repo_root)
 
 
@@ -665,6 +680,107 @@ def main():
         "--require-oracle-classification",
         action="store_true",
         help="Fail oracle validation when oracle coverage reports unclassified legal IDs",
+    )
+
+    validation_waivers_parser = subparsers.add_parser(
+        "validation-waivers",
+        help="Fingerprint and audit strictly declared RuleSpec validation waivers",
+    )
+    validation_waivers_subparsers = validation_waivers_parser.add_subparsers(
+        dest="validation_waivers_command",
+        required=True,
+    )
+
+    validation_waivers_fingerprint_parser = validation_waivers_subparsers.add_parser(
+        "fingerprint",
+        help="Run validation and companion tests and fingerprint their failures",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "modules",
+        type=Path,
+        nargs="+",
+        help="Repository-relative RuleSpec module paths to fingerprint",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="RuleSpec repository root (default: current directory)",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine (defaults to a sibling checkout)",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output deterministic outcomes and fingerprints as JSON",
+    )
+
+    validation_waivers_audit_parser = validation_waivers_subparsers.add_parser(
+        "audit",
+        help="Audit every active and pending validation waiver in a repository",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="RuleSpec repository root (default: current directory)",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--waivers",
+        type=Path,
+        default=None,
+        help="Waiver YAML (default: ROOT/known-validation-gaps.yaml)",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--protected-base",
+        type=Path,
+        default=None,
+        help="Strict waiver YAML from the protected base revision",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--changed-paths",
+        type=Path,
+        default=None,
+        help="File containing one repository-relative changed path per line",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine (defaults to a sibling checkout)",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the complete audit report as JSON",
+    )
+
+    validation_waivers_paths_parser = validation_waivers_subparsers.add_parser(
+        "active-paths",
+        help="Print repository-relative paths with active validation waivers",
+    )
+    validation_waivers_paths_parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="RuleSpec repository root (default: current directory)",
+    )
+    validation_waivers_paths_parser.add_argument(
+        "--waivers",
+        type=Path,
+        default=None,
+        help="Waiver YAML (default: ROOT/known-validation-gaps.yaml)",
+    )
+    validation_waivers_paths_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the paths as a JSON array",
     )
 
     proof_validate_parser = subparsers.add_parser(
@@ -3064,6 +3180,8 @@ def main():
 
     if args.command == "validate":
         cmd_validate(args)
+    elif args.command == "validation-waivers":
+        cmd_validation_waivers(args)
     elif args.command == "proof-validate":
         cmd_proof_validate(args)
     elif args.command == "compile":
@@ -3461,6 +3579,527 @@ def _validate_one(args, pipeline, rulespec_file):
     return all_passed, None
 
 
+def _validation_waiver_module_path(
+    module: Path,
+    *,
+    root: Path,
+) -> tuple[Path, str]:
+    """Resolve one module using the canonical waiver-schema path contract."""
+    return _validation_waivers.resolve_validation_waiver_module(
+        root,
+        Path(module).as_posix(),
+    )
+
+
+def _validation_waiver_companion_path(module: Path) -> Path:
+    """Return the canonical adjacent companion path for a RuleSpec module."""
+    return module.with_name(f"{module.stem}.test.yaml")
+
+
+def _validation_waiver_validate_outcome(result) -> dict[str, Any]:
+    """Extract only deterministic, complete failed-validator details."""
+    validators: dict[str, dict[str, Any]] = {}
+    for name, validation in sorted(result.results.items()):
+        if bool(validation.passed):
+            continue
+        validators[str(name)] = {
+            "passed": False,
+            "issues": [str(issue) for issue in (validation.issues or [])],
+            "error": str(validation.error) if validation.error is not None else None,
+        }
+    passed = bool(result.all_passed)
+    if (passed and validators) or (not passed and not validators):
+        raise RuntimeError(
+            "ValidatorPipeline returned an inconsistent aggregate validation result"
+        )
+    return {"passed": passed, "validators": validators}
+
+
+def _validation_waiver_companion_outcome(
+    module: Path,
+    *,
+    root: Path,
+    policy_repo_path: Path,
+    binary: Path,
+    axiom_rules_path: Path,
+    env: dict[str, str],
+    tmp_path: Path,
+    compiled_cache: dict[Path, tuple[Path, dict]],
+) -> dict[str, Any]:
+    """Execute an adjacent companion independently, including parse failures."""
+    companion = _validation_waiver_companion_path(module)
+    relative = companion.relative_to(root).as_posix()
+    if companion.is_symlink():
+        resolved_companion = companion.resolve(strict=True)
+        try:
+            resolved_companion.relative_to(root)
+        except ValueError as error:
+            raise ValueError(
+                f"RuleSpec companion is outside repository root: {relative}"
+            ) from error
+    if not companion.exists():
+        return {
+            "present": False,
+            "path": relative,
+            "passed": True,
+            "cases": 0,
+            "failures": [],
+        }
+    if not companion.is_file():
+        raise ValueError(f"RuleSpec companion is not a file: {relative}")
+
+    try:
+        result = _execute_rulespec_test_file(
+            companion,
+            binary=binary,
+            axiom_rules_path=axiom_rules_path,
+            env=env,
+            tmp_path=tmp_path,
+            compiled_cache=compiled_cache,
+            policy_repo_path=policy_repo_path,
+        )
+    except (ValueError, yaml.YAMLError) as error:
+        result = {
+            "cases": 0,
+            "compiled": 0,
+            "failures": [
+                {
+                    "file": relative,
+                    "case": None,
+                    "message": f"{type(error).__name__}: {error}",
+                }
+            ],
+        }
+    failures = [
+        {
+            "file": str(failure.get("file") or relative),
+            "case": (str(failure["case"]) if failure.get("case") is not None else None),
+            "message": str(failure.get("message") or "companion test failed"),
+        }
+        for failure in result.get("failures", [])
+    ]
+    return {
+        "present": True,
+        "path": relative,
+        "passed": not failures,
+        "cases": int(result.get("cases", 0) or 0),
+        "failures": failures,
+    }
+
+
+def _validation_waiver_path_replacements(
+    *,
+    root: Path,
+    axiom_rules_paths: list[Path],
+    binaries: list[Path],
+    tmp_path: Path,
+    envs: list[dict[str, str]],
+    pipelines: list[ValidatorPipeline],
+) -> dict[str, str]:
+    """Return runtime-specific path prefixes that must not enter a fingerprint."""
+    replacements: dict[str, str] = {}
+
+    def add_path(path: str | Path, replacement: str, *, override: bool = False) -> None:
+        raw = str(path)
+        resolved = str(Path(path).resolve())
+        for value in (raw, resolved):
+            if override:
+                replacements[value] = replacement
+            else:
+                replacements.setdefault(value, replacement)
+
+    add_path(Path.home(), "<home>")
+    add_path(tempfile.gettempdir(), "<system-tmp>")
+    for env in envs:
+        rulespec_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
+        for rulespec_root in rulespec_roots.split(os.pathsep):
+            if not rulespec_root:
+                continue
+            add_path(rulespec_root, "<rulespec-root>")
+    corpus_paths = {
+        *(env.get("AXIOM_CORPUS_REPO") for env in envs),
+        *(env.get("AXIOM_CORPUS_ARTIFACT_ROOT") for env in envs),
+        *(
+            str(pipeline.local_corpus_root)
+            if getattr(pipeline, "local_corpus_root", None)
+            else None
+            for pipeline in pipelines
+        ),
+    }
+    for corpus_path in sorted(path for path in corpus_paths if path):
+        add_path(corpus_path, "<corpus>", override=True)
+    add_path(Path(__file__).resolve().parents[2], "<encoder>", override=True)
+    add_path(root, "<repo>", override=True)
+    for axiom_rules_path in axiom_rules_paths:
+        add_path(axiom_rules_path, "<engine>", override=True)
+    for binary in binaries:
+        add_path(binary, "<engine-binary>", override=True)
+    add_path(tmp_path, "<tmp>", override=True)
+    return dict(sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0])))
+
+
+def _fingerprint_validation_waiver_modules(
+    modules: list[Path],
+    *,
+    root: Path,
+    axiom_rules_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Execute validation and companions against one canonical checkout root."""
+    root = Path(root).resolve()
+    if not root.is_dir():
+        raise ValueError(f"RuleSpec repository root does not exist: {root}")
+
+    resolved_modules: dict[str, Path] = {}
+    for module in modules:
+        resolved, relative = _validation_waiver_module_path(module, root=root)
+        canonical_root = _canonical_validation_checkout_root(resolved).resolve()
+        if canonical_root != root:
+            raise ValueError(
+                f"waiver root must be the canonical country checkout: {canonical_root}"
+            )
+        resolved_modules[relative] = resolved
+
+    engine_root = Path(
+        axiom_rules_path or _resolve_runtime_axiom_rules_checkout(root)
+    ).resolve()
+    pipeline = ValidatorPipeline(
+        policy_repo_path=root,
+        axiom_rules_path=engine_root,
+        enable_oracles=False,
+    )
+    binary = pipeline._axiom_rules_binary()
+    env = pipeline._rulespec_compile_env()
+
+    fingerprints: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        compiled_cache: dict[Path, tuple[Path, dict]] = {}
+        replacements = _validation_waiver_path_replacements(
+            root=root,
+            axiom_rules_paths=[engine_root],
+            binaries=[binary],
+            tmp_path=tmp_path,
+            envs=[env],
+            pipelines=[pipeline],
+        )
+        for relative, module in sorted(resolved_modules.items()):
+            pipeline_result = pipeline.validate(module, skip_reviewers=True)
+            validate_outcome = _validation_waiver_validate_outcome(pipeline_result)
+            companion_outcome = _validation_waiver_companion_outcome(
+                module,
+                root=root,
+                policy_repo_path=root,
+                binary=binary,
+                axiom_rules_path=engine_root,
+                env=env,
+                tmp_path=tmp_path,
+                compiled_cache=compiled_cache,
+            )
+            canonical_bytes = _validation_waivers.canonicalize_outcome(
+                validate_outcome,
+                companion_outcome,
+                replacements=replacements,
+            )
+            digest = _validation_waivers.fingerprint_outcome(
+                validate_outcome,
+                companion_outcome,
+                replacements=replacements,
+            )
+            fingerprints.append(
+                {
+                    "path": relative,
+                    "passed": bool(validate_outcome["passed"])
+                    and bool(companion_outcome["passed"]),
+                    "fingerprint": digest,
+                    "outcome": json.loads(canonical_bytes.decode("utf-8")),
+                }
+            )
+    return fingerprints
+
+
+def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
+    """Validate and normalize an opinionated POSIX repository-relative path."""
+    value = str(raw).strip()
+    if not value:
+        raise ValueError(f"{label} must not be empty")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise ValueError(f"{label} must not contain control characters: {raw!r}")
+    if "\\" in value:
+        raise ValueError(f"{label} must use POSIX separators: {raw}")
+    if value.startswith("/") or value.endswith("/"):
+        raise ValueError(f"{label} must be a canonical repository-relative path: {raw}")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"{label} must be a canonical repository-relative path: {raw}")
+    return "/".join(parts)
+
+
+def _validation_waiver_changed_paths(path: Path) -> set[str]:
+    """Read the strict one-repository-relative-path-per-line transition input."""
+    changed: set[str] = set()
+    for line_number, raw in enumerate(Path(path).read_text().splitlines(), 1):
+        if not raw.strip():
+            continue
+        if raw != raw.strip():
+            raise ValueError(
+                f"changed path line {line_number} has surrounding whitespace"
+            )
+        changed.add(
+            _validation_waiver_repo_relative_path(
+                raw,
+                label=f"changed path line {line_number}",
+            )
+        )
+    return changed
+
+
+def _validation_waiver_file(args, *, root: Path) -> Path:
+    configured = getattr(args, "waivers", None)
+    if configured is None:
+        return root / "known-validation-gaps.yaml"
+    path = Path(configured)
+    return path if path.is_absolute() else root / path
+
+
+def _emit_validation_waiver_error(args, error: Exception | str) -> None:
+    message = str(error)
+    if getattr(args, "json", False):
+        print(json.dumps({"success": False, "errors": [message]}, indent=2))
+    else:
+        print(f"validation-waivers: {message}", file=sys.stderr)
+
+
+def _cmd_validation_waivers_fingerprint(args) -> int:
+    root = Path(args.root).resolve()
+    results = _fingerprint_validation_waiver_modules(
+        list(args.modules),
+        root=root,
+        axiom_rules_path=getattr(args, "axiom_rules_path", None),
+    )
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "root": str(root),
+                    "modules": results,
+                },
+                indent=2,
+            )
+        )
+    else:
+        for result in results:
+            state = "passes" if result["passed"] else "fails"
+            print(f"{result['path']}: {result['fingerprint']} ({state})")
+    return 0
+
+
+def _cmd_validation_waivers_active_paths(args) -> int:
+    root = Path(args.root).resolve()
+    waiver_file = _validation_waiver_file(args, root=root)
+    waivers = _validation_waivers.load_validation_waivers(
+        waiver_file,
+        repo_root=root,
+    )
+    paths = sorted(waivers.active_paths)
+    if args.json:
+        print(json.dumps(paths, indent=2))
+    else:
+        for path in paths:
+            print(path)
+    return 0
+
+
+def _cmd_validation_waivers_audit(args) -> int:
+    root = Path(args.root).resolve()
+    if not root.is_dir():
+        raise ValueError(f"RuleSpec repository root does not exist: {root}")
+    waiver_file = _validation_waiver_file(args, root=root).resolve()
+    try:
+        waiver_path = waiver_file.relative_to(root).as_posix()
+    except ValueError as error:
+        raise ValueError(
+            "head waiver YAML must be inside the repository root"
+        ) from error
+
+    protected_base_path = getattr(args, "protected_base", None)
+    changed_paths_file = getattr(args, "changed_paths", None)
+    if (protected_base_path is None) != (changed_paths_file is None):
+        raise ValueError(
+            "--protected-base and --changed-paths must be supplied together"
+        )
+
+    head = _validation_waivers.load_validation_waivers(
+        waiver_file,
+        repo_root=root,
+    )
+    base = None
+    transition_issues: tuple[str, ...] = ()
+    if protected_base_path is not None:
+        base = _validation_waivers.load_validation_waivers(
+            Path(protected_base_path),
+            repo_root=root,
+            allow_expired=True,
+            require_paths=False,
+        )
+        changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
+        transition_issues = _validation_waivers.protected_base_transition_issues(
+            base,
+            head,
+            changed_paths=changed_paths,
+            waiver_path=waiver_path,
+        )
+
+    if transition_issues:
+        report = {
+            "success": False,
+            "root": str(root),
+            "waivers": waiver_path,
+            "checked": 0,
+            "results": [],
+            "errors": list(transition_issues),
+        }
+        _print_validation_waiver_audit_report(report, as_json=args.json)
+        return 1
+
+    active_paths = set(head.active_paths)
+    pending_only_paths = set(head.pending_paths) - active_paths
+    removed_active_paths = (
+        set(base.active_paths) - active_paths if base is not None else set()
+    )
+    classified: dict[str, str] = {path: "active" for path in active_paths}
+    classified.update({path: "pending" for path in pending_only_paths})
+    for path in removed_active_paths:
+        classified.setdefault(path, "removed")
+    classified = dict(sorted(classified.items()))
+
+    deleted_removed: set[str] = set()
+    missing_required: set[str] = set()
+    executable_paths: list[Path] = []
+    for path, kind in classified.items():
+        module = root / path
+        if module.is_file():
+            executable_paths.append(Path(path))
+        elif kind == "removed" and not module.exists() and not module.is_symlink():
+            deleted_removed.add(path)
+        else:
+            missing_required.add(path)
+
+    executed = (
+        _fingerprint_validation_waiver_modules(
+            executable_paths,
+            root=root,
+            axiom_rules_path=getattr(args, "axiom_rules_path", None),
+        )
+        if executable_paths
+        else []
+    )
+    executed_by_path = {result["path"]: result for result in executed}
+    results: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    for path, kind in classified.items():
+        if path in deleted_removed:
+            results.append(
+                {
+                    "path": path,
+                    "kind": kind,
+                    "success": True,
+                    "module_deleted": True,
+                }
+            )
+            continue
+        if path in missing_required:
+            message = f"{path}: declared {kind} waiver module does not exist"
+            errors.append(message)
+            results.append(
+                {
+                    "path": path,
+                    "kind": kind,
+                    "success": False,
+                    "error": message,
+                }
+            )
+            continue
+
+        actual = executed_by_path[path]
+        result_record = {
+            "path": path,
+            "kind": kind,
+            "passed": actual["passed"],
+            "fingerprint": actual["fingerprint"],
+            "outcome": actual["outcome"],
+        }
+        error: str | None = None
+        if kind == "active":
+            expected = head.entries[path].active.fingerprint
+            result_record["expected_fingerprint"] = expected
+            if actual["passed"]:
+                error = f"{path}: active validation waiver is stale; module now passes"
+            elif actual["fingerprint"] != expected:
+                error = (
+                    f"{path}: validation failure fingerprint drifted; expected "
+                    f"{expected}, got {actual['fingerprint']}"
+                )
+        elif kind == "pending" and not actual["passed"]:
+            error = f"{path}: pending waiver requires the current module to pass"
+        elif kind == "removed" and not actual["passed"]:
+            error = f"{path}: removed active waiver still has a failing module"
+        result_record["success"] = error is None
+        if error is not None:
+            result_record["error"] = error
+            errors.append(error)
+        results.append(result_record)
+
+    report = {
+        "success": not errors,
+        "root": str(root),
+        "waivers": waiver_path,
+        "checked": len(results),
+        "results": results,
+        "errors": errors,
+    }
+    _print_validation_waiver_audit_report(report, as_json=args.json)
+    return 0 if report["success"] else 1
+
+
+def _print_validation_waiver_audit_report(
+    report: dict[str, Any],
+    *,
+    as_json: bool,
+) -> None:
+    if as_json:
+        print(json.dumps(report, indent=2))
+        return
+    if report["success"]:
+        print(f"Validation waiver audit passed ({report['checked']} path(s) checked)")
+        return
+    print(
+        f"Validation waiver audit failed ({len(report['errors'])} error(s))",
+        file=sys.stderr,
+    )
+    for error in report["errors"]:
+        print(f"- {error}", file=sys.stderr)
+
+
+def cmd_validation_waivers(args) -> None:
+    """Dispatch strict validation waiver maintenance and audit commands."""
+    try:
+        command = args.validation_waivers_command
+        if command == "fingerprint":
+            exit_code = _cmd_validation_waivers_fingerprint(args)
+        elif command == "audit":
+            exit_code = _cmd_validation_waivers_audit(args)
+        elif command == "active-paths":
+            exit_code = _cmd_validation_waivers_active_paths(args)
+        else:
+            raise ValueError(f"unknown validation-waivers command: {command}")
+    except Exception as error:
+        _emit_validation_waiver_error(args, error)
+        exit_code = 2
+    sys.exit(exit_code)
+
+
 def _money_atom_display_path(file: Path, root: Path | None) -> str:
     """Return a stable, ratchet-matchable path for a file."""
     resolved = file.resolve()
@@ -3737,6 +4376,15 @@ def cmd_test(args):
         else:
             print(message)
         sys.exit(1)
+
+    for test_file in test_files:
+        canonical_root = _canonical_validation_checkout_root(
+            _rulespec_program_for_test_file(test_file)
+        ).resolve()
+        if canonical_root != root:
+            raise ValueError(
+                f"--root must be the canonical country checkout: {canonical_root}"
+            )
 
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
