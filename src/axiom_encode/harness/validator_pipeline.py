@@ -19134,7 +19134,7 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     local_text = _fetch_local_corpus_source_text(citation_path)
     if local_text is not None:
         return local_text
-    if root is not None:
+    if root is not None or os.environ.get("AXIOM_CORPUS_REPO"):
         return None
     return _fetch_supabase_corpus_source_text(citation_path)
 

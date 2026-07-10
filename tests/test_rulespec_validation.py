@@ -17969,6 +17969,25 @@ def test_ambient_axiom_corpus_repo_invalid_layout_fails_closed(
         validator_pipeline._fetch_corpus_source_text("us/statute/1")
 
 
+def test_ambient_axiom_corpus_repo_missing_citation_does_not_fall_through(
+    tmp_path, monkeypatch
+):
+    provisions = tmp_path / "data/corpus/provisions/us/statute"
+    provisions.mkdir(parents=True)
+    (provisions / "empty.jsonl").write_text("")
+    _write_current_release_scope(
+        tmp_path, jurisdiction="us", document_class="statute"
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_supabase_corpus_source_text",
+        lambda _citation: pytest.fail("must not fall through to Supabase"),
+    )
+
+    assert validator_pipeline._fetch_corpus_source_text("us/statute/1") is None
+
+
 def test_source_verification_prefers_explicit_ambient_corpus_artifact(
     tmp_path,
     monkeypatch,
