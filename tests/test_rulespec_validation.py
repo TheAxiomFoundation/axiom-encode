@@ -17945,6 +17945,24 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+@pytest.mark.parametrize("layout", ["missing", "no-provisions"])
+def test_ambient_axiom_corpus_repo_invalid_layout_fails_closed(
+    tmp_path, monkeypatch, layout
+):
+    corpus = tmp_path / "ambient-corpus"
+    if layout == "no-provisions":
+        corpus.mkdir()
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus))
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_supabase_corpus_source_text",
+        lambda _citation: pytest.fail("must not fall through to Supabase"),
+    )
+
+    with pytest.raises(CorpusLayoutError):
+        validator_pipeline._fetch_corpus_source_text("us/statute/1")
+
+
 def test_source_verification_prefers_current_repo_corpus_artifact(
     tmp_path,
     monkeypatch,

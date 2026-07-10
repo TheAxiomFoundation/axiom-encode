@@ -990,6 +990,20 @@ def test_drift_loader_samples_only_current_replayable_encodes(tmp_path, capsys):
     assert "skipped 2 non-replayable drift candidates" in capsys.readouterr().err
 
 
+def test_drift_loader_checks_anthropic_manifest_instead_of_skipping(tmp_path, capsys):
+    root, module, manifest = _regeneration_fixture(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["backend"] = "anthropic"
+    manifest.write_text(json.dumps(payload))
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded == {module: "outputs: {}\n"}
+    assert "non-replayable" not in capsys.readouterr().err
+
+
 def test_drift_loader_reports_missing_root_without_traceback(tmp_path, capsys):
     missing = tmp_path / "does-not-exist"
 

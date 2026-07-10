@@ -13,6 +13,7 @@ import pytest
 from axiom_encode import corpus_resolver
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
+    CorpusDescendantStructureError,
     CorpusLayoutError,
     CorpusRemoteError,
     CorpusResolutionError,
@@ -3132,7 +3133,7 @@ def test_metadata_parent_bounds_composition_prefix_trie(
     )
     monkeypatch.setattr(corpus_resolver, limit_name, limit_value)
 
-    with pytest.raises(CorpusResolutionError, match=match):
+    with pytest.raises(CorpusDescendantStructureError, match=match):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
@@ -3301,7 +3302,23 @@ def test_metadata_parent_validates_descendant_citation_before_body_filter(
         ],
     )
 
-    with pytest.raises(CorpusResolutionError, match="Invalid descendant"):
+    with pytest.raises(CorpusDescendantStructureError, match="Invalid descendant"):
+        resolve_local_corpus_source(CITATION, tmp_path)
+
+
+def test_metadata_parent_types_malformed_descendant_ordering(tmp_path: Path):
+    version = "2026-01-01-ordering"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "child", "ordinal": "first"},
+        ],
+    )
+
+    with pytest.raises(CorpusDescendantStructureError, match="ordering metadata"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 

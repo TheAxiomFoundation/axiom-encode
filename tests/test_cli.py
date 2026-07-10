@@ -4290,7 +4290,7 @@ class TestCmdEncode:
         source = tmp_path / "source.txt"
         source.write_text("test source\n")
         result.source_attestation["generation_input_sha256"] = hashlib.sha256(
-            b"test source"
+            b"test source\n"
         ).hexdigest()
         Path(result.context_manifest_file).write_text(
             json.dumps({"source_text_file": source.name}) + "\n"
@@ -4856,7 +4856,7 @@ rules: []
         manifest_attestation = manifest_payload["source_attestation"]
         assert (
             manifest_attestation["generation_input_sha256"]
-            == hashlib.sha256(b"test source").hexdigest()
+            == hashlib.sha256(b"test source\n").hexdigest()
         )
         assert manifest_attestation["resolved_text_sha256"] == "a" * 64
         assert (
