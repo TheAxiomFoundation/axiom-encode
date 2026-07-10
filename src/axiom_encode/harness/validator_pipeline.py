@@ -19156,6 +19156,18 @@ def _fetch_local_corpus_source_text(
     if not normalized_path:
         return None
 
+    if root is not None:
+        try:
+            return resolve_local_corpus_source(
+                normalized_path,
+                root,
+                require_release=require_release,
+            ).body
+        except CorpusSourceNotFoundError:
+            return None
+        except UnsafeCorpusPathError as exc:
+            raise UnsafeRulespecContextPath(str(exc)) from exc
+
     for provisions_root in _local_corpus_provisions_roots(root):
         corpus_root = (
             root

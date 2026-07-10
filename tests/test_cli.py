@@ -19,8 +19,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from axiom_encode.harness.evals import CorpusSourceUnit
-
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
@@ -262,7 +260,7 @@ from axiom_encode.harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
-from axiom_encode.harness.evals import EvalArtifactMetrics
+from axiom_encode.harness.evals import CorpusSourceUnit, EvalArtifactMetrics
 from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
 from axiom_encode.oracles.policyengine.ecps_snap import (
     JURISDICTION_CONFIGS,

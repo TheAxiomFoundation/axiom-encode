@@ -12,6 +12,7 @@ import yaml
 
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
+    CorpusLayoutError,
     InvalidReleaseSelectorError,
 )
 from axiom_encode.harness import validator_pipeline
@@ -17525,6 +17526,14 @@ def test_production_validation_requires_current_release_selector(
     )
 
 
+def test_authoritative_validation_surfaces_malformed_corpus_layout(tmp_path):
+    with validator_pipeline._authoritative_corpus_scope(tmp_path):
+        with pytest.raises(CorpusLayoutError, match="No provisions directory"):
+            validator_pipeline._fetch_local_corpus_source_text(
+                "us/guidance/example/page-1"
+            )
+
+
 def test_local_only_pipeline_uses_only_explicit_corpus_and_never_supabase(
     tmp_path,
     monkeypatch,
@@ -17721,6 +17730,23 @@ def test_authoritative_corpus_uses_only_primary_provisions_layout(tmp_path):
 
 def test_source_claim_rejects_missing_evidence_source(tmp_path):
     corpus = tmp_path / "axiom-corpus"
+    (corpus / "data/corpus/provisions").mkdir(parents=True)
+    selector = corpus / "manifests/releases/current.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "us",
+                        "document_class": "guidance",
+                        "version": "active",
+                    }
+                ],
+            }
+        )
+    )
     claims = corpus / "data/corpus/claims/us"
     claims.mkdir(parents=True)
     claim_id = "claims:us/guidance/missing#assertion"

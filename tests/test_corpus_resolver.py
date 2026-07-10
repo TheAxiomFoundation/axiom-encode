@@ -13,8 +13,8 @@ import pytest
 from axiom_encode import corpus_resolver
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
-    CorpusRemoteError,
     CorpusLayoutError,
+    CorpusRemoteError,
     CorpusResolutionError,
     CorpusSourceNotFoundError,
     CorpusSourceSliceError,

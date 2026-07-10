@@ -4003,7 +4003,7 @@ def _require_release_row_metadata(
         except CorpusResolutionError as exc:
             raise CorpusRowStructureError(
                 "missing-release-metadata",
-                f"Active release row is missing required metadata: {exc}"
+                f"Active release row is missing required metadata: {exc}",
             ) from exc
 
 

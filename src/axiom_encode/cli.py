@@ -63,6 +63,7 @@ from .corpus_resolver import (
     CorpusResolutionError,
     CorpusRowStructureError,
     CorpusSourceNotFoundError,
+    CorpusSourceSliceError,
     InactiveCorpusSourceError,
     InvalidReleaseSelectorError,
     iter_active_local_corpus_rows,
@@ -27841,7 +27842,31 @@ def cmd_encode(args):
         prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
         resolved_source = getattr(source_unit, "resolved_source", None)
         if resolved_source is not None:
-            scoped_source = scope_resolved_corpus_source(resolved_source, source_id)
+            try:
+                scoped_source = scope_resolved_corpus_source(resolved_source, source_id)
+            except CorpusSourceSliceError:
+                try:
+                    mapped_source = resolve_local_corpus_source(
+                        source_id, corpus_path, require_release=True
+                    )
+                except CorpusResolutionError as mapping_error:
+                    print(
+                        f"Cannot map logical --source-id {source_id!r} to a "
+                        f"resolver-owned slice of corpus citation {args.citation!r}: "
+                        f"{type(mapping_error).__name__}: {mapping_error}"
+                    )
+                    sys.exit(1)
+                if (
+                    mapped_source.provision_file != resolved_source.provision_file
+                    or mapped_source.row.record_id != resolved_source.row.record_id
+                ):
+                    print(
+                        f"Cannot map logical --source-id {source_id!r} to a "
+                        f"resolver-owned slice of corpus citation {args.citation!r}: "
+                        "the mapped identifier resolves to an unrelated corpus row"
+                    )
+                    sys.exit(1)
+                scoped_source = mapped_source
             source_text = scoped_source.body
             source_unit = replace(
                 source_unit,
@@ -31549,8 +31574,11 @@ def _local_source_text_for_corpus_path(
 def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
     candidates: list[Path] = []
     env_path = os.environ.get("AXIOM_CORPUS_REPO")
-    if env_path:
-        candidates.append(Path(env_path).expanduser())
+    normalized_env_path = (
+        Path(os.path.abspath(Path(env_path).expanduser())) if env_path else None
+    )
+    if normalized_env_path is not None:
+        candidates.append(normalized_env_path)
     rules_repo = Path(rules_repo_path).resolve()
     candidates.extend(
         [
@@ -31566,10 +31594,12 @@ def _candidate_local_axiom_corpus_paths(rules_repo_path: Path) -> list[Path]:
             candidate = candidate.resolve()
         if candidate in seen:
             continue
-        if env_path and candidate == Path(env_path).expanduser() and not candidate.exists():
-            raise RuntimeError(
-                f"AXIOM_CORPUS_REPO does not exist: {candidate}"
-            )
+        if (
+            normalized_env_path is not None
+            and candidate == normalized_env_path
+            and not candidate.exists()
+        ):
+            raise RuntimeError(f"AXIOM_CORPUS_REPO does not exist: {candidate}")
         if not candidate.exists():
             continue
         seen.add(candidate)
