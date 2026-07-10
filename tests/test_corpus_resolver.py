@@ -3088,7 +3088,7 @@ def test_metadata_parent_enforces_local_descendant_row_bound(
     )
     monkeypatch.setattr(corpus_resolver, "MAX_SUPABASE_DESCENDANT_ROWS", 1)
 
-    with pytest.raises(CorpusResolutionError, match="1-row safety limit"):
+    with pytest.raises(CorpusDescendantStructureError, match="1-row safety limit"):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
@@ -4082,7 +4082,7 @@ def test_supabase_metadata_parent_enforces_descendant_row_bound(monkeypatch):
     ]
     monkeypatch.setattr(corpus_resolver, "MAX_SUPABASE_DESCENDANT_ROWS", 1)
 
-    with pytest.raises(CorpusRemoteError, match="1-row safety limit"):
+    with pytest.raises(CorpusDescendantStructureError, match="1-row safety limit"):
         resolve_supabase_corpus_source(
             CITATION,
             supabase_url="https://example.supabase.co",

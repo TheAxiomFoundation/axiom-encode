@@ -635,7 +635,7 @@ def resolve_local_corpus_source(
                     )
                 )
                 if len(descendants) > MAX_SUPABASE_DESCENDANT_ROWS:
-                    raise CorpusResolutionError(
+                    raise CorpusDescendantStructureError(
                         f"Local descendants for {selected.row.citation_path!r} "
                         f"exceed the {MAX_SUPABASE_DESCENDANT_ROWS}-row safety limit"
                     )
@@ -1203,7 +1203,7 @@ def _fetch_supabase_descendant_records(
             )
         rows.extend(page)
         if len(rows) > MAX_SUPABASE_DESCENDANT_ROWS:
-            raise CorpusRemoteError(
+            raise CorpusDescendantStructureError(
                 f"Supabase descendant query for {citation_path!r} exceeds the "
                 f"{MAX_SUPABASE_DESCENDANT_ROWS}-row safety limit"
             )
