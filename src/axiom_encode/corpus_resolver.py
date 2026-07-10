@@ -448,7 +448,9 @@ def load_release_selector(
     expected_name: str = "current",
     repository_root: Path | None = None,
 ) -> ReleaseSelector:
-    """Load and strictly validate ``manifests/releases/current.json``."""
+    """Load and strictly validate one named local release selector."""
+
+    expected_name = _validated_release_name(expected_name)
 
     if repository_root is not None:
         containment_root = repository_root

@@ -66,6 +66,7 @@ from .corpus_resolver import (
     CorpusSourceNotFoundError,
     InactiveCorpusSourceError,
     InvalidReleaseSelectorError,
+    ReleaseSelector,
     iter_active_local_corpus_rows,
     load_release_selector,
     normalize_corpus_identifier,
@@ -897,13 +898,19 @@ def main():
 
     migration_inventory_parser = subparsers.add_parser(
         "migration-inventory",
-        help="Report RuleSpec corpus citations that fail the current release selector",
+        help="Report RuleSpec corpus citations that fail a named release selector",
     )
     migration_inventory_parser.add_argument(
         "checkouts", nargs="+", type=Path, help="RuleSpec checkout roots to scan"
     )
     migration_inventory_parser.add_argument(
         "--corpus-root", required=True, type=Path, help="Axiom corpus checkout"
+    )
+    migration_inventory_parser.add_argument(
+        "--release-selector",
+        required=True,
+        metavar="NAME",
+        help="Exact named corpus release selector to audit",
     )
     migration_inventory_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
@@ -5388,8 +5395,6 @@ def _module_corpus_citations(checkout: Path):
 def _migration_failure_reason(exc: CorpusResolutionError) -> str:
     if isinstance(exc, AmbiguousCorpusSourceError):
         return "duplicated"
-    if isinstance(exc, InvalidReleaseSelectorError):
-        return "unversioned-checkout"
     if isinstance(exc, CorpusLayoutError):
         return "missing-layout"
     if isinstance(exc, InactiveCorpusSourceError):
@@ -5403,10 +5408,26 @@ def _migration_failure_reason(exc: CorpusResolutionError) -> str:
     return "resolution-error"
 
 
-def migration_inventory(
-    checkouts: list[Path], corpus_root: Path
-) -> list[dict[str, str]]:
-    """Return every module citation that is not exact under the release selector."""
+def _load_migration_release_selector(
+    corpus_root: Path, release_selector: str
+) -> tuple[Path, ReleaseSelector]:
+    """Load the one explicitly named selector that owns a migration audit."""
+
+    corpus = Path(corpus_root).expanduser().resolve()
+    selector = load_release_selector(
+        corpus / "manifests" / "releases" / f"{release_selector}.json",
+        expected_name=release_selector,
+        repository_root=corpus,
+    )
+    return corpus, selector
+
+
+def _run_migration_inventory(
+    checkouts: list[Path], corpus_root: Path, *, release_selector: str
+) -> tuple[list[dict[str, str]], ReleaseSelector]:
+    """Run one audit bound to a stable, explicitly named release selector."""
+
+    corpus, selector = _load_migration_release_selector(corpus_root, release_selector)
     failures: list[dict[str, str]] = []
     for raw_checkout in checkouts:
         raw_checkout = Path(raw_checkout).expanduser()
@@ -5425,8 +5446,13 @@ def migration_inventory(
             try:
                 requested = normalize_corpus_identifier(citation)
                 resolved = resolve_local_corpus_source(
-                    requested, corpus_root, require_release=True
+                    requested,
+                    corpus,
+                    release_name=selector.name,
+                    require_release=True,
                 )
+            except InvalidReleaseSelectorError:
+                raise
             except CorpusResolutionError as exc:
                 failures.append(
                     {
@@ -5438,6 +5464,14 @@ def migration_inventory(
                     }
                 )
                 continue
+            if (
+                resolved.release_name != selector.name
+                or resolved.release_selector_sha256 != selector.sha256
+            ):
+                raise InvalidReleaseSelectorError(
+                    f"Release selector {selector.name!r} changed during "
+                    "migration inventory"
+                )
             if resolved.citation_path != requested:
                 failures.append(
                     {
@@ -5452,15 +5486,33 @@ def migration_inventory(
                         "detail": f"resolved through {resolved.citation_path}",
                     }
                 )
+    _, final_selector = _load_migration_release_selector(corpus, selector.name)
+    if final_selector.sha256 != selector.sha256:
+        raise InvalidReleaseSelectorError(
+            f"Release selector {selector.name!r} changed during migration inventory"
+        )
+    return failures, selector
+
+
+def migration_inventory(
+    checkouts: list[Path], corpus_root: Path, *, release_selector: str
+) -> list[dict[str, str]]:
+    """Return citations that are not exact under one named release selector."""
+
+    failures, _selector = _run_migration_inventory(
+        checkouts, corpus_root, release_selector=release_selector
+    )
     return failures
 
 
 def _migration_inventory_report(
-    checkouts: list[Path], corpus_root: Path
+    checkouts: list[Path], corpus_root: Path, *, release_selector: str
 ) -> dict[str, object]:
     """Build the reproducible release-migration census and completeness metadata."""
 
-    failures = migration_inventory(checkouts, corpus_root)
+    failures, selector = _run_migration_inventory(
+        checkouts, corpus_root, release_selector=release_selector
+    )
     resolved_checkouts = [Path(path).expanduser().resolve() for path in checkouts]
     scanned_modules = 0
     incomplete_rulespec_count = 0
@@ -5495,26 +5547,14 @@ def _migration_inventory_report(
             incomplete_reasons.append(
                 f"{checkout}: unable to determine git checkout commit"
             )
-    corpus = Path(corpus_root).expanduser().resolve()
-    selector_path = corpus / "manifests/releases/current.json"
-    selector_digest = (
-        load_release_selector(
-            selector_path, expected_name="current", repository_root=corpus
-        ).sha256
-        if selector_path.is_file()
-        else None
-    )
-    if selector_digest is None:
-        incomplete_reasons.append(
-            f"{corpus}: current release selector digest is unavailable"
-        )
     return {
         "failures": failures,
         "count": len(failures),
         "resolution_finding_count": len(failures),
         "scanned_modules": scanned_modules,
         "checkouts": checkout_metadata,
-        "release_selector_sha256": selector_digest,
+        "release_selector": selector.name,
+        "release_selector_sha256": selector.sha256,
         "complete": not incomplete_reasons,
         "incomplete_scan_reasons": incomplete_reasons,
         "incomplete_scan_reason_count": len(incomplete_reasons),
@@ -5524,13 +5564,20 @@ def _migration_inventory_report(
 
 def cmd_migration_inventory(args):
     """Print release-migration failures as JSON or a compact operator table."""
-    report = _migration_inventory_report(args.checkouts, args.corpus_root)
+    report = _migration_inventory_report(
+        args.checkouts,
+        args.corpus_root,
+        release_selector=args.release_selector,
+    )
     rows = report["failures"]
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         return
     if not rows:
-        print("No module citation failures under the current release selector.")
+        print(
+            "No module citation failures under release selector "
+            f"{report['release_selector']!r}."
+        )
         return
     print("CHECKOUT\tMODULE\tCITATION\tREASON\tDETAIL")
     for row in rows:

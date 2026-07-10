@@ -11,8 +11,15 @@ import pytest
 from axiom_encode.cli import (
     _migration_inventory_report,
     cmd_migration_inventory,
+    main,
     migration_inventory,
 )
+from axiom_encode.corpus_resolver import (
+    InvalidReleaseSelectorError,
+    load_release_selector,
+)
+
+RELEASE_SELECTOR = "nz-rulespec-current"
 
 
 def _record(citation: str, *, record_id: str, body="Text", version="active"):
@@ -29,14 +36,13 @@ def _record(citation: str, *, record_id: str, body="Text", version="active"):
     }
 
 
-def _write_fixture(tmp_path):
-    corpus = tmp_path / "axiom-corpus"
-    selector = corpus / "manifests/releases/current.json"
-    selector.parent.mkdir(parents=True)
+def _write_selector(corpus, name=RELEASE_SELECTOR):
+    selector = corpus / "manifests" / "releases" / f"{name}.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
     selector.write_text(
         json.dumps(
             {
-                "name": "current",
+                "name": name,
                 "scopes": [
                     {
                         "jurisdiction": "us",
@@ -47,6 +53,12 @@ def _write_fixture(tmp_path):
             }
         )
     )
+    return selector
+
+
+def _write_fixture(tmp_path):
+    corpus = tmp_path / "axiom-corpus"
+    _write_selector(corpus)
     provisions = corpus / "data/corpus/provisions/us/statute"
     provisions.mkdir(parents=True)
     rows = [
@@ -78,7 +90,7 @@ def _write_fixture(tmp_path):
 def test_migration_inventory_reports_duplicate_and_slice_fallback(tmp_path):
     rules, corpus = _write_fixture(tmp_path)
 
-    rows = migration_inventory([rules], corpus)
+    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
 
     assert {(row["citation"], row["reason"]) for row in rows} == {
         ("us/statute/7/2014/e", "parent-slice-dependency"),
@@ -88,9 +100,28 @@ def test_migration_inventory_reports_duplicate_and_slice_fallback(tmp_path):
 
 def test_migration_inventory_json_is_machine_readable(tmp_path, capsys):
     rules, corpus = _write_fixture(tmp_path)
+    current_selector = _write_selector(corpus, "current")
+    expected_selector = load_release_selector(
+        corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json",
+        expected_name=RELEASE_SELECTOR,
+        repository_root=corpus,
+    )
+    assert (
+        load_release_selector(
+            current_selector,
+            expected_name="current",
+            repository_root=corpus,
+        ).sha256
+        != expected_selector.sha256
+    )
 
     cmd_migration_inventory(
-        SimpleNamespace(checkouts=[rules], corpus_root=corpus, json=True)
+        SimpleNamespace(
+            checkouts=[rules],
+            corpus_root=corpus,
+            release_selector=RELEASE_SELECTOR,
+            json=True,
+        )
     )
 
     payload = json.loads(capsys.readouterr().out)
@@ -100,14 +131,19 @@ def test_migration_inventory_json_is_machine_readable(tmp_path, capsys):
         "parent-slice-dependency",
     }
     assert payload["scanned_modules"] == 2
-    assert payload["release_selector_sha256"]
+    assert payload["release_selector"] == RELEASE_SELECTOR
+    assert payload["release_selector_sha256"] == expected_selector.sha256
     assert payload["complete"] is True
 
 
 def test_migration_inventory_rejects_nonexistent_checkout(tmp_path):
     _rules, corpus = _write_fixture(tmp_path)
     with pytest.raises(ValueError, match="existing directory"):
-        migration_inventory([tmp_path / "missing"], corpus)
+        migration_inventory(
+            [tmp_path / "missing"],
+            corpus,
+            release_selector=RELEASE_SELECTOR,
+        )
 
 
 def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
@@ -121,7 +157,9 @@ def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
         return original(path, *args, **kwargs)
 
     with patch.object(type(denied), "read_text", read_text):
-        report = _migration_inventory_report([rules], corpus)
+        report = _migration_inventory_report(
+            [rules], corpus, release_selector=RELEASE_SELECTOR
+        )
     assert report["complete"] is False
     assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
     assert report["incomplete_rulespec_count"] == 1
@@ -141,7 +179,9 @@ def test_migration_inventory_scanned_modules_counts_files_not_citations(tmp_path
         "      - us/statute/7/2014/e\n"
         "      - us/statute/26/1\nrules: []\n"
     )
-    report = _migration_inventory_report([rules], corpus)
+    report = _migration_inventory_report(
+        [rules], corpus, release_selector=RELEASE_SELECTOR
+    )
     assert report["scanned_modules"] == 3
 
 
@@ -176,15 +216,55 @@ def test_migration_inventory_classifies_release_failure_classes(
         row.pop("source_as_of")
     provision.write_text(json.dumps(row) + "\n")
     (rules / "statutes/26/1.yaml").unlink()
-    rows = migration_inventory([rules], corpus)
+    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
     assert rows[0]["reason"] == expected
 
 
-def test_migration_inventory_classifies_unversioned_corpus_checkout(tmp_path):
+def test_migration_inventory_missing_named_selector_cannot_fall_back_to_current(
+    tmp_path,
+):
     rules, corpus = _write_fixture(tmp_path)
-    (corpus / "manifests/releases/current.json").unlink()
-    reasons = {row["reason"] for row in migration_inventory([rules], corpus)}
-    assert reasons == {"unversioned-checkout"}
+    (corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json").unlink()
+    _write_selector(corpus, "current")
+
+    with pytest.raises(
+        InvalidReleaseSelectorError,
+        match=rf"{RELEASE_SELECTOR}\.json",
+    ):
+        migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
+
+
+@pytest.mark.parametrize(
+    "release_selector",
+    ["", "../current", "nested/current", " current"],
+)
+def test_migration_inventory_rejects_unsafe_release_selector_names(
+    tmp_path, release_selector
+):
+    rules, corpus = _write_fixture(tmp_path)
+
+    with pytest.raises(InvalidReleaseSelectorError):
+        migration_inventory([rules], corpus, release_selector=release_selector)
+
+
+def test_migration_inventory_cli_requires_release_selector(tmp_path, capsys):
+    rules, corpus = _write_fixture(tmp_path)
+
+    with patch(
+        "sys.argv",
+        [
+            "axiom-encode",
+            "migration-inventory",
+            str(rules),
+            "--corpus-root",
+            str(corpus),
+        ],
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+    assert exc_info.value.code == 2
+    assert "--release-selector" in capsys.readouterr().err
 
 
 def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_path):
@@ -196,12 +276,12 @@ def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_pat
         "    corpus_citation_path: uk/statute/ukpga/2020/1/3\nrules: []\n"
     )
     corpus = tmp_path / "axiom-corpus"
-    selector = corpus / "manifests/releases/current.json"
+    selector = corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json"
     selector.parent.mkdir(parents=True)
     selector.write_text(
         json.dumps(
             {
-                "name": "current",
+                "name": RELEASE_SELECTOR,
                 "scopes": [
                     {
                         "jurisdiction": "uk",
@@ -220,7 +300,7 @@ def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_pat
     )
     row["jurisdiction"] = "uk"
     provision.write_text(json.dumps(row) + "\n")
-    rows = migration_inventory([rules], corpus)
+    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
     assert rows[0]["reason"] == "exact-alias-dependency"
 
 
@@ -233,12 +313,12 @@ def test_migration_inventory_labels_uk_alias_parent_from_resolver_flag(tmp_path)
         "    corpus_citation_path: uk/statute/ukpga/2020/1/3/a\nrules: []\n"
     )
     corpus = tmp_path / "axiom-corpus"
-    selector = corpus / "manifests/releases/current.json"
+    selector = corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json"
     selector.parent.mkdir(parents=True)
     selector.write_text(
         json.dumps(
             {
-                "name": "current",
+                "name": RELEASE_SELECTOR,
                 "scopes": [
                     {
                         "jurisdiction": "uk",
@@ -259,6 +339,6 @@ def test_migration_inventory_labels_uk_alias_parent_from_resolver_flag(tmp_path)
     row["jurisdiction"] = "uk"
     provision.write_text(json.dumps(row) + "\n")
 
-    rows = migration_inventory([rules], corpus)
+    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
 
     assert rows[0]["reason"] == "parent-slice-dependency"
