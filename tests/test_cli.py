@@ -1372,7 +1372,11 @@ class TestCmdEvalSuiteRevalidate:
         with (
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=SimpleNamespace(body="authoritative source text"),
+                return_value=SimpleNamespace(
+                    body="authoritative source text",
+                    citation_path="us/statute/7/2014/e/6/A",
+                    requested="us/statute/7/2014/e/6/A",
+                ),
             ),
             patch(
                 "axiom_encode.cli.evaluate_artifact", return_value=fresh_metrics
@@ -1384,6 +1388,9 @@ class TestCmdEvalSuiteRevalidate:
 
         assert exc_info.value.code == 0
         mock_eval.assert_called_once()
+        assert mock_eval.call_args.kwargs["source_citation_paths"] == (
+            "us/statute/7/2014/e/6/A",
+        )
         ledger = (source_output / "suite-results.jsonl").read_text()
         assert '"compile_pass": true' in ledger
         assert '"policyengine_pass": true' in ledger
@@ -4071,6 +4078,7 @@ class TestCmdEncode:
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
         args.skip_reviewers = overrides.get("skip_reviewers", False)
+        args.local_corpus_only = overrides.get("local_corpus_only", False)
         args.apply = overrides.get("apply", False)
         args.apply_target_only = overrides.get("apply_target_only", False)
         return args
@@ -4297,6 +4305,54 @@ class TestCmdEncode:
         assert (
             "RuleSpec source id: us/policies/irs/rev-proc-2025-32/standard-deduction"
             in output
+        )
+
+    def test_encode_local_corpus_only_propagates_authoritative_root(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            citation="us/statute/1",
+            source_id="us:statutes/1",
+            local_corpus_only=True,
+            sync=False,
+        )
+        result = self._make_eval_result(True)
+        result.citation = args.source_id
+
+        with (
+            patch(
+                "axiom_encode.judges.regeneration.validate_corpus_path",
+                return_value=args.corpus_path.resolve(),
+            ) as mock_validate,
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=SimpleNamespace(
+                    body="authoritative local source",
+                    citation_path="us/statute/1",
+                    source="local",
+                    requested="us/statute/1",
+                ),
+            ) as mock_resolve,
+            patch(
+                "axiom_encode.cli.run_source_eval",
+                return_value=[result],
+            ) as mock_run_source,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        mock_validate.assert_called_once_with(args.corpus_path)
+        mock_resolve.assert_called_once_with(
+            args.citation,
+            args.corpus_path.resolve(),
+            local_only=True,
+        )
+        assert (
+            mock_run_source.call_args.kwargs["local_corpus_root"]
+            == args.corpus_path.resolve()
         )
 
     def test_encode_with_source_id_passes_skip_reviewers(self, capsys, tmp_path):

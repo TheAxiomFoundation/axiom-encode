@@ -10,12 +10,17 @@ Emphasis on the load-bearing invariants:
 
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
+import re
 import sqlite3
 import sys
 import types
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode.judges import (
     JUDGE_STAGE,
@@ -27,12 +32,14 @@ from axiom_encode.judges import (
     TokenCounts,
     Verdict,
     calibration,
+    cli_commands,
     disposition,
     drift,
     error_event,
     grid_adequacy,
     model_family,
     preclassifier,
+    regeneration,
     statutory_fidelity,
     truncate_provision,
     validate_event_dict,
@@ -500,6 +507,749 @@ def test_preclassify_batch_never_drops():
 # -- drift ----------------------------------------------------------------
 
 
+def _regeneration_fixture(
+    tmp_path: Path,
+    *,
+    module: str = "us/statutes/26/1.yaml",
+    citation: str = "us/statute/26/1",
+    backend: str = "openai",
+    tool: str = "axiom-encode encode --apply",
+    root_mirror: bool = False,
+) -> tuple[Path, str, Path]:
+    root = tmp_path / "rulespec-us"
+    module_path = root / module
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text("outputs: {}\n", encoding="utf-8")
+    relative = Path(module)
+    content_relative = Path(*relative.parts[1:])
+    if root_mirror:
+        manifest = (
+            root / ".axiom" / "encoding-manifests" / relative.with_suffix(".json")
+        )
+        applied_path = relative.as_posix()
+    else:
+        manifest = (
+            root
+            / relative.parts[0]
+            / ".axiom"
+            / "encoding-manifests"
+            / content_relative.with_suffix(".json")
+        )
+        applied_path = content_relative.as_posix()
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "citation": citation,
+                "backend": backend,
+                "tool": tool,
+                "applied_files": [
+                    {
+                        "path": applied_path,
+                        "sha256": hashlib.sha256(module_path.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root, module, manifest
+
+
+def _corpus_fixture(
+    tmp_path: Path,
+    *,
+    citation: str = "us/statute/26/1",
+) -> Path:
+    corpus = tmp_path / "axiom-corpus"
+    parts = citation.split("/")
+    provisions = corpus / "data" / "corpus" / "provisions" / parts[0] / parts[1]
+    provisions.mkdir(parents=True, exist_ok=True)
+    with (provisions / "test.jsonl").open("a", encoding="utf-8") as provision_file:
+        provision_file.write(
+            json.dumps({"citation_path": citation, "body": "authoritative source"})
+            + "\n"
+        )
+    return corpus
+
+
+def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
+    tmp_path, monkeypatch
+):
+    root, module, _manifest = _regeneration_fixture(tmp_path)
+    corpus = _corpus_fixture(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        output_root = Path(command[command.index("--output") + 1])
+        generated = output_root / "openai-gpt-5.5" / "statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("outputs:\n  result: 1\n", encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-leak")
+    monkeypatch.setenv("GH_TOKEN", "must-not-leak")
+    monkeypatch.setenv("GITHUB_TOKEN", "must-not-leak")
+    monkeypatch.setenv("AXIOM_REPO_TOKEN", "must-not-leak")
+
+    regenerated = regeneration.regenerate_module(
+        module,
+        "outputs: {}\n",
+        root=root,
+        corpus_path=corpus,
+        backend="openai",
+    )
+
+    command = captured["command"]
+    kwargs = captured["kwargs"]
+    assert command[:4] == [
+        sys.executable,
+        "-m",
+        "axiom_encode.cli",
+        "encode",
+    ]
+    assert command[command.index("--source-id") + 1] == "us:statutes/26/1"
+    assert Path(command[command.index("--corpus-path") + 1]) == corpus
+    assert Path(command[command.index("--policy-repo-path") + 1]) == root / "us"
+    assert command[-2:] == ["--", "us/statute/26/1"]
+    assert kwargs["shell"] is False
+    assert kwargs["timeout"] == regeneration.REGENERATION_TIMEOUT_SECONDS
+    assert kwargs["env"]["OPENAI_API_KEY"] == "openai-test-key"
+    assert "ANTHROPIC_API_KEY" not in kwargs["env"]
+    assert "GH_TOKEN" not in kwargs["env"]
+    assert "GITHUB_TOKEN" not in kwargs["env"]
+    assert "AXIOM_REPO_TOKEN" not in kwargs["env"]
+    assert regenerated == "outputs:\n  result: 1\n"
+
+
+def test_drift_regenerator_preserves_requested_child_with_local_only_resolution(
+    tmp_path, monkeypatch
+):
+    root, module, _manifest = _regeneration_fixture(
+        tmp_path,
+        citation="us/statute/26/1",
+    )
+    corpus = _corpus_fixture(tmp_path, citation="us/statute/26")
+    captured_command: list[str] = []
+
+    def fake_run(command, **_kwargs):
+        captured_command.extend(command)
+        output_root = Path(command[command.index("--output") + 1])
+        generated = output_root / "openai-gpt-5.5" / "statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("outputs: {}\n")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+
+    regeneration.regenerate_module(
+        module,
+        "outputs: {}\n",
+        root=root,
+        corpus_path=corpus,
+    )
+
+    assert "--local-corpus-only" in captured_command
+    assert captured_command[-2:] == ["--", "us/statute/26/1"]
+
+
+def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monkeypatch):
+    root, module, _manifest = _regeneration_fixture(tmp_path)
+    corpus = _corpus_fixture(tmp_path)
+    secret = "openai-super-secret-test-key"
+
+    def fake_encoder(*_args, **_kwargs):
+        return types.SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=f"request failed with credential {secret}",
+        )
+
+    monkeypatch.setattr(regeneration.subprocess, "run", fake_encoder)
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    result = drift.check_module(
+        module,
+        "outputs: {}\n",
+        lambda candidate, merged: regeneration.regenerate_module(
+            candidate,
+            merged,
+            root=root,
+            corpus_path=corpus,
+        ),
+    )
+    report = drift.DriftReport(checked=[result])
+    report_path = tmp_path / "drift-report.json"
+    report_path.write_text(json.dumps(report.to_dict()), encoding="utf-8")
+
+    assert result.error is not None
+    assert secret not in result.error
+    assert "[REDACTED]" in result.error
+    assert secret not in report_path.read_text(encoding="utf-8")
+
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.setenv("GH_TOKEN", "github-publisher-test-token")
+    published_bodies: list[str] = []
+
+    def fake_github(command, **_kwargs):
+        if command[1:3] == ["issue", "create"]:
+            body_path = Path(command[command.index("--body-file") + 1])
+            published_bodies.append(body_path.read_text(encoding="utf-8"))
+            return types.SimpleNamespace(
+                returncode=0,
+                stdout="https://github.test/issues/1\n",
+                stderr="",
+            )
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_commands.subprocess, "run", fake_github)
+    status = cli_commands.cmd_publish_drift_report(
+        argparse.Namespace(
+            report_file=report_path,
+            repo="TheAxiomFoundation/axiom-encode",
+            json=False,
+        )
+    )
+
+    assert status == 1
+    assert len(published_bodies) == 1
+    assert secret not in published_bodies[0]
+
+
+def test_drift_report_file_redacts_secrets_from_all_result_fields(
+    tmp_path, monkeypatch, capsys
+):
+    secret = "openai-secret-in-generated-diff"
+    report = drift.DriftReport(
+        checked=[
+            drift.DriftResult(
+                module="us/statutes/26/1.yaml",
+                drifted=True,
+                diffs=[
+                    {
+                        "path": "outputs.result",
+                        "change": "value_changed",
+                        "merged": 1,
+                        "regenerated": secret,
+                    }
+                ],
+            )
+        ]
+    )
+    report_path = tmp_path / "drift-report.json"
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    monkeypatch.setattr(
+        cli_commands,
+        "_load_drift_modules",
+        lambda _args: {"us/statutes/26/1.yaml": "outputs: {}\n"},
+    )
+    monkeypatch.setattr(drift, "run_drift_check", lambda *_args, **_kwargs: report)
+
+    status = cli_commands.cmd_drift_check(
+        argparse.Namespace(
+            regenerate=False,
+            dry_run=True,
+            root=None,
+            corpus_path=None,
+            modules_file=tmp_path / "unused.json",
+            k=3,
+            seed=0,
+            regenerate_backend="openai",
+            report_file=report_path,
+            json=True,
+        )
+    )
+
+    assert status == 1
+    assert secret not in report_path.read_text(encoding="utf-8")
+    assert secret not in capsys.readouterr().out
+
+
+def test_drift_publisher_rejects_invalid_diff_before_github_mutation(
+    tmp_path, monkeypatch, capsys
+):
+    report_path = tmp_path / "drift-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "n_checked": 1,
+                "n_drifted": 1,
+                "n_errors": 0,
+                "results": [
+                    {
+                        "module": "us/statutes/26/1.yaml",
+                        "drifted": True,
+                        "error": None,
+                        "diffs": [{}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_github(*_args, **_kwargs):
+        raise AssertionError("invalid report reached GitHub CLI")
+
+    monkeypatch.setattr(cli_commands.subprocess, "run", fail_github)
+    status = cli_commands.cmd_publish_drift_report(
+        argparse.Namespace(
+            report_file=report_path,
+            repo="TheAxiomFoundation/axiom-encode",
+            json=False,
+        )
+    )
+
+    assert status == 2
+    assert "invalid required fields" in capsys.readouterr().err
+
+
+def test_drift_regenerator_supports_root_mirror_state_manifest(tmp_path):
+    root, module, manifest = _regeneration_fixture(
+        tmp_path,
+        module="us-oh/statutes/5747/71.yaml",
+        citation="us-oh/statute/5747.71",
+        root_mirror=True,
+    )
+    relative = regeneration.validate_module_path(root, module)
+
+    assert regeneration.read_citation(root, relative) == "us-oh/statute/5747.71"
+    assert regeneration.source_id_for_module(root, relative) == (
+        "us-oh:statutes/5747/71"
+    )
+    assert manifest == (
+        root / ".axiom" / "encoding-manifests" / "us-oh/statutes/5747/71.json"
+    )
+
+
+def test_drift_regenerator_allows_colon_in_contained_module_path(tmp_path):
+    root, module, _manifest = _regeneration_fixture(
+        tmp_path,
+        module="us-la/statutes/47:294.yaml",
+        citation="us-la/statute/47:294",
+    )
+    relative = regeneration.validate_module_path(root, module)
+
+    assert regeneration.generated_subpath(relative) == Path("statutes/47:294.yaml")
+    assert regeneration.source_id_for_module(root, relative) == (
+        "us-la:statutes/47:294"
+    )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "us/statute/26/1.yaml;touch owned",
+        "us/statute/26/$(touch owned).yaml",
+        "us/statute/26/`touch owned`.yaml",
+        "us/statute/26/has space.yaml",
+        "../outside.yaml",
+    ],
+)
+def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, module):
+    root = tmp_path / "rulespec-us"
+    corpus = _corpus_fixture(tmp_path)
+    root.mkdir()
+    candidate = root / module
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text("outputs: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    called = False
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("unsafe path reached subprocess")
+
+    monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
+
+    with pytest.raises(ValueError, match="module path|unsafe module"):
+        regeneration.regenerate_module(
+            module,
+            "outputs: {}\n",
+            root=root,
+            corpus_path=corpus,
+        )
+
+    assert called is False
+    assert not (tmp_path / "owned").exists()
+
+
+def test_drift_regenerator_rejects_symlink_escape(tmp_path):
+    root = tmp_path / "rulespec-us"
+    module_path = root / "us/statute/26/1.yaml"
+    module_path.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("outputs: {}\n", encoding="utf-8")
+    module_path.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="symlink|escapes"):
+        regeneration.validate_module_path(root, "us/statute/26/1.yaml")
+
+
+def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeypatch):
+    root, module, manifest = _regeneration_fixture(tmp_path)
+    corpus = _corpus_fixture(tmp_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["citation"] = "us/statute/26/1/../../../../tmp/owned"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    called = False
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("unsafe citation reached subprocess")
+
+    monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
+
+    with pytest.raises(ValueError, match="unsafe manifest citation"):
+        regeneration.regenerate_module(
+            module,
+            "outputs: {}\n",
+            root=root,
+            corpus_path=corpus,
+        )
+
+    assert called is False
+
+
+def test_drift_loader_samples_only_current_replayable_encodes(tmp_path, capsys):
+    root, module, _manifest = _regeneration_fixture(tmp_path)
+    unmanifested = root / "us/statutes/26/2.yaml"
+    unmanifested.parent.mkdir(parents=True, exist_ok=True)
+    unmanifested.write_text("outputs: {}\n", encoding="utf-8")
+    _root, deterministic_module, _deterministic_manifest = _regeneration_fixture(
+        tmp_path,
+        module="us/policies/cms/generated.yaml",
+        citation="us/policy/cms/generated",
+        backend="deterministic",
+        tool="axiom-encode generate-cms-chip-eligibility-composition",
+    )
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded == {module: "outputs: {}\n"}
+    assert deterministic_module not in loaded
+    assert "skipped 2 non-replayable drift candidates" in capsys.readouterr().err
+
+
+def test_drift_loader_reports_missing_root_without_traceback(tmp_path, capsys):
+    missing = tmp_path / "does-not-exist"
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=missing, modules_file=None)
+    )
+
+    assert loaded is None
+    assert f"invalid drift root {missing}" in capsys.readouterr().err
+
+
+def test_drift_selection_skips_citations_missing_from_local_corpus(tmp_path, capsys):
+    root, resolvable, _manifest = _regeneration_fixture(tmp_path)
+    _root, missing, _missing_manifest = _regeneration_fixture(
+        tmp_path,
+        module="us/statutes/26/2.yaml",
+        citation="policies/irs/non-canonical",
+    )
+    corpus = _corpus_fixture(tmp_path)
+    valid_modules = {resolvable}
+    for section in (3, 4):
+        citation = f"us/statute/26/{section}"
+        _root, valid, _valid_manifest = _regeneration_fixture(
+            tmp_path,
+            module=f"us/statutes/26/{section}.yaml",
+            citation=citation,
+        )
+        _corpus_fixture(tmp_path, citation=citation)
+        valid_modules.add(valid)
+    modules = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    selected = cli_commands._select_corpus_backed_modules(
+        argparse.Namespace(
+            root=root,
+            corpus_path=corpus,
+            k=3,
+            seed=0,
+        ),
+        modules,
+    )
+
+    assert set(selected) == valid_modules
+    assert missing not in selected
+    assert "does not resolve in the local corpus" in capsys.readouterr().err
+
+
+def test_drift_selection_fails_if_requested_sample_cannot_be_filled(tmp_path, capsys):
+    root, _resolvable, _manifest = _regeneration_fixture(tmp_path)
+    _root, _missing, _missing_manifest = _regeneration_fixture(
+        tmp_path,
+        module="us/statutes/26/2.yaml",
+        citation="policies/irs/non-canonical",
+    )
+    corpus = _corpus_fixture(tmp_path)
+    modules = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    selected = cli_commands._select_corpus_backed_modules(
+        argparse.Namespace(
+            root=root,
+            corpus_path=corpus,
+            k=3,
+            seed=0,
+        ),
+        modules,
+    )
+
+    assert selected is None
+    assert "found only 1 of 2 required" in capsys.readouterr().err
+
+
+def test_drift_selection_rejects_checkout_without_provisions(tmp_path, capsys):
+    root, module, _manifest = _regeneration_fixture(tmp_path)
+    empty_corpus = tmp_path / "axiom-corpus"
+    empty_corpus.mkdir()
+
+    selected = cli_commands._select_corpus_backed_modules(
+        argparse.Namespace(
+            root=root,
+            corpus_path=empty_corpus,
+            k=3,
+            seed=0,
+        ),
+        {module: "outputs: {}\n"},
+    )
+
+    assert selected is None
+    assert "no provisions directory" in capsys.readouterr().err
+
+
+def test_drift_regenerator_rejects_symlinked_corpus_provisions_tree(tmp_path):
+    corpus = tmp_path / "axiom-corpus"
+    (corpus / "data" / "corpus").mkdir(parents=True)
+    outside = tmp_path / "outside-provisions"
+    outside.mkdir()
+    (outside / "source.jsonl").write_text(
+        json.dumps({"citation_path": "us/statute/26/1", "body": "outside"}) + "\n",
+        encoding="utf-8",
+    )
+    (corpus / "data" / "corpus" / "provisions").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(ValueError, match="provisions path contains a symlink"):
+        regeneration.validate_corpus_path(corpus)
+
+
+def test_drift_regenerator_rejects_symlinked_corpus_provision_file(tmp_path):
+    corpus = tmp_path / "axiom-corpus"
+    provisions = corpus / "data" / "corpus" / "provisions" / "us" / "statute"
+    provisions.mkdir(parents=True)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text(
+        json.dumps({"citation_path": "us/statute/26/1", "body": "outside"}) + "\n",
+        encoding="utf-8",
+    )
+    (provisions / "source.jsonl").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="provisions tree contains a symlink"):
+        regeneration.validate_corpus_path(corpus)
+
+
+def test_drift_regenerator_rejects_symlinked_corpus_claims_tree(tmp_path):
+    corpus = _corpus_fixture(tmp_path)
+    outside = tmp_path / "outside-claims"
+    outside.mkdir()
+    (outside / "claims.jsonl").write_text(
+        json.dumps({"id": "claim.secret", "status": "accepted"}) + "\n",
+        encoding="utf-8",
+    )
+    claims = corpus / "data" / "corpus" / "claims"
+    claims.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="claims path contains a symlink"):
+        regeneration.validate_corpus_path(corpus)
+
+
+def test_drift_regenerator_rejects_symlinked_corpus_claim_file(tmp_path):
+    corpus = _corpus_fixture(tmp_path)
+    claims = corpus / "data" / "corpus" / "claims" / "us"
+    claims.mkdir(parents=True)
+    outside = tmp_path / "outside-claim.jsonl"
+    outside.write_text(
+        json.dumps({"id": "claim.secret", "status": "accepted"}) + "\n",
+        encoding="utf-8",
+    )
+    (claims / "claims.jsonl").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="claims tree contains a symlink"):
+        regeneration.validate_corpus_path(corpus)
+
+
+def test_drift_loader_rejects_module_symlink_before_read(tmp_path, capsys):
+    root = tmp_path / "rulespec-us"
+    module_path = root / "us/statutes/26/escape.yaml"
+    module_path.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("outside\n", encoding="utf-8")
+    module_path.symlink_to(outside)
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded is None
+    assert "contains a symlink" in capsys.readouterr().err
+
+
+def test_drift_loader_rejects_manifest_symlink_before_read(tmp_path, capsys):
+    root, _module, manifest = _regeneration_fixture(tmp_path)
+    outside = tmp_path / "manifest.json"
+    outside.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
+    manifest.unlink()
+    manifest.symlink_to(outside)
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded is None
+    assert "encoding manifest contains a symlink" in capsys.readouterr().err
+
+
+def test_drift_regeneration_is_openai_only(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+
+    with pytest.raises(ValueError, match="unsupported regeneration backend"):
+        regeneration.child_environment("codex")
+
+
+def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "github-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-leak")
+
+    env = cli_commands._github_cli_environment()
+
+    assert env["GH_TOKEN"] == "github-test-key"
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_drift_cli_rejects_removed_shell_template():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    cli_commands.register_judge_subparsers(subparsers)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "drift-check",
+                "--root",
+                "rulespec-us",
+                "--regenerate-cmd",
+                "python script.py {module} {merged} {output}",
+            ]
+        )
+
+
+def test_drift_cli_rejects_in_process_issue_publication():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    cli_commands.register_judge_subparsers(subparsers)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "drift-check",
+                "--root",
+                "rulespec-us",
+                "--regenerate",
+                "--create-issues",
+            ]
+        )
+
+
+def test_drift_workflow_isolates_model_and_github_credentials_by_job():
+    workflow_path = (
+        Path(__file__).parents[1] / ".github" / "workflows" / "golden-regeneration.yml"
+    )
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    live_step = next(
+        step
+        for step in jobs["drift"]["steps"]
+        if step.get("name") == "Run live drift check"
+    )
+    publish_step = next(
+        step
+        for step in jobs["publish"]["steps"]
+        if step.get("name") == "Publish drift findings"
+    )
+    upload_step = next(
+        step
+        for step in jobs["drift"]["steps"]
+        if step.get("name") == "Upload sanitized drift report"
+    )
+    engine_checkout = next(
+        step
+        for step in jobs["drift"]["steps"]
+        if step.get("name") == "Checkout axiom-rules-engine"
+    )
+    install_steps = [
+        step
+        for job in jobs.values()
+        for step in job["steps"]
+        if step.get("name") == "Install encoder"
+    ]
+    action_steps = [
+        step for job in jobs.values() for step in job["steps"] if "uses" in step
+    ]
+    setup_uv_steps = [
+        step for step in action_steps if step["uses"].startswith("astral-sh/setup-uv@")
+    ]
+    checkout_steps = [
+        step for step in action_steps if step["uses"].startswith("actions/checkout@")
+    ]
+
+    assert workflow["permissions"] == {"contents": "read"}
+    assert jobs["publish"]["needs"] == "drift"
+    assert jobs["drift"]["permissions"] == {"contents": "read"}
+    assert jobs["publish"]["permissions"] == {
+        "contents": "read",
+        "issues": "write",
+    }
+    assert "env" not in workflow
+    assert all("env" not in job for job in jobs.values())
+    assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
+    assert upload_step["with"]["overwrite"] is True
+    assert "OPENAI_API_KEY" in live_step["env"]
+    assert "GH_TOKEN" not in live_step["env"]
+    assert "GH_TOKEN" in publish_step["env"]
+    assert "OPENAI_API_KEY" not in publish_step["env"]
+    assert engine_checkout["with"]["ref"] == (
+        "38b5f646165f18f64307f1eef226c7a6f2d4936e"
+    )
+    assert all(
+        step["run"] == "uv sync --locked --python 3.13 --extra api"
+        for step in install_steps
+    )
+    assert all(
+        re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"]) for step in action_steps
+    )
+    assert all(step["with"]["version"] == "0.11.7" for step in setup_uv_steps)
+
+
 def test_drift_ignores_order_and_comments_catches_change():
     a = "outputs:\n  r:\n    value: 0.34\ninputs: [x, y]\n"
     reordered = "inputs: [y, x]  # comment\noutputs:\n  r:\n    value: 0.34\n"
@@ -507,6 +1257,77 @@ def test_drift_ignores_order_and_comments_catches_change():
     changed = "outputs:\n  r:\n    value: 0.40\ninputs: [x, y]\n"
     diffs = drift.semantic_diff(a, changed)
     assert diffs and diffs[0]["change"] == "value_changed"
+
+
+def test_drift_rejects_yaml_alias_expansion_bomb():
+    levels = ["base: &base [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]"]
+    previous = "base"
+    for index in range(8):
+        current = f"level_{index}"
+        levels.append(
+            f"{current}: &{current} [" + ", ".join([f"*{previous}"] * 10) + "]"
+        )
+        previous = current
+    bomb = "\n".join(levels) + "\n"
+
+    with pytest.raises(ValueError, match="aliases are not allowed"):
+        drift.semantic_diff(bomb, bomb)
+
+
+def test_drift_report_round_trip_bounds_paths_values_and_diff_count():
+    merged_tree = {f"leaf-{index}": 0 for index in range(1000)}
+    regenerated_tree = {f"leaf-{index}": 1 for index in range(1000)}
+    for depth in range(6):
+        key = f"level-{depth}-" + "x" * 900
+        merged_tree = {key: merged_tree}
+        regenerated_tree = {key: regenerated_tree}
+    merged = json.dumps(
+        {
+            "evil\npath": 1,
+            "deep": merged_tree,
+        }
+    )
+    regenerated = json.dumps(
+        {
+            "evil\npath": 2,
+            "deep": regenerated_tree,
+        }
+    )
+    result = drift.check_module(
+        "us/statutes/1.yaml",
+        merged,
+        lambda _module, _merged: regenerated,
+    )
+    report = drift.DriftReport(checked=[result])
+    payload = json.loads(json.dumps(report.to_dict()))
+    loaded = drift.DriftReport.from_dict(payload)
+
+    assert result.diff_count == 1001
+    assert len(result.diffs) == drift.MAX_RETAINED_DIFFS
+    assert loaded.checked[0].diff_count == 1001
+    assert all(
+        len(item["path"]) <= drift.MAX_DIFF_PATH_CHARS
+        and not any(ord(char) < 32 for char in item["path"])
+        for item in payload["results"][0]["diffs"]
+    )
+    assert len(json.dumps(payload).encode("utf-8")) < 1024 * 1024
+
+
+def test_drift_report_round_trip_bounds_regeneration_error():
+    def fail(_module, _merged):
+        raise RuntimeError("x" * 6000)
+
+    result = drift.check_module(
+        "us/statutes/1.yaml",
+        "format: rulespec/v1\nrules: []\n",
+        fail,
+    )
+    payload = json.loads(json.dumps(drift.DriftReport([result]).to_dict()))
+    loaded = drift.DriftReport.from_dict(payload)
+
+    assert len(payload["results"][0]["error"]) == drift.MAX_ERROR_CHARS
+    assert "truncated" in payload["results"][0]["error"]
+    assert loaded.errors
 
 
 def test_drift_regeneration_error_is_visible():
@@ -531,6 +1352,133 @@ def test_run_drift_check_reports_drift():
     assert len(report.drifted) == 3
     body = drift.drift_issue_body(report.drifted[0])
     assert "drift" in body.lower()
+
+
+def test_drift_issue_body_neutralizes_markdown_and_mentions():
+    result = drift.DriftResult(
+        module="us/statutes/1.yaml",
+        drifted=True,
+        diffs=[
+            {
+                "path": "value` | @axiom [click](https://example.invalid)",
+                "change": "value_changed",
+                "merged": "before | @axiom",
+                "regenerated": "after [link](https://example.invalid)",
+            }
+        ],
+    )
+
+    body = drift.drift_issue_body(result)
+    row = next(line for line in body.splitlines() if "value_changed" in line)
+    assert row.count("|") == 5
+    assert "@axiom" not in body
+    assert "[click](" not in body
+    assert "&#64;axiom" in body
+
+
+def test_drift_issue_publisher_bounds_body_and_title_at_report_maxima():
+    module = f"us/statutes/{'nested-' * 50}target.yaml"
+    result = drift.DriftResult(
+        module=module,
+        drifted=True,
+        total_diffs=1_000,
+        diffs=[
+            {
+                "path": "&" * drift.MAX_DIFF_PATH_CHARS,
+                "change": "value_changed",
+                "merged": "&" * drift.MAX_DIFF_VALUE_CHARS,
+                "regenerated": "<" * drift.MAX_DIFF_VALUE_CHARS,
+            }
+            for _ in range(drift.MAX_RETAINED_DIFFS)
+        ],
+    )
+
+    body = drift.drift_issue_body(result)
+    title = drift.drift_issue_title(result)
+
+    assert len(body.encode("utf-8")) <= drift.MAX_GITHUB_ISSUE_BODY_BYTES
+    assert "more" in body
+    assert len(title) <= drift.MAX_GITHUB_ISSUE_TITLE_CHARS
+    assert "sha256:" in title
+    assert drift.drift_issue_title(result) == title
+
+
+def test_drift_publisher_reapplies_budgets_after_redaction(monkeypatch):
+    secret = "12345678"
+    report = drift.DriftReport(
+        checked=[
+            drift.DriftResult(
+                module="us/statutes/1.yaml",
+                drifted=True,
+                diffs=[
+                    {
+                        "path": "value",
+                        "change": "value_changed",
+                        "merged": 1,
+                        "regenerated": 2,
+                    }
+                ],
+            )
+        ]
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    monkeypatch.setattr(
+        drift,
+        "drift_issue_body",
+        lambda _result: secret * (drift.MAX_GITHUB_ISSUE_BODY_BYTES // len(secret)),
+    )
+    monkeypatch.setattr(
+        drift,
+        "drift_issue_title",
+        lambda _result: secret * drift.MAX_GITHUB_ISSUE_TITLE_CHARS,
+    )
+    published: list[tuple[str, str]] = []
+
+    def fake_github(command, **_kwargs):
+        if command[1:3] == ["issue", "create"]:
+            title = command[command.index("--title") + 1]
+            body_path = Path(command[command.index("--body-file") + 1])
+            published.append((title, body_path.read_text(encoding="utf-8")))
+            return types.SimpleNamespace(returncode=0, stdout="issue-url\n", stderr="")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_commands.subprocess, "run", fake_github)
+
+    assert cli_commands._create_drift_issues(report, "owner/repo") == ["issue-url"]
+    title, body = published[0]
+    assert secret not in title
+    assert secret not in body
+    assert len(title) <= drift.MAX_GITHUB_ISSUE_TITLE_CHARS
+    assert len(body.encode("utf-8")) <= drift.MAX_GITHUB_ISSUE_BODY_BYTES
+
+
+def test_drift_error_publisher_neutralizes_markdown_and_mentions(monkeypatch, tmp_path):
+    report = drift.DriftReport(
+        checked=[
+            drift.DriftResult(
+                module="us/statutes/1.yaml",
+                drifted=False,
+                error="failed @axiom [click](https://example.invalid) `payload`",
+            )
+        ]
+    )
+    published_bodies: list[str] = []
+
+    def fake_github(command, **_kwargs):
+        if command[1:3] == ["issue", "create"]:
+            body_path = Path(command[command.index("--body-file") + 1])
+            published_bodies.append(body_path.read_text(encoding="utf-8"))
+            return types.SimpleNamespace(returncode=0, stdout="issue-url\n", stderr="")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("GH_TOKEN", "publisher-token")
+    monkeypatch.setattr(cli_commands.subprocess, "run", fake_github)
+
+    assert cli_commands._create_drift_issues(report, "owner/repo") == ["issue-url"]
+    assert len(published_bodies) == 1
+    assert "@axiom" not in published_bodies[0]
+    assert "[click](" not in published_bodies[0]
+    assert "<pre>" in published_bodies[0]
 
 
 # -- calibration ----------------------------------------------------------

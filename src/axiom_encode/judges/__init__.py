@@ -28,6 +28,7 @@ from . import (
     drift,
     grid_adequacy,
     preclassifier,
+    regeneration,
     statutory_fidelity,
 )
 from .client import JudgeCall, JudgeClient, model_family, truncate_provision
@@ -69,6 +70,7 @@ __all__ = [
     "disposition",
     "preclassifier",
     "drift",
+    "regeneration",
     "calibration",
     # stage types
     "Disposition",
