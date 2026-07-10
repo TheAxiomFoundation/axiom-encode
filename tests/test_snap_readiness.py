@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from axiom_encode.corpus_resolver import AmbiguousCorpusSourceError
 from axiom_encode.oracles.policyengine.snap_readiness import (
     build_snap_readiness_report,
 )
@@ -60,6 +63,8 @@ def _write_corpus_provision(
     *,
     body: str = "Supplemental Nutrition Assistance Program text.",
     program: str = "SNAP",
+    version: str = "demo-active",
+    active: bool = True,
 ):
     jurisdiction, document_class, *_ = citation_path.split("/")
     path = (
@@ -69,19 +74,39 @@ def _write_corpus_provision(
         / "provisions"
         / jurisdiction
         / document_class
-        / "demo.jsonl"
+        / f"{version}.jsonl"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "id": f"{jurisdiction}-{document_class}-{version}",
         "citation_path": citation_path,
         "jurisdiction": jurisdiction,
         "document_class": document_class,
-        "heading": "Demo SNAP provision",
+        "version": version,
+        "heading": f"Demo {program} provision",
         "body": body,
         "metadata": {"program": program},
+        "source_path": f"sources/{jurisdiction}/{document_class}/{version}/source.html",
+        "source_as_of": "2026-01-02",
+        "expression_date": "2026-01-01",
     }
     with path.open("a") as handle:
         handle.write(json.dumps(payload) + "\n")
+    if active:
+        selector_path = corpus_root / "manifests" / "releases" / "current.json"
+        selector_path.parent.mkdir(parents=True, exist_ok=True)
+        if selector_path.exists():
+            selector = json.loads(selector_path.read_text())
+        else:
+            selector = {"name": "current", "scopes": []}
+        scope = {
+            "jurisdiction": jurisdiction,
+            "document_class": document_class,
+            "version": version,
+        }
+        if scope not in selector["scopes"]:
+            selector["scopes"].append(scope)
+        selector_path.write_text(json.dumps(selector) + "\n")
     return path
 
 
@@ -163,3 +188,40 @@ def test_snap_readiness_distinguishes_empty_repo_without_corpus(tmp_path):
     by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
     assert by_jurisdiction["us-al"]["status"] == "needs_corpus"
     assert by_jurisdiction["us-al"]["blockers"] == ["no SNAP corpus provisions found"]
+
+
+def test_snap_readiness_ignores_inactive_snap_rows(tmp_path):
+    root = tmp_path / "workspace"
+    corpus_root = root / "axiom-corpus"
+    (root / "rulespec-us-tn").mkdir(parents=True)
+    _write_corpus_provision(
+        corpus_root,
+        "us-tn/regulation/demo/other",
+        body="Unrelated assistance text.",
+        program="Other",
+        version="active-v1",
+    )
+    _write_corpus_provision(
+        corpus_root,
+        "us-tn/regulation/demo/snap",
+        version="inactive-v2",
+        active=False,
+    )
+
+    report = build_snap_readiness_report(root, corpus_root=corpus_root)
+
+    by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
+    assert by_jurisdiction["us-tn"]["corpus_snap_provisions"] == 0
+    assert by_jurisdiction["us-tn"]["status"] == "needs_corpus"
+
+
+def test_snap_readiness_rejects_ambiguous_active_corpus_rows(tmp_path):
+    root = tmp_path / "workspace"
+    corpus_root = root / "axiom-corpus"
+    (root / "rulespec-us-tn").mkdir(parents=True)
+    citation_path = "us-tn/regulation/demo/snap"
+    _write_corpus_provision(corpus_root, citation_path, version="active-v1")
+    _write_corpus_provision(corpus_root, citation_path, version="active-v2")
+
+    with pytest.raises(AmbiguousCorpusSourceError, match="Ambiguous active"):
+        build_snap_readiness_report(root, corpus_root=corpus_root)

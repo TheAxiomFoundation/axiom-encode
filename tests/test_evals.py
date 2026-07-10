@@ -12,9 +12,11 @@ import pytest
 import requests
 import yaml
 
+from axiom_encode.corpus_resolver import InvalidReleaseSelectorError
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.evals import (
+    CorpusSourceUnit,
     EvalArtifactMetrics,
     EvalContextFile,
     EvalPromptResponse,
@@ -63,12 +65,14 @@ from axiom_encode.harness.evals import (
     load_eval_suite_manifest,
     parse_runner_spec,
     prepare_eval_workspace,
-    resolve_corpus_source_unit,
     run_eval_suite,
     run_model_eval,
     run_source_eval,
     select_context_files,
     summarize_readiness,
+)
+from axiom_encode.harness.evals import (
+    resolve_corpus_source_unit as _production_resolve_corpus_source_unit,
 )
 from axiom_encode.harness.validator_pipeline import (
     ValidationResult,
@@ -97,15 +101,62 @@ def _write_test_corpus_provision(
 ) -> Path:
     corpus_path = tmp_path / "axiom-corpus"
     parts = citation_path.split("/")
+    version = "test-release"
     provisions_dir = (
         corpus_path / "data" / "corpus" / "provisions" / parts[0] / parts[1]
     )
     provisions_dir.mkdir(parents=True, exist_ok=True)
     (provisions_dir / "test.jsonl").write_text(
-        json.dumps({"citation_path": citation_path, "body": body}) + "\n",
+        json.dumps(
+            {
+                "id": f"test:{citation_path}",
+                "citation_path": citation_path,
+                "body": body,
+                "jurisdiction": parts[0],
+                "document_class": parts[1],
+                "version": version,
+                "source_path": f"sources/{parts[0]}/{parts[1]}/test",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selector = corpus_path / "manifests" / "releases" / "current.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": parts[0],
+                        "document_class": parts[1],
+                        "version": version,
+                    }
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     return corpus_path
+
+
+def resolve_corpus_source_unit(
+    identifier: str,
+    corpus_path: Path,
+    *,
+    local_only: bool = False,
+) -> CorpusSourceUnit:
+    """Resolve the suite's intentionally unversioned legacy fixtures."""
+
+    return _production_resolve_corpus_source_unit(
+        identifier,
+        corpus_path,
+        local_only=local_only,
+        require_release=False,
+    )
 
 
 class TestParseRunnerSpec:
@@ -182,6 +233,118 @@ def test_resolve_corpus_source_unit_reads_text_field_rows(tmp_path):
     assert source_unit.source == "local"
     assert source_unit.citation_path == "us-me/regulation/dhhs/ofi/chapter-331/block-4"
     assert source_unit.body == "Maine TANF grant table source text."
+
+
+def test_production_generation_resolver_requires_current_release(tmp_path):
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions = corpus_path / "provisions" / "us" / "statute"
+    provisions.mkdir(parents=True)
+    provisions.joinpath("legacy.jsonl").write_text(
+        json.dumps(
+            {
+                "citation_path": "us/statute/7/2017",
+                "body": "legacy source text",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        InvalidReleaseSelectorError,
+        match="Release selector not found",
+    ):
+        _production_resolve_corpus_source_unit(
+            "us/statute/7/2017",
+            corpus_path,
+        )
+
+
+def test_generation_resolver_uses_active_release_and_attests_full_body(tmp_path):
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = corpus_path / "data" / "corpus" / "provisions" / "us" / "statute"
+    provisions_dir.mkdir(parents=True)
+    citation_path = "us/statute/26/1"
+    common = {
+        "id": "26-usc-1",
+        "citation_path": citation_path,
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "source_path": "sources/26-usc-1.xml",
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+    }
+    (provisions_dir / "2025.jsonl").write_text(
+        json.dumps({**common, "version": "2025", "body": "inactive body"}) + "\n"
+    )
+    active_body = "active current-release body"
+    (provisions_dir / "2026.jsonl").write_text(
+        json.dumps({**common, "version": "2026", "body": active_body}) + "\n"
+    )
+    release = corpus_path / "manifests" / "releases" / "current.json"
+    release.parent.mkdir(parents=True)
+    release.write_text(
+        json.dumps(
+            {
+                "name": "current",
+                "scopes": [
+                    {
+                        "jurisdiction": "us",
+                        "document_class": "statute",
+                        "version": "2026",
+                    }
+                ],
+            }
+        )
+    )
+
+    source_unit = _production_resolve_corpus_source_unit(citation_path, corpus_path)
+
+    assert source_unit.body == active_body
+    assert source_unit.source_attestation is not None
+    assert source_unit.source_attestation["corpus_release"] == "current"
+    assert (
+        source_unit.source_attestation["source_sha256"]
+        == hashlib.sha256(active_body.encode()).hexdigest()
+    )
+    assert source_unit.source_attestation["row"]["version"] == "2026"
+
+
+def test_model_eval_reuses_identical_resolved_source_for_all_runners(tmp_path):
+    source_unit = CorpusSourceUnit(
+        requested="us/statute/26/1",
+        citation_path="us/statute/26/1",
+        body="authoritative source",
+        source="local",
+        source_attestation={"source_sha256": "a" * 64},
+    )
+    results = [Mock(name="first-result"), Mock(name="second-result")]
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_corpus_source_unit",
+            return_value=source_unit,
+        ) as mock_resolve,
+        patch(
+            "axiom_encode.harness.evals._run_single_eval",
+            side_effect=results,
+        ) as mock_run,
+    ):
+        actual = run_model_eval(
+            citations=["us/statute/26/1"],
+            runner_specs=["codex:model-a", "openai:model-b"],
+            output_root=tmp_path / "out",
+            policy_path=tmp_path / "rulespec",
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_path=tmp_path / "corpus",
+        )
+
+    assert actual == results
+    mock_resolve.assert_called_once_with("us/statute/26/1", tmp_path / "corpus")
+    assert mock_run.call_count == 2
+    assert all(
+        call.kwargs["source_unit"] is source_unit for call in mock_run.call_args_list
+    )
 
 
 def test_resolve_corpus_source_unit_concatenates_descendant_text_rows(tmp_path):
@@ -626,7 +789,7 @@ def test_resolve_corpus_source_unit_ignores_cfr_through_references(tmp_path):
             {
                 "citation_path": citation,
                 "body": (
-                    "(d) Use of less restrictive methodologies. "
+                    "(d) Use of less restrictive methodologies.\n\n"
                     "(1) At State option, and subject to the conditions of "
                     "paragraphs (d)(2) through (5) of this section, the agency "
                     "may apply less restrictive methodologies.\n\n"
@@ -1148,11 +1311,11 @@ class TestCorpusSourceResolution:
                     "citation_path": "us/statute/7/2015",
                     "body": (
                         "(a) General eligibility.\n\n"
-                        "(d) Work requirements (1) Paragraph one. "
-                        "(2) Exemptions (A) First exemption. "
-                        "(B) Second exemption. "
-                        "(C) Student exemption states 20 hours. "
-                        "(D) Next exemption. "
+                        "(d) Work requirements\n\n(1) Paragraph one.\n\n"
+                        "(2) Exemptions\n\n(A) First exemption.\n\n"
+                        "(B) Second exemption.\n\n"
+                        "(C) Student exemption states 20 hours.\n\n"
+                        "(D) Next exemption.\n\n"
                         "(3) Other work rule.\n\n"
                         "(e) Students."
                     ),
@@ -1179,9 +1342,9 @@ class TestCorpusSourceResolution:
                     "citation_path": "us/regulation/7/273/9",
                     "body": (
                         "(a) Income standards.\n\n"
-                        "(d) Deductions. "
-                        "(5) Child support deduction.\n\n"
-                        "(i) Not a top-level sibling. "
+                        "(d) Deductions.\n\n"
+                        "(5) Child support deduction. "
+                        "(i) Not a top-level sibling.\n\n"
                         "(6) Shelter costs--"
                         "(i) Homeless shelter deduction. "
                         "(ii) Excess shelter deduction. "
@@ -1228,7 +1391,8 @@ class TestCorpusSourceResolution:
                         "allowable to another taxpayer, the basic standard "
                         "deduction shall not exceed the greater of— (A) $500, "
                         "or (B) the sum of $250 and earned income. "
-                        "(6) Certain individuals not eligible."
+                        "(6) Certain individuals, etc., not eligible for "
+                        "standard deduction."
                     ),
                 }
             )
@@ -1265,7 +1429,8 @@ class TestCorpusSourceResolution:
                         "allowable to another taxpayer, the basic standard "
                         "deduction shall not exceed the greater of— (A) $500, "
                         "or (B) the sum of $250 and earned income. "
-                        "(6) Certain individuals not eligible."
+                        "(6) Certain individuals, etc., not eligible for "
+                        "standard deduction."
                     ),
                 }
             )
@@ -3168,7 +3333,8 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path, m
             output_root=tmp_path / "out",
             policy_path=policy_repo_root,
             source_metadata_payload={
-                "corpus_citation_path": "us/regulation/example/page-1"
+                "corpus_citation_path": "us/regulation/example/page-1",
+                "source_attestation": {},
             },
             extra_context_paths=[continuation],
             mode=mode,
@@ -3191,6 +3357,11 @@ def test_run_source_eval_appends_primary_source_continuation_context(tmp_path, m
             "corpus_citation_path": "us/regulation/example/page-2",
         }
     ]
+    generation_input = source_text.strip().encode()
+    assert (
+        manifest["source_metadata"]["source_attestation"]["generation_input_sha256"]
+        == hashlib.sha256(generation_input).hexdigest()
+    )
 
 
 @pytest.mark.parametrize("mode", ["cold", "repo-augmented"])
@@ -3447,6 +3618,10 @@ def test_eval_result_payload_round_trips_prompt_digests():
             taxsim_issues=[],
         ),
         generation_prompt_sha256="generation-digest",
+        source_attestation={
+            "requested_corpus_citation_path": "us/statute/7/2014/e/6/A",
+            "source_sha256": "a" * 64,
+        },
     )
 
     restored = _eval_result_from_payload(result.to_dict())
@@ -3455,6 +3630,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
     assert restored.retry_count == 1
     assert restored.metrics is not None
     assert restored.metrics.generalist_review_prompt_sha256 == "review-digest"
+    assert restored.source_attestation == result.source_attestation
 
     def test_wait_for_codex_process_terminates_after_persistent_output(self, tmp_path):
         last_message = tmp_path / ".codex-last-message.txt"
@@ -11216,6 +11392,26 @@ rules:
         assert workspace.source_metadata_file is not None
         assert workspace.source_metadata_file.exists()
 
+    def test_prepare_eval_workspace_canonicalizes_crlf_before_hash_and_write(
+        self, tmp_path
+    ):
+        metadata = {"source_attestation": {}}
+        workspace = prepare_eval_workspace(
+            citation="us/statute/1",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="First\r\nSecond\rThird\r\n",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            source_metadata_payload=metadata,
+            extra_context_paths=[],
+        )
+
+        assert workspace.source_text_file.read_bytes() == b"First\nSecond\nThird\n"
+        assert metadata["source_attestation"]["generation_input_sha256"] == (
+            hashlib.sha256(workspace.source_text_file.read_bytes()).hexdigest()
+        )
+
     def test_build_eval_prompt_lists_canonical_context_import_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules-engine"
@@ -11864,12 +12060,10 @@ class TestUnexpectedAccessDetection:
 def test_evaluate_artifact_keeps_local_corpus_scope_through_metrics(
     tmp_path, monkeypatch
 ):
-    corpus = tmp_path / "axiom-corpus"
-    provisions = corpus / "data/corpus/provisions/us/statute"
-    provisions.mkdir(parents=True)
-    provisions.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/1", "body": "trusted source"}) + "\n",
-        encoding="utf-8",
+    corpus = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/1",
+        body="trusted source",
     )
     policy_repo = tmp_path / "rulespec-us"
     rules_file = policy_repo / "guidance/target.yaml"
@@ -11889,7 +12083,6 @@ rules: []
         remote_lookups.append(citation_path)
         return "REMOTE SOURCE"
 
-    validator_pipeline._fetch_corpus_source_text.cache_clear()
     monkeypatch.setattr(
         validator_pipeline,
         "_fetch_supabase_corpus_source_text",

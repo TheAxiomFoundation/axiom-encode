@@ -251,9 +251,12 @@ def _manifest_binds_module(
 
 
 def _manifest_is_replayable_encode(manifest: dict[str, object]) -> bool:
-    return manifest.get("backend") in {"codex", "openai", "claude"} and str(
-        manifest.get("tool", "")
-    ).startswith("axiom-encode encode")
+    return manifest.get("backend") in {
+        "codex",
+        "openai",
+        "claude",
+        "anthropic",
+    } and str(manifest.get("tool", "")).startswith("axiom-encode encode")
 
 
 def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]:
@@ -448,7 +451,7 @@ def validate_corpus_path(corpus_path: Path) -> Path:
 
 
 def resolve_local_citation(citation: str, corpus_path: Path) -> str | None:
-    """Return the first local candidate the encoder can resolve, if any.
+    """Return the single local source selected by the shared resolver, if any.
 
     The live resolver falls back to Supabase, which would make a scheduled run
     depend on mutable remote state.  Use its exact normalization and
@@ -458,18 +461,18 @@ def resolve_local_citation(citation: str, corpus_path: Path) -> str | None:
 
     resolved_corpus = validate_corpus_path(corpus_path)
 
-    from axiom_encode.harness.evals import (
-        _candidate_corpus_citation_paths,
-        _fetch_local_corpus_source_text_from_repo,
+    from axiom_encode.corpus_resolver import (
+        CorpusSourceNotFoundError,
+        normalize_corpus_identifier,
+        resolve_local_corpus_source,
     )
 
-    for candidate in _candidate_corpus_citation_paths(citation):
-        if (
-            _fetch_local_corpus_source_text_from_repo(candidate, resolved_corpus)
-            is not None
-        ):
-            return candidate
-    return None
+    normalized = normalize_corpus_identifier(citation)
+    try:
+        resolved = resolve_local_corpus_source(normalized, resolved_corpus)
+    except CorpusSourceNotFoundError:
+        return None
+    return resolved.citation_path
 
 
 def citation_resolves_locally(citation: str, corpus_path: Path) -> bool:

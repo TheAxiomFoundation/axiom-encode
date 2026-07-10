@@ -563,14 +563,54 @@ def _corpus_fixture(
 ) -> Path:
     corpus = tmp_path / "axiom-corpus"
     parts = citation.split("/")
+    version = "test-release"
     provisions = corpus / "data" / "corpus" / "provisions" / parts[0] / parts[1]
     provisions.mkdir(parents=True, exist_ok=True)
     with (provisions / "test.jsonl").open("a", encoding="utf-8") as provision_file:
         provision_file.write(
-            json.dumps({"citation_path": citation, "body": "authoritative source"})
+            json.dumps(
+                _corpus_provision_record(
+                    citation,
+                    "authoritative source",
+                    version=version,
+                )
+            )
             + "\n"
         )
+    selector = corpus / "manifests/releases/current.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"name": "current", "scopes": []}
+    if selector.exists():
+        payload = json.loads(selector.read_text(encoding="utf-8"))
+    scope = {
+        "jurisdiction": parts[0],
+        "document_class": parts[1],
+        "version": version,
+    }
+    if scope not in payload["scopes"]:
+        payload["scopes"].append(scope)
+    selector.write_text(json.dumps(payload), encoding="utf-8")
     return corpus
+
+
+def _corpus_provision_record(
+    citation: str,
+    body: str,
+    *,
+    version: str = "test-release",
+) -> dict[str, str]:
+    jurisdiction, document_class, *_rest = citation.split("/")
+    return {
+        "id": f"test:{citation}",
+        "citation_path": citation,
+        "body": body,
+        "jurisdiction": jurisdiction,
+        "document_class": document_class,
+        "version": version,
+        "source_path": f"sources/{jurisdiction}/{document_class}/test",
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+    }
 
 
 def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
@@ -634,6 +674,16 @@ def test_drift_regenerator_preserves_requested_child_with_local_only_resolution(
         citation="us/statute/26/1",
     )
     corpus = _corpus_fixture(tmp_path, citation="us/statute/26")
+    provision = corpus / "data/corpus/provisions/us/statute/test.jsonl"
+    provision.write_text(
+        json.dumps(
+            _corpus_provision_record(
+                "us/statute/26/1",
+                "(1) authoritative source",
+            )
+        )
+        + "\n"
+    )
     captured_command: list[str] = []
 
     def fake_run(command, **_kwargs):
@@ -938,6 +988,20 @@ def test_drift_loader_samples_only_current_replayable_encodes(tmp_path, capsys):
     assert loaded == {module: "outputs: {}\n"}
     assert deterministic_module not in loaded
     assert "skipped 2 non-replayable drift candidates" in capsys.readouterr().err
+
+
+def test_drift_loader_checks_anthropic_manifest_instead_of_skipping(tmp_path, capsys):
+    root, module, manifest = _regeneration_fixture(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["backend"] = "anthropic"
+    manifest.write_text(json.dumps(payload))
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded == {module: "outputs: {}\n"}
+    assert "non-replayable" not in capsys.readouterr().err
 
 
 def test_drift_loader_reports_missing_root_without_traceback(tmp_path, capsys):

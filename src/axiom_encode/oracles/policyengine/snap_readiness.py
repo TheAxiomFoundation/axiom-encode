@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from axiom_encode.corpus_resolver import (
+    ActiveCorpusBodyRow,
+    CorpusSourceNotFoundError,
+    iter_active_local_corpus_rows,
+)
 
 from .ecps_snap import JURISDICTION_CONFIGS
 
@@ -137,19 +142,18 @@ def build_snap_readiness_item(
 
 
 def count_snap_corpus_provisions(corpus_root: Path, *, jurisdiction: str) -> int:
-    """Count ingested corpus.provisions rows that appear to be SNAP sources."""
-    provisions_root = _corpus_provisions_root(corpus_root)
-    if provisions_root is None:
+    """Count active, unambiguous corpus rows that appear to be SNAP sources."""
+    corpus_root = Path(corpus_root).expanduser()
+    if not corpus_root.exists():
         return 0
-    jurisdiction_root = provisions_root / jurisdiction
-    if not jurisdiction_root.exists():
+    try:
+        rows = iter_active_local_corpus_rows(
+            corpus_root,
+            jurisdiction=jurisdiction,
+        )
+    except CorpusSourceNotFoundError:
         return 0
-    count = 0
-    for provision_file in sorted(jurisdiction_root.rglob("*.jsonl")):
-        for row in _iter_jsonl_rows(provision_file):
-            if _corpus_row_is_snap(row):
-                count += 1
-    return count
+    return sum(1 for row in rows if _corpus_row_is_snap(row))
 
 
 def _iter_state_rules_repos(root: Path) -> list[Path]:
@@ -216,50 +220,18 @@ def _count_executable_outputs(payload: dict[str, Any]) -> int:
     return count
 
 
-def _corpus_provisions_root(corpus_root: Path) -> Path | None:
-    root = Path(corpus_root).expanduser()
-    candidates = (
-        root / "data" / "corpus" / "provisions",
-        root / "data" / "corpus",
-        root,
-    )
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_dir():
-            return candidate
-    return None
-
-
-def _iter_jsonl_rows(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    try:
-        lines = path.read_text().splitlines()
-    except OSError:
-        return rows
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            rows.append(payload)
-    return rows
-
-
-def _corpus_row_is_snap(row: dict[str, Any]) -> bool:
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+def _corpus_row_is_snap(row: ActiveCorpusBodyRow) -> bool:
+    metadata = row.metadata
     program = str(metadata.get("program") or "").lower()
     if program == "snap":
         return True
     haystack = " ".join(
         str(value or "")
         for value in (
-            row.get("citation_path"),
-            row.get("citation_label"),
-            row.get("heading"),
-            row.get("body"),
+            row.row.citation_path,
+            row.citation_label,
+            row.heading,
+            row.body,
             metadata.get("title"),
             metadata.get("document_title"),
             metadata.get("source_authority"),

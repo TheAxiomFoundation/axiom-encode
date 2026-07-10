@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 
@@ -58,9 +58,43 @@ PROOF_ATOM_KINDS = frozenset(
 POLICY_RULE_KINDS = frozenset({"derived", "derived_relation", "parameter"})
 
 
-def find_rulespec_proof_issues(content: str) -> list[str]:
+def find_rulespec_proof_issues(
+    content: str,
+    *,
+    source_texts: Mapping[str, str | None] | None = None,
+) -> list[str]:
     """Return proof-validation issues for a RuleSpec YAML document."""
-    return validate_rulespec_proofs(content).issues
+    return validate_rulespec_proofs(content, source_texts=source_texts).issues
+
+
+def proof_source_citation_paths(content: str) -> tuple[str, ...]:
+    """Return direct corpus citations used by proof atoms in one RuleSpec."""
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return ()
+    if not isinstance(payload, dict):
+        return ()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return ()
+    paths: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        proof = _rule_proof(rule)
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            source = atom.get("source") if isinstance(atom, dict) else None
+            if not isinstance(source, dict):
+                continue
+            citation_path = str(source.get("corpus_citation_path") or "").strip()
+            if citation_path and citation_path not in paths:
+                paths.append(citation_path)
+    return tuple(paths)
 
 
 def validate_rulespec_proofs(
@@ -68,6 +102,7 @@ def validate_rulespec_proofs(
     *,
     validate_claim_records: bool = False,
     require_policy_proofs: bool = False,
+    source_texts: Mapping[str, str | None] | None = None,
 ) -> ProofValidationResult:
     """Validate explicit proof trees in a RuleSpec YAML document.
 
@@ -139,6 +174,7 @@ def validate_rulespec_proofs(
             source_paths=source_paths,
             source_value_keys=source_value_keys,
             declared_claims=declared_claims,
+            source_texts=source_texts,
         )
         issues.extend(rule_issues)
         atoms_checked += rule_atom_count
@@ -247,6 +283,7 @@ def _validate_rule_proof(
     source_paths: set[str],
     source_value_keys: set[str],
     declared_claims: set[str],
+    source_texts: Mapping[str, str | None] | None,
 ) -> tuple[list[str], int]:
     atoms = proof.get("atoms")
     if not isinstance(atoms, list) or not atoms:
@@ -275,6 +312,7 @@ def _validate_rule_proof(
                 source_paths=source_paths,
                 source_value_keys=source_value_keys,
                 declared_claims=declared_claims,
+                source_texts=source_texts,
             )
         )
     return issues, atoms_checked
@@ -288,6 +326,7 @@ def _validate_proof_atom(
     source_paths: set[str],
     source_value_keys: set[str],
     declared_claims: set[str],
+    source_texts: Mapping[str, str | None] | None,
 ) -> list[str]:
     issues: list[str] = []
     path = str(atom.get("path") or "").strip()
@@ -323,6 +362,7 @@ def _validate_proof_atom(
                 kind=kind,
                 source_paths=source_paths,
                 source_value_keys=source_value_keys,
+                source_texts=source_texts,
             )
         )
     if "claim" in atom:
@@ -411,6 +451,7 @@ def _validate_source_proof_atom(
     kind: str,
     source_paths: set[str],
     source_value_keys: set[str],
+    source_texts: Mapping[str, str | None] | None,
 ) -> list[str]:
     if not isinstance(source, dict):
         return [f"Proof source malformed: {label} `source` must be a mapping."]
@@ -429,6 +470,27 @@ def _validate_source_proof_atom(
             f"{label} cites `{citation_path}`, but the module verifies against "
             f"{allowed}."
         )
+
+    if citation_path and source_texts is not None:
+        resolved_text = source_texts.get(citation_path)
+        if resolved_text is None:
+            issues.append(
+                "Proof source unresolved: "
+                f"{label} cites `{citation_path}`, which was not found in "
+                "corpus.provisions."
+            )
+        else:
+            for field in ("excerpt", "quote"):
+                evidence_text = source.get(field)
+                if not isinstance(evidence_text, str) or not evidence_text.strip():
+                    continue
+                evidence_text = evidence_text.strip()
+                if evidence_text not in resolved_text:
+                    issues.append(
+                        "Proof source evidence not found: "
+                        f"{label} `source.{field}` does not appear in "
+                        f"`{citation_path}`."
+                    )
 
     value_key = str(source.get("value_key") or "").strip()
     if value_key and source_value_keys and value_key not in source_value_keys:
