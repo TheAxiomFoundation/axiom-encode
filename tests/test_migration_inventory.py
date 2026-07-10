@@ -127,6 +127,22 @@ def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
     assert any(row["reason"] == "invalid-rulespec" for row in report["failures"])
 
 
+def test_migration_inventory_scanned_modules_counts_files_not_citations(tmp_path):
+    rules, corpus = _write_fixture(tmp_path)
+    (rules / "policies").mkdir()
+    (rules / "policies/no-verification.yaml").write_text(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    )
+    (rules / "statutes/7/2014/e.yaml").write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        "    corpus_citation_paths:\n"
+        "      - us/statute/7/2014/e\n"
+        "      - us/statute/26/1\nrules: []\n"
+    )
+    report = _migration_inventory_report([rules], corpus)
+    assert report["scanned_modules"] == 3
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [

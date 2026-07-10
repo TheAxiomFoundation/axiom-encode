@@ -1580,7 +1580,7 @@ def _compose_descendant_text(
     expected_scope: ReleaseScope,
 ) -> tuple[str, tuple[CorpusRowIdentity, ...]]:
     if not records:
-        raise CorpusSourceNotFoundError(
+        raise InvalidActiveCorpusSourceError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     by_path: dict[str, list[_StoredRecord]] = {}
@@ -1602,7 +1602,7 @@ def _compose_descendant_text(
             tuple(record.row for record in ambiguous),
         )
     if not any(record.body is not None for record in records):
-        raise CorpusSourceNotFoundError(
+        raise InvalidActiveCorpusSourceError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     unique_by_path = {path: items[0] for path, items in by_path.items()}

@@ -2898,6 +2898,31 @@ def test_metadata_parent_rejects_uncovered_bodyless_branch(tmp_path: Path):
         resolve_local_corpus_source(CITATION, tmp_path)
 
 
+def test_active_bodyless_row_without_descendants_is_invalid(tmp_path: Path):
+    version = "2026-01-01-no-descendants"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(tmp_path, version, [{"citation_path": CITATION, "body": None}])
+    with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
+        resolve_local_corpus_source(CITATION, tmp_path)
+
+
+def test_active_bodyless_row_with_only_bodyless_descendants_is_invalid(
+    tmp_path: Path,
+):
+    version = "2026-01-01-only-bodyless"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": None},
+        ],
+    )
+    with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
+        resolve_local_corpus_source(CITATION, tmp_path)
+
+
 def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
     version = "2026-01-01-reserved-leaf"
     _write_selector(tmp_path, [_scope(version)])

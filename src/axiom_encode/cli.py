@@ -4721,14 +4721,21 @@ def cmd_inventory(args):
         )
 
 
+def _rulespec_module_paths(checkout: Path) -> list[Path]:
+    """Return every non-test RuleSpec YAML candidate exactly once."""
+
+    ignored = {".git", ".venv", "node_modules", "__pycache__"}
+    return [
+        path
+        for path in sorted((*checkout.rglob("*.yaml"), *checkout.rglob("*.yml")))
+        if not any(part in ignored for part in path.relative_to(checkout).parts)
+        and not path.name.endswith((".test.yaml", ".test.yml"))
+    ]
+
+
 def _module_corpus_citations(checkout: Path):
     """Yield RuleSpec module paths and declared corpus citations."""
-    ignored = {".git", ".venv", "node_modules", "__pycache__"}
-    for path in sorted((*checkout.rglob("*.yaml"), *checkout.rglob("*.yml"))):
-        if any(part in ignored for part in path.relative_to(checkout).parts):
-            continue
-        if path.name.endswith((".test.yaml", ".test.yml")):
-            continue
+    for path in _rulespec_module_paths(checkout):
         try:
             payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, yaml.YAMLError) as exc:
@@ -4855,7 +4862,7 @@ def _migration_inventory_report(
     checkout_metadata: list[dict[str, object]] = []
     for checkout in resolved_checkouts:
         module_rows = list(_module_corpus_citations(checkout))
-        scanned_modules += len(module_rows)
+        scanned_modules += len(_rulespec_module_paths(checkout))
         for path, _citation, reason, detail in module_rows:
             if reason is not None:
                 incomplete_reasons.append(
