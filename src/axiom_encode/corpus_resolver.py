@@ -16,11 +16,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
+
+from axiom_encode.statute import citation_to_citation_path
 
 MAX_CORPUS_PROVISION_BYTES = 64 * 1024 * 1024
 MAX_LOCAL_CORPUS_AGGREGATE_BYTES = 512 * 1024 * 1024
@@ -95,6 +97,104 @@ class CorpusSourceSliceError(CorpusResolutionError):
 
 class CorpusRemoteError(CorpusResolutionError):
     """A bounded Supabase corpus request failed or returned invalid data."""
+
+
+_CFR_IDENTIFIER_RE = re.compile(
+    r"^(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s+"
+    r"(?:(?:part|pt\.?)\s+)?(?:§+\s*)?"
+    r"(?P<section>[0-9A-Za-z.-]+)"
+    r"(?P<tail>(?:\([^)]+\))*)$",
+    re.IGNORECASE,
+)
+
+_RULESPEC_DOCUMENT_CLASS = {
+    "forms": "form",
+    "guidance": "guidance",
+    "manuals": "manual",
+    "policies": "policy",
+    "regulations": "regulation",
+    "statutes": "statute",
+}
+
+
+def normalize_corpus_identifier(identifier: str) -> str:
+    """Normalize one user/RuleSpec legal identifier for resolver-owned lookup.
+
+    Parent enumeration is intentionally not exposed here.  The resolver's
+    lookup groups are the sole implementation of aliases, parent fallback,
+    slicing policy, and ambiguity handling.
+    """
+
+    value = identifier.strip().strip("/")
+    if not value:
+        raise InvalidCorpusCitationError("Corpus citation path must not be empty")
+    parts = [part for part in value.split("/") if part]
+    if parts and ":" in parts[0]:
+        jurisdiction, source_root = parts[0].split(":", 1)
+        document_class = _RULESPEC_DOCUMENT_CLASS.get(source_root, source_root)
+        if jurisdiction and document_class:
+            return _normalize_citation_path(
+                "/".join((jurisdiction, document_class, *parts[1:]))
+            )
+    if len(parts) >= 3 and parts[1] in _DOCUMENT_CLASSES:
+        return _normalize_citation_path(value)
+    cfr = _CFR_IDENTIFIER_RE.fullmatch(value)
+    if cfr is not None:
+        tail = re.findall(r"\(([^)]+)\)", cfr.group("tail"))
+        section = tuple(part for part in cfr.group("section").split(".") if part)
+        return _normalize_citation_path(
+            "/".join(("us", "regulation", cfr.group("title"), *section, *tail))
+        )
+    try:
+        return _normalize_citation_path(citation_to_citation_path(value))
+    except ValueError as exc:
+        raise InvalidCorpusCitationError(
+            f"Could not normalize corpus identifier {identifier!r}"
+        ) from exc
+
+
+def scope_resolved_corpus_source(
+    source: ResolvedCorpusSource, target_identifier: str
+) -> ResolvedCorpusSource:
+    """Fail-closed resolver-owned slicing for the exact generation target."""
+
+    body = slice_corpus_source_text(
+        source.body,
+        target_identifier=target_identifier,
+        resolved_identifier=source.requested,
+    )
+    return replace(source, body=body, resolved_text_sha256=_sha256_text(body))
+
+
+def slice_corpus_source_text(
+    body: str, *, target_identifier: str, resolved_identifier: str | None = None
+) -> str:
+    """Slice exact target text from a resolver-selected parent body."""
+
+    target_path = normalize_corpus_identifier(target_identifier)
+    if resolved_identifier is None:
+        parts = target_path.split("/")
+        if parts[:2] == ["us", "regulation"] and len(parts) >= 5:
+            resolved_path = "/".join(parts[:5])
+        elif parts[:2] == ["us", "statute"] and len(parts) >= 4:
+            resolved_path = "/".join(parts[:4])
+        else:
+            resolved_path = target_path
+    else:
+        resolved_path = normalize_corpus_identifier(resolved_identifier)
+    if target_path == resolved_path:
+        scoped = body
+    else:
+        scoped = _slice_parent_body(
+            body,
+            requested_path=target_path,
+            resolved_path=resolved_path,
+        )
+    if not scoped.strip():
+        raise CorpusSourceSliceError(
+            f"Resolver produced an empty source slice for {target_identifier!r}"
+        )
+    return scoped
 
 
 @dataclass(frozen=True, order=True)

@@ -46,6 +46,7 @@ from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
 from axiom_encode.corpus_resolver import (
     CorpusRemoteError,
+    CorpusResolutionError,
     CorpusSourceNotFoundError,
     UnsafeCorpusPathError,
     resolve_local_corpus_source,
@@ -24115,11 +24116,15 @@ class ValidatorPipeline:
 
         if not rulespec_content_has_stub_status(rulespec_file.read_text()):
             return []
-        if not has_corpus_provision_for_import_target(
-            relative.with_suffix("").as_posix(),
-            source_root,
-            corpus_root=self.local_corpus_root,
-        ):
+        try:
+            has_source = has_corpus_provision_for_import_target(
+                relative.with_suffix("").as_posix(),
+                source_root,
+                corpus_root=self.local_corpus_root,
+            )
+        except CorpusResolutionError as exc:
+            return [f"Dependency corpus check failed: {type(exc).__name__}: {exc}"]
+        if not has_source:
             return []
 
         return [
@@ -24150,11 +24155,19 @@ class ValidatorPipeline:
             if not rulespec_file_has_stub_status(target):
                 continue
             import_base = import_path.split("#", 1)[0].strip()
-            if not has_corpus_provision_for_import_target(
-                import_base,
-                source_root,
-                corpus_root=self.local_corpus_root,
-            ):
+            try:
+                has_source = has_corpus_provision_for_import_target(
+                    import_base,
+                    source_root,
+                    corpus_root=self.local_corpus_root,
+                )
+            except CorpusResolutionError as exc:
+                issues.append(
+                    "Dependency corpus check failed for "
+                    f"`{import_path}`: {type(exc).__name__}: {exc}"
+                )
+                continue
+            if not has_source:
                 continue
             try:
                 target_label = target.relative_to(source_root).as_posix()

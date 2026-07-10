@@ -2024,6 +2024,36 @@ def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
     assert "corpus.provisions has source text" in issues[0]
 
 
+def test_promoted_stub_ambiguity_is_explicit_validation_failure(tmp_path):
+    repo_parent = tmp_path / "repos"
+    rules_repo = repo_parent / "rulespec-us"
+    rules_file = rules_repo / "statutes" / "7" / "2014" / "e" / "4.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n",
+        encoding="utf-8",
+    )
+    citation = "us/statute/7/2014/e/4"
+    _write_local_corpus_provision(repo_parent, citation)
+    provisions = repo_parent / "axiom-corpus/data/corpus/provisions/us/statute"
+    duplicate = _active_corpus_record(citation, "Duplicate active source.")
+    duplicate["id"] = "duplicate-active-row"
+    provisions.joinpath("duplicate.jsonl").write_text(
+        json.dumps(duplicate) + "\n", encoding="utf-8"
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=rules_repo,
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_promoted_stub_file(rules_file)
+
+    assert len(issues) == 1
+    assert "Dependency corpus check failed" in issues[0]
+    assert "AmbiguousCorpusSourceError" in issues[0]
+
+
 def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
     repo_parent = tmp_path / "repos"
     rules_repo = repo_parent / "rulespec-us"

@@ -30,7 +30,7 @@ import tempfile
 import time
 from calendar import monthrange
 from collections import Counter, defaultdict
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
@@ -59,7 +59,10 @@ from .corpus_resolver import (
     ActiveCorpusBodyRow,
     CorpusResolutionError,
     iter_active_local_corpus_rows,
+    normalize_corpus_identifier,
     resolve_local_corpus_source,
+    scope_resolved_corpus_source,
+    slice_corpus_source_text,
 )
 from .harness.encoding_db import (
     EncodingDB,
@@ -70,15 +73,12 @@ from .harness.encoding_db import (
     ReviewResults,
 )
 from .harness.evals import (
-    _canonical_target_ref_prefix,
     _canonical_uk_legislation_tail,
     _eval_result_from_payload,
     _fetch_local_corpus_source_text_from_repo,
     _looks_like_corpus_citation_path,
     _prompt_corpus_citation_path,
-    _source_identifier_to_relative_rulespec_path,
     _source_metadata_with_attestation,
-    _target_source_scope_for_heuristics,
     evaluate_artifact,
     load_eval_suite_manifest,
     resolve_corpus_source_unit,
@@ -211,10 +211,11 @@ APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v2"
 APPLIED_ENCODING_MANIFEST_SCHEMAS = frozenset(
     {APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA, APPLIED_ENCODING_MANIFEST_SCHEMA}
 )
-# v2 and resolver-owned source attestations rolled out on 2026-07-10. A v1
-# model manifest can use the compatibility lane only when Git history proves
-# the path was last committed before this fixed boundary.
-APPLIED_ENCODING_SOURCE_ATTESTATION_GIT_CUTOFF = "2026-07-10T00:00:00Z"
+# Frozen path + digest inventory captured when v2 source attestations rolled out.
+# Compatibility never depends on author- or committer-controlled timestamps.
+APPLIED_ENCODING_V1_ROLLOUT_INVENTORY = (
+    Path(__file__).with_name("data") / "v1_source_attestation_rollout_inventory.json"
+)
 APPLIED_ENCODING_SIGNING_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "hmac-sha256"
 APPLIED_ENCODING_SIGNATURE_KEY_ID = "axiom-encode-apply-v1"
@@ -779,6 +780,20 @@ def main():
         help="Workspace root containing rulespec-* repos",
     )
     inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    migration_inventory_parser = subparsers.add_parser(
+        "migration-inventory",
+        help="Report RuleSpec corpus citations that fail the current release selector",
+    )
+    migration_inventory_parser.add_argument(
+        "checkouts", nargs="+", type=Path, help="RuleSpec checkout roots to scan"
+    )
+    migration_inventory_parser.add_argument(
+        "--corpus-root", required=True, type=Path, help="Axiom corpus checkout"
+    )
+    migration_inventory_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
 
     interval_table_audit_parser = subparsers.add_parser(
         "interval-table-audit",
@@ -3061,6 +3076,8 @@ def main():
         cmd_stats(args)
     elif args.command == "inventory":
         cmd_inventory(args)
+    elif args.command == "migration-inventory":
+        cmd_migration_inventory(args)
     elif args.command == "interval-table-audit":
         cmd_interval_table_audit(args)
     elif args.command == "oracle-coverage":
@@ -4703,6 +4720,133 @@ def cmd_inventory(args):
         )
 
 
+def _module_corpus_citations(checkout: Path):
+    """Yield RuleSpec module paths and declared corpus citations."""
+    ignored = {".git", ".venv", "node_modules", "__pycache__"}
+    for path in sorted((*checkout.rglob("*.yaml"), *checkout.rglob("*.yml"))):
+        if any(part in ignored for part in path.relative_to(checkout).parts):
+            continue
+        if path.name.endswith((".test.yaml", ".test.yml")):
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError) as exc:
+            yield path, None, "invalid-rulespec", str(exc)
+            continue
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        paths: list[str] = []
+        singular = verification.get("corpus_citation_path")
+        if isinstance(singular, str) and singular.strip():
+            paths.append(singular.strip())
+        plural = verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            paths.extend(
+                value.strip()
+                for value in plural
+                if isinstance(value, str) and value.strip()
+            )
+        for citation in dict.fromkeys(paths):
+            yield path, citation, None, None
+
+
+def _migration_failure_reason(exc: CorpusResolutionError) -> str:
+    name = type(exc).__name__
+    message = str(exc).lower()
+    if name == "AmbiguousCorpusSourceError":
+        return "duplicated"
+    if name == "InvalidReleaseSelectorError":
+        return "unversioned-checkout"
+    if (
+        "metadata" in message
+        or "source_as_of" in message
+        or "expression_date" in message
+    ):
+        return "missing-release-metadata"
+    if "body" in message or "descendant" in message or "compose" in message:
+        return "bodyless-branch"
+    if name == "CorpusSourceNotFoundError":
+        return "inactive-only"
+    return "resolution-error"
+
+
+def migration_inventory(
+    checkouts: list[Path], corpus_root: Path
+) -> list[dict[str, str]]:
+    """Return every module citation that is not exact under the release selector."""
+    failures: list[dict[str, str]] = []
+    for checkout in (Path(path).resolve() for path in checkouts):
+        for module_path, citation, scan_reason, detail in _module_corpus_citations(
+            checkout
+        ):
+            relative = module_path.relative_to(checkout).as_posix()
+            if scan_reason is not None:
+                failures.append(
+                    {
+                        "checkout": str(checkout),
+                        "module": relative,
+                        "citation": "",
+                        "reason": scan_reason,
+                        "detail": detail or "",
+                    }
+                )
+                continue
+            assert citation is not None
+            try:
+                requested = normalize_corpus_identifier(citation)
+                resolved = resolve_local_corpus_source(
+                    requested, corpus_root, require_release=True
+                )
+            except CorpusResolutionError as exc:
+                failures.append(
+                    {
+                        "checkout": str(checkout),
+                        "module": relative,
+                        "citation": citation,
+                        "reason": _migration_failure_reason(exc),
+                        "detail": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+            if resolved.citation_path != requested:
+                failures.append(
+                    {
+                        "checkout": str(checkout),
+                        "module": relative,
+                        "citation": citation,
+                        "reason": "slice-fallback-dependency",
+                        "detail": f"resolved through {resolved.citation_path}",
+                    }
+                )
+    return failures
+
+
+def cmd_migration_inventory(args):
+    """Print release-migration failures as JSON or a compact operator table."""
+    rows = migration_inventory(args.checkouts, args.corpus_root)
+    if args.json:
+        print(
+            json.dumps({"failures": rows, "count": len(rows)}, indent=2, sort_keys=True)
+        )
+        return
+    if not rows:
+        print("No module citation failures under the current release selector.")
+        return
+    print("CHECKOUT\tMODULE\tCITATION\tREASON\tDETAIL")
+    for row in rows:
+        print(
+            "\t".join(
+                row[key]
+                for key in ("checkout", "module", "citation", "reason", "detail")
+            )
+        )
+    print(f"{len(rows)} module citation failure(s).")
+
+
 def cmd_interval_table_audit(args):
     """Show RuleSpecs that should be re-encoded with native interval tables."""
     report = build_interval_table_audit(
@@ -5480,6 +5624,15 @@ def cmd_manifest_census(args):
     repo_path = Path(args.repo).resolve()
     roots = tuple(sorted(set(str(args.roots).split()) or RULESPEC_SOURCE_ROOTS))
     census = _manifest_census(repo_path, roots=roots)
+    manifest_paths = _all_applied_encoding_manifest_paths(repo_path)
+    census["remaining_v1_compat_lane"] = sorted(
+        _unchanged_legacy_source_attestation_manifest_paths(
+            repo_path,
+            manifest_paths,
+            base_ref=None,
+            head_ref="HEAD",
+        )
+    )
     if getattr(args, "badge", False):
         output = json.dumps(_manifest_census_badge(census), indent=2) + "\n"
     elif getattr(args, "json", False):
@@ -5489,6 +5642,8 @@ def cmd_manifest_census(args):
             f"{census['repo']}: {census['encoder_pct']}% encoder-generated "
             f"({census['encoder']}/{census['total']}); "
             f"manual={census['manual']} unmanifested={census['unmanifested']}\n"
+            f"remaining v1 compatibility-lane manifests: "
+            f"{len(census['remaining_v1_compat_lane'])}\n"
         )
     out_path = getattr(args, "out", None)
     if out_path is not None:
@@ -26737,22 +26892,7 @@ def _unchanged_legacy_source_attestation_manifest_paths(
     base_ref: str | None,
     head_ref: str,
 ) -> set[str]:
-    """Return manifest paths eligible for the pre-attestation compatibility lane.
-
-    Source attestations were added after thousands of signed v1 manifests had
-    already landed.  Those historical manifests remain useful evidence of the
-    exact applied-file hashes, but rewriting every one is neither possible nor
-    a stronger proof of its original source.  Grandfather only manifests that
-    Git proves predate the fixed rollout boundary and remain unchanged:
-    relative to ``base_ref`` when CI supplies one, and always relative to the
-    checked-out ``head_ref`` so local edits and untracked manifests cannot
-    enter the compatibility lane.
-
-    Failure to establish Git history is fail-closed.  Callers still verify the
-    v1 schema, HMAC signature, and applied-file hash; this helper only permits
-    an unchanged historical model manifest to omit the newer resolver-owned
-    source provenance contract.
-    """
+    """Return exact frozen-inventory members eligible for the v1 compat lane."""
 
     if not manifest_paths:
         return set()
@@ -26772,33 +26912,28 @@ def _unchanged_legacy_source_attestation_manifest_paths(
                     head_ref=head_ref,
                 )
             )
-        recent_history = subprocess.run(
-            [
-                "git",
-                "log",
-                f"--since={APPLIED_ENCODING_SOURCE_ATTESTATION_GIT_CUTOFF}",
-                "--name-only",
-                "--format=",
-                head_ref,
-                "--",
-            ],
-            cwd=repo_path,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+        inventory_payload = json.loads(
+            APPLIED_ENCODING_V1_ROLLOUT_INVENTORY.read_text(encoding="utf-8")
         )
-        if recent_history.returncode != 0:
-            return set()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
         return set()
-    committed_since_rollout = {
-        line.strip() for line in recent_history.stdout.splitlines() if line.strip()
+    repos = inventory_payload.get("repositories")
+    if not isinstance(repos, dict):
+        return set()
+    entries = repos.get(_repo_census_label(repo_path), [])
+    frozen = {
+        entry.get("path"): entry.get("sha256")
+        for entry in entries
+        if isinstance(entry, dict)
+        and isinstance(entry.get("path"), str)
+        and isinstance(entry.get("sha256"), str)
     }
     return {
         path
         for path in manifest_paths
-        if path not in changed and path not in committed_since_rollout
+        if path not in changed
+        and frozen.get(path) is not None
+        and _sha256_file(repo_path / path) == frozen[path]
     }
 
 
@@ -27547,23 +27682,11 @@ def _scoped_source_text_for_encode_source_id(
     source_id: str,
     policy_repo_path: Path,
 ) -> str:
-    """Return the target leaf source text for source-id encodes when possible."""
-    try:
-        relative_output = _source_identifier_to_relative_rulespec_path(source_id)
-        target_ref_prefix = _canonical_target_ref_prefix(
-            source_id,
-            relative_output,
-            policy_repo_path=policy_repo_path,
-        )
-    except Exception:
-        return source_text
-    if not target_ref_prefix:
-        return source_text
-    scoped_source_text = _target_source_scope_for_heuristics(
+    """Compatibility wrapper around resolver-owned legal-text slicing."""
+    return slice_corpus_source_text(
         source_text,
-        target_ref_prefix,
+        target_identifier=source_id,
     )
-    return scoped_source_text if scoped_source_text.strip() else source_text
 
 
 def cmd_encode(args):
@@ -27624,11 +27747,20 @@ def cmd_encode(args):
         else:
             source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
         prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
-        source_text = _scoped_source_text_for_encode_source_id(
-            source_unit.body,
-            source_id=source_id,
-            policy_repo_path=policy_repo_path,
-        )
+        resolved_source = getattr(source_unit, "resolved_source", None)
+        if resolved_source is not None:
+            scoped_source = scope_resolved_corpus_source(resolved_source, source_id)
+            source_text = scoped_source.body
+            source_unit = replace(
+                source_unit,
+                body=source_text,
+                source_attestation=scoped_source.to_attestation(),
+                resolved_source=scoped_source,
+            )
+        else:
+            # Compatibility for injected source-unit test doubles. Production
+            # resolver results always retain provenance and are scoped above.
+            source_text = source_unit.body
         results = run_source_eval(
             source_id=source_id,
             source_text=source_text,
@@ -45169,11 +45301,8 @@ _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 def _generated_result_source_attestation(result) -> dict[str, object] | None:
     """Return a manifest-safe copy of the resolver-owned source attestation.
 
-    The resolver calls its sliced/composed text digest ``resolved_text_sha256``.
-    That text is the resolver output, but the generation pipeline does not yet
-    attest that it is byte-for-byte identical to the final model input.  Name
-    the field precisely at the apply/manifest trust boundary rather than
-    implying a stronger generation-input claim.
+    The source-id pipeline supplies the resolver's final body byte-for-byte to
+    the model, so this digest binds the exact generation input.
     """
 
     attestation = getattr(result, "source_attestation", None)
@@ -45181,8 +45310,8 @@ def _generated_result_source_attestation(result) -> dict[str, object] | None:
         return None
     normalized = copy.deepcopy(attestation)
     resolved_text_sha256 = normalized.pop("resolved_text_sha256", None)
-    if "resolver_text_sha256" not in normalized:
-        normalized["resolver_text_sha256"] = resolved_text_sha256
+    if "generation_input_sha256" not in normalized:
+        normalized["generation_input_sha256"] = resolved_text_sha256
     return normalized
 
 
@@ -45221,7 +45350,7 @@ def _source_attestation_structure_issues(
     provision_file = require_string("provision_file")
     provision_file_sha256 = require_sha256("provision_file_sha256")
     source_sha256 = require_sha256("source_sha256")
-    require_sha256("resolver_text_sha256")
+    require_sha256("generation_input_sha256")
 
     require_string("source_as_of")
     require_string("expression_date")

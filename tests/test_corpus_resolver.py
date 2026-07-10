@@ -26,6 +26,7 @@ from axiom_encode.corpus_resolver import (
     load_release_selector,
     resolve_local_corpus_source,
     resolve_supabase_corpus_source,
+    scope_resolved_corpus_source,
 )
 
 CITATION = "us/statute/7/2014/e"
@@ -618,7 +619,6 @@ def test_parent_fallback_slices_child_and_hashes_full_parent(tmp_path: Path):
     )
 
     resolved = resolve_local_corpus_source(CITATION, tmp_path)
-
     assert resolved.citation_path == "us/statute/7/2014"
     assert resolved.body == "(e) Target $198."
     assert (
@@ -628,6 +628,57 @@ def test_parent_fallback_slices_child_and_hashes_full_parent(tmp_path: Path):
         resolved.resolved_text_sha256
         == hashlib.sha256(resolved.body.encode()).hexdigest()
     )
+
+
+def test_resolver_owned_generation_scope_updates_exact_input_digest(tmp_path: Path):
+    version = "2026-01-01-scope"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": "us/statute/7/2014",
+                "body": "(a) First.\n(e) Target $198.\n(f) Sibling $999.",
+            }
+        ],
+    )
+    resolved = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+
+    scoped = scope_resolved_corpus_source(resolved, "us:statutes/7/2014/e")
+
+    assert scoped.body == "(e) Target $198."
+    assert (
+        scoped.resolved_text_sha256 == hashlib.sha256(scoped.body.encode()).hexdigest()
+    )
+
+
+def test_guidance_parent_is_not_a_generation_fallback(tmp_path: Path):
+    version = "2026-01-01-guidance"
+    _write_selector(
+        tmp_path,
+        [
+            {
+                "jurisdiction": "us",
+                "document_class": "guidance",
+                "version": version,
+            }
+        ],
+    )
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": "us/guidance/irs/example",
+                "body": "Page 1. Parent guidance.",
+            }
+        ],
+        document_class="guidance",
+    )
+
+    with pytest.raises(CorpusSourceNotFoundError):
+        resolve_local_corpus_source("us/guidance/irs/example/page-1", tmp_path)
 
 
 def test_generic_parent_slice_bounds_cumulative_work_across_depth(

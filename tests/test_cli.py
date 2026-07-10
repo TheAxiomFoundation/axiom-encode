@@ -495,7 +495,7 @@ def _complete_source_attestation(
         },
         "component_rows": [],
         "source_sha256": source_sha256,
-        "resolver_text_sha256": source_sha256,
+        "generation_input_sha256": source_sha256,
         "source_as_of": "2026-01-01",
         "expression_date": "2026-01-01",
     }
@@ -4799,7 +4799,7 @@ rules: []
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
         result.source_attestation["resolved_text_sha256"] = (
-            result.source_attestation.pop("resolver_text_sha256")
+            result.source_attestation.pop("generation_input_sha256")
         )
         result.generation_prompt_sha256 = None
 
@@ -4839,7 +4839,7 @@ rules: []
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1.json"
         manifest_payload = json.loads(manifest.read_text())
         manifest_attestation = manifest_payload["source_attestation"]
-        assert manifest_attestation["resolver_text_sha256"] == "a" * 64
+        assert manifest_attestation["generation_input_sha256"] == "a" * 64
         assert "resolved_text_sha256" not in manifest_attestation
         assert (
             _applied_encoding_manifest_signature_issue(
@@ -24685,7 +24685,7 @@ rules: []
     ):
         repo = tmp_path / "rulespec-us"
         _init_test_git_repo(repo)
-        _write_legacy_model_manifest(repo)
+        _rule, manifest = _write_legacy_model_manifest(repo)
         _git(repo, "add", ".")
         with patch.dict(
             os.environ,
@@ -24695,10 +24695,31 @@ rules: []
             },
         ):
             _git(repo, "commit", "-m", "historical encoder output")
+        inventory = tmp_path / "rollout-inventory.json"
+        inventory.write_text(
+            json.dumps(
+                {
+                    "repositories": {
+                        "rulespec-us": [
+                            {
+                                "path": manifest.relative_to(repo).as_posix(),
+                                "sha256": _sha256_file(manifest),
+                            }
+                        ]
+                    }
+                }
+            )
+        )
 
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY",
+                inventory,
+            ),
         ):
             issues = guard_generated_change_issues(
                 repo,
@@ -30627,9 +30648,31 @@ rules:
         ):
             _git(repo, "commit", "-m", "historical encoder dependency")
 
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        inventory = tmp_path / "rollout-inventory.json"
+        inventory.write_text(
+            json.dumps(
+                {
+                    "repositories": {
+                        "rulespec-us": [
+                            {
+                                "path": _manifest.relative_to(repo).as_posix(),
+                                "sha256": _sha256_file(_manifest),
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY",
+                inventory,
+            ),
         ):
             _ensure_generated_dependency_files_safe(
                 repo,

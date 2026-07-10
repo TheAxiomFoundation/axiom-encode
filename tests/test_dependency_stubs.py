@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from axiom_encode.corpus_resolver import (
+    AmbiguousCorpusSourceError,
+    InvalidReleaseSelectorError,
+)
 from axiom_encode.harness.dependency_stubs import (
     _corpus_file_contains_citation_path,
     find_corpus_provision_artifacts,
@@ -133,14 +139,12 @@ def test_find_corpus_provision_artifacts_requires_release_selector(tmp_path):
         record_id="unselected-row",
     )
 
-    assert (
+    with pytest.raises(InvalidReleaseSelectorError):
         find_corpus_provision_artifacts(
             CITATION_PATH,
             rules_root,
             corpus_root=corpus_root,
         )
-        == []
-    )
     assert not _corpus_file_contains_citation_path(artifact, CITATION_PATH)
 
 
@@ -162,13 +166,11 @@ def test_find_corpus_provision_artifacts_fails_closed_on_active_duplicate(tmp_pa
     )
     _write_release(corpus_root, version="active-release")
 
-    assert (
+    with pytest.raises(AmbiguousCorpusSourceError):
         find_corpus_provision_artifacts(
             CITATION_PATH,
             rules_root,
             corpus_root=corpus_root,
         )
-        == []
-    )
     assert not _corpus_file_contains_citation_path(first, CITATION_PATH)
     assert not _corpus_file_contains_citation_path(second, CITATION_PATH)

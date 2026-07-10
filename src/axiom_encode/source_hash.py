@@ -634,7 +634,7 @@ def read_corpus_provision_text(
 
 
 def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
-    """Yield every module under ``rulespec_root`` that pins a source hash.
+    """Yield every module, marking missing source hashes for explicit reporting.
 
     Explicit ``*.test.yaml`` / ``*.test.yml`` companions are not RuleSpec
     modules and are intentionally skipped. Candidate module files fail closed:
@@ -675,6 +675,7 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
                 "candidate RuleSpec module must be a mapping",
             )
         if "source_verification" not in module:
+            yield PinnedModule(path, None, "<missing>")
             continue
         verification = module["source_verification"]
         if not isinstance(verification, dict):
@@ -683,6 +684,10 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
                 "module.source_verification must be a mapping",
             )
         if "source_sha256" not in verification:
+            citation_path = verification.get("corpus_citation_path")
+            if not isinstance(citation_path, str) or not citation_path.strip():
+                citation_path = None
+            yield PinnedModule(path, citation_path, "<missing>")
             continue
         raw_sha = verification["source_sha256"]
         if isinstance(raw_sha, str):
@@ -712,13 +717,18 @@ def _check_pinned_modules_staleness(
         citation_path = pinned.citation_path
         pinned_sha = pinned.pinned_sha
         if re.fullmatch(r"[0-9a-f]{64}", pinned_sha) is None:
+            reason = (
+                "module does not pin module.source_verification.source_sha256"
+                if pinned_sha == "<missing>"
+                else "module.source_verification.source_sha256 must be exactly "
+                "64 lowercase hexadecimal characters"
+            )
             stale.append(
                 StaleModule(
                     module_path,
                     pinned_sha,
                     None,
-                    "module.source_verification.source_sha256 must be exactly "
-                    "64 lowercase hexadecimal characters",
+                    reason,
                 )
             )
             continue
@@ -799,7 +809,7 @@ def run_check_source_staleness(argv: Sequence[str] | None = None) -> int:
         print(f"  error   {exc.reason}")
         return 1
     if not pinned:
-        print(f"No modules under {args.rulespec_root} pin source_sha256.")
+        print(f"No RuleSpec modules found under {args.rulespec_root}.")
         return 0
 
     stale = _check_pinned_modules_staleness(pinned, args.corpus_root)

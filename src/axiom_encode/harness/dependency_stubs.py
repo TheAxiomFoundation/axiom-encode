@@ -506,14 +506,15 @@ def find_corpus_provision_artifacts(
                 )
             except CorpusSourceNotFoundError:
                 continue
-            except CorpusResolutionError:
-                return []
             resolved_artifacts = _resolved_local_corpus_artifacts(
                 provisions_root,
                 source,
             )
             if resolved_artifacts is None:
-                return []
+                raise CorpusResolutionError(
+                    "Resolved corpus provenance could not be bound to local artifacts "
+                    f"for {citation_path!r}"
+                )
             for resolved in resolved_artifacts:
                 if resolved not in seen:
                     seen.add(resolved)

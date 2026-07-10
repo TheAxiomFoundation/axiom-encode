@@ -744,6 +744,7 @@ class CorpusSourceUnit:
     body: str
     source: Literal["local", "supabase"]
     source_attestation: dict[str, object] | None = None
+    resolved_source: _corpus_resolver.ResolvedCorpusSource | None = None
 
 
 @dataclass(frozen=True)
@@ -2334,39 +2335,37 @@ def resolve_corpus_source_unit(
     Production resolution requires the current release selector.  The explicit
     ``require_release=False`` option is retained for legacy fixture callers.
     """
-    candidates = _candidate_corpus_citation_paths(identifier)
-    for citation_path in candidates:
-        local_text = _fetch_local_corpus_source_text_from_repo(
-            citation_path,
-            corpus_path,
-            require_release=require_release,
+    citation_path = _corpus_resolver.normalize_corpus_identifier(identifier)
+    local_text = _fetch_local_corpus_source_text_from_repo(
+        citation_path,
+        corpus_path,
+        require_release=require_release,
+    )
+    if local_text is not None:
+        resolved = local_text.resolved_source
+        return CorpusSourceUnit(
+            requested=identifier,
+            citation_path=resolved.citation_path,
+            body=resolved.body,
+            source=resolved.source,
+            source_attestation=resolved.to_attestation(),
+            resolved_source=resolved,
         )
-        if local_text is not None:
-            resolved = local_text.resolved_source
+    if not local_only:
+        supabase_text = _fetch_supabase_corpus_source_text(citation_path)
+        if supabase_text is not None:
+            resolved = supabase_text.resolved_source
             return CorpusSourceUnit(
                 requested=identifier,
                 citation_path=resolved.citation_path,
                 body=resolved.body,
                 source=resolved.source,
                 source_attestation=resolved.to_attestation(),
+                resolved_source=resolved,
             )
-        if not local_only:
-            supabase_text = _fetch_supabase_corpus_source_text(citation_path)
-            if supabase_text is not None:
-                resolved = supabase_text.resolved_source
-                return CorpusSourceUnit(
-                    requested=identifier,
-                    citation_path=resolved.citation_path,
-                    body=resolved.body,
-                    source=resolved.source,
-                    source_attestation=resolved.to_attestation(),
-                )
 
-    candidates = ", ".join(_candidate_corpus_citation_paths(identifier)[:4])
     scope = "local corpus.provisions" if local_only else "corpus.provisions"
-    raise ValueError(
-        f"No {scope} source text found for {identifier!r}. Tried: {candidates}"
-    )
+    raise ValueError(f"No {scope} source text found for {identifier!r}")
 
 
 def _numeric_sibling_parenthetical_marker(fragment: str) -> str:

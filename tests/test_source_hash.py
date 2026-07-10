@@ -271,7 +271,7 @@ def test_read_corpus_provision_text_missing_returns_none(tmp_path):
     assert read_corpus_provision_text(corpus_root, "us/statute/26/1") is None
 
 
-def test_iter_pinned_modules_skips_unpinned_modules(tmp_path):
+def test_iter_pinned_modules_reports_unpinned_modules(tmp_path):
     rulespec_root = tmp_path / "rulespec-us"
     unpinned = rulespec_root / "statutes" / "7" / "2017.yaml"
     unpinned.parent.mkdir(parents=True)
@@ -280,10 +280,12 @@ def test_iter_pinned_modules_skips_unpinned_modules(tmp_path):
         encoding="utf-8",
     )
 
-    assert list(iter_pinned_modules(rulespec_root)) == []
+    assert list(iter_pinned_modules(rulespec_root)) == [
+        PinnedModule(unpinned, None, "<missing>")
+    ]
 
 
-def test_iter_pinned_modules_skips_verification_without_source_hash(tmp_path):
+def test_iter_pinned_modules_reports_verification_without_source_hash(tmp_path):
     rulespec_root = tmp_path / "rulespec-us"
     unpinned = rulespec_root / "statutes" / "7" / "2017.yaml"
     unpinned.parent.mkdir(parents=True)
@@ -296,7 +298,9 @@ def test_iter_pinned_modules_skips_verification_without_source_hash(tmp_path):
         encoding="utf-8",
     )
 
-    assert list(iter_pinned_modules(rulespec_root)) == []
+    assert list(iter_pinned_modules(rulespec_root)) == [
+        PinnedModule(unpinned, CITATION_PATH, "<missing>")
+    ]
 
 
 def test_iter_pinned_modules_yields_pin_and_citation(tmp_path):
@@ -679,7 +683,9 @@ def test_bounded_yaml_anchor_and_alias_remain_supported(tmp_path):
         encoding="utf-8",
     )
 
-    assert list(iter_pinned_modules(rulespec_root)) == []
+    assert list(iter_pinned_modules(rulespec_root)) == [
+        PinnedModule(module_path, None, "<missing>")
+    ]
 
 
 def test_yaml_alias_budget_fails_closed(tmp_path, monkeypatch):
