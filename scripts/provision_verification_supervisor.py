@@ -37,6 +37,7 @@ def provision(
         / f"python{sys.version_info.major}.{sys.version_info.minor}"
         / "site-packages"
     )
+    shutil.rmtree(target_site_packages)
     shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
     interpreter = runtime / source_interpreter.relative_to(source_runtime)
     launcher = destination / "axiom-encode"
