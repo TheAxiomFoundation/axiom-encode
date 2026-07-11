@@ -7,8 +7,8 @@ public command surface only needs a two-line hook: call
 
 Commands:
 
-* ``preclassify``       — worklist triage (bulk-encode.yml cheap pre-step).
-* ``judge-fidelity``    — Stage 1 referee, plus ``--calibrate`` replay.
+* ``preclassify``       — worklist triage (bulk-encode.yml routing workflow).
+* ``judge-fidelity``    — corpus-bound Stage 1 referee.
 * ``judge-grid``        — Stage 2 grid-adequacy judge.
 * ``judge-disposition`` — Stage 3 disposition referee.
 * ``drift-check``       — golden-regeneration drift check.
@@ -25,21 +25,31 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.corpus_resolver import (
+    LocalCorpusRelease,
+    ResolvedCorpusSource,
+    require_canonical_corpus_citation_path,
+    resolve_local_corpus_source,
+)
+from axiom_encode.repo_routing import is_policy_repo_root
+from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 from .regeneration import (
     SUPPORTED_BACKENDS,
+    NoReplayableManifestError,
     RegenerationInputError,
     UnsafeRegenerationPath,
     read_citation,
     read_resolvable_citation,
     redact_sensitive_text,
-    source_id_for_module,
-    validate_corpus_path,
+    require_citation_derived_output_path,
     validate_module_path,
 )
 
 _MAX_DRIFT_REPORT_BYTES = 20 * 1024 * 1024
+_RULESPEC_ATOMIC_MODULE_ROOTS = RULESPEC_ATOMIC_MODULE_ROOTS
 
 COMMANDS = frozenset(
     {
@@ -72,6 +82,23 @@ def _add_run_log_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_corpus_binding_args(parser: argparse.ArgumentParser) -> None:
+    """Require one canonical RuleSpec checkout and its pinned corpus release."""
+
+    parser.add_argument(
+        "--root",
+        type=Path,
+        required=True,
+        help="exact canonical rulespec-<country> checkout with a release pin",
+    )
+    parser.add_argument(
+        "--corpus-path",
+        type=Path,
+        required=True,
+        help="local axiom-corpus checkout containing the pinned named release",
+    )
+
+
 def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
     """Add the judge-stage subcommands to an existing subparsers object."""
 
@@ -79,12 +106,16 @@ def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
         "preclassify",
         help="Triage a worklist before generation (amendment/xref -> skip).",
     )
-    pre.add_argument(
-        "--worklist", type=Path, help="JSON list of {citation, source_text}"
+    _add_corpus_binding_args(pre)
+    pre_source = pre.add_mutually_exclusive_group(required=True)
+    pre_source.add_argument(
+        "--worklist",
+        type=Path,
+        help="JSON list of canonical corpus_citation_path strings",
     )
-    pre.add_argument("--citation", help="Single-entry citation (with --source-file)")
-    pre.add_argument(
-        "--source-file", type=Path, help="Single-entry provision text file"
+    pre_source.add_argument(
+        "--corpus-citation-path",
+        help="single exact canonical corpus citation path",
     )
     pre.add_argument(
         "--no-llm", action="store_true", help="Heuristics only, no arbiter"
@@ -94,23 +125,20 @@ def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
 
     fid = subparsers.add_parser(
         "judge-fidelity",
-        help="Statutory-fidelity referee (or --calibrate to replay over encodings.db).",
+        help="Corpus-bound statutory-fidelity referee.",
     )
-    fid.add_argument("--provision-file", type=Path)
-    fid.add_argument("--rule-file", type=Path)
-    fid.add_argument("--citation")
+    _add_corpus_binding_args(fid)
+    fid.add_argument("--corpus-citation-path", required=True)
+    fid.add_argument("--rule-file", type=Path, required=True)
     fid.add_argument("--rule-path")
-    fid.add_argument("--calibrate", action="store_true")
-    fid.add_argument("--db", type=Path, default=Path("encodings.db"))
-    fid.add_argument("--n", type=int, default=30)
-    fid.add_argument("--seed", type=int, default=0)
     _add_run_log_args(fid)
     fid.add_argument("--json", action="store_true")
 
     grid = subparsers.add_parser(
         "judge-grid", help="Grid-adequacy judge for an oracle suite."
     )
-    grid.add_argument("--provision-file", type=Path, required=True)
+    _add_corpus_binding_args(grid)
+    grid.add_argument("--corpus-citation-path", required=True)
     grid.add_argument(
         "--suite-file", type=Path, required=True, help="JSON list of cases"
     )
@@ -130,11 +158,24 @@ def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
     drift = subparsers.add_parser(
         "drift-check", help="Golden-regeneration drift check over merged modules."
     )
-    drift.add_argument("--root", type=Path, help="rulespec root to sample modules from")
+    drift.add_argument(
+        "--root",
+        type=Path,
+        help="exact canonical rulespec-<country> checkout to sample modules from",
+    )
     drift.add_argument(
         "--corpus-path",
         type=Path,
         help="local axiom-corpus checkout used to preflight regeneration sources",
+    )
+    drift.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        help=(
+            "exact axiom-rules-engine checkout used by live regeneration "
+            "(required with --regenerate)"
+        ),
     )
     drift.add_argument(
         "--modules-file", type=Path, help="JSON map module_id -> merged yaml path"
@@ -196,10 +237,15 @@ def dispatch(args: argparse.Namespace) -> int:
 def cmd_preclassify(args: argparse.Namespace) -> int:
     from . import preclassifier as pc
 
-    entries = _load_worklist(args)
-    if entries is None:
+    sources = _load_worklist_sources(args)
+    if sources is None:
         return 2
+    entries = [
+        {"citation": source.requested, "source_text": source.body} for source in sources
+    ]
     results = pc.classify_batch(entries, use_llm=not args.no_llm)
+    for result, source in zip(results, sources, strict=True):
+        result.event.extra["source_attestation"] = source.to_attestation()
     if getattr(args, "run_id", None):
         from axiom_encode.run_log import RunLogWriter
 
@@ -248,27 +294,18 @@ def cmd_preclassify(args: argparse.Namespace) -> int:
 
 
 def cmd_judge_fidelity(args: argparse.Namespace) -> int:
-    if args.calibrate:
-        from . import calibration
-
-        report = calibration.calibrate(args.db, n=args.n, seed=args.seed)
-        if args.json:
-            print(json.dumps(report.to_dict(), indent=2, default=str))
-        else:
-            print(report.summary())
-        return 0
-
     from . import statutory_fidelity as sf
 
-    if not args.provision_file or not args.rule_file:
-        print("judge-fidelity needs --provision-file and --rule-file", file=sys.stderr)
+    source = _load_bound_source(args, args.corpus_citation_path)
+    if source is None:
         return 2
     event = sf.run(
-        _read(args.provision_file),
+        source.body,
         _read(args.rule_file),
-        citation=args.citation,
+        citation=source.requested,
         rule_path=args.rule_path,
     )
+    event.extra["source_attestation"] = source.to_attestation()
     _emit_event(event, args.json, args)
     return 0
 
@@ -276,8 +313,12 @@ def cmd_judge_fidelity(args: argparse.Namespace) -> int:
 def cmd_judge_grid(args: argparse.Namespace) -> int:
     from . import grid_adequacy as ga
 
+    source = _load_bound_source(args, args.corpus_citation_path)
+    if source is None:
+        return 2
     case_grid = json.loads(_read(args.suite_file))
-    event = ga.run(_read(args.provision_file), case_grid, suite_name=args.suite_name)
+    event = ga.run(source.body, case_grid, suite_name=args.suite_name)
+    event.extra["source_attestation"] = source.to_attestation()
     if args.emit_cells and not args.json:
         for cell in ga.gaps_to_cells(event):
             print(json.dumps(cell, default=str))
@@ -306,11 +347,14 @@ def cmd_drift_check(args: argparse.Namespace) -> int:
     from . import drift
 
     if args.regenerate and (
-        args.root is None or args.modules_file is not None or args.corpus_path is None
+        args.root is None
+        or args.modules_file is not None
+        or args.corpus_path is None
+        or getattr(args, "axiom_rules_path", None) is None
     ):
         print(
-            "live drift regeneration requires --root and --corpus-path and does not "
-            "accept --modules-file",
+            "live drift regeneration requires --root, --corpus-path, and "
+            "--axiom-rules-engine-path and does not accept --modules-file",
             file=sys.stderr,
         )
         return 2
@@ -336,6 +380,7 @@ def cmd_drift_check(args: argparse.Namespace) -> int:
                 merged,
                 root=args.root,
                 corpus_path=args.corpus_path,
+                axiom_rules_path=args.axiom_rules_path,
                 backend=args.regenerate_backend,
             )
 
@@ -453,20 +498,84 @@ def _emit_event(event, as_json: bool, args: argparse.Namespace | None = None) ->
         print(f"  judge_error: {event.judge_error.type}: {event.judge_error.message}")
 
 
-def _load_worklist(args: argparse.Namespace) -> list[dict[str, Any]] | None:
+def _load_bound_corpus_release(args: argparse.Namespace) -> LocalCorpusRelease | None:
+    try:
+        root = Path(args.root).resolve(strict=True)
+        if not is_policy_repo_root(root):
+            raise ValueError(
+                "root must be an exact canonical rulespec-<country> checkout"
+            )
+        return load_rulespec_local_corpus_release(root, Path(args.corpus_path))
+    except (OSError, ValueError) as exc:
+        print(f"invalid corpus binding: {exc}", file=sys.stderr)
+        return None
+
+
+def _resolve_bound_source(
+    citation_path: object,
+    release: LocalCorpusRelease,
+) -> ResolvedCorpusSource:
+    if not isinstance(citation_path, str):
+        raise ValueError("corpus_citation_path must be a string")
+    canonical = require_canonical_corpus_citation_path(citation_path)
+    return resolve_local_corpus_source(canonical, release)
+
+
+def _load_bound_source(
+    args: argparse.Namespace,
+    citation_path: object,
+) -> ResolvedCorpusSource | None:
+    release = _load_bound_corpus_release(args)
+    if release is None:
+        return None
+    try:
+        return _resolve_bound_source(citation_path, release)
+    except (OSError, ValueError) as exc:
+        print(f"invalid corpus source: {exc}", file=sys.stderr)
+        return None
+
+
+def _load_worklist_sources(
+    args: argparse.Namespace,
+) -> list[ResolvedCorpusSource] | None:
+    raw_citation_paths: object
     if args.worklist:
-        data = json.loads(_read(args.worklist))
-        if not isinstance(data, list):
-            print("worklist JSON must be a list", file=sys.stderr)
+        try:
+            raw_citation_paths = json.loads(_read(args.worklist))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"invalid worklist JSON: {exc}", file=sys.stderr)
             return None
-        return data
-    if args.citation and args.source_file:
-        return [{"citation": args.citation, "source_text": _read(args.source_file)}]
-    print(
-        "preclassify needs --worklist or (--citation and --source-file)",
-        file=sys.stderr,
-    )
-    return None
+    elif args.corpus_citation_path:
+        raw_citation_paths = [args.corpus_citation_path]
+    else:
+        print(
+            "preclassify needs --worklist or --corpus-citation-path",
+            file=sys.stderr,
+        )
+        return None
+    if not isinstance(raw_citation_paths, list) or not raw_citation_paths:
+        print(
+            "worklist JSON must be a nonempty list of canonical corpus citation "
+            "path strings",
+            file=sys.stderr,
+        )
+        return None
+    if all(isinstance(item, str) for item in raw_citation_paths) and len(
+        set(raw_citation_paths)
+    ) != len(raw_citation_paths):
+        print("worklist corpus citation paths must be unique", file=sys.stderr)
+        return None
+    release = _load_bound_corpus_release(args)
+    if release is None:
+        return None
+    try:
+        return [
+            _resolve_bound_source(citation_path, release)
+            for citation_path in raw_citation_paths
+        ]
+    except (OSError, ValueError) as exc:
+        print(f"invalid worklist corpus source: {exc}", file=sys.stderr)
+        return None
 
 
 def _load_drift_modules(args: argparse.Namespace) -> dict[str, str] | None:
@@ -479,11 +588,24 @@ def _load_drift_modules(args: argparse.Namespace) -> dict[str, str] | None:
         except OSError as exc:
             print(f"invalid drift root {args.root}: {exc}", file=sys.stderr)
             return None
+        if not is_policy_repo_root(root):
+            print(
+                "drift root must be an exact canonical "
+                f"rulespec-<country> checkout: {root}",
+                file=sys.stderr,
+            )
+            return None
         modules: dict[str, str] = {}
         skipped = 0
         for path in sorted(root.rglob("*.yaml")):
             name = path.name
-            if name.endswith(".test.yaml") or ".axiom" in path.parts:
+            relative_parts = path.relative_to(root).parts
+            if (
+                name.endswith(".test.yaml")
+                or ".axiom" in relative_parts
+                or len(relative_parts) < 3
+                or relative_parts[1] not in _RULESPEC_ATOMIC_MODULE_ROOTS
+            ):
                 continue
             module = path.relative_to(root).as_posix()
             try:
@@ -491,14 +613,17 @@ def _load_drift_modules(args: argparse.Namespace) -> dict[str, str] | None:
                 # Sampling only replayable, current, hash-bound encodes prevents
                 # deterministic/manual repairs and unmanifested support YAML from
                 # becoming guaranteed regeneration errors.
-                read_citation(root, relative)
-                source_id_for_module(root, relative)
+                citation = read_citation(root, relative)
+                require_citation_derived_output_path(relative, citation)
             except UnsafeRegenerationPath as exc:
                 print(f"unsafe drift candidate {module}: {exc}", file=sys.stderr)
                 return None
-            except RegenerationInputError:
+            except NoReplayableManifestError:
                 skipped += 1
                 continue
+            except RegenerationInputError as exc:
+                print(f"invalid drift candidate {module}: {exc}", file=sys.stderr)
+                return None
             modules[module] = path.read_text(encoding="utf-8")
         if not modules:
             print(f"no replayable merged modules found under {root}", file=sys.stderr)
@@ -526,9 +651,12 @@ def _select_corpus_backed_modules(
         print("drift-check with --root requires --corpus-path", file=sys.stderr)
         return None
     try:
-        corpus_path = validate_corpus_path(corpus_path)
+        corpus_release = load_rulespec_local_corpus_release(args.root, corpus_path)
     except (OSError, RegenerationInputError) as exc:
         print(f"invalid corpus path {corpus_path}: {exc}", file=sys.stderr)
+        return None
+    except ValueError as exc:
+        print(f"invalid corpus release {corpus_path}: {exc}", file=sys.stderr)
         return None
 
     target = min(
@@ -545,7 +673,7 @@ def _select_corpus_backed_modules(
             read_resolvable_citation(
                 args.root,
                 relative,
-                corpus_path=corpus_path,
+                corpus_release=corpus_release,
             )
         except UnsafeRegenerationPath as exc:
             print(f"unsafe drift candidate {module}: {exc}", file=sys.stderr)

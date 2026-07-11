@@ -13,6 +13,17 @@ import sys
 
 
 def main() -> int | None:
+    # This must run before importing ``axiom_encode.cli``. Production private
+    # keys remain inside external signers; the mutable Python process that can
+    # later launch model subprocesses receives only a confined broker capability.
+    from axiom_encode.signing_broker import (
+        attach_signing_broker_from_environment,
+        reject_direct_private_signing_environment,
+    )
+
+    reject_direct_private_signing_environment()
+    attach_signing_broker_from_environment()
+
     argv = sys.argv[1:]
     if argv and argv[0] == "check-source-staleness":
         from axiom_encode.source_hash import run_check_source_staleness
@@ -21,3 +32,7 @@ def main() -> int | None:
     from axiom_encode.cli import main as cli_main
 
     return cli_main()
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised by attachment tests
+    raise SystemExit(main())

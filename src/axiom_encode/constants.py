@@ -20,3 +20,18 @@ DEFAULT_OPENAI_MODEL = "gpt-5.5"
 # AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
 DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 JUDGE_ESCALATION_MODEL = "claude-sonnet-4-5"
+
+# Canonical RuleSpec filesystem contract. ``programs`` is canonical content,
+# but it contains declarative axiom-compose ProgramSpecs rather than atomic
+# ``rulespec/v1`` modules. Every encoder, validator, signer, manifest, import,
+# proof, waiver, concept, judge, and source-hash surface must use the atomic
+# four-root set; layout/routing checks alone use all five filesystem roots.
+RULESPEC_COMPOSITION_SPEC_ROOT = "programs"
+RULESPEC_ATOMIC_MODULE_ROOTS = frozenset(
+    {"legislation", "policies", "regulations", "statutes"}
+)
+RULESPEC_FILESYSTEM_ROOTS = frozenset(
+    {*RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_COMPOSITION_SPEC_ROOT}
+)
+RULESPEC_FILE_SUFFIX = ".yaml"
+RULESPEC_TEST_FILE_SUFFIX = ".test.yaml"

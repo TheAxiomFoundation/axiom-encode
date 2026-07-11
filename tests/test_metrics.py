@@ -150,7 +150,6 @@ class TestComputeCalibration:
                         ),
                     ],
                     policyengine_match=0.90,
-                    taxsim_match=0.85,
                 ),
             )
             experiment_db.log_run(run)

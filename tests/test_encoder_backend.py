@@ -161,8 +161,12 @@ def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
     assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
     normalized_prompt = " ".join(prompt.split())
     assert "Include `us/statute/26/63` in `module.source_verification`." in prompt
-    assert "primary row is split by a page break" in normalized_prompt
-    assert "supplied adjacent source context" in normalized_prompt
+    assert (
+        "module.source_verification.corpus_citation_path: us/statute/26/63"
+        in normalized_prompt
+    )
+    assert "Never emit `corpus_citation_paths`" in normalized_prompt
+    assert "corpus resolver under this one canonical path" in normalized_prompt
     assert "Target citation/source id: 26 USC 63(c)(5)" in prompt
     assert "Expected output path: statutes/26/63/c/5.yaml" in prompt
 
@@ -225,6 +229,29 @@ class TestClaudeCodeBackend:
             # Should include --print and -p flags
             assert "--print" in cmd
             assert "-p" in cmd
+
+    def test_encode_confines_claude_to_output_directory(self, tmp_path):
+        backend = ClaudeCodeBackend(cwd=tmp_path / "mutable-checkout")
+        output = tmp_path / "isolated-output" / "rule.yaml"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(stdout="rules: []", stderr="", returncode=0)
+            backend.encode(
+                EncoderRequest(
+                    citation="26 USC 1",
+                    source_text="Test",
+                    output_path=output,
+                )
+            )
+
+        cmd = mock_run.call_args[0][0]
+        kwargs = mock_run.call_args.kwargs
+        assert "bypassPermissions" not in cmd
+        assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+        assert cmd[cmd.index("--tools") + 1] == "Read,Write,Edit"
+        assert "--safe-mode" in cmd
+        assert "--no-session-persistence" in cmd
+        assert kwargs["cwd"] == output.parent.resolve()
 
     def test_predict_returns_scores(self):
         """predict() returns score predictions."""
@@ -640,6 +667,9 @@ class TestCodexCLIBackend:
             assert cmd[1:3] == ["exec", "--json"]
             assert "--model" in cmd
             assert "gpt-5.4" in cmd
+            assert "--add-dir" not in cmd
+            assert cmd[cmd.index("-C") + 1] == str(Path("/tmp/output").resolve())
+            assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/output").resolve()
 
     def test_encode_parses_jsonl_usage(self):
         backend = CodexCLIBackend(cwd=Path("/tmp/work"))

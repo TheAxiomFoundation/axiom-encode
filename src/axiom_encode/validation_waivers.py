@@ -30,6 +30,8 @@ from yaml.events import (
     ScalarEvent,
 )
 
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_FILE_SUFFIX
+
 MAX_WAIVER_DAYS = 90
 MAX_WAIVER_FILE_BYTES = 2_000_000
 MAX_WAIVER_ENTRIES = 10_000
@@ -45,7 +47,6 @@ ISSUE_RE = re.compile(
 )
 EXPIRY_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 JURISDICTION_RE = re.compile(r"^[a-z]{2}(?:-[a-z0-9]+)*$")
-CONTENT_ROOTS = frozenset({"statutes", "regulations", "policies", "legislation"})
 ENTRY_KEYS = frozenset({"active", "pending"})
 METADATA_KEYS = frozenset({"fingerprint", "owner", "issue", "expires"})
 WAIVER_SECTION = "validate_failures"
@@ -219,8 +220,8 @@ def _module_path(raw_path: object) -> str:
         or any(part in {"", ".", ".."} for part in pure.parts)
         or len(pure.parts) < 3
         or JURISDICTION_RE.fullmatch(pure.parts[0]) is None
-        or pure.parts[1] not in CONTENT_ROOTS
-        or pure.suffix != ".yaml"
+        or pure.parts[1] not in RULESPEC_ATOMIC_MODULE_ROOTS
+        or pure.suffix != RULESPEC_FILE_SUFFIX
         or pure.name.endswith(".test.yaml")
     ):
         raise WaiverSchemaError(f"unsafe {WAIVER_SECTION} path: {raw_path!r}")

@@ -1,15 +1,5 @@
-"""PolicyEngine oracle support for Axiom validation."""
+"""Encoder-owned PolicyEngine classification and readiness helpers.
 
-from .registry import (
-    PolicyEngineMapping,
-    PolicyEngineOracleCoverage,
-    PolicyEngineOracleRegistry,
-    load_policyengine_registry,
-)
-
-__all__ = [
-    "PolicyEngineMapping",
-    "PolicyEngineOracleCoverage",
-    "PolicyEngineOracleRegistry",
-    "load_policyengine_registry",
-]
+Shared oracle bridges live in :mod:`axiom_oracles.bridges` and must be
+imported from their canonical package.
+"""

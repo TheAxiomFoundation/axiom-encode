@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -15,35 +14,43 @@ from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
     CorpusDescendantStructureError,
     CorpusLayoutError,
-    CorpusRemoteError,
     CorpusResolutionError,
     CorpusSourceNotFoundError,
     CorpusSourceSliceError,
     InvalidActiveCorpusSourceError,
     InvalidCorpusCitationError,
-    InvalidReleaseSelectorError,
-    ReleaseScope,
+    InvalidCorpusReleaseError,
+    LocalCorpusRelease,
     UnsafeCorpusPathError,
-    canonical_release_selector_sha256,
     iter_active_local_corpus_rows,
-    load_release_selector,
+    normalize_corpus_identifier,
+    require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
     resolve_scoped_local_corpus_source,
-    resolve_supabase_corpus_source,
     scope_resolved_corpus_source,
+)
+from tests.release_object_fixtures import (
+    TEST_RELEASE_PUBLIC_KEY,
+    bind_test_corpus_release,
 )
 
 CITATION = "us/statute/7/2014/e"
+TEST_RELEASE = "test-release"
 
 
-def _write_selector(root: Path, scopes: list[dict[str, str]]) -> Path:
-    path = root / "manifests" / "releases" / "current.json"
+def _write_selector(
+    root: Path,
+    scopes: list[dict[str, str]],
+    *,
+    name: str = TEST_RELEASE,
+) -> Path:
+    path = root / "manifests" / "releases" / f"{name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
                 "description": "test active corpus scopes",
-                "name": "current",
+                "name": name,
                 "scopes": scopes,
             },
             indent=2,
@@ -52,6 +59,22 @@ def _write_selector(root: Path, scopes: list[dict[str, str]]) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _release(root: Path, *, name: str = TEST_RELEASE) -> LocalCorpusRelease:
+    selector_path = root / "manifests" / "releases" / f"{name}.json"
+    if not selector_path.exists():
+        return LocalCorpusRelease(root, name, "0" * 64, TEST_RELEASE_PUBLIC_KEY)
+    payload = json.loads(selector_path.read_text(encoding="utf-8"))
+    scopes = [
+        (
+            str(scope["jurisdiction"]),
+            str(scope["document_class"]),
+            str(scope["version"]),
+        )
+        for scope in payload["scopes"]
+    ]
+    return bind_test_corpus_release(root, name, scopes)
 
 
 def _scope(version: str) -> dict[str, str]:
@@ -63,8 +86,31 @@ def _scope(version: str) -> dict[str, str]:
 
 
 def test_existing_checkout_without_provisions_is_structural_error(tmp_path):
-    with pytest.raises(CorpusLayoutError, match="No provisions directory"):
-        resolve_local_corpus_source(CITATION, tmp_path, require_release=False)
+    with pytest.raises(CorpusLayoutError, match="Canonical data/corpus/provisions"):
+        _release(tmp_path)
+
+
+def test_local_resolver_rejects_unbound_root(tmp_path: Path):
+    with pytest.raises(TypeError, match="validated LocalCorpusRelease"):
+        resolve_local_corpus_source(CITATION, tmp_path)  # type: ignore[arg-type]
+
+
+def test_machine_identity_requires_exact_canonical_corpus_path():
+    assert require_canonical_corpus_citation_path(CITATION) == CITATION
+
+    for alias in (
+        " us/statute/7/2014/e ",
+        "us//statute/7/2014/e",
+        "us:statutes/7/2014/e",
+        "7 USC 2014(e)",
+        "us/statutes/7/2014/e",
+    ):
+        with pytest.raises(InvalidCorpusCitationError, match="exact canonical"):
+            require_canonical_corpus_citation_path(alias)
+
+
+def test_human_citation_normalization_remains_available():
+    assert normalize_corpus_identifier("7 USC 2014(e)") == CITATION
 
 
 def _write_rows(
@@ -106,9 +152,20 @@ def _write_rows(
     return path
 
 
+def _minimal_release(root: Path) -> LocalCorpusRelease:
+    version = "test-version"
+    _write_selector(root, [_scope(version)])
+    _write_rows(
+        root,
+        version,
+        [{"citation_path": CITATION, "body": "test body"}],
+    )
+    return _release(root)
+
+
 def test_resolves_one_active_row_with_complete_identity_and_hashes(tmp_path: Path):
     version = "2026-01-02-title-7"
-    selector_path = _write_selector(tmp_path, [_scope(version)])
+    _write_selector(tmp_path, [_scope(version)])
     body = "The standard deduction is $198."
     provision_file = _write_rows(
         tmp_path,
@@ -116,11 +173,11 @@ def test_resolves_one_active_row_with_complete_identity_and_hashes(tmp_path: Pat
         [{"citation_path": CITATION, "body": body}],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path, require_release=True)
+    release = _release(tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, release)
 
     body_sha = hashlib.sha256(body.encode()).hexdigest()
     file_sha = hashlib.sha256(provision_file.read_bytes()).hexdigest()
-    selector = load_release_selector(selector_path)
     assert resolved.requested == CITATION
     assert resolved.citation_path == CITATION
     assert resolved.body == body
@@ -130,8 +187,9 @@ def test_resolves_one_active_row_with_complete_identity_and_hashes(tmp_path: Pat
         f"data/corpus/provisions/us/statute/{version}.jsonl"
     )
     assert resolved.provision_file_sha256 == file_sha
-    assert resolved.release_name == "current"
-    assert resolved.release_selector_sha256 == selector.sha256
+    assert resolved.release_name == TEST_RELEASE
+    assert resolved.release_content_sha256 == release.content_sha256
+    assert resolved.release_selector_sha256 == release.selector_sha256
     assert resolved.row.line_number == 1
     assert resolved.row.record_id == f"row-{version}"
     assert resolved.row.source_as_of == "2026-01-02"
@@ -142,31 +200,8 @@ def test_resolves_one_active_row_with_complete_identity_and_hashes(tmp_path: Pat
     assert attestation["source_sha256"] == body_sha
     assert attestation["resolved_text_sha256"] == body_sha
     assert attestation["row"]["version"] == version
-    assert attestation["corpus_release_selector_sha256"] == selector.sha256
-
-
-def test_selector_digest_is_independent_of_scope_and_json_order(tmp_path: Path):
-    first = ReleaseScope("us", "statute", "v2")
-    second = ReleaseScope("us", "guidance", "v1")
-    expected = canonical_release_selector_sha256("current", (first, second))
-    assert expected == canonical_release_selector_sha256("current", (second, first))
-
-    path = _write_selector(
-        tmp_path,
-        [
-            {
-                "version": "v2",
-                "document_class": "statute",
-                "jurisdiction": "us",
-            },
-            {
-                "version": "v1",
-                "jurisdiction": "us",
-                "document_class": "guidance",
-            },
-        ],
-    )
-    assert load_release_selector(path).sha256 == expected
+    assert attestation["corpus_release_content_sha256"] == release.content_sha256
+    assert attestation["corpus_release_selector_sha256"] == release.selector_sha256
 
 
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
@@ -184,13 +219,13 @@ def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
         [{"citation_path": CITATION, "body": "newer inactive body"}],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert resolved.body == "active body"
     assert resolved.row.version == active
 
 
-def test_release_scope_version_is_row_metadata_not_artifact_filename(tmp_path: Path):
+def test_release_rejects_noncanonical_provisions_artifact_filename(tmp_path: Path):
     version = "2026-04-29"
     _write_selector(tmp_path, [_scope(version)])
     _write_rows(
@@ -200,11 +235,8 @@ def test_release_scope_version_is_row_metadata_not_artifact_filename(tmp_path: P
         filename="2026-05-10-snap-sections.jsonl",
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
-
-    assert resolved.body == "active split artifact"
-    assert resolved.row.version == version
-    assert resolved.provision_file.endswith("2026-05-10-snap-sections.jsonl")
+    with pytest.raises(AssertionError, match="canonical provisions artifact"):
+        _release(tmp_path)
 
 
 def test_inactive_only_citation_is_not_found(tmp_path: Path):
@@ -222,8 +254,8 @@ def test_inactive_only_citation_is_not_found(tmp_path: Path):
         [{"citation_path": CITATION, "body": "inactive body"}],
     )
 
-    with pytest.raises(CorpusSourceNotFoundError, match="exists but is inactive"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+    with pytest.raises(CorpusSourceNotFoundError, match="No active corpus source"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_active_row_iterator_filters_inactive_scopes(tmp_path: Path):
@@ -235,7 +267,7 @@ def test_active_row_iterator_filters_inactive_scopes(tmp_path: Path):
         active,
         [{"citation_path": CITATION, "body": "active body"}],
     )
-    inactive_file = _write_rows(
+    _write_rows(
         tmp_path,
         inactive,
         [
@@ -245,22 +277,16 @@ def test_active_row_iterator_filters_inactive_scopes(tmp_path: Path):
             }
         ],
     )
-    inactive_file.write_text(
-        json.dumps(
-            {
-                "citation_path": "us/statute/7/inactive",
-                "body": "inactive legacy body",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
 
-    rows = list(iter_active_local_corpus_rows(tmp_path, jurisdiction="us"))
+    release = _release(tmp_path)
+    rows = list(iter_active_local_corpus_rows(release, jurisdiction="us"))
 
     assert [(row.row.citation_path, row.body) for row in rows] == [
         (CITATION, "active body")
     ]
+    assert rows[0].release_name == TEST_RELEASE
+    assert rows[0].release_content_sha256 == release.content_sha256
+    assert rows[0].release_selector_sha256 == release.selector_sha256
 
 
 def test_active_row_iterator_rejects_duplicate_active_citations(tmp_path: Path):
@@ -279,32 +305,9 @@ def test_active_row_iterator_rejects_duplicate_active_citations(tmp_path: Path):
     )
 
     with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        iter_active_local_corpus_rows(tmp_path)
+        iter_active_local_corpus_rows(_release(tmp_path))
 
     assert {row.version for row in exc_info.value.rows} == {first, second}
-
-
-def test_direct_provisions_root_discovers_repository_release_selector(tmp_path: Path):
-    version = "2026-01-02-title-7"
-    selector_path = _write_selector(tmp_path, [_scope(version)])
-    _write_rows(
-        tmp_path,
-        version,
-        [{"citation_path": CITATION, "body": "active body"}],
-    )
-    provisions_root = tmp_path / "data" / "corpus" / "provisions"
-
-    rows = list(iter_active_local_corpus_rows(provisions_root))
-    resolved = resolve_local_corpus_source(
-        CITATION,
-        provisions_root,
-        require_release=True,
-    )
-
-    assert [row.row.citation_path for row in rows] == [CITATION]
-    assert (
-        resolved.release_selector_sha256 == load_release_selector(selector_path).sha256
-    )
 
 
 @pytest.mark.parametrize("bodies", [("first", "second"), ("same", "same")])
@@ -326,7 +329,7 @@ def test_rejects_multiple_active_rows_even_when_bodies_match(
     )
 
     with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert len(exc_info.value.rows) == 2
     assert {row.version for row in exc_info.value.rows} == {first, second}
@@ -345,50 +348,9 @@ def test_rejects_duplicate_rows_inside_one_active_file(tmp_path: Path):
     )
 
     with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert [row.line_number for row in exc_info.value.rows] == [1, 2]
-
-
-@pytest.mark.parametrize("wildcard", ["*", "%"])
-def test_rejects_remote_filter_wildcards_in_citation_paths(wildcard: str):
-    with pytest.raises(InvalidCorpusCitationError, match="Unsafe"):
-        resolve_supabase_corpus_source(
-            f"us/statute/7/{wildcard}",
-            supabase_url="https://example.supabase.co",
-            anon_key="test",
-        )
-
-
-@pytest.mark.parametrize(
-    "payload,match",
-    [
-        ({"name": "current"}, "scopes must be a list"),
-        ({"name": "current", "scopes": []}, "at least one active scope"),
-        ({"name": "other", "scopes": []}, "does not match"),
-        (
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "us",
-                        "document_class": "statute",
-                        "version": "v1",
-                        "extra": True,
-                    }
-                ],
-            },
-            "must contain exactly",
-        ),
-    ],
-)
-def test_strictly_rejects_invalid_release_selectors(
-    tmp_path: Path, payload: dict[str, object], match: str
-):
-    path = tmp_path / "current.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(InvalidReleaseSelectorError, match=match):
-        load_release_selector(path)
 
 
 def test_rejects_active_release_row_missing_required_metadata(tmp_path: Path):
@@ -404,7 +366,39 @@ def test_rejects_active_release_row_missing_required_metadata(tmp_path: Path):
     path.write_text(json.dumps(row) + "\n")
 
     with pytest.raises(CorpusResolutionError, match="missing required metadata"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_rejects_legacy_doc_type_alias(tmp_path: Path):
+    version = "2026-01-01-active"
+    _write_selector(tmp_path, [_scope(version)])
+    path = _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "body"}],
+    )
+    row = json.loads(path.read_text())
+    row["doc_type"] = row["document_class"]
+    path.write_text(json.dumps(row) + "\n")
+
+    with pytest.raises(CorpusResolutionError, match="Legacy doc_type"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_rejects_legacy_text_body_alias(tmp_path: Path):
+    version = "2026-01-01-active"
+    _write_selector(tmp_path, [_scope(version)])
+    path = _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "body"}],
+    )
+    row = json.loads(path.read_text())
+    row["text"] = row.pop("body")
+    path.write_text(json.dumps(row) + "\n")
+
+    with pytest.raises(CorpusResolutionError, match="Legacy text body"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_rejects_symlinked_provision_file(tmp_path: Path):
@@ -425,40 +419,15 @@ def test_rejects_symlinked_provision_file(tmp_path: Path):
     target.symlink_to(real)
 
     with pytest.raises(UnsafeCorpusPathError, match="symlink"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
-def test_rejects_release_selector_beneath_intermediate_symlink(tmp_path: Path):
-    repo = tmp_path / "repo"
-    outside = tmp_path / "outside"
-    version = "2026-01-01-active"
+def test_rejects_unsafe_local_release_name_before_selector_lookup(tmp_path: Path):
     _write_rows(
-        repo,
-        version,
+        tmp_path,
+        "would-have-loaded",
         [{"citation_path": CITATION, "body": "body"}],
     )
-    _write_selector(outside, [_scope(version)])
-    (repo / "manifests").symlink_to(outside / "manifests", target_is_directory=True)
-
-    with pytest.raises(UnsafeCorpusPathError, match="symlink"):
-        load_release_selector(repo / "manifests/releases/current.json")
-    with pytest.raises(UnsafeCorpusPathError, match="symlink"):
-        resolve_local_corpus_source(CITATION, repo)
-
-
-@pytest.mark.parametrize(
-    "operation",
-    [
-        lambda root: resolve_local_corpus_source(
-            CITATION, root, release_name="../evil"
-        ),
-        lambda root: tuple(iter_active_local_corpus_rows(root, release_name="../evil")),
-    ],
-)
-def test_rejects_unsafe_local_release_name_before_path_lookup(
-    tmp_path: Path,
-    operation,
-):
     escaped_selector = tmp_path / "manifests/evil.json"
     escaped_selector.parent.mkdir(parents=True)
     escaped_selector.write_text(
@@ -470,8 +439,17 @@ def test_rejects_unsafe_local_release_name_before_path_lookup(
         )
     )
 
-    with pytest.raises(InvalidReleaseSelectorError, match="Unsafe corpus release"):
-        operation(tmp_path)
+    with pytest.raises(InvalidCorpusReleaseError, match="Unsafe corpus release"):
+        _release(tmp_path, name="../evil")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["nz.rulespec", "nz_rulespec", "nz--rulespec", "n" * 129],
+)
+def test_rejects_noncanonical_local_release_name(tmp_path: Path, name: str):
+    with pytest.raises(InvalidCorpusReleaseError, match="Corpus release names"):
+        _release(tmp_path, name=name)
 
 
 def test_rejects_provision_file_over_size_limit(tmp_path: Path, monkeypatch):
@@ -485,17 +463,16 @@ def test_rejects_provision_file_over_size_limit(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(corpus_resolver, "MAX_CORPUS_PROVISION_BYTES", 1)
 
     with pytest.raises(UnsafeCorpusPathError, match="safety limit"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
-def test_rejects_too_many_local_provision_files(tmp_path: Path, monkeypatch):
+def test_unattested_extra_provision_files_are_not_scanned(tmp_path: Path):
     version = "2026-01-01-file-count"
     _write_selector(tmp_path, [_scope(version)])
     _write_rows(
         tmp_path,
         version,
         [{"citation_path": CITATION, "body": "first"}],
-        filename="first.jsonl",
     )
     _write_rows(
         tmp_path,
@@ -503,10 +480,9 @@ def test_rejects_too_many_local_provision_files(tmp_path: Path, monkeypatch):
         [{"citation_path": f"{CITATION}/other", "body": "second"}],
         filename="second.jsonl",
     )
-    monkeypatch.setattr(corpus_resolver, "MAX_LOCAL_CORPUS_FILES", 1)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
-    with pytest.raises(CorpusResolutionError, match="1-file safety limit"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+    assert resolved.body == "first"
 
 
 def test_rejects_local_aggregate_byte_limit(tmp_path: Path, monkeypatch):
@@ -520,7 +496,7 @@ def test_rejects_local_aggregate_byte_limit(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(corpus_resolver, "MAX_LOCAL_CORPUS_AGGREGATE_BYTES", 1)
 
     with pytest.raises(CorpusResolutionError, match="aggregate safety limit"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_rejects_local_aggregate_row_limit(tmp_path: Path, monkeypatch):
@@ -537,49 +513,21 @@ def test_rejects_local_aggregate_row_limit(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(corpus_resolver, "MAX_LOCAL_CORPUS_ROWS", 1)
 
     with pytest.raises(CorpusResolutionError, match="1-row safety limit"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
-def test_rejects_local_release_selector_scope_limit(tmp_path: Path, monkeypatch):
-    selector = _write_selector(tmp_path, [_scope("v1"), _scope("v2")])
-    monkeypatch.setattr(corpus_resolver, "MAX_SUPABASE_RELEASE_SCOPES", 1)
-
-    with pytest.raises(InvalidReleaseSelectorError, match="1-scope safety limit"):
-        load_release_selector(selector)
-
-
-def test_release_is_required_by_default_for_legacy_tree_without_selector(
-    tmp_path: Path,
-):
+def test_named_local_release_requires_release_object(tmp_path: Path):
     _write_rows(
         tmp_path,
         "legacy",
         [{"citation_path": CITATION, "body": "legacy body"}],
     )
 
-    with pytest.raises(InvalidReleaseSelectorError, match="not found"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+    with pytest.raises(InvalidCorpusReleaseError, match="release object not found"):
+        _release(tmp_path)
 
 
-def test_unscoped_legacy_row_infers_scope_from_bucket_and_filename(tmp_path: Path):
-    path = tmp_path / "provisions" / "us" / "statute" / "legacy-version.jsonl"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"citation_path": CITATION, "body": "legacy"}) + "\n")
-
-    resolved = resolve_local_corpus_source(
-        CITATION,
-        tmp_path,
-        require_release=False,
-    )
-
-    assert resolved.body == "legacy"
-    assert resolved.row.jurisdiction == "us"
-    assert resolved.row.document_class == "statute"
-    assert resolved.row.version == "legacy-version"
-    assert resolved.release_selector_sha256 is None
-
-
-def test_resolves_compact_uk_alias_to_legislation_gov_path(tmp_path: Path):
+def test_does_not_invent_compact_uk_alias_for_corpus_path(tmp_path: Path):
     version = "2026-06-03-uk"
     expanded = "uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"
     _write_selector(
@@ -592,7 +540,7 @@ def test_resolves_compact_uk_alias_to_legislation_gov_path(tmp_path: Path):
             }
         ],
     )
-    path = tmp_path / "data/corpus/provisions/uk/statute/official.jsonl"
+    path = tmp_path / f"data/corpus/provisions/uk/statute/{version}.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -611,10 +559,8 @@ def test_resolves_compact_uk_alias_to_legislation_gov_path(tmp_path: Path):
         + "\n"
     )
 
-    resolved = resolve_local_corpus_source("uk/statute/ukpga/2007/3/11D", tmp_path)
-
-    assert resolved.citation_path == expanded
-    assert resolved.body == "Savings income is charged."
+    with pytest.raises(CorpusSourceNotFoundError, match="No active corpus source"):
+        resolve_local_corpus_source("uk/statute/ukpga/2007/3/11D", _release(tmp_path))
 
 
 def test_parent_fallback_slices_child_and_hashes_full_parent(tmp_path: Path):
@@ -627,7 +573,7 @@ def test_parent_fallback_slices_child_and_hashes_full_parent(tmp_path: Path):
         [{"citation_path": "us/statute/7/2014", "body": parent_body}],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
     assert resolved.citation_path == "us/statute/7/2014"
     assert resolved.body == "(e) Target $198."
     assert (
@@ -652,11 +598,14 @@ def test_resolver_owned_generation_scope_updates_exact_input_digest(tmp_path: Pa
             }
         ],
     )
-    resolved = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+    resolved = resolve_local_corpus_source("us/statute/7/2014", _release(tmp_path))
 
     scoped = scope_resolved_corpus_source(resolved, "us:statutes/7/2014/e")
 
     assert scoped.body == "(e) Target $198."
+    assert scoped.requested == "us/statute/7/2014/e"
+    assert scoped.citation_path == "us/statute/7/2014"
+    assert scoped.slice_required is True
     assert (
         scoped.resolved_text_sha256 == hashlib.sha256(scoped.body.encode()).hexdigest()
     )
@@ -670,10 +619,12 @@ def test_scoped_resolver_rejects_raw_rulespec_identifier(tmp_path: Path):
         version,
         [{"citation_path": "us/statute/7/2014", "body": "(e) Target."}],
     )
-    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+    parent = resolve_local_corpus_source("us/statute/7/2014", _release(tmp_path))
 
     with pytest.raises(InvalidCorpusCitationError, match="normalized"):
-        resolve_scoped_local_corpus_source(parent, "us:statutes/7/2014/e", tmp_path)
+        resolve_scoped_local_corpus_source(
+            parent, "us:statutes/7/2014/e", _release(tmp_path)
+        )
 
 
 def test_scoped_resolver_fails_when_exact_child_diverges_from_parent(tmp_path: Path):
@@ -691,10 +642,10 @@ def test_scoped_resolver_fails_when_exact_child_diverges_from_parent(tmp_path: P
             {"id": "child", "citation_path": CITATION, "body": "Exact child."},
         ],
     )
-    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+    parent = resolve_local_corpus_source("us/statute/7/2014", _release(tmp_path))
 
     with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_scoped_local_corpus_source(parent, CITATION, tmp_path)
+        resolve_scoped_local_corpus_source(parent, CITATION, _release(tmp_path))
 
     assert {row.record_id for row in exc_info.value.rows} == {"parent", "child"}
 
@@ -707,11 +658,33 @@ def test_scoped_resolver_uses_parent_slice_only_when_exact_child_absent(tmp_path
         version,
         [{"citation_path": "us/statute/7/2014", "body": "(a) Other.\n(e) Target."}],
     )
-    parent = resolve_local_corpus_source("us/statute/7/2014", tmp_path)
+    parent = resolve_local_corpus_source("us/statute/7/2014", _release(tmp_path))
 
-    scoped = resolve_scoped_local_corpus_source(parent, CITATION, tmp_path)
+    scoped = resolve_scoped_local_corpus_source(parent, CITATION, _release(tmp_path))
 
     assert scoped.body == "(e) Target."
+
+
+def test_scoped_resolver_rejects_mismatched_bound_release(tmp_path: Path):
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    parent_path = "us/statute/7/2014"
+    _write_selector(first_root, [_scope("first-version")])
+    _write_rows(
+        first_root,
+        "first-version",
+        [{"citation_path": parent_path, "body": "(e) First."}],
+    )
+    _write_selector(second_root, [_scope("second-version")])
+    _write_rows(
+        second_root,
+        "second-version",
+        [{"citation_path": parent_path, "body": "(e) Second."}],
+    )
+    parent = resolve_local_corpus_source(parent_path, _release(first_root))
+
+    with pytest.raises(InvalidCorpusReleaseError, match="identities do not match"):
+        resolve_scoped_local_corpus_source(parent, CITATION, _release(second_root))
 
 
 def test_guidance_parent_is_not_a_generation_fallback(tmp_path: Path):
@@ -739,7 +712,9 @@ def test_guidance_parent_is_not_a_generation_fallback(tmp_path: Path):
     )
 
     with pytest.raises(CorpusSourceNotFoundError):
-        resolve_local_corpus_source("us/guidance/irs/example/page-1", tmp_path)
+        resolve_local_corpus_source(
+            "us/guidance/irs/example/page-1", _release(tmp_path)
+        )
 
 
 def test_generic_parent_slice_bounds_cumulative_work_across_depth(
@@ -787,7 +762,7 @@ def test_generic_parent_slice_bounds_cumulative_work_across_depth(
     requested = "/".join((parent, *("1" for _unused in range(depth))))
 
     with pytest.raises(CorpusSourceSliceError, match="character-work safety limit"):
-        resolve_local_corpus_source(requested, tmp_path)
+        resolve_local_corpus_source(requested, _release(tmp_path))
 
 
 def test_parent_slice_ignores_cfr_through_references(tmp_path: Path):
@@ -816,7 +791,7 @@ def test_parent_slice_ignores_cfr_through_references(tmp_path: Path):
         "(5) The methodology must be consistent with subpart K FFP "
         "limitations."
     )
-    path = tmp_path / "data/corpus/provisions/us/regulation/cfr.jsonl"
+    path = tmp_path / f"data/corpus/provisions/us/regulation/{version}.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -836,8 +811,8 @@ def test_parent_slice_ignores_cfr_through_references(tmp_path: Path):
         encoding="utf-8",
     )
 
-    paragraph_one = resolve_local_corpus_source(f"{citation}/d/1", tmp_path)
-    paragraph_five = resolve_local_corpus_source(f"{citation}/d/5", tmp_path)
+    paragraph_one = resolve_local_corpus_source(f"{citation}/d/1", _release(tmp_path))
+    paragraph_five = resolve_local_corpus_source(f"{citation}/d/5", _release(tmp_path))
 
     assert paragraph_one.body.startswith("(1) At State option")
     assert "paragraphs (d)(2) through (5)" in paragraph_one.body
@@ -867,7 +842,7 @@ def test_parent_slice_preserves_inline_cfr_hierarchy(tmp_path: Path):
         "(ii) Second clause.\n\n"
         "(b) Next subsection."
     )
-    path = tmp_path / "data/corpus/provisions/us/regulation/cfr.jsonl"
+    path = tmp_path / f"data/corpus/provisions/us/regulation/{version}.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -887,9 +862,9 @@ def test_parent_slice_preserves_inline_cfr_hierarchy(tmp_path: Path):
         encoding="utf-8",
     )
 
-    subsection = resolve_local_corpus_source(f"{citation}/a", tmp_path)
-    paragraph = resolve_local_corpus_source(f"{citation}/a/1", tmp_path)
-    clause = resolve_local_corpus_source(f"{citation}/a/2/i", tmp_path)
+    subsection = resolve_local_corpus_source(f"{citation}/a", _release(tmp_path))
+    paragraph = resolve_local_corpus_source(f"{citation}/a/1", _release(tmp_path))
+    clause = resolve_local_corpus_source(f"{citation}/a/2/i", _release(tmp_path))
 
     assert subsection.body.startswith("(a)(1) First paragraph.")
     assert "(b) Next subsection." not in subsection.body
@@ -960,7 +935,7 @@ def test_parent_slice_rejects_inline_unlabelled_reference(
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_parent_fallback_fails_closed_when_child_marker_is_missing(tmp_path: Path):
@@ -973,7 +948,7 @@ def test_parent_fallback_fails_closed_when_child_marker_is_missing(tmp_path: Pat
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1028,7 +1003,7 @@ def test_canonical_hierarchy_slices_from_intermediate_parent_rows(
         document_class=document_class,
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{child}", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/{child}", _release(tmp_path))
 
     assert resolved.body == expected
 
@@ -1054,7 +1029,7 @@ def test_us_statute_hierarchy_accepts_inline_heading_child_markers(tmp_path: Pat
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/e/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/e/1", _release(tmp_path))
 
     assert resolved.body.startswith("(1) Standard deduction")
     assert "(C) Requirement Text." in resolved.body
@@ -1082,7 +1057,7 @@ def test_us_statute_hierarchy_accepts_punctuation_child_with_vetted_heading(
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert resolved.body == "(1) Total amount.— First paragraph."
 
@@ -1103,11 +1078,11 @@ def test_us_statute_hierarchy_rejects_punctuation_advancing_reference(
         [{"citation_path": parent, "body": body}],
     )
 
-    paragraph_one = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    paragraph_one = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert "(2) of section 5 applies." in paragraph_one.body
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1150,11 +1125,11 @@ def test_us_statute_hierarchy_rejects_heading_prefix_sentence_reference(
     body = f"(a)\n\n(1) Target paragraph. Compare prior. (2) {reference}.\n\n(b) End."
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    paragraph_one = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    paragraph_one = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert f"(2) {reference}." in paragraph_one.body
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_rejects_bare_allowlisted_phrase_at_end(
@@ -1167,7 +1142,7 @@ def test_us_statute_hierarchy_rejects_bare_allowlisted_phrase_at_end(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1233,7 +1208,7 @@ def test_us_statute_hierarchy_rejects_weak_heading_after_reference_context(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_rejects_truncated_heading_evidence_window(
@@ -1250,7 +1225,7 @@ def test_us_statute_hierarchy_rejects_truncated_heading_evidence_window(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1275,7 +1250,7 @@ def test_us_hierarchy_vetoes_reference_context_before_strong_line_marker(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1299,7 +1274,7 @@ def test_us_hierarchy_requires_corroboration_for_replayable_content_marker(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1329,7 +1304,7 @@ def test_us_hierarchy_rejects_quoted_or_bracketed_marker_replay(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1397,7 +1372,7 @@ def test_us_hierarchy_replays_full_delimiter_state_for_distant_or_nested_openers
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_hierarchy_accepts_repeated_opening_quote_for_multiline_quotation(
@@ -1413,7 +1388,7 @@ def test_us_hierarchy_accepts_repeated_opening_quote_for_multiline_quotation(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    resolved = resolve_local_corpus_source(f"{parent}/b/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/b/1", _release(tmp_path))
 
     assert resolved.body == "(1) Target child."
 
@@ -1428,7 +1403,7 @@ def test_us_hierarchy_accepts_balanced_mixed_nested_delimiters(tmp_path: Path):
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    resolved = resolve_local_corpus_source(f"{parent}/b/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/b/1", _release(tmp_path))
 
     assert resolved.body == "(1) Target child."
 
@@ -1464,7 +1439,7 @@ def test_us_hierarchy_accepts_ordinary_balanced_quoted_terms(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    resolved = resolve_local_corpus_source(f"{parent}/b/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/b/1", _release(tmp_path))
 
     assert resolved.body == "(1) Target child."
 
@@ -1484,7 +1459,7 @@ def test_us_hierarchy_ignores_escaped_directional_quote_in_future_balance(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_hierarchy_bounds_delimiter_nesting(tmp_path: Path, monkeypatch):
@@ -1496,7 +1471,7 @@ def test_us_hierarchy_bounds_delimiter_nesting(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(corpus_resolver, "_MAX_DELIMITER_NESTING_DEPTH", 1)
 
     with pytest.raises(CorpusSourceSliceError, match="delimiter nesting"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_measurement_evidence_replay_uses_a_bounded_suffix(monkeypatch):
@@ -1569,7 +1544,7 @@ def test_us_hierarchy_preserves_context_before_first_requested_marker(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a", _release(tmp_path))
 
 
 @pytest.mark.parametrize("separator", [" ", "\n"])
@@ -1588,7 +1563,7 @@ def test_us_hierarchy_rejects_quoted_sibling_corroboration(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_hierarchy_accepts_candidate_marker_referenced_by_preceding_scope(
@@ -1605,7 +1580,7 @@ def test_us_hierarchy_accepts_candidate_marker_referenced_by_preceding_scope(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    resolved = resolve_local_corpus_source(f"{parent}/a/1/B", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/a/1/B", _release(tmp_path))
 
     assert resolved.body == expected
 
@@ -1626,7 +1601,7 @@ def test_us_hierarchy_fails_closed_when_reference_context_bound_is_exceeded(
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/2", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/2", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_rejects_weak_reference_with_real_later_sibling(
@@ -1641,11 +1616,11 @@ def test_us_statute_hierarchy_rejects_weak_reference_with_real_later_sibling(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    actual_a = resolve_local_corpus_source(f"{parent}/a/1/A", tmp_path)
+    actual_a = resolve_local_corpus_source(f"{parent}/a/1/A", _release(tmp_path))
 
     assert "(B) of section 5 applies." in actual_a.body
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/1/B", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1/B", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1682,7 +1657,7 @@ def test_us_statute_hierarchy_rejects_provisional_cross_level_reference(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_does_not_cross_rejected_parent_boundary(
@@ -1699,7 +1674,7 @@ def test_us_statute_hierarchy_does_not_cross_rejected_parent_boundary(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/1/A", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1/A", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_rejects_advancing_marker_below_provisional_scope(
@@ -1716,7 +1691,7 @@ def test_us_statute_hierarchy_rejects_advancing_marker_below_provisional_scope(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="provisional scope"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_rejects_advancing_below_provisional_ancestor(
@@ -1733,7 +1708,7 @@ def test_us_statute_hierarchy_rejects_advancing_below_provisional_ancestor(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="provisional scope"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_us_statute_hierarchy_retains_rejected_preceding_heading_scope(
@@ -1749,12 +1724,12 @@ def test_us_statute_hierarchy_retains_rejected_preceding_heading_scope(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    paragraph = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    paragraph = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert "(i) Actual nested clause." in paragraph.body
     assert "(2) Actual second paragraph." not in paragraph.body
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/1/A", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1/A", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1806,7 +1781,7 @@ def test_us_hierarchy_accepts_intermediate_parent_body_retaining_marker(
         document_class=document_class,
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
     assert resolved.body.startswith("(1) First") or resolved.body.startswith(
         "(1) Standard deduction (A) First"
@@ -1885,7 +1860,7 @@ def test_us_hierarchy_handles_cycles_in_intermediate_parent_representation(
         document_class=document_class,
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{child}", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/{child}", _release(tmp_path))
 
     assert resolved.body == f"({child}) Deep child."
 
@@ -1920,7 +1895,7 @@ def test_us_hierarchy_does_not_promote_repeated_deep_marker_to_parent_child(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="unassigned legal marker"):
-        resolve_local_corpus_source(f"{parent}/{child}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{child}", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -1971,7 +1946,7 @@ def test_us_hierarchy_reestablishes_unambiguous_top_level_boundary(
         document_class=document_class,
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{requested}", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/{requested}", _release(tmp_path))
 
     assert resolved.body == expected
 
@@ -2004,7 +1979,7 @@ def test_us_hierarchy_detects_retained_parent_marker_after_heading_preamble(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError):
-        resolve_local_corpus_source(f"{parent}/{child}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{child}", _release(tmp_path))
 
 
 @pytest.mark.parametrize("separator", ["", " ", "\n", "\n\n"])
@@ -2022,7 +1997,7 @@ def test_us_hierarchy_rejects_ambiguous_middle_retained_ancestor_chain(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="middle retained-ancestor"):
-        resolve_local_corpus_source(f"{parent}/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/1", _release(tmp_path))
 
 
 def test_us_hierarchy_rejects_middle_retained_chain_with_inline_headings(
@@ -2038,7 +2013,7 @@ def test_us_hierarchy_rejects_middle_retained_chain_with_inline_headings(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="middle retained-ancestor"):
-        resolve_local_corpus_source(f"{parent}/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/1", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -2064,7 +2039,7 @@ def test_us_hierarchy_rejects_middle_retained_chain_after_preamble(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="middle retained-ancestor"):
-        resolve_local_corpus_source(f"{parent}/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/1", _release(tmp_path))
 
 
 def test_us_hierarchy_fails_closed_when_retained_preamble_scan_exhausts(
@@ -2079,7 +2054,7 @@ def test_us_hierarchy_fails_closed_when_retained_preamble_scan_exhausts(
     monkeypatch.setattr(corpus_resolver, "_MAX_US_LEGAL_HIERARCHY_MARKERS", 1)
 
     with pytest.raises(CorpusSourceSliceError, match="bounded marker limit"):
-        resolve_local_corpus_source(f"{parent}/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/1", _release(tmp_path))
 
 
 @pytest.mark.parametrize("token", ["01", "001", "iiii", "iviv", "iix"])
@@ -2102,7 +2077,7 @@ def test_us_hierarchy_rejects_noncanonical_marker_aliases(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="not legal hierarchy markers"):
-        resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -2173,7 +2148,9 @@ def test_us_statute_hierarchy_accepts_live_benchmark_headings(
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{subsection}/1", tmp_path)
+    resolved = resolve_local_corpus_source(
+        f"{parent}/{subsection}/1", _release(tmp_path)
+    )
 
     assert resolved.body == "(1) First paragraph."
 
@@ -2256,7 +2233,9 @@ def test_us_statute_hierarchy_preserves_live_benchmark_slice_hashes(
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/{subsection}/1", tmp_path)
+    resolved = resolve_local_corpus_source(
+        f"{parent}/{subsection}/1", _release(tmp_path)
+    )
 
     assert resolved.body == target_body
     assert resolved.resolved_text_sha256 == expected_sha256
@@ -2284,7 +2263,7 @@ def test_us_statute_top_level_slice_ignores_nested_roman_alpha_ambiguity(
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/e", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/e", _release(tmp_path))
 
     assert resolved.body == expected
 
@@ -2342,7 +2321,7 @@ def test_inline_heading_sibling_evidence_stays_within_parent_scope(
         CorpusSourceSliceError,
         match="Could not isolate|Malformed legal marker sequence",
     ):
-        resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
 
 def test_inline_heading_accepts_skipped_structural_sibling(tmp_path: Path):
@@ -2363,7 +2342,7 @@ def test_inline_heading_accepts_skipped_structural_sibling(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert resolved.body == "(1) First paragraph."
 
@@ -2394,7 +2373,7 @@ def test_inline_heading_rejects_malformed_sibling_sequences(
     target = "3" if "(3)" in body else "1"
 
     with pytest.raises(CorpusSourceSliceError):
-        resolve_local_corpus_source(f"{parent}/a/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/{target}", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -2444,7 +2423,7 @@ def test_inline_heading_rejects_repeated_hierarchy_kind_ambiguity(
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
 
 def test_inline_heading_evidence_has_bounded_recursion_and_work(tmp_path: Path):
@@ -2460,7 +2439,7 @@ def test_inline_heading_evidence_has_bounded_recursion_and_work(tmp_path: Path):
     )
 
     with pytest.raises(CorpusSourceSliceError):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_inline_heading_evidence_bounds_branching_work(tmp_path: Path):
@@ -2488,7 +2467,7 @@ def test_inline_heading_evidence_bounds_branching_work(tmp_path: Path):
         [{"citation_path": parent, "body": body}],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
     assert resolved.body.startswith("(1) Standard deduction (A)")
     assert "(b) End." not in resolved.body
@@ -2507,7 +2486,7 @@ def test_us_legal_hierarchy_bounds_provisional_scope_depth(tmp_path: Path):
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="bounded depth limit"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_us_legal_hierarchy_rejects_unbounded_marker_count(tmp_path: Path):
@@ -2522,7 +2501,7 @@ def test_us_legal_hierarchy_rejects_unbounded_marker_count(tmp_path: Path):
     )
 
     with pytest.raises(CorpusSourceSliceError, match="bounded marker limit"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -2551,14 +2530,15 @@ def test_us_legal_hierarchy_rejects_duplicate_or_backward_direct_markers(
     )
 
     with pytest.raises(CorpusSourceSliceError, match="duplicate or backward"):
-        resolve_local_corpus_source(f"{parent}/{target}", tmp_path)
+        resolve_local_corpus_source(f"{parent}/{target}", _release(tmp_path))
 
 
 def test_rejects_oversized_citation_segment_before_numeric_parsing(tmp_path: Path):
     oversized = "1" * 513
+    release = _minimal_release(tmp_path)
 
     with pytest.raises(InvalidCorpusCitationError, match="Unsafe citation path"):
-        resolve_local_corpus_source(f"us/statute/7/{oversized}", tmp_path)
+        resolve_local_corpus_source(f"us/statute/7/{oversized}", release)
 
 
 @pytest.mark.parametrize(
@@ -2579,8 +2559,10 @@ def test_rejects_unbounded_citation_shape_before_parent_expansion(
     citation: str,
     message: str,
 ):
+    release = _minimal_release(tmp_path)
+
     with pytest.raises(InvalidCorpusCitationError, match=message):
-        resolve_local_corpus_source(citation, tmp_path)
+        resolve_local_corpus_source(citation, release)
 
 
 def test_oversized_body_marker_fails_with_controlled_resolution_error(tmp_path: Path):
@@ -2594,7 +2576,7 @@ def test_oversized_body_marker_fails_with_controlled_resolution_error(tmp_path: 
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/a/1", tmp_path)
+        resolve_local_corpus_source(f"{parent}/a/1", _release(tmp_path))
 
 
 def test_single_us_subsection_stops_at_skipped_sibling_and_keeps_nested_roman(
@@ -2620,7 +2602,7 @@ def test_single_us_subsection_stops_at_skipped_sibling_and_keeps_nested_roman(
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/e", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/e", _release(tmp_path))
 
     assert resolved.body.startswith("(e) Target subsection.")
     assert "(i) Nested Roman clause." in resolved.body
@@ -2642,8 +2624,8 @@ def test_single_us_subsection_preserves_bracketed_repealed_marker(tmp_path: Path
         [{"citation_path": parent, "body": body}],
     )
 
-    preceding = resolve_local_corpus_source(f"{parent}/k", tmp_path)
-    repealed = resolve_local_corpus_source(f"{parent}/l", tmp_path)
+    preceding = resolve_local_corpus_source(f"{parent}/k", _release(tmp_path))
+    repealed = resolve_local_corpus_source(f"{parent}/l", _release(tmp_path))
 
     assert preceding.body == "(k) Agricultural labor."
     assert repealed.body == "[(l) Repealed. Sept. 1, 1954.]"
@@ -2674,8 +2656,8 @@ def test_us_statute_hierarchy_uses_target_to_disambiguate_nested_roman_i(
         ],
     )
 
-    ancestor = resolve_local_corpus_source(f"{parent}/h", tmp_path)
-    resolved = resolve_local_corpus_source(f"{parent}/h/1/A/i", tmp_path)
+    ancestor = resolve_local_corpus_source(f"{parent}/h", _release(tmp_path))
+    resolved = resolve_local_corpus_source(f"{parent}/h/1/A/i", _release(tmp_path))
 
     assert "(i) Deduction First clause." in ancestor.body
     assert "(ii) Minimum amount Second clause." in ancestor.body
@@ -2705,7 +2687,7 @@ def test_us_statute_hierarchy_does_not_cross_into_true_subsection_i(
     )
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/h/1/A/i", tmp_path)
+        resolve_local_corpus_source(f"{parent}/h/1/A/i", _release(tmp_path))
 
 
 def test_us_statute_top_level_roman_alpha_does_not_resolve_nested_clause(
@@ -2722,7 +2704,7 @@ def test_us_statute_top_level_roman_alpha_does_not_resolve_nested_clause(
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
     with pytest.raises(CorpusSourceSliceError, match="Could not isolate"):
-        resolve_local_corpus_source(f"{parent}/i", tmp_path)
+        resolve_local_corpus_source(f"{parent}/i", _release(tmp_path))
 
 
 def test_us_statute_top_level_roman_alpha_resolves_actual_subsection(
@@ -2739,7 +2721,7 @@ def test_us_statute_top_level_roman_alpha_resolves_actual_subsection(
     )
     _write_rows(tmp_path, version, [{"citation_path": parent, "body": body}])
 
-    resolved = resolve_local_corpus_source(f"{parent}/i", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/i", _release(tmp_path))
 
     assert resolved.body == expected
 
@@ -2761,7 +2743,7 @@ def test_us_cfr_hierarchy_uses_target_to_disambiguate_nested_roman_i(
         ],
     )
     parent = "us/regulation/7/999/1"
-    path = tmp_path / "data/corpus/provisions/us/regulation/v1.jsonl"
+    path = tmp_path / f"data/corpus/provisions/us/regulation/{version}.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -2787,8 +2769,8 @@ def test_us_cfr_hierarchy_uses_target_to_disambiguate_nested_roman_i(
         encoding="utf-8",
     )
 
-    ancestor = resolve_local_corpus_source(f"{parent}/h", tmp_path)
-    resolved = resolve_local_corpus_source(f"{parent}/h/1/i", tmp_path)
+    ancestor = resolve_local_corpus_source(f"{parent}/h", _release(tmp_path))
+    resolved = resolve_local_corpus_source(f"{parent}/h/1/i", _release(tmp_path))
 
     assert "(i) Deduction First clause." in ancestor.body
     assert "(ii) Minimum amount Second clause." in ancestor.body
@@ -2800,7 +2782,7 @@ def test_us_cfr_hierarchy_ignores_reused_nested_numeric_markers(tmp_path: Path):
     version = "2026-01-01-cfr-hierarchy"
     _write_selector(tmp_path, [_scope(version)])
     parent = "us/regulation/7/273/2"
-    path = tmp_path / "data/corpus/provisions/us/regulation/v1.jsonl"
+    path = tmp_path / f"data/corpus/provisions/us/regulation/{version}.jsonl"
     path.parent.mkdir(parents=True)
     row = {
         "id": "cfr-row",
@@ -2835,7 +2817,7 @@ def test_us_cfr_hierarchy_ignores_reused_nested_numeric_markers(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{parent}/f/1", tmp_path)
+    resolved = resolve_local_corpus_source(f"{parent}/f/1", _release(tmp_path))
 
     assert resolved.body.startswith("(1) Mandatory verification")
     assert "(2) Second nested condition." in resolved.body
@@ -2865,7 +2847,7 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert resolved.body == "First heading\n\nfirst\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -2898,7 +2880,7 @@ def test_metadata_parent_composes_descendants_in_hierarchy_preorder(tmp_path: Pa
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert resolved.body == "nested A\n\nnested B\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -2932,7 +2914,7 @@ def test_metadata_parent_uses_shallowest_body_bearing_descendant_cover(
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert resolved.body == "first with nested text\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -2955,7 +2937,7 @@ def test_metadata_parent_rejects_uncovered_bodyless_branch(tmp_path: Path):
     )
 
     with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_active_bodyless_row_without_descendants_is_invalid(tmp_path: Path):
@@ -2963,7 +2945,7 @@ def test_active_bodyless_row_without_descendants_is_invalid(tmp_path: Path):
     _write_selector(tmp_path, [_scope(version)])
     _write_rows(tmp_path, version, [{"citation_path": CITATION, "body": None}])
     with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_active_bodyless_row_with_only_bodyless_descendants_is_invalid(
@@ -2980,7 +2962,7 @@ def test_active_bodyless_row_with_only_bodyless_descendants_is_invalid(
         ],
     )
     with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
@@ -3002,7 +2984,7 @@ def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
     )
 
     with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(
@@ -3025,7 +3007,7 @@ def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(
     )
 
     with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_rejects_cross_version_descendant_composition(
@@ -3049,26 +3031,7 @@ def test_metadata_parent_rejects_cross_version_descendant_composition(
     )
 
     with pytest.raises(CorpusResolutionError, match="cross active release scopes"):
-        resolve_local_corpus_source(CITATION, tmp_path)
-
-
-def test_legacy_metadata_parent_composes_with_inferred_file_scope(tmp_path: Path):
-    path = tmp_path / "provisions/us/statute/legacy.jsonl"
-    path.parent.mkdir(parents=True)
-    rows = [
-        {"citation_path": CITATION, "body": None},
-        {"citation_path": f"{CITATION}/1", "body": "legacy child"},
-    ]
-    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
-
-    resolved = resolve_local_corpus_source(
-        CITATION,
-        tmp_path,
-        require_release=False,
-    )
-
-    assert resolved.body == "legacy child"
-    assert resolved.row.version == "legacy"
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_enforces_local_descendant_row_bound(
@@ -3086,10 +3049,10 @@ def test_metadata_parent_enforces_local_descendant_row_bound(
             {"citation_path": f"{CITATION}/2", "body": "two"},
         ],
     )
-    monkeypatch.setattr(corpus_resolver, "MAX_SUPABASE_DESCENDANT_ROWS", 1)
+    monkeypatch.setattr(corpus_resolver, "MAX_CORPUS_DESCENDANT_ROWS", 1)
 
     with pytest.raises(CorpusDescendantStructureError, match="1-row safety limit"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_enforces_composed_byte_bound(tmp_path: Path, monkeypatch):
@@ -3106,7 +3069,7 @@ def test_metadata_parent_enforces_composed_byte_bound(tmp_path: Path, monkeypatc
     monkeypatch.setattr(corpus_resolver, "MAX_COMPOSED_CORPUS_BYTES", 3)
 
     with pytest.raises(CorpusResolutionError, match="Composed corpus source"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -3136,7 +3099,7 @@ def test_metadata_parent_bounds_composition_prefix_trie(
     monkeypatch.setattr(corpus_resolver, limit_name, limit_value)
 
     with pytest.raises(CorpusDescendantStructureError, match=match):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -3220,7 +3183,7 @@ def test_metadata_parent_orders_sibling_subtrees_with_partial_metadata(
         [{"citation_path": CITATION, "body": None}, *children],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert [row.citation_path for row in resolved.component_rows] == expected_paths
 
@@ -3242,7 +3205,7 @@ def test_metadata_parent_rejects_negative_ordering_metadata(tmp_path: Path):
     )
 
     with pytest.raises(CorpusResolutionError, match="non-negative integer"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_orders_virtual_canonical_roman_siblings(tmp_path: Path):
@@ -3259,7 +3222,7 @@ def test_metadata_parent_orders_virtual_canonical_roman_siblings(tmp_path: Path)
         ],
     )
 
-    resolved = resolve_local_corpus_source(parent, tmp_path)
+    resolved = resolve_local_corpus_source(parent, _release(tmp_path))
 
     assert resolved.body == "fifth\n\nninth"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -3283,7 +3246,7 @@ def test_metadata_parent_rejects_duplicate_bodyless_descendant(tmp_path: Path):
     )
 
     with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert exc_info.value.citation_path == child
     assert len(exc_info.value.rows) == 2
@@ -3305,7 +3268,7 @@ def test_metadata_parent_validates_descendant_citation_before_body_filter(
     )
 
     with pytest.raises(CorpusDescendantStructureError, match="Invalid descendant"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_types_malformed_descendant_ordering(tmp_path: Path):
@@ -3321,7 +3284,7 @@ def test_metadata_parent_types_malformed_descendant_ordering(tmp_path: Path):
     )
 
     with pytest.raises(CorpusDescendantStructureError, match="ordering metadata"):
-        resolve_local_corpus_source(CITATION, tmp_path)
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
 def test_metadata_parent_ignores_malformed_inactive_descendant(tmp_path: Path):
@@ -3348,7 +3311,7 @@ def test_metadata_parent_ignores_malformed_inactive_descendant(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
 
     assert resolved.body == "active child"
     assert [row.citation_path for row in resolved.component_rows] == [f"{CITATION}/1"]
@@ -3364,7 +3327,7 @@ def test_local_artifact_is_read_once_for_hash_and_resolution(
         version,
         [{"citation_path": CITATION, "body": "body"}],
     ).resolve()
-    original = corpus_resolver._read_bounded_regular_file
+    original = corpus_resolver.read_bounded_regular_file
     reads: list[Path] = []
 
     def tracked_read(root, candidate, *, label, max_bytes):
@@ -3372,12 +3335,12 @@ def test_local_artifact_is_read_once_for_hash_and_resolution(
             reads.append(Path(candidate))
         return original(root, candidate, label=label, max_bytes=max_bytes)
 
-    monkeypatch.setattr(corpus_resolver, "_read_bounded_regular_file", tracked_read)
+    monkeypatch.setattr(corpus_resolver, "read_bounded_regular_file", tracked_read)
 
-    resolve_local_corpus_source(CITATION, tmp_path)
+    resolve_local_corpus_source(CITATION, _release(tmp_path))
     assert len(reads) == 1
     reads.clear()
-    list(iter_active_local_corpus_rows(tmp_path))
+    list(iter_active_local_corpus_rows(_release(tmp_path)))
     assert len(reads) == 1
 
 
@@ -3412,7 +3375,7 @@ def test_local_artifact_swap_to_outside_symlink_fails_closed(
     monkeypatch.setattr(corpus_resolver, "_safe_file", swap_after_check)
 
     with pytest.raises(UnsafeCorpusPathError, match="safely open"):
-        resolve_local_corpus_source(CITATION, corpus_root)
+        resolve_local_corpus_source(CITATION, _release(corpus_root))
 
 
 def test_local_artifact_swap_to_fifo_fails_closed_without_blocking(
@@ -3441,24 +3404,33 @@ def test_local_artifact_swap_to_fifo_fails_closed_without_blocking(
     monkeypatch.setattr(corpus_resolver, "_safe_file", swap_after_check)
 
     with pytest.raises(UnsafeCorpusPathError, match="not a regular file"):
-        resolve_local_corpus_source(CITATION, corpus_root)
+        resolve_local_corpus_source(CITATION, _release(corpus_root))
 
 
-def test_release_selector_swap_to_outside_symlink_fails_closed(
+def test_release_object_swap_to_outside_symlink_fails_closed(
     tmp_path: Path, monkeypatch
 ):
     corpus_root = tmp_path / "corpus"
     version = "2026-01-01-active"
-    selector_path = _write_selector(corpus_root, [_scope(version)])
-    outside = tmp_path / "outside-selector.json"
-    outside.write_text(selector_path.read_text(encoding="utf-8"), encoding="utf-8")
+    _write_selector(corpus_root, [_scope(version)])
+    _write_rows(
+        corpus_root,
+        version,
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    release = _release(corpus_root)
+    outside = tmp_path / "outside-release-object.json"
+    outside.write_text(
+        release.release_object_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     original = corpus_resolver._safe_file
     swapped = False
 
     def swap_after_check(root, candidate, *, label, max_bytes):
         nonlocal swapped
         resolved = original(root, candidate, label=label, max_bytes=max_bytes)
-        if label == "corpus release selector" and resolved is not None and not swapped:
+        if label == "corpus release object" and resolved is not None and not swapped:
             swapped = True
             resolved.unlink()
             resolved.symlink_to(outside)
@@ -3467,625 +3439,9 @@ def test_release_selector_swap_to_outside_symlink_fails_closed(
     monkeypatch.setattr(corpus_resolver, "_safe_file", swap_after_check)
 
     with pytest.raises(UnsafeCorpusPathError, match="safely open"):
-        load_release_selector(selector_path, repository_root=corpus_root)
-
-
-def test_equivalent_alias_parents_are_checked_as_one_ambiguity_group(
-    tmp_path: Path,
-):
-    version = "2026-06-03-uk"
-    _write_selector(
-        tmp_path,
-        [
-            {
-                "jurisdiction": "uk",
-                "document_class": "statute",
-                "version": version,
-            }
-        ],
-    )
-    compact_parent = "uk/statute/ukpga/2007/3/11D"
-    expanded_parent = "uk/statute/legislation.gov.uk/ukpga/2007/3/section/11D"
-    path = tmp_path / "data/corpus/provisions/uk/statute/official.jsonl"
-    path.parent.mkdir(parents=True)
-    rows = []
-    for record_id, citation_path in (
-        ("compact", compact_parent),
-        ("expanded", expanded_parent),
-    ):
-        rows.append(
-            {
-                "id": record_id,
-                "jurisdiction": "uk",
-                "document_class": "statute",
-                "version": version,
-                "citation_path": citation_path,
-                "body": "(1) Parent text.",
-                "source_path": "sources/uk/statute/source.xml",
-                "source_as_of": "2026-06-03",
-                "expression_date": "2026-04-06",
-            }
-        )
-    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
-
-    with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_local_corpus_source(f"{compact_parent}/1", tmp_path)
-
-    assert {row.record_id for row in exc_info.value.rows} == {
-        "compact",
-        "expanded",
-    }
-
-
-class _FakeResponse:
-    def __init__(self, payload: object):
-        self.payload = json.dumps(payload).encode()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    def read(self, limit: int = -1) -> bytes:
-        return self.payload if limit < 0 else self.payload[:limit]
-
-
-def _supabase_opener(provision_rows: list[dict[str, object]], calls: list[str]):
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query.get("offset", ["0"])[0])
-        limit = int(query.get("limit", [str(len(provision_rows) or 1)])[0])
-        if "current_release_scopes" in request.full_url:
-            scopes = [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "remote-v1",
-                }
-            ]
-            return _FakeResponse(scopes[offset : offset + limit])
-        return _FakeResponse(provision_rows[offset : offset + limit])
-
-    return open_request
-
-
-def _remote_row(
-    body: str | None,
-    *,
-    record_id: str = "remote-row",
-    citation_path: str = CITATION,
-    heading: str | None = None,
-    ordinal: int = 1,
-) -> dict[str, object]:
-    return {
-        "id": record_id,
-        "citation_path": citation_path,
-        "body": body,
-        "jurisdiction": "us",
-        "doc_type": "statute",
-        "version": "remote-v1",
-        "source_path": "sources/us/statute/remote/source.xml",
-        "source_as_of": "2026-01-02",
-        "expression_date": "2026-01-01",
-        "heading": heading,
-        "level": 1,
-        "ordinal": ordinal,
-    }
-
-
-def test_supabase_resolution_binds_selector_and_fetches_two_rows_maximum():
-    calls: list[str] = []
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=_supabase_opener([_remote_row("remote body")], calls),
-    )
-
-    expected_selector = canonical_release_selector_sha256(
-        "current", (ReleaseScope("us", "statute", "remote-v1"),)
-    )
-    assert resolved.source == "supabase"
-    assert resolved.body == "remote body"
-    assert resolved.release_selector_sha256 == expected_selector
-    assert resolved.provision_file == "supabase:current_provisions"
-    assert resolved.row.provision_file == "supabase:current_provisions"
-    assert resolved.provision_file_sha256 is None
-    provision_url = next(url for url in calls if "current_provisions" in url)
-    assert "limit=2" in provision_url
-    assert "id%2Ccitation_path%2Cbody" in provision_url
-
-
-def test_supabase_rejects_unsafe_release_name_before_network_request():
-    def unexpected_request(*_args, **_kwargs):
-        raise AssertionError("unsafe release name reached the network")
-
-    with pytest.raises(InvalidReleaseSelectorError, match="Unsafe corpus release"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            release_name="../evil",
-            urlopen=unexpected_request,
-        )
-
-
-def test_supabase_resolution_rejects_two_active_rows_even_if_identical():
-    rows = [_remote_row("same", record_id="one"), _remote_row("same", record_id="two")]
-    with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=_supabase_opener(rows, []),
-        )
-
-    assert [row.record_id for row in exc_info.value.rows] == ["one", "two"]
-
-
-def test_supabase_exact_lookup_detects_duplicate_below_server_row_cap():
-    calls: list[str] = []
-    provision_rows = [
-        _remote_row("first", record_id="one"),
-        _remote_row("second", record_id="two"),
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        if "current_release_scopes" in request.full_url:
-            scopes = [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "remote-v1",
-                }
-            ]
-            return _FakeResponse(scopes[offset : offset + 1])
-        return _FakeResponse(provision_rows[offset : offset + 1])
-
-    with pytest.raises(AmbiguousCorpusSourceError):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=open_request,
-        )
-
-    exact_urls = [url for url in calls if "current_provisions" in url]
-    assert len(exact_urls) == 2
-    assert "order=id.asc" in exact_urls[0]
-    assert "offset=0" in exact_urls[0]
-    assert "offset=1" in exact_urls[1]
-
-
-def test_supabase_release_selector_paginates_past_server_row_cap():
-    calls: list[str] = []
-    scope_rows = [
-        {
-            "release_name": "current",
-            "jurisdiction": "us",
-            "document_class": "statute",
-            "version": "remote-v1" if index == 0 else f"remote-v{index + 1}",
-        }
-        for index in range(1001)
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        requested_limit = int(query["limit"][0])
-        if "current_release_scopes" not in request.full_url:
-            provisions = [_remote_row("remote body")]
-            return _FakeResponse(provisions[offset : offset + requested_limit])
-        server_limit = min(requested_limit, 1000)
-        return _FakeResponse(scope_rows[offset : offset + server_limit])
-
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=open_request,
-    )
-
-    assert resolved.body == "remote body"
-    selector_urls = [url for url in calls if "current_release_scopes" in url]
-    assert len(selector_urls) == 3
-    assert "offset=0" in selector_urls[0]
-    assert "offset=1000" in selector_urls[1]
-
-
-def test_supabase_release_selector_handles_server_cap_below_requested_limit():
-    calls: list[str] = []
-    scope_rows = [
-        {
-            "release_name": "current",
-            "jurisdiction": "us",
-            "document_class": "statute",
-            "version": version,
-        }
-        for version in ("remote-v1", "remote-v2")
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        if "current_release_scopes" in request.full_url:
-            return _FakeResponse(scope_rows[offset : offset + 1])
-        provisions = [_remote_row("remote body")]
-        return _FakeResponse(provisions[offset : offset + 1])
-
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=open_request,
-    )
-
-    assert resolved.body == "remote body"
-    selector_urls = [url for url in calls if "current_release_scopes" in url]
-    assert [
-        urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["offset"][0]
-        for url in selector_urls
-    ] == ["0", "1", "2"]
-
-
-def test_supabase_enforces_cumulative_response_byte_bound(monkeypatch):
-    calls: list[str] = []
-    opener = _supabase_opener([_remote_row("remote body")], calls)
-    monkeypatch.setattr(corpus_resolver, "MAX_REMOTE_CORPUS_AGGREGATE_BYTES", 1)
-
-    with pytest.raises(CorpusRemoteError, match="aggregate safety limit"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=opener,
-        )
-
-
-def test_supabase_enforces_cumulative_request_bound_on_tiny_pages(monkeypatch):
-    calls: list[str] = []
-    monkeypatch.setattr(corpus_resolver, "MAX_REMOTE_CORPUS_REQUESTS", 3)
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        assert "current_release_scopes" in request.full_url
-        return _FakeResponse(
-            [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": f"remote-v{offset}",
-                }
-            ]
-        )
-
-    with pytest.raises(CorpusRemoteError, match="request safety limit"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=open_request,
-        )
-
-    assert len(calls) == 3
-
-
-def _supabase_parent_opener(
-    exact_rows: list[dict[str, object]],
-    descendant_rows: list[dict[str, object]],
-    calls: list[str],
-):
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query.get("offset", ["0"])[0])
-        limit = int(query.get("limit", ["1000"])[0])
-        if "current_release_scopes" in request.full_url:
-            scopes = [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "remote-v1",
-                }
-            ]
-            return _FakeResponse(scopes[offset : offset + limit])
-        citation_filter = query["citation_path"][0]
-        rows = descendant_rows if citation_filter.startswith("gte.") else exact_rows
-        return _FakeResponse(rows[offset : offset + limit])
-
-    return open_request
-
-
-def test_supabase_metadata_parent_composes_bounded_active_descendants():
-    calls: list[str] = []
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(
-            "second",
-            record_id="child-2",
-            citation_path=f"{CITATION}/2",
-            ordinal=2,
-        ),
-        _remote_row(
-            "first",
-            record_id="child-1",
-            citation_path=f"{CITATION}/1",
-            heading="First heading",
-            ordinal=1,
-        ),
-    ]
-
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=_supabase_parent_opener(exact, descendants, calls),
-    )
-
-    assert resolved.body == "First heading\n\nfirst\n\nsecond"
-    assert resolved.provision_file == "supabase:current_provisions"
-    assert [row.record_id for row in resolved.component_rows] == [
-        "child-1",
-        "child-2",
-    ]
-    descendant_url = next(url for url in calls if "citation_path=gte." in url)
-    assert "limit=1000" in descendant_url
-    assert "offset=0" in descendant_url
-    assert "citation_path=gte.us%2Fstatute%2F7%2F2014%2Fe%2F" in descendant_url
-    assert "and=%28citation_path.lt.us%2Fstatute%2F7%2F2014%2Fe0%29" in (descendant_url)
-    assert "order=level.asc%2Cordinal.asc%2Ccitation_path.asc%2Cid.asc" in (
-        descendant_url
-    )
-    assert "like." not in descendant_url
-
-
-def test_supabase_metadata_parent_rejects_uncovered_bodyless_branch():
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(
-            "covered",
-            record_id="covered",
-            citation_path=f"{CITATION}/1",
-        ),
-        _remote_row(
-            None,
-            record_id="uncovered",
-            citation_path=f"{CITATION}/2",
-        ),
-    ]
-
-    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=_supabase_parent_opener(exact, descendants, []),
-        )
-
-
-def test_supabase_metadata_parent_rejects_bodyless_reserved_heading_leaf():
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(
-            "covered",
-            record_id="covered",
-            citation_path=f"{CITATION}/1",
-            ordinal=1,
-        ),
-        _remote_row(
-            None,
-            record_id="reserved",
-            citation_path=f"{CITATION}/2",
-            heading="(Reserved)",
-            ordinal=2,
-        ),
-    ]
-
-    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=_supabase_parent_opener(exact, descendants, []),
-        )
-
-
-def test_supabase_metadata_parent_rejects_cross_version_descendants():
-    calls: list[str] = []
-    exact = [_remote_row(None, record_id="parent")]
-    foreign = _remote_row(
-        "from v2",
-        record_id="foreign",
-        citation_path=f"{CITATION}/2",
-    )
-    foreign["version"] = "remote-v2"
-    descendants = [
-        _remote_row(
-            "from v1",
-            record_id="local",
-            citation_path=f"{CITATION}/1",
-        ),
-        foreign,
-    ]
-    scopes = [
-        {
-            "release_name": "current",
-            "jurisdiction": "us",
-            "document_class": "statute",
-            "version": version,
-        }
-        for version in ("remote-v1", "remote-v2")
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        limit = int(query["limit"][0])
-        if "current_release_scopes" in request.full_url:
-            return _FakeResponse(scopes[offset : offset + limit])
-        rows = descendants if query["citation_path"][0].startswith("gte.") else exact
-        return _FakeResponse(rows[offset : offset + limit])
-
-    with pytest.raises(CorpusResolutionError, match="cross active release scopes"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=open_request,
-        )
-
-
-def test_supabase_metadata_parent_paginates_past_server_row_cap():
-    calls: list[str] = []
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(
-            f"body {ordinal}",
-            record_id=f"child-{ordinal}",
-            citation_path=f"{CITATION}/{ordinal}",
-            ordinal=ordinal,
-        )
-        for ordinal in range(1, 1002)
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        if "current_release_scopes" in request.full_url:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-            offset = int(query["offset"][0])
-            scopes = [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "remote-v1",
-                }
-            ]
-            return _FakeResponse(scopes[offset : offset + 1])
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        citation_filter = query["citation_path"][0]
-        if citation_filter.startswith("eq."):
-            offset = int(query["offset"][0])
-            requested_limit = int(query["limit"][0])
-            return _FakeResponse(exact[offset : offset + requested_limit])
-        offset = int(query["offset"][0])
-        requested_limit = int(query["limit"][0])
-        server_limit = min(requested_limit, 1000)
-        return _FakeResponse(descendants[offset : offset + server_limit])
-
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=open_request,
-    )
-
-    assert len(resolved.component_rows) == 1001
-    descendant_urls = [url for url in calls if "citation_path=gte." in url]
-    assert len(descendant_urls) == 3
-    assert "offset=0" in descendant_urls[0]
-    assert "offset=1000" in descendant_urls[1]
-
-
-def test_supabase_descendants_handle_server_cap_below_requested_limit():
-    calls: list[str] = []
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(
-            body,
-            record_id=f"child-{ordinal}",
-            citation_path=f"{CITATION}/{ordinal}",
-            ordinal=ordinal,
-        )
-        for ordinal, body in ((1, "one"), (2, "two"))
-    ]
-
-    def open_request(request, *, timeout):
-        calls.append(request.full_url)
-        assert timeout == 20.0
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        offset = int(query["offset"][0])
-        if "current_release_scopes" in request.full_url:
-            scopes = [
-                {
-                    "release_name": "current",
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "remote-v1",
-                }
-            ]
-            return _FakeResponse(scopes[offset : offset + 1])
-        rows = descendants if query["citation_path"][0].startswith("gte.") else exact
-        return _FakeResponse(rows[offset : offset + 1])
-
-    resolved = resolve_supabase_corpus_source(
-        CITATION,
-        supabase_url="https://example.supabase.co",
-        anon_key="anon",
-        urlopen=open_request,
-    )
-
-    assert resolved.body == "one\n\ntwo"
-    descendant_urls = [url for url in calls if "citation_path=gte." in url]
-    assert [
-        urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["offset"][0]
-        for url in descendant_urls
-    ] == ["0", "1", "2"]
-
-
-def test_supabase_metadata_parent_rejects_bodyless_descendant_duplicate():
-    child = f"{CITATION}/1"
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row(None, record_id="bodyless", citation_path=child),
-        _remote_row("body", record_id="body", citation_path=child),
-    ]
-
-    with pytest.raises(AmbiguousCorpusSourceError) as exc_info:
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=_supabase_parent_opener(exact, descendants, []),
-        )
-
-    assert [row.record_id for row in exc_info.value.rows] == ["bodyless", "body"]
-
-
-def test_supabase_metadata_parent_enforces_descendant_row_bound(monkeypatch):
-    exact = [_remote_row(None, record_id="parent")]
-    descendants = [
-        _remote_row("one", record_id="one", citation_path=f"{CITATION}/1"),
-        _remote_row("two", record_id="two", citation_path=f"{CITATION}/2"),
-    ]
-    monkeypatch.setattr(corpus_resolver, "MAX_SUPABASE_DESCENDANT_ROWS", 1)
-
-    with pytest.raises(CorpusDescendantStructureError, match="1-row safety limit"):
-        resolve_supabase_corpus_source(
-            CITATION,
-            supabase_url="https://example.supabase.co",
-            anon_key="anon",
-            urlopen=_supabase_parent_opener(exact, descendants, []),
+        LocalCorpusRelease(
+            corpus_root,
+            TEST_RELEASE,
+            release.content_sha256,
+            TEST_RELEASE_PUBLIC_KEY,
         )

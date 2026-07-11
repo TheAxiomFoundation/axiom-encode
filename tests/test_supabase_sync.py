@@ -4,6 +4,8 @@ Tests for supabase_sync module.
 All external dependencies (supabase, sqlite DBs, env vars) are mocked.
 """
 
+import hashlib
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -12,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from axiom_encode import __version__
 from axiom_encode.supabase_sync import (
     ENCODINGS_SCHEMA,
     TELEMETRY_SCHEMA,
@@ -23,6 +26,30 @@ from axiom_encode.supabase_sync import (
     sync_run_to_supabase,
     sync_transcripts_to_supabase,
 )
+from tests.eval_evidence_fixtures import (
+    TEST_APPLY_PRIVATE_KEY_B64,
+    TEST_APPLY_PUBLIC_KEY_B64,
+)
+from tests.signing_broker_fixtures import SigningBrokerFixture
+
+TEST_APPLY_SIGNING_BROKER = SigningBrokerFixture(
+    apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
+    apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
+)
+
+
+@pytest.fixture(autouse=True)
+def _apply_manifest_signing_key(monkeypatch):
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY",
+        TEST_APPLY_PUBLIC_KEY_B64,
+    )
+    monkeypatch.setattr(
+        "axiom_encode.signing_broker._active_broker",
+        TEST_APPLY_SIGNING_BROKER,
+    )
+    monkeypatch.setattr("axiom_encode.signing_broker._active_broker_pid", None)
+
 
 # =========================================================================
 # get_supabase_client
@@ -149,7 +176,6 @@ class TestSyncRunToSupabase:
                 ),
             ],
             policyengine_match=0.95,
-            taxsim_match=0.90,
         )
 
         mock_client = MagicMock()
@@ -170,6 +196,11 @@ class TestSyncRunToSupabase:
         assert upsert_payload["note"] is None
         assert upsert_payload["scores"]["rulespec"] == 8.0
         assert upsert_payload["scores"]["formula"] == 7.0
+        assert set(upsert_payload["scores"]) == {
+            "policyengine_match",
+            "rulespec",
+            "formula",
+        }
 
     def test_final_apply_outcome_overrides_raw_iteration_issue(self):
         mock_run = MagicMock()
@@ -241,7 +272,6 @@ class TestSyncRunToSupabase:
         mock_run.review_results = MagicMock(
             reviews=[review],
             policyengine_match=None,
-            taxsim_match=None,
         )
         mock_run.iterations = []
 
@@ -960,24 +990,55 @@ class TestGetLocalTranscriptStats:
 
 def _apply_manifest_payload(**overrides) -> dict:
     payload = {
+        "schema_version": "axiom-encode/applied-rulespec/v5",
+        "generated_at": "2026-05-26T23:53:33.747249+00:00",
+        "tool": "axiom-encode encode --apply",
+        "axiom_encode_version": "0.2.301",
+        "axiom_encode_git": {
+            "root": "/repo/axiom-encode",
+            "commit": "a" * 40,
+            "dirty_tracked": False,
+            "version": "0.2.301",
+            "version_commit": "b" * 40,
+        },
+        "generation_prompt_sha256": None,
+        "run_id": "5c8705fb",
+        "citation": "26 USC 3127",
+        "runner": "openai",
+        "backend": "openai",
+        "model": "gpt-5.5",
+        "validation_waiver_set_sha256": "a" * 64,
+        "generated_output_root": "/tmp/axiom-generated",
+        "generated_output_file": None,
+        "generated_output_sha256": None,
+        "trace_file": None,
+        "trace_sha256": None,
+        "context_manifest_file": None,
+        "context_manifest_sha256": None,
         "applied_files": [
             {"path": "statutes/26/3127.yaml", "sha256": "abc"},
             {"path": "statutes/26/3127.test.yaml", "sha256": "def"},
         ],
-        "axiom_encode_version": "0.2.301",
-        "backend": "openai",
-        "citation": "26 USC 3127",
-        "generated_at": "2026-05-26T23:53:33.747249+00:00",
-        "model": "gpt-5.5",
-        "run_id": "5c8705fb",
-        "schema_version": "axiom-encode/applied-rulespec/v1",
-        "tool": "axiom-encode encode --apply",
+        "source_attestation": {},
+        "validation_execution": {},
+        "signature": {},
     }
     payload.update(overrides)
     return payload
 
 
 class TestRunFromApplyManifest:
+    def test_rejects_pre_v3_manifest(self):
+        from axiom_encode.supabase_sync import run_from_apply_manifest
+
+        with pytest.raises(ValueError, match="not canonical v3"):
+            run_from_apply_manifest(
+                Path("a.json"),
+                _apply_manifest_payload(
+                    schema_version="axiom-encode/applied-rulespec/v2"
+                ),
+            )
+
     def test_reconstructs_run_from_manifest(self):
         from axiom_encode.supabase_sync import run_from_apply_manifest
 
@@ -1026,22 +1087,133 @@ class TestRunFromApplyManifest:
 
 class TestSyncAppliedManifestRuns:
     def _write_repo(self, tmp_path: Path) -> Path:
-        import json as json_module
-
         repo = tmp_path / "rulespec-us"
-        manifest_dir = repo / ".axiom" / "encoding-manifests" / "statutes" / "26"
-        manifest_dir.mkdir(parents=True)
-        (manifest_dir / "3127.json").write_text(
-            json_module.dumps(_apply_manifest_payload())
+        waiver = repo / "known-validation-gaps.yaml"
+        waiver.parent.mkdir(parents=True)
+        waiver.write_text("validate_failures: {}\n")
+        waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+        toolchain = repo / ".axiom/toolchain.toml"
+        toolchain.parent.mkdir(parents=True)
+        toolchain.write_text(
+            "[toolchain]\n"
+            'axiom_corpus_release = "supabase-sync-test"\n'
+            f'axiom_corpus_release_content_sha256 = "{"e" * 64}"\n'
+            f'validation_waiver_set_sha256 = "{waiver_sha256}"\n'
         )
-        (manifest_dir / "3111.json").write_text(
-            json_module.dumps(
-                _apply_manifest_payload(
-                    run_id="aa11bb22",
-                    citation="26 USC 3111",
-                    generated_at="2026-06-01T10:00:00+00:00",
-                )
+        manifest_dir = repo / ".axiom" / "encoding-manifests" / "us" / "statutes" / "26"
+        manifest_dir.mkdir(parents=True)
+
+        def write_manifest(
+            section: str,
+            *,
+            run_id: str,
+            citation: str,
+            generated_at: str,
+        ) -> None:
+            corpus_path = f"us/statute/26/{section}"
+            rule_rel = f"us/statutes/26/{section}.yaml"
+            rule = repo / rule_rel
+            rule.parent.mkdir(parents=True, exist_ok=True)
+            source_sha256 = "a" * 64
+            rule.write_text(
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  source_verification:\n"
+                f"    corpus_citation_path: {corpus_path}\n"
+                f"    source_sha256: {source_sha256}\n"
+                "rules: []\n"
             )
+            provision_file = "data/corpus/provisions/us/statute/test.jsonl"
+            source_attestation = {
+                "requested_corpus_citation_path": corpus_path,
+                "resolved_corpus_citation_path": corpus_path,
+                "corpus_source": "local",
+                "corpus_release": "supabase-sync-test",
+                "corpus_release_content_sha256": "e" * 64,
+                "corpus_release_selector_sha256": "b" * 64,
+                "provision_file": provision_file,
+                "provision_file_sha256": "c" * 64,
+                "row": {
+                    "provision_file": provision_file,
+                    "provision_file_sha256": "c" * 64,
+                    "line_number": 1,
+                    "record_id": f"test:{section}",
+                    "citation_path": corpus_path,
+                    "jurisdiction": "us",
+                    "document_class": "statute",
+                    "version": "test",
+                    "source_path": f"sources/us/statute/{section}",
+                    "source_as_of": "2026-01-01",
+                    "expression_date": "2026-01-01",
+                    "body_sha256": source_sha256,
+                },
+                "component_rows": [],
+                "source_sha256": source_sha256,
+                "resolved_text_sha256": source_sha256,
+                "generation_input_sha256": "d" * 64,
+                "rulespec_root": "rulespec-us/us",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+            payload = _apply_manifest_payload(
+                run_id=run_id,
+                citation=citation,
+                generated_at=generated_at,
+                axiom_encode_version=__version__,
+                axiom_encode_git={
+                    "root": "/repo/axiom-encode",
+                    "commit": "a" * 40,
+                    "dirty_tracked": False,
+                    "version": __version__,
+                    "version_commit": "b" * 40,
+                },
+                validation_waiver_set_sha256=waiver_sha256,
+                source_attestation=source_attestation,
+                validation_execution={
+                    "schema": "axiom-encode/apply-validation-execution/v1",
+                    "axiom_encode": {
+                        "repository": ("github.com/TheAxiomFoundation/axiom-encode"),
+                        "commit": "a" * 40,
+                        "version": __version__,
+                    },
+                    "axiom_rules_engine": {
+                        "repository": (
+                            "github.com/TheAxiomFoundation/axiom-rules-engine"
+                        ),
+                        "commit": "e" * 40,
+                    },
+                    "policy_pre_apply": {
+                        "rulespec_root": "rulespec-us/us",
+                        "pre_apply_content_sha256": "f" * 64,
+                        "pre_apply_file_count": 1,
+                        "toolchain_contract_sha256": "d" * 64,
+                        "validation_waiver_set_sha256": waiver_sha256,
+                    },
+                    "rulespec_dependencies": [],
+                },
+                applied_files=[
+                    {
+                        "path": rule_rel,
+                        "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+                    }
+                ],
+            )
+            from axiom_encode.cli import _sign_applied_encoding_manifest
+
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+            (manifest_dir / f"{section}.json").write_text(json.dumps(payload))
+
+        write_manifest(
+            "3127",
+            run_id="5c8705fb",
+            citation="26 USC 3127",
+            generated_at="2026-05-26T23:53:33.747249+00:00",
+        )
+        write_manifest(
+            "3111",
+            run_id="aa11bb22",
+            citation="26 USC 3111",
+            generated_at="2026-06-01T10:00:00+00:00",
         )
         return repo
 
@@ -1090,7 +1262,7 @@ class TestSyncAppliedManifestRuns:
         assert all(payload["data_source"] == "apply_manifest" for payload in payloads)
         assert all(payload["has_issues"] is False for payload in payloads)
 
-    def test_skips_unreadable_manifest(self, tmp_path, capsys):
+    def test_fails_unreadable_manifest(self, tmp_path, capsys):
         from axiom_encode.supabase_sync import sync_applied_manifest_runs
 
         repo = self._write_repo(tmp_path)
@@ -1100,8 +1272,9 @@ class TestSyncAppliedManifestRuns:
         stats = sync_applied_manifest_runs([repo], dry_run=True)
 
         assert stats["total"] == 3
-        assert stats["skipped"] == 1
-        assert "Skipping" in capsys.readouterr().out
+        assert stats["failed"] == 1
+        assert stats["skipped"] == 0
+        assert "Invalid apply manifest" in capsys.readouterr().out
 
     def test_preserves_rows_with_richer_data_sources(self, tmp_path):
         from axiom_encode.supabase_sync import sync_applied_manifest_runs
@@ -1132,19 +1305,19 @@ class TestSyncAppliedManifestRuns:
 
         assert find_apply_manifests(tmp_path) == []
 
-    def test_sentinel_run_ids_get_unique_derived_ids(self):
+    def test_noncanonical_run_ids_get_unique_derived_ids(self):
         from axiom_encode.supabase_sync import run_from_apply_manifest
 
         run_a = run_from_apply_manifest(
             Path("repo/.axiom/encoding-manifests/regulations/14/a/1.json"),
-            _apply_manifest_payload(run_id="deterministic-repair"),
+            _apply_manifest_payload(run_id="shared-run"),
         )
         run_b = run_from_apply_manifest(
             Path("repo/.axiom/encoding-manifests/regulations/14/a/5.json"),
-            _apply_manifest_payload(run_id="deterministic-repair"),
+            _apply_manifest_payload(run_id="shared-run"),
         )
 
-        assert run_a.id != "deterministic-repair"
+        assert run_a.id != "shared-run"
         assert run_a.id != run_b.id
         assert len(run_a.id) == 8
         # Same manifest re-synced later keeps the same id.
@@ -1152,6 +1325,6 @@ class TestSyncAppliedManifestRuns:
             Path(
                 "/other/host/checkout/.axiom/encoding-manifests/regulations/14/a/1.json"
             ),
-            _apply_manifest_payload(run_id="deterministic-repair"),
+            _apply_manifest_payload(run_id="shared-run"),
         )
         assert run_a_again.id == run_a.id

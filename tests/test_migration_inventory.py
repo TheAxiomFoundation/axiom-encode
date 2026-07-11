@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,9 +17,9 @@ from axiom_encode.cli import (
     migration_inventory,
 )
 from axiom_encode.corpus_resolver import (
-    InvalidReleaseSelectorError,
-    load_release_selector,
+    InvalidCorpusReleaseError,
 )
+from tests.release_object_fixtures import bind_test_corpus_release
 
 RELEASE_SELECTOR = "nz-rulespec-current"
 
@@ -56,6 +58,60 @@ def _write_selector(corpus, name=RELEASE_SELECTOR):
     return selector
 
 
+def _write_toolchain(
+    rules,
+    name=RELEASE_SELECTOR,
+    *,
+    content_sha256="0" * 64,
+):
+    waiver = rules / "known-validation-gaps.yaml"
+    waiver.parent.mkdir(parents=True, exist_ok=True)
+    waiver.write_text("validate_failures: {}\n", encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = rules / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{name}"\n'
+        f'axiom_corpus_release_content_sha256 = "{content_sha256}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n'
+    )
+
+
+def _bind_release(corpus, rules, *, scopes=None):
+    release = bind_test_corpus_release(
+        corpus,
+        RELEASE_SELECTOR,
+        scopes or [("us", "statute", "active")],
+    )
+    _write_toolchain(
+        rules,
+        content_sha256=release.content_sha256,
+    )
+    return release
+
+
+def _commit_fixture_checkout(rules):
+    subprocess.run(["git", "init"], cwd=rules, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rules,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=rules,
+        check=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=rules, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "fixture"],
+        cwd=rules,
+        check=True,
+        capture_output=True,
+    )
+
+
 def _write_fixture(tmp_path):
     corpus = tmp_path / "axiom-corpus"
     _write_selector(corpus)
@@ -74,23 +130,25 @@ def _write_fixture(tmp_path):
         "".join(json.dumps(row) + "\n" for row in rows)
     )
     rules = tmp_path / "rulespec-us"
-    rules.joinpath("statutes/7/2014").mkdir(parents=True)
-    rules.joinpath("statutes/7/2014/e.yaml").write_text(
+    _bind_release(corpus, rules)
+    rules.joinpath("us/statutes/7/2014").mkdir(parents=True)
+    rules.joinpath("us/statutes/7/2014/e.yaml").write_text(
         "format: rulespec/v1\nmodule:\n  source_verification:\n"
         "    corpus_citation_path: us/statute/7/2014/e\nrules: []\n"
     )
-    rules.joinpath("statutes/26").mkdir(parents=True)
-    rules.joinpath("statutes/26/1.yaml").write_text(
+    rules.joinpath("us/statutes/26").mkdir(parents=True)
+    rules.joinpath("us/statutes/26/1.yaml").write_text(
         "format: rulespec/v1\nmodule:\n  source_verification:\n"
         "    corpus_citation_path: us/statute/26/1\nrules: []\n"
     )
+    _commit_fixture_checkout(rules)
     return rules, corpus
 
 
 def test_migration_inventory_reports_duplicate_and_slice_fallback(tmp_path):
     rules, corpus = _write_fixture(tmp_path)
 
-    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
+    rows = migration_inventory([rules], corpus)
 
     assert {(row["citation"], row["reason"]) for row in rows} == {
         ("us/statute/7/2014/e", "parent-slice-dependency"),
@@ -100,29 +158,15 @@ def test_migration_inventory_reports_duplicate_and_slice_fallback(tmp_path):
 
 def test_migration_inventory_json_is_machine_readable(tmp_path, capsys):
     rules, corpus = _write_fixture(tmp_path)
-    current_selector = _write_selector(corpus, "current")
-    expected_selector = load_release_selector(
-        corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json",
-        expected_name=RELEASE_SELECTOR,
-        repository_root=corpus,
-    )
-    assert (
-        load_release_selector(
-            current_selector,
-            expected_name="current",
-            repository_root=corpus,
-        ).sha256
-        != expected_selector.sha256
-    )
-
-    cmd_migration_inventory(
-        SimpleNamespace(
-            checkouts=[rules],
-            corpus_root=corpus,
-            release_selector=RELEASE_SELECTOR,
-            json=True,
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_migration_inventory(
+            SimpleNamespace(
+                checkouts=[rules],
+                corpus_path=corpus,
+                json=True,
+            )
         )
-    )
+    assert exc_info.value.code == 1
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["count"] == 2
@@ -131,24 +175,61 @@ def test_migration_inventory_json_is_machine_readable(tmp_path, capsys):
         "parent-slice-dependency",
     }
     assert payload["scanned_modules"] == 2
-    assert payload["release_selector"] == RELEASE_SELECTOR
-    assert payload["release_selector_sha256"] == expected_selector.sha256
+    release = payload["releases"][str(rules.resolve())]
+    assert release["name"] == RELEASE_SELECTOR
+    assert len(release["content_sha256"]) == 64
+    assert len(release["selector_sha256"]) == 64
     assert payload["complete"] is True
 
 
 def test_migration_inventory_rejects_nonexistent_checkout(tmp_path):
     _rules, corpus = _write_fixture(tmp_path)
-    with pytest.raises(ValueError, match="existing directory"):
+    with pytest.raises(ValueError, match="does not exist"):
         migration_inventory(
             [tmp_path / "missing"],
             corpus,
-            release_selector=RELEASE_SELECTOR,
         )
+
+
+@pytest.mark.parametrize("name", ["workspace", "rulespec-us-co", "rulespec"])
+def test_migration_inventory_rejects_noncanonical_checkout_roots(tmp_path, name):
+    _rules, corpus = _write_fixture(tmp_path)
+    invalid = tmp_path / name
+    invalid.mkdir(exist_ok=True)
+
+    with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+        migration_inventory([invalid], corpus)
+
+
+def test_migration_inventory_rejects_noncanonical_yml_module(tmp_path):
+    rules, corpus = _write_fixture(tmp_path)
+    legacy = rules / "us/statutes/26/legacy.yml"
+    legacy.write_text("format: rulespec/v1\nrules: []\n")
+
+    with pytest.raises(ValueError, match="canonical .yaml extension"):
+        migration_inventory([rules], corpus)
+
+
+def test_migration_inventory_zero_modules_is_incomplete(tmp_path):
+    rules, corpus = _write_fixture(tmp_path)
+    for module in (rules / "us/statutes").rglob("*.yaml"):
+        module.unlink()
+
+    report = _migration_inventory_report([rules], corpus)
+
+    assert report["scanned_modules"] == 0
+    assert report["complete"] is False
+    assert any(
+        "zero canonical RuleSpec modules" in reason
+        for reason in report["incomplete_scan_reasons"]
+    )
+    with pytest.raises(ValueError, match="scan is incomplete"):
+        migration_inventory([rules], corpus)
 
 
 def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
     rules, corpus = _write_fixture(tmp_path)
-    denied = rules / "statutes/7/2014/e.yaml"
+    denied = rules / "us/statutes/7/2014/e.yaml"
     original = type(denied).read_text
 
     def read_text(path, *args, **kwargs):
@@ -157,9 +238,9 @@ def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
         return original(path, *args, **kwargs)
 
     with patch.object(type(denied), "read_text", read_text):
-        report = _migration_inventory_report(
-            [rules], corpus, release_selector=RELEASE_SELECTOR
-        )
+        report = _migration_inventory_report([rules], corpus)
+        with pytest.raises(ValueError, match="scan is incomplete"):
+            migration_inventory([rules], corpus)
     assert report["complete"] is False
     assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
     assert report["incomplete_rulespec_count"] == 1
@@ -167,22 +248,86 @@ def test_migration_inventory_counts_unreadable_module_as_incomplete(tmp_path):
     assert all(row["reason"] != "invalid-rulespec" for row in report["failures"])
 
 
-def test_migration_inventory_scanned_modules_counts_files_not_citations(tmp_path):
+def test_migration_inventory_rejects_missing_source_verification(tmp_path):
     rules, corpus = _write_fixture(tmp_path)
-    (rules / "policies").mkdir()
-    (rules / "policies/no-verification.yaml").write_text(
+    (rules / "us/policies").mkdir()
+    (rules / "us/policies/no-verification.yaml").write_text(
         "format: rulespec/v1\nmodule: {}\nrules: []\n"
     )
-    (rules / "statutes/7/2014/e.yaml").write_text(
+    (rules / "us/statutes/7/2014/e.yaml").write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        "    corpus_citation_path: us/statute/7/2014/e\nrules: []\n"
+    )
+    report = _migration_inventory_report([rules], corpus)
+    assert report["scanned_modules"] == 3
+    assert report["complete"] is False
+    assert report["incomplete_rulespec_count"] == 1
+    assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
+
+
+@pytest.mark.parametrize(
+    "source_verification",
+    [
+        "source_verification: {}",
+        "source_verification:\n    corpus_citation_path: ''",
+        "source_verification:\n    corpus_citation_path: [us/statute/7/2014/e]",
+    ],
+)
+def test_migration_inventory_rejects_missing_or_nonstring_singular_source(
+    tmp_path,
+    source_verification,
+):
+    rules, corpus = _write_fixture(tmp_path)
+    (rules / "us/statutes/7/2014/e.yaml").write_text(
+        "format: rulespec/v1\nmodule:\n  " + source_verification + "\nrules: []\n"
+    )
+
+    report = _migration_inventory_report([rules], corpus)
+
+    assert report["complete"] is False
+    assert report["incomplete_rulespec_count"] == 1
+    assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
+
+
+def test_migration_inventory_rejects_plural_source_locator(tmp_path):
+    rules, corpus = _write_fixture(tmp_path)
+    (rules / "us/statutes/7/2014/e.yaml").write_text(
         "format: rulespec/v1\nmodule:\n  source_verification:\n"
         "    corpus_citation_paths:\n"
-        "      - us/statute/7/2014/e\n"
-        "      - us/statute/26/1\nrules: []\n"
+        "      - us/statute/7/2014/e\nrules: []\n"
     )
-    report = _migration_inventory_report(
-        [rules], corpus, release_selector=RELEASE_SELECTOR
+
+    report = _migration_inventory_report([rules], corpus)
+
+    assert report["complete"] is False
+    assert report["incomplete_rulespec_count"] == 1
+    assert any("invalid-rulespec" in item for item in report["incomplete_scan_reasons"])
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        " us/statute/7/2014/e",
+        "us/statute/7/2014/e/",
+        "us:statutes/7/2014/e",
+    ],
+)
+def test_migration_inventory_rejects_noncanonical_citation_identity(
+    tmp_path,
+    citation,
+):
+    rules, corpus = _write_fixture(tmp_path)
+    (rules / "us/statutes/7/2014/e.yaml").write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {json.dumps(citation)}\nrules: []\n"
     )
-    assert report["scanned_modules"] == 3
+
+    report = _migration_inventory_report([rules], corpus)
+
+    assert report["complete"] is False
+    assert any(
+        "exact canonical" in reason for reason in report["incomplete_scan_reasons"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -215,8 +360,9 @@ def test_migration_inventory_classifies_release_failure_classes(
     else:
         row.pop("source_as_of")
     provision.write_text(json.dumps(row) + "\n")
-    (rules / "statutes/26/1.yaml").unlink()
-    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
+    (rules / "us/statutes/26/1.yaml").unlink()
+    _bind_release(corpus, rules)
+    rows = migration_inventory([rules], corpus)
     assert rows[0]["reason"] == expected
 
 
@@ -224,14 +370,14 @@ def test_migration_inventory_missing_named_selector_cannot_fall_back_to_current(
     tmp_path,
 ):
     rules, corpus = _write_fixture(tmp_path)
-    (corpus / "manifests/releases" / f"{RELEASE_SELECTOR}.json").unlink()
-    _write_selector(corpus, "current")
+    for release_object in (corpus / "releases" / RELEASE_SELECTOR).glob("*.json"):
+        release_object.unlink()
 
     with pytest.raises(
-        InvalidReleaseSelectorError,
-        match=rf"{RELEASE_SELECTOR}\.json",
+        InvalidCorpusReleaseError,
+        match=rf"{RELEASE_SELECTOR}",
     ):
-        migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
+        migration_inventory([rules], corpus)
 
 
 @pytest.mark.parametrize(
@@ -242,34 +388,38 @@ def test_migration_inventory_rejects_unsafe_release_selector_names(
     tmp_path, release_selector
 ):
     rules, corpus = _write_fixture(tmp_path)
+    _write_toolchain(rules, release_selector)
 
-    with pytest.raises(InvalidReleaseSelectorError):
-        migration_inventory([rules], corpus, release_selector=release_selector)
+    with pytest.raises(ValueError):
+        migration_inventory([rules], corpus)
 
 
-def test_migration_inventory_cli_requires_release_selector(tmp_path, capsys):
+def test_migration_inventory_cli_uses_toolchain_selector(tmp_path, capsys):
     rules, corpus = _write_fixture(tmp_path)
 
-    with patch(
-        "sys.argv",
-        [
-            "axiom-encode",
-            "migration-inventory",
-            str(rules),
-            "--corpus-root",
-            str(corpus),
-        ],
+    with (
+        patch(
+            "sys.argv",
+            [
+                "axiom-encode",
+                "migration-inventory",
+                str(rules),
+                "--corpus-path",
+                str(corpus),
+            ],
+        ),
+        pytest.raises(SystemExit) as exc_info,
     ):
-        with pytest.raises(SystemExit) as exc_info:
-            main()
+        main()
 
-    assert exc_info.value.code == 2
-    assert "--release-selector" in capsys.readouterr().err
+    assert exc_info.value.code == 1
+    assert "RELEASE" in capsys.readouterr().out
 
 
-def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_path):
+def test_migration_inventory_does_not_invent_exact_uk_alias(tmp_path):
     rules = tmp_path / "rulespec-uk"
-    module = rules / "statutes/ukpga/2020/1/3.yaml"
+    _write_toolchain(rules)
+    module = rules / "uk/statutes/ukpga/2020/1/3.yaml"
     module.parent.mkdir(parents=True)
     module.write_text(
         "format: rulespec/v1\nmodule:\n  source_verification:\n"
@@ -300,13 +450,20 @@ def test_migration_inventory_distinguishes_exact_alias_from_parent_slice(tmp_pat
     )
     row["jurisdiction"] = "uk"
     provision.write_text(json.dumps(row) + "\n")
-    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
-    assert rows[0]["reason"] == "exact-alias-dependency"
+    _bind_release(
+        corpus,
+        rules,
+        scopes=[("uk", "statute", "active")],
+    )
+    _commit_fixture_checkout(rules)
+    rows = migration_inventory([rules], corpus)
+    assert rows[0]["reason"] == "absent"
 
 
-def test_migration_inventory_labels_uk_alias_parent_from_resolver_flag(tmp_path):
+def test_migration_inventory_does_not_invent_uk_alias_parent(tmp_path):
     rules = tmp_path / "rulespec-uk"
-    module = rules / "legislation/ukpga/2020/1/3/a.yaml"
+    _write_toolchain(rules)
+    module = rules / "uk/statutes/ukpga/2020/1/3/a.yaml"
     module.parent.mkdir(parents=True)
     module.write_text(
         "format: rulespec/v1\nmodule:\n  source_verification:\n"
@@ -338,7 +495,13 @@ def test_migration_inventory_labels_uk_alias_parent_from_resolver_flag(tmp_path)
     )
     row["jurisdiction"] = "uk"
     provision.write_text(json.dumps(row) + "\n")
+    _bind_release(
+        corpus,
+        rules,
+        scopes=[("uk", "statute", "active")],
+    )
+    _commit_fixture_checkout(rules)
 
-    rows = migration_inventory([rules], corpus, release_selector=RELEASE_SELECTOR)
+    rows = migration_inventory([rules], corpus)
 
-    assert rows[0]["reason"] == "parent-slice-dependency"
+    assert rows[0]["reason"] == "absent"

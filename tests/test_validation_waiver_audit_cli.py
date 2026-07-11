@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,9 @@ from unittest.mock import patch
 import pytest
 
 from axiom_encode import cli
+from tests.release_object_fixtures import bind_test_corpus_release
+
+TEST_CORPUS_RELEASE = "validation-waiver-test-release"
 
 
 def _validator(*, passed: bool, issues=(), error=None):
@@ -42,20 +46,34 @@ class _FakePipeline:
     result = _pipeline_result(passed=False)
     validate_error = None
 
-    def __init__(self, *, policy_repo_path, axiom_rules_path, enable_oracles):
+    def __init__(
+        self,
+        *,
+        policy_repo_path,
+        axiom_rules_path,
+        enable_oracles,
+        local_corpus_release,
+        rulespec_dependency_roots=(),
+    ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
         self.enable_oracles = enable_oracles
-        self.local_corpus_root = None
+        self.local_corpus_release = local_corpus_release
+        self.rulespec_dependency_roots = tuple(rulespec_dependency_roots)
         self.validated = []
         type(self).instances.append(self)
 
     def _axiom_rules_binary(self):
         return self.axiom_rules_path / "axiom-rules-engine"
 
-    def _rulespec_compile_env(self):
+    def _rulespec_compile_roots(self):
+        return (
+            self.policy_repo_path.parent.resolve(),
+            *(path.resolve() for path in self.rulespec_dependency_roots),
+        )
+
+    def _rulespec_engine_env(self):
         return {
-            "AXIOM_RULESPEC_REPO_ROOTS": str(self.policy_repo_path),
             "AXIOM_CORPUS_REPO": str(self.policy_repo_path.parent / "axiom-corpus"),
         }
 
@@ -78,6 +96,67 @@ def _engine(tmp_path: Path) -> Path:
     engine.mkdir()
     (engine / "axiom-rules-engine").write_text("")
     return engine
+
+
+def _bound_corpus(tmp_path: Path, rulespec_root: Path) -> Path:
+    waiver = rulespec_root / "known-validation-gaps.yaml"
+    if not waiver.exists():
+        waiver.parent.mkdir(parents=True, exist_ok=True)
+        waiver.write_text("validate_failures: {}\n", encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    corpus = tmp_path / "axiom-corpus"
+    provision = corpus / "data/corpus/provisions/us/statute/test-version.jsonl"
+    provision.parent.mkdir(parents=True, exist_ok=True)
+    provision.write_text(
+        json.dumps(
+            {
+                "id": "test:us/statute/1",
+                "citation_path": "us/statute/1",
+                "body": "authoritative source",
+                "jurisdiction": "us",
+                "document_class": "statute",
+                "version": "test-version",
+                "source_path": "sources/us/statute/test",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selector = corpus / "manifests" / "releases" / f"{TEST_CORPUS_RELEASE}.json"
+    selector.parent.mkdir(parents=True, exist_ok=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": TEST_CORPUS_RELEASE,
+                "scopes": [
+                    {
+                        "jurisdiction": "us",
+                        "document_class": "statute",
+                        "version": "test-version",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    release = bind_test_corpus_release(
+        corpus,
+        TEST_CORPUS_RELEASE,
+        [("us", "statute", "test-version")],
+    )
+    toolchain = rulespec_root / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{TEST_CORPUS_RELEASE}"\n'
+        f'axiom_corpus_release_content_sha256 = "{release.content_sha256}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n',
+        encoding="utf-8",
+    )
+    return corpus
 
 
 def test_validate_outcome_keeps_all_failed_issues_and_excludes_volatile_fields():
@@ -134,6 +213,7 @@ def test_fingerprint_reuses_pipeline_and_marks_missing_companion_explicit(
         results = cli._fingerprint_validation_waiver_modules(
             [Path("us/statutes/b.yaml"), Path("us/statutes/a.yaml")],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=engine,
         )
 
@@ -156,7 +236,27 @@ def test_fingerprint_reuses_pipeline_and_marks_missing_companion_explicit(
     assert all(result["fingerprint"].startswith("sha256:") for result in results)
 
 
-def test_validation_and_fingerprint_use_canonical_checkout_root(tmp_path: Path):
+def test_fingerprint_passes_explicit_rulespec_dependency_roots(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    module = root / "us/statutes/a.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+    dependency_root = tmp_path / "rulespec-uk"
+    dependency_root.mkdir()
+
+    with patch.object(cli, "ValidatorPipeline", _FakePipeline):
+        cli._fingerprint_validation_waiver_modules(
+            [Path("us/statutes/a.yaml")],
+            root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
+            axiom_rules_path=_engine(tmp_path),
+            rulespec_dependency_roots=(dependency_root,),
+        )
+
+    assert _FakePipeline.instances[0].rulespec_dependency_roots == (dependency_root,)
+
+
+def test_validation_and_fingerprint_use_exact_content_roots(tmp_path: Path):
     root = tmp_path / "rulespec-us"
     modules = []
     for relative in ("us/statutes/1.yaml", "us-ca/regulations/1.yaml"):
@@ -170,12 +270,21 @@ def test_validation_and_fingerprint_use_canonical_checkout_root(tmp_path: Path):
         cli._fingerprint_validation_waiver_modules(
             modules,
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=engine,
         )
 
-    assert cli._resolve_validation_repo_roots(root / modules[0])[0] == root
-    assert cli._resolve_validation_repo_roots(root / modules[1])[0] == root
-    assert {pipeline.policy_repo_path for pipeline in _FakePipeline.instances} == {root}
+    assert (
+        cli._resolve_validation_repo_roots(root / modules[0], engine)[0] == root / "us"
+    )
+    assert (
+        cli._resolve_validation_repo_roots(root / modules[1], engine)[0]
+        == root / "us-ca"
+    )
+    assert {pipeline.policy_repo_path for pipeline in _FakePipeline.instances} == {
+        root / "us",
+        root / "us-ca",
+    }
 
 
 def test_validation_rejects_legacy_flat_checkout_layout(tmp_path: Path):
@@ -183,8 +292,32 @@ def test_validation_rejects_legacy_flat_checkout_layout(tmp_path: Path):
     module.parent.mkdir(parents=True)
     module.write_text("format: rulespec/v1\n")
 
-    with pytest.raises(ValueError, match="country-monorepo layout"):
+    with pytest.raises(ValueError, match="canonical country checkout"):
         cli._canonical_validation_checkout_root(module)
+
+
+def test_validation_rejects_missing_explicit_engine_checkout(tmp_path: Path):
+    module = tmp_path / "rulespec-us/us/statutes/1.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+
+    with pytest.raises(ValueError, match="does not exist"):
+        cli._resolve_validation_repo_roots(
+            module,
+            tmp_path / "missing-axiom-rules-engine",
+        )
+
+
+def test_validation_rejects_symlinked_explicit_engine_checkout(tmp_path: Path):
+    module = tmp_path / "rulespec-us/us/statutes/1.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+    engine = _engine(tmp_path)
+    symlink = tmp_path / "engine-link"
+    symlink.symlink_to(engine, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="contains a symlink"):
+        cli._resolve_validation_repo_roots(module, symlink)
 
 
 def test_independent_companion_matches_shared_test_command_root(tmp_path: Path):
@@ -207,12 +340,13 @@ def test_independent_companion_matches_shared_test_command_root(tmp_path: Path):
         cli._fingerprint_validation_waiver_modules(
             [Path("us-ca/regulations/1.yaml")],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=engine,
         )
 
     # Validation, the ordinary companion command, and the independent audit
-    # share the country checkout as their only policy root.
-    assert companion_policy_roots == [root]
+    # share the exact jurisdiction content root as their policy root.
+    assert companion_policy_roots == [root / "us-ca"]
 
 
 def test_fingerprint_rejects_symlinked_companion(tmp_path: Path):
@@ -231,6 +365,7 @@ def test_fingerprint_rejects_symlinked_companion(tmp_path: Path):
         cli._fingerprint_validation_waiver_modules(
             [Path("us/statutes/module.yaml")],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=_engine(tmp_path),
         )
 
@@ -258,6 +393,7 @@ def test_companion_parse_failure_is_deterministic_and_paths_are_normalized(
         result = cli._fingerprint_validation_waiver_modules(
             [Path("us/statutes/module.yaml")],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=engine,
         )[0]
 
@@ -286,6 +422,7 @@ def test_unexpected_pipeline_exception_is_not_fingerprintable(tmp_path: Path):
         cli._fingerprint_validation_waiver_modules(
             [Path("us/statutes/module.yaml")],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=engine,
         )
 
@@ -314,6 +451,7 @@ def test_fingerprint_rejects_paths_the_waiver_schema_cannot_store(
         cli._fingerprint_validation_waiver_modules(
             [Path(module_path)],
             root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
             axiom_rules_path=_engine(tmp_path),
         )
 
@@ -334,9 +472,15 @@ def _waiver_set(entries):
     )
 
 
-def _audit_args(root: Path, protected_base: Path, changed_paths: Path):
+def _audit_args(
+    root: Path,
+    protected_base: Path,
+    changed_paths: Path,
+    corpus_path: Path,
+):
     return SimpleNamespace(
         root=root,
+        corpus_path=corpus_path,
         waivers=None,
         protected_base=protected_base,
         changed_paths=changed_paths,
@@ -445,7 +589,12 @@ def test_audit_checks_active_pending_and_removed_waivers(tmp_path: Path, capsys)
         ),
     ):
         exit_code = cli._cmd_validation_waivers_audit(
-            _audit_args(root, base_file, changed_file)
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                _bound_corpus(tmp_path, root),
+            )
         )
 
     report = json.loads(capsys.readouterr().out)
@@ -521,7 +670,12 @@ def test_audit_rejects_invalid_runtime_waiver_state(
         ),
     ):
         exit_code = cli._cmd_validation_waivers_audit(
-            _audit_args(root, base_file, changed_file)
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                _bound_corpus(tmp_path, root),
+            )
         )
 
     report = json.loads(capsys.readouterr().out)
@@ -575,7 +729,12 @@ def test_removed_waiver_must_pass_unless_module_was_deleted(tmp_path: Path, caps
         ),
     ):
         exit_code = cli._cmd_validation_waivers_audit(
-            _audit_args(root, base_file, changed_file)
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                _bound_corpus(tmp_path, root),
+            )
         )
 
     report = json.loads(capsys.readouterr().out)
@@ -618,6 +777,7 @@ def test_audit_requires_protected_base_and_changed_paths(tmp_path: Path):
     (root / "known-validation-gaps.yaml").write_text("validate_failures: {}\n")
     args = SimpleNamespace(
         root=root,
+        corpus_path=_bound_corpus(tmp_path, root),
         protected_base=None,
         changed_paths=None,
         axiom_rules_path=None,
@@ -648,6 +808,9 @@ def test_cli_rejects_missing_transition_inputs_and_alternate_waiver_files(
 
 
 def test_main_registers_validation_waiver_subcommands(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    root.mkdir()
+    corpus = _bound_corpus(tmp_path, root)
     with (
         patch(
             "sys.argv",
@@ -657,7 +820,11 @@ def test_main_registers_validation_waiver_subcommands(tmp_path: Path):
                 "fingerprint",
                 "module.yaml",
                 "--root",
-                str(tmp_path),
+                str(root),
+                "--corpus-path",
+                str(corpus),
+                "--axiom-rules-engine-path",
+                str(tmp_path / "axiom-rules-engine"),
                 "--json",
             ],
         ),
@@ -668,5 +835,7 @@ def test_main_registers_validation_waiver_subcommands(tmp_path: Path):
     args = command.call_args.args[0]
     assert args.validation_waivers_command == "fingerprint"
     assert args.modules == [Path("module.yaml")]
-    assert args.root == tmp_path
+    assert args.root == root
+    assert args.corpus_path == corpus
+    assert args.axiom_rules_path == tmp_path / "axiom-rules-engine"
     assert args.json is True

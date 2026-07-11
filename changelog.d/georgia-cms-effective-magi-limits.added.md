@@ -1,1 +1,1 @@
-Add a signed Georgia CMS repair for effective MAGI limits and PolicyEngine oracle mappings for the comparable Medicaid and CHIP thresholds.
+Add PolicyEngine oracle mappings for comparable Georgia Medicaid and CHIP thresholds.

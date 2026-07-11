@@ -17,11 +17,12 @@ import re
 import sqlite3
 import sys
 import types
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
 
+from axiom_encode import __version__
 from axiom_encode.judges import (
     JUDGE_STAGE,
     JudgeCall,
@@ -52,6 +53,34 @@ from axiom_encode.run_log import (
     fold_run,
     iter_events,
 )
+from tests.eval_evidence_fixtures import (
+    TEST_APPLY_PRIVATE_KEY_B64,
+    TEST_APPLY_PUBLIC_KEY_B64,
+)
+from tests.release_object_fixtures import (
+    TEST_RELEASE_PUBLIC_KEY,
+    bind_test_corpus_release,
+)
+from tests.signing_broker_fixtures import SigningBrokerFixture
+
+TEST_APPLY_SIGNING_BROKER = SigningBrokerFixture(
+    apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
+    apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
+)
+
+
+@pytest.fixture(autouse=True)
+def _apply_manifest_signing_key(monkeypatch):
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY",
+        TEST_APPLY_PUBLIC_KEY_B64,
+    )
+    monkeypatch.setattr(
+        "axiom_encode.signing_broker._active_broker",
+        TEST_APPLY_SIGNING_BROKER,
+    )
+    monkeypatch.setattr("axiom_encode.signing_broker._active_broker_pid", None)
+
 
 # -- fakes ----------------------------------------------------------------
 
@@ -504,6 +533,113 @@ def test_preclassify_batch_never_drops():
     assert all(r.route in {preclassifier.GENERATE, preclassifier.SKIP} for r in out)
 
 
+def test_preclassify_command_resolves_only_corpus_bound_worklist(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    citation = "us/statute/26/1"
+    root, _module, _manifest = _regeneration_fixture(tmp_path, citation=citation)
+    corpus = _corpus_fixture(tmp_path, citation=citation)
+    worklist = tmp_path / "worklist.json"
+    worklist.write_text(json.dumps([citation]), encoding="utf-8")
+    monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", TEST_RELEASE_PUBLIC_KEY)
+
+    status = cli_commands.cmd_preclassify(
+        argparse.Namespace(
+            root=root,
+            corpus_path=corpus,
+            worklist=worklist,
+            corpus_citation_path=None,
+            no_llm=True,
+            run_id=None,
+            log_dir=None,
+            json=True,
+        )
+    )
+
+    assert status == 0
+    payload = json.loads(capsys.readouterr().out)
+    attestation = payload["results"][0]["event"]["attrs"]["source_attestation"]
+    assert attestation["requested_corpus_citation_path"] == citation
+    assert attestation["corpus_release"] == "judges-test-release"
+
+
+def test_preclassify_command_rejects_raw_source_worklist(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    citation = "us/statute/26/1"
+    root, _module, _manifest = _regeneration_fixture(tmp_path, citation=citation)
+    corpus = _corpus_fixture(tmp_path, citation=citation)
+    worklist = tmp_path / "worklist.json"
+    worklist.write_text(
+        json.dumps([{"citation": citation, "source_text": "unbound"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", TEST_RELEASE_PUBLIC_KEY)
+
+    status = cli_commands.cmd_preclassify(
+        argparse.Namespace(
+            root=root,
+            corpus_path=corpus,
+            worklist=worklist,
+            corpus_citation_path=None,
+            no_llm=True,
+            run_id=None,
+            log_dir=None,
+            json=True,
+        )
+    )
+
+    assert status == 2
+    assert "corpus_citation_path must be a string" in capsys.readouterr().err
+
+
+def test_fidelity_command_binds_named_release_attestation(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    citation = "us/statute/26/1"
+    root, module, _manifest = _regeneration_fixture(tmp_path, citation=citation)
+    corpus = _corpus_fixture(tmp_path, citation=citation)
+    monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", TEST_RELEASE_PUBLIC_KEY)
+    seen: dict[str, str] = {}
+
+    def fake_run(provision_text, generated_rule, **kwargs):
+        seen["provision_text"] = provision_text
+        seen["generated_rule"] = generated_rule
+        seen["citation"] = kwargs["citation"]
+        return JudgeEvent(
+            stage=JudgeStage.STATUTORY_FIDELITY,
+            verdict=Verdict.PASS,
+        )
+
+    monkeypatch.setattr(statutory_fidelity, "run", fake_run)
+    status = cli_commands.cmd_judge_fidelity(
+        argparse.Namespace(
+            root=root,
+            corpus_path=corpus,
+            corpus_citation_path=citation,
+            rule_file=root / module,
+            rule_path=None,
+            run_id=None,
+            log_dir=None,
+            json=True,
+        )
+    )
+
+    assert status == 0
+    assert seen["provision_text"] == "authoritative source"
+    assert seen["citation"] == citation
+    payload = json.loads(capsys.readouterr().out)
+    attestation = payload["attrs"]["source_attestation"]
+    assert attestation["requested_corpus_citation_path"] == citation
+    assert attestation["corpus_release"] == "judges-test-release"
+
+
 # -- drift ----------------------------------------------------------------
 
 
@@ -514,46 +650,140 @@ def _regeneration_fixture(
     citation: str = "us/statute/26/1",
     backend: str = "openai",
     tool: str = "axiom-encode encode --apply",
-    root_mirror: bool = False,
 ) -> tuple[Path, str, Path]:
     root = tmp_path / "rulespec-us"
     module_path = root / module
     module_path.parent.mkdir(parents=True, exist_ok=True)
-    module_path.write_text("outputs: {}\n", encoding="utf-8")
-    relative = Path(module)
-    content_relative = Path(*relative.parts[1:])
-    if root_mirror:
-        manifest = (
-            root / ".axiom" / "encoding-manifests" / relative.with_suffix(".json")
-        )
-        applied_path = relative.as_posix()
-    else:
-        manifest = (
-            root
-            / relative.parts[0]
-            / ".axiom"
-            / "encoding-manifests"
-            / content_relative.with_suffix(".json")
-        )
-        applied_path = content_relative.as_posix()
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "citation": citation,
-                "backend": backend,
-                "tool": tool,
-                "applied_files": [
-                    {
-                        "path": applied_path,
-                        "sha256": hashlib.sha256(module_path.read_bytes()).hexdigest(),
-                    }
-                ],
-            }
-        ),
+    source_sha256 = "a" * 64
+    module_path.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {citation}\n"
+        f"    source_sha256: {source_sha256}\n"
+        "rules: []\n",
         encoding="utf-8",
     )
+    waiver = root / "known-validation-gaps.yaml"
+    if not waiver.exists():
+        waiver.write_text("validate_failures: {}\n", encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = root / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        'axiom_corpus_release = "judges-test-release"\n'
+        f'axiom_corpus_release_content_sha256 = "{"e" * 64}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n',
+        encoding="utf-8",
+    )
+    relative = Path(module)
+    manifest = root / ".axiom" / "encoding-manifests" / relative.with_suffix(".json")
+    applied_path = relative.as_posix()
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    jurisdiction, document_class, *_rest = citation.split("/")
+    provision_file = (
+        f"data/corpus/provisions/{jurisdiction}/{document_class}/test-release.jsonl"
+    )
+    source_attestation = {
+        "requested_corpus_citation_path": citation,
+        "resolved_corpus_citation_path": citation,
+        "corpus_source": "local",
+        "corpus_release": "judges-test-release",
+        "corpus_release_content_sha256": "e" * 64,
+        "corpus_release_selector_sha256": "b" * 64,
+        "provision_file": provision_file,
+        "provision_file_sha256": "c" * 64,
+        "row": {
+            "provision_file": provision_file,
+            "provision_file_sha256": "c" * 64,
+            "line_number": 1,
+            "record_id": f"test:{citation}",
+            "citation_path": citation,
+            "jurisdiction": jurisdiction,
+            "document_class": document_class,
+            "version": "test-release",
+            "source_path": f"sources/{jurisdiction}/{document_class}/test",
+            "source_as_of": "2026-01-01",
+            "expression_date": "2026-01-01",
+            "body_sha256": source_sha256,
+        },
+        "component_rows": [],
+        "source_sha256": source_sha256,
+        "resolved_text_sha256": source_sha256,
+        "generation_input_sha256": "d" * 64,
+        "rulespec_root": f"rulespec-us/{relative.parts[0]}",
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+    }
+    payload = {
+        "schema_version": "axiom-encode/applied-rulespec/v5",
+        "generated_at": "2026-07-11T00:00:00+00:00",
+        "citation": citation,
+        "backend": backend,
+        "tool": tool,
+        "axiom_encode_version": __version__,
+        "axiom_encode_git": {
+            "root": "/repo/axiom-encode",
+            "commit": "a" * 40,
+            "dirty_tracked": False,
+            "version": __version__,
+            "version_commit": "b" * 40,
+        },
+        "generation_prompt_sha256": None,
+        "run_id": "judges-test-run",
+        "runner": backend,
+        "model": "judges-test-model",
+        "validation_waiver_set_sha256": waiver_sha256,
+        "generated_output_root": str(tmp_path / "generated"),
+        "generated_output_file": None,
+        "generated_output_sha256": None,
+        "trace_file": None,
+        "trace_sha256": None,
+        "context_manifest_file": None,
+        "context_manifest_sha256": None,
+        "source_attestation": source_attestation,
+        "applied_files": [
+            {
+                "path": applied_path,
+                "sha256": hashlib.sha256(module_path.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    encoder_identity = {
+        "repository": "github.com/TheAxiomFoundation/axiom-encode",
+        "commit": "a" * 40,
+        "version": __version__,
+    }
+    payload["validation_execution"] = {
+        "schema": "axiom-encode/apply-validation-execution/v1",
+        "axiom_encode": encoder_identity,
+        "axiom_rules_engine": {
+            "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",
+            "commit": "e" * 40,
+        },
+        "policy_pre_apply": {
+            "rulespec_root": source_attestation["rulespec_root"],
+            "pre_apply_content_sha256": "a" * 64,
+            "pre_apply_file_count": 1,
+            "toolchain_contract_sha256": "b" * 64,
+            "validation_waiver_set_sha256": waiver_sha256,
+        },
+        "rulespec_dependencies": [],
+    }
+    from axiom_encode.cli import _sign_applied_encoding_manifest
+
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
     return root, module, manifest
+
+
+def _rewrite_signed_regeneration_manifest(manifest: Path, payload: dict) -> None:
+    from axiom_encode.cli import _sign_applied_encoding_manifest
+
+    payload.pop("signature", None)
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _corpus_fixture(
@@ -566,7 +796,9 @@ def _corpus_fixture(
     version = "test-release"
     provisions = corpus / "data" / "corpus" / "provisions" / parts[0] / parts[1]
     provisions.mkdir(parents=True, exist_ok=True)
-    with (provisions / "test.jsonl").open("a", encoding="utf-8") as provision_file:
+    with (provisions / f"{version}.jsonl").open(
+        "a", encoding="utf-8"
+    ) as provision_file:
         provision_file.write(
             json.dumps(
                 _corpus_provision_record(
@@ -577,9 +809,9 @@ def _corpus_fixture(
             )
             + "\n"
         )
-    selector = corpus / "manifests/releases/current.json"
+    selector = corpus / "manifests/releases/judges-test-release.json"
     selector.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"name": "current", "scopes": []}
+    payload = {"name": "judges-test-release", "scopes": []}
     if selector.exists():
         payload = json.loads(selector.read_text(encoding="utf-8"))
     scope = {
@@ -590,7 +822,84 @@ def _corpus_fixture(
     if scope not in payload["scopes"]:
         payload["scopes"].append(scope)
     selector.write_text(json.dumps(payload), encoding="utf-8")
+    from axiom_encode.corpus_resolver import (
+        CorpusSourceNotFoundError,
+        normalize_corpus_identifier,
+        resolve_local_corpus_source,
+    )
+
+    release = bind_test_corpus_release(
+        corpus,
+        "judges-test-release",
+        [
+            (
+                str(scope["jurisdiction"]),
+                str(scope["document_class"]),
+                str(scope["version"]),
+            )
+            for scope in payload["scopes"]
+        ],
+    )
+    rulespec_root = tmp_path / "rulespec-us"
+    waiver_path = rulespec_root / "known-validation-gaps.yaml"
+    if waiver_path.exists():
+        waiver_sha256 = hashlib.sha256(waiver_path.read_bytes()).hexdigest()
+        (rulespec_root / ".axiom/toolchain.toml").write_text(
+            "[toolchain]\n"
+            'axiom_corpus_release = "judges-test-release"\n'
+            f'axiom_corpus_release_content_sha256 = "{release.content_sha256}"\n'
+            f'validation_waiver_set_sha256 = "{waiver_sha256}"\n'
+        )
+    for manifest in (rulespec_root / ".axiom/encoding-manifests").rglob("*.json"):
+        manifest_payload = json.loads(manifest.read_text())
+        manifest_citation = manifest_payload.get("citation")
+        if not isinstance(manifest_citation, str):
+            continue
+        existing_attestation = manifest_payload.get("source_attestation")
+        if isinstance(existing_attestation, dict):
+            existing_attestation["corpus_release"] = release.name
+            existing_attestation["corpus_release_content_sha256"] = (
+                release.content_sha256
+            )
+            existing_attestation["corpus_release_selector_sha256"] = (
+                release.selector_sha256
+            )
+        try:
+            resolved = resolve_local_corpus_source(
+                normalize_corpus_identifier(manifest_citation),
+                release,
+            )
+        except CorpusSourceNotFoundError:
+            _rewrite_signed_regeneration_manifest(manifest, manifest_payload)
+            continue
+        applied_files = manifest_payload.get("applied_files")
+        if not isinstance(applied_files, list) or not applied_files:
+            continue
+        applied_path = rulespec_root / str(applied_files[0]["path"])
+        content = applied_path.read_text()
+        content = re.sub(
+            r"(?m)^(\s*source_sha256:\s*)[0-9a-f]{64}$",
+            rf"\g<1>{resolved.stored_body_sha256}",
+            content,
+        )
+        applied_path.write_text(content)
+        applied_files[0]["sha256"] = hashlib.sha256(
+            applied_path.read_bytes()
+        ).hexdigest()
+        source_attestation = resolved.to_attestation()
+        source_attestation["generation_input_sha256"] = "d" * 64
+        source_attestation["rulespec_root"] = (
+            f"rulespec-us/{Path(str(applied_files[0]['path'])).parts[0]}"
+        )
+        manifest_payload["source_attestation"] = source_attestation
+        _rewrite_signed_regeneration_manifest(manifest, manifest_payload)
     return corpus
+
+
+def _engine_fixture(tmp_path: Path) -> Path:
+    engine = tmp_path / "axiom-rules-engine"
+    engine.mkdir(exist_ok=True)
+    return engine
 
 
 def _corpus_provision_record(
@@ -641,6 +950,7 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
         "outputs: {}\n",
         root=root,
         corpus_path=corpus,
+        axiom_rules_path=_engine_fixture(tmp_path),
         backend="openai",
     )
 
@@ -652,60 +962,80 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
         "axiom_encode.cli",
         "encode",
     ]
-    assert command[command.index("--source-id") + 1] == "us:statutes/26/1"
+    assert "--source-id" not in command
     assert Path(command[command.index("--corpus-path") + 1]) == corpus
-    assert Path(command[command.index("--policy-repo-path") + 1]) == root / "us"
+    assert Path(command[command.index("--axiom-rules-engine-path") + 1]) == (
+        _engine_fixture(tmp_path)
+    )
+    assert Path(command[command.index("--policy-repo-path") + 1]) == root
     assert command[-2:] == ["--", "us/statute/26/1"]
     assert kwargs["shell"] is False
     assert kwargs["timeout"] == regeneration.REGENERATION_TIMEOUT_SECONDS
     assert kwargs["env"]["OPENAI_API_KEY"] == "openai-test-key"
+    assert kwargs["env"]["AXIOM_CORPUS_RELEASE_PUBLIC_KEY"] == TEST_RELEASE_PUBLIC_KEY
     assert "ANTHROPIC_API_KEY" not in kwargs["env"]
     assert "GH_TOKEN" not in kwargs["env"]
     assert "GITHUB_TOKEN" not in kwargs["env"]
     assert "AXIOM_REPO_TOKEN" not in kwargs["env"]
     assert regenerated == "outputs:\n  result: 1\n"
 
+    # Exercise the fixed argv through the real child parser and canonical
+    # checkout resolver. A content-root argument (``root / "us"``) looks
+    # plausible at this subprocess boundary but is rejected by child encode.
+    from axiom_encode import cli as encode_cli
 
-def test_drift_regenerator_preserves_requested_child_with_local_only_resolution(
+    parsed: dict[str, Path] = {}
+
+    def resolve_only(args):
+        parsed["checkout"] = args.policy_repo_path
+        parsed["content_root"] = (
+            encode_cli._resolve_explicit_policy_repo_for_corpus_source(
+                args.citation,
+                args.policy_repo_path,
+            )
+        )
+
+    monkeypatch.setattr(encode_cli, "cmd_encode", resolve_only)
+    monkeypatch.setattr(sys, "argv", ["axiom-encode", *command[3:]])
+    encode_cli.main()
+
+    assert parsed == {"checkout": root, "content_root": root / "us"}
+
+
+def test_drift_regenerator_rejects_module_at_noncanonical_citation_path(
     tmp_path, monkeypatch
 ):
     root, module, _manifest = _regeneration_fixture(
         tmp_path,
-        citation="us/statute/26/1",
+        citation="us/statute/26/section/1",
     )
-    corpus = _corpus_fixture(tmp_path, citation="us/statute/26")
-    provision = corpus / "data/corpus/provisions/us/statute/test.jsonl"
-    provision.write_text(
-        json.dumps(
-            _corpus_provision_record(
-                "us/statute/26/1",
-                "(1) authoritative source",
-            )
-        )
-        + "\n"
+    corpus = _corpus_fixture(
+        tmp_path,
+        citation="us/statute/26/section/1",
     )
-    captured_command: list[str] = []
+    called = False
 
-    def fake_run(command, **_kwargs):
-        captured_command.extend(command)
-        output_root = Path(command[command.index("--output") + 1])
-        generated = output_root / "openai-gpt-5.5" / "statutes/26/1.yaml"
-        generated.parent.mkdir(parents=True)
-        generated.write_text("outputs: {}\n")
-        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    def fake_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("noncanonical module path reached subprocess")
 
     monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
 
-    regeneration.regenerate_module(
-        module,
-        "outputs: {}\n",
-        root=root,
-        corpus_path=corpus,
-    )
+    with pytest.raises(
+        regeneration.RegenerationInputError,
+        match="canonically encodes.*migrate or re-encode",
+    ):
+        regeneration.regenerate_module(
+            module,
+            "outputs: {}\n",
+            root=root,
+            corpus_path=corpus,
+            axiom_rules_path=_engine_fixture(tmp_path),
+        )
 
-    assert "--local-corpus-only" in captured_command
-    assert captured_command[-2:] == ["--", "us/statute/26/1"]
+    assert called is False
 
 
 def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monkeypatch):
@@ -730,6 +1060,7 @@ def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monke
             merged,
             root=root,
             corpus_path=corpus,
+            axiom_rules_path=_engine_fixture(tmp_path),
         ),
     )
     report = drift.DriftReport(checked=[result])
@@ -863,14 +1194,15 @@ def test_drift_regenerator_supports_root_mirror_state_manifest(tmp_path):
         tmp_path,
         module="us-oh/statutes/5747/71.yaml",
         citation="us-oh/statute/5747.71",
-        root_mirror=True,
     )
     relative = regeneration.validate_module_path(root, module)
+    citation = regeneration.read_citation(root, relative)
 
-    assert regeneration.read_citation(root, relative) == "us-oh/statute/5747.71"
-    assert regeneration.source_id_for_module(root, relative) == (
-        "us-oh:statutes/5747/71"
-    )
+    assert citation == "us-oh/statute/5747.71"
+    assert regeneration.require_citation_derived_output_path(
+        relative,
+        citation,
+    ) == Path("statutes/5747/71.yaml")
     assert manifest == (
         root / ".axiom" / "encoding-manifests" / "us-oh/statutes/5747/71.json"
     )
@@ -885,9 +1217,10 @@ def test_drift_regenerator_allows_colon_in_contained_module_path(tmp_path):
     relative = regeneration.validate_module_path(root, module)
 
     assert regeneration.generated_subpath(relative) == Path("statutes/47:294.yaml")
-    assert regeneration.source_id_for_module(root, relative) == (
-        "us-la:statutes/47:294"
-    )
+    assert regeneration.require_citation_derived_output_path(
+        relative,
+        "us-la/statute/47:294",
+    ) == Path("statutes/47:294.yaml")
 
 
 @pytest.mark.parametrize(
@@ -924,6 +1257,7 @@ def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, mo
             "outputs: {}\n",
             root=root,
             corpus_path=corpus,
+            axiom_rules_path=_engine_fixture(tmp_path),
         )
 
     assert called is False
@@ -932,14 +1266,52 @@ def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, mo
 
 def test_drift_regenerator_rejects_symlink_escape(tmp_path):
     root = tmp_path / "rulespec-us"
-    module_path = root / "us/statute/26/1.yaml"
+    module_path = root / "us/statutes/26/1.yaml"
     module_path.parent.mkdir(parents=True)
     outside = tmp_path / "outside.yaml"
     outside.write_text("outputs: {}\n", encoding="utf-8")
     module_path.symlink_to(outside)
 
     with pytest.raises(ValueError, match="symlink|escapes"):
-        regeneration.validate_module_path(root, "us/statute/26/1.yaml")
+        regeneration.validate_module_path(root, "us/statutes/26/1.yaml")
+
+
+def test_drift_regenerator_rejects_flat_legacy_module_layout(tmp_path):
+    root = tmp_path / "rulespec-us"
+    module_path = root / "statutes/26/1.yaml"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text("outputs: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="exact canonical"):
+        regeneration.validate_module_path(root, "statutes/26/1.yaml")
+
+    with pytest.raises(ValueError, match="jurisdiction"):
+        regeneration.generated_subpath(PurePosixPath("statutes/26/1.yaml"))
+
+
+def test_drift_regenerator_rejects_composition_spec_path(tmp_path):
+    root, module, _manifest = _regeneration_fixture(
+        tmp_path,
+        module="us/programs/snap/fy-2026.yaml",
+        citation="us/policy/snap/fy-2026",
+    )
+
+    with pytest.raises(ValueError, match="atomic-module-root"):
+        regeneration.validate_module_path(root, module)
+
+    with pytest.raises(ValueError, match="atomic-module-root"):
+        regeneration.generated_subpath(PurePosixPath(module))
+
+
+def test_drift_regenerator_rejects_legacy_content_relative_manifest_path(tmp_path):
+    root, module, manifest = _regeneration_fixture(tmp_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["applied_files"][0]["path"] = "statutes/26/1.yaml"
+    _rewrite_signed_regeneration_manifest(manifest, payload)
+
+    relative = regeneration.validate_module_path(root, module)
+    with pytest.raises(regeneration.RegenerationInputError, match="invalid encoding"):
+        regeneration.load_replay_manifest(root, relative)
 
 
 def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeypatch):
@@ -947,7 +1319,7 @@ def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeyp
     corpus = _corpus_fixture(tmp_path)
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["citation"] = "us/statute/26/1/../../../../tmp/owned"
-    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    _rewrite_signed_regeneration_manifest(manifest, payload)
     called = False
 
     def fake_run(*_args, **_kwargs):
@@ -963,6 +1335,7 @@ def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeyp
             "outputs: {}\n",
             root=root,
             corpus_path=corpus,
+            axiom_rules_path=_engine_fixture(tmp_path),
         )
 
     assert called is False
@@ -973,35 +1346,41 @@ def test_drift_loader_samples_only_current_replayable_encodes(tmp_path, capsys):
     unmanifested = root / "us/statutes/26/2.yaml"
     unmanifested.parent.mkdir(parents=True, exist_ok=True)
     unmanifested.write_text("outputs: {}\n", encoding="utf-8")
-    _root, deterministic_module, _deterministic_manifest = _regeneration_fixture(
-        tmp_path,
-        module="us/policies/cms/generated.yaml",
-        citation="us/policy/cms/generated",
-        backend="deterministic",
-        tool="axiom-encode generate-cms-chip-eligibility-composition",
-    )
 
     loaded = cli_commands._load_drift_modules(
         argparse.Namespace(root=root, modules_file=None)
     )
 
-    assert loaded == {module: "outputs: {}\n"}
-    assert deterministic_module not in loaded
-    assert "skipped 2 non-replayable drift candidates" in capsys.readouterr().err
+    assert loaded == {module: (root / module).read_text()}
+    assert "skipped 1 non-replayable drift candidate" in capsys.readouterr().err
 
 
-def test_drift_loader_checks_anthropic_manifest_instead_of_skipping(tmp_path, capsys):
+def test_drift_loader_ignores_composition_specs(tmp_path, capsys):
+    root, module, _manifest = _regeneration_fixture(tmp_path)
+    program_spec = root / "us/programs/snap/fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    program_spec.write_text("not: [valid\n", encoding="utf-8")
+
+    loaded = cli_commands._load_drift_modules(
+        argparse.Namespace(root=root, modules_file=None)
+    )
+
+    assert loaded == {module: (root / module).read_text()}
+    assert "programs" not in capsys.readouterr().err
+
+
+def test_drift_loader_rejects_legacy_anthropic_backend(tmp_path, capsys):
     root, module, manifest = _regeneration_fixture(tmp_path)
     payload = json.loads(manifest.read_text())
     payload["backend"] = "anthropic"
-    manifest.write_text(json.dumps(payload))
+    _rewrite_signed_regeneration_manifest(manifest, payload)
 
     loaded = cli_commands._load_drift_modules(
         argparse.Namespace(root=root, modules_file=None)
     )
 
-    assert loaded == {module: "outputs: {}\n"}
-    assert "non-replayable" not in capsys.readouterr().err
+    assert loaded is None
+    assert "backend is not canonical" in capsys.readouterr().err
 
 
 def test_drift_loader_reports_missing_root_without_traceback(tmp_path, capsys):
@@ -1019,8 +1398,8 @@ def test_drift_selection_skips_citations_missing_from_local_corpus(tmp_path, cap
     root, resolvable, _manifest = _regeneration_fixture(tmp_path)
     _root, missing, _missing_manifest = _regeneration_fixture(
         tmp_path,
-        module="us/statutes/26/2.yaml",
-        citation="policies/irs/non-canonical",
+        module="us/policies/irs/non-canonical.yaml",
+        citation="us/policy/irs/non-canonical",
     )
     corpus = _corpus_fixture(tmp_path)
     valid_modules = {resolvable}
@@ -1056,8 +1435,8 @@ def test_drift_selection_fails_if_requested_sample_cannot_be_filled(tmp_path, ca
     root, _resolvable, _manifest = _regeneration_fixture(tmp_path)
     _root, _missing, _missing_manifest = _regeneration_fixture(
         tmp_path,
-        module="us/statutes/26/2.yaml",
-        citation="policies/irs/non-canonical",
+        module="us/policies/irs/non-canonical.yaml",
+        citation="us/policy/irs/non-canonical",
     )
     corpus = _corpus_fixture(tmp_path)
     modules = cli_commands._load_drift_modules(
@@ -1094,70 +1473,7 @@ def test_drift_selection_rejects_checkout_without_provisions(tmp_path, capsys):
     )
 
     assert selected is None
-    assert "no provisions directory" in capsys.readouterr().err
-
-
-def test_drift_regenerator_rejects_symlinked_corpus_provisions_tree(tmp_path):
-    corpus = tmp_path / "axiom-corpus"
-    (corpus / "data" / "corpus").mkdir(parents=True)
-    outside = tmp_path / "outside-provisions"
-    outside.mkdir()
-    (outside / "source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/26/1", "body": "outside"}) + "\n",
-        encoding="utf-8",
-    )
-    (corpus / "data" / "corpus" / "provisions").symlink_to(
-        outside,
-        target_is_directory=True,
-    )
-
-    with pytest.raises(ValueError, match="provisions path contains a symlink"):
-        regeneration.validate_corpus_path(corpus)
-
-
-def test_drift_regenerator_rejects_symlinked_corpus_provision_file(tmp_path):
-    corpus = tmp_path / "axiom-corpus"
-    provisions = corpus / "data" / "corpus" / "provisions" / "us" / "statute"
-    provisions.mkdir(parents=True)
-    outside = tmp_path / "outside.jsonl"
-    outside.write_text(
-        json.dumps({"citation_path": "us/statute/26/1", "body": "outside"}) + "\n",
-        encoding="utf-8",
-    )
-    (provisions / "source.jsonl").symlink_to(outside)
-
-    with pytest.raises(ValueError, match="provisions tree contains a symlink"):
-        regeneration.validate_corpus_path(corpus)
-
-
-def test_drift_regenerator_rejects_symlinked_corpus_claims_tree(tmp_path):
-    corpus = _corpus_fixture(tmp_path)
-    outside = tmp_path / "outside-claims"
-    outside.mkdir()
-    (outside / "claims.jsonl").write_text(
-        json.dumps({"id": "claim.secret", "status": "accepted"}) + "\n",
-        encoding="utf-8",
-    )
-    claims = corpus / "data" / "corpus" / "claims"
-    claims.symlink_to(outside, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="claims path contains a symlink"):
-        regeneration.validate_corpus_path(corpus)
-
-
-def test_drift_regenerator_rejects_symlinked_corpus_claim_file(tmp_path):
-    corpus = _corpus_fixture(tmp_path)
-    claims = corpus / "data" / "corpus" / "claims" / "us"
-    claims.mkdir(parents=True)
-    outside = tmp_path / "outside-claim.jsonl"
-    outside.write_text(
-        json.dumps({"id": "claim.secret", "status": "accepted"}) + "\n",
-        encoding="utf-8",
-    )
-    (claims / "claims.jsonl").symlink_to(outside)
-
-    with pytest.raises(ValueError, match="claims tree contains a symlink"):
-        regeneration.validate_corpus_path(corpus)
+    assert "invalid corpus release" in capsys.readouterr().err
 
 
 def test_drift_loader_rejects_module_symlink_before_read(tmp_path, capsys):
@@ -1196,6 +1512,27 @@ def test_drift_regeneration_is_openai_only(monkeypatch):
 
     with pytest.raises(ValueError, match="unsupported regeneration backend"):
         regeneration.child_environment("codex")
+
+
+def test_drift_child_environment_requires_release_public_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.delenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY")
+
+    with pytest.raises(RuntimeError, match="AXIOM_CORPUS_RELEASE_PUBLIC_KEY"):
+        regeneration.child_environment("openai")
+
+
+def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", "release-public-key")
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY",
+        "must-not-leak",
+    )
+
+    env = regeneration.child_environment("openai")
+
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in env
 
 
 def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
@@ -1244,6 +1581,72 @@ def test_drift_cli_rejects_in_process_issue_publication():
         )
 
 
+@pytest.mark.parametrize(
+    "argv",
+    (
+        [
+            "preclassify",
+            "--root",
+            "rulespec-us",
+            "--corpus-path",
+            "axiom-corpus",
+            "--corpus-citation-path",
+            "us/statute/26/1",
+            "--source-file",
+            "source.txt",
+        ],
+        [
+            "judge-fidelity",
+            "--root",
+            "rulespec-us",
+            "--corpus-path",
+            "axiom-corpus",
+            "--corpus-citation-path",
+            "us/statute/26/1",
+            "--rule-file",
+            "rule.yaml",
+            "--provision-file",
+            "source.txt",
+        ],
+        [
+            "judge-fidelity",
+            "--root",
+            "rulespec-us",
+            "--corpus-path",
+            "axiom-corpus",
+            "--corpus-citation-path",
+            "us/statute/26/1",
+            "--rule-file",
+            "rule.yaml",
+            "--calibrate",
+        ],
+    ),
+)
+def test_judge_cli_rejects_retired_raw_source_surfaces(argv):
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    cli_commands.register_judge_subparsers(subparsers)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(argv)
+
+
+def test_live_drift_cli_requires_explicit_engine_root(capsys):
+    status = cli_commands.cmd_drift_check(
+        argparse.Namespace(
+            regenerate=True,
+            dry_run=False,
+            root=Path("rulespec-us"),
+            corpus_path=Path("axiom-corpus"),
+            axiom_rules_path=None,
+            modules_file=None,
+        )
+    )
+
+    assert status == 2
+    assert "--axiom-rules-engine-path" in capsys.readouterr().err
+
+
 def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     workflow_path = (
         Path(__file__).parents[1] / ".github" / "workflows" / "golden-regeneration.yml"
@@ -1254,6 +1657,11 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
         step
         for step in jobs["drift"]["steps"]
         if step.get("name") == "Run live drift check"
+    )
+    dry_run_step = next(
+        step
+        for step in jobs["drift"]["steps"]
+        if step.get("name") == "Validate dry-run wiring"
     )
     publish_step = next(
         step
@@ -1298,9 +1706,16 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
     assert upload_step["with"]["overwrite"] is True
     assert "OPENAI_API_KEY" in live_step["env"]
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in live_step["env"]
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in dry_run_step["env"]
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in live_step["env"]
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in dry_run_step["env"]
+    assert "--axiom-rules-engine-path" in live_step["run"]
+    assert "AXIOM_RULES_ENGINE_ROOT" in live_step["run"]
     assert "GH_TOKEN" not in live_step["env"]
     assert "GH_TOKEN" in publish_step["env"]
     assert "OPENAI_API_KEY" not in publish_step["env"]
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in publish_step["env"]
     assert engine_checkout["with"]["ref"] == (
         "38b5f646165f18f64307f1eef226c7a6f2d4936e"
     )
@@ -1312,6 +1727,39 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
         re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"]) for step in action_steps
     )
     assert all(step["with"]["version"] == "0.11.7" for step in setup_uv_steps)
+
+
+def test_bulk_worklist_workflow_has_no_legacy_generation_lane():
+    workflow_path = (
+        Path(__file__).parents[1] / ".github" / "workflows" / "bulk-encode.yml"
+    )
+    raw = workflow_path.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(raw)
+
+    assert set(workflow["jobs"]) == {"preclassify"}
+    assert "run_generation:" not in raw
+    assert 'axiom-encode", "encode' not in raw
+    assert "OPENAI_API_KEY" not in raw
+    assert "source_text" not in raw
+    assert "--root external/rulespec" in raw
+    assert "--corpus-path external/axiom-corpus" in raw
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in raw
+    checkout_steps = [
+        step
+        for step in workflow["jobs"]["preclassify"]["steps"]
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert len(checkout_steps) == 3
+    assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
+    assert any(
+        step["with"].get("repository") == "TheAxiomFoundation/axiom-corpus"
+        for step in checkout_steps
+    )
+    assert all(
+        re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
+        for step in workflow["jobs"]["preclassify"]["steps"]
+        if "uses" in step
+    )
 
 
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)

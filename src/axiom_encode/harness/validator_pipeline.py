@@ -3,7 +3,7 @@ Validator Pipeline - 3-tier validation architecture.
 
 Tiers (run in order):
 1. RuleSpec compile checks - instant, catches syntax/format errors
-2. External oracles (PolicyEngine, TAXSIM) - fast (~10s), generates comparison data
+2. Explicit local PolicyEngine oracle - fast (~10s), generates comparison data
 3. LLM reviewers (RuleSpec, formula, parameter, integration) - uses oracle context
 
 Oracles run BEFORE LLM reviewers because:
@@ -40,33 +40,42 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Optional
 
 import yaml
-
-from axiom_encode.codex_cli import resolve_codex_cli
-from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
-from axiom_encode.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
-from axiom_encode.corpus_resolver import (
-    CorpusRemoteError,
-    CorpusResolutionError,
-    CorpusSourceNotFoundError,
-    UnsafeCorpusPathError,
-    resolve_local_corpus_source,
-    resolve_supabase_corpus_source,
-)
-from axiom_encode.oracles.policyengine.adapters import (
+from axiom_oracles.bridges.adapters import (
     PE_US_MONTHLY_VAR_NAMES,
     PE_US_SPM_VAR_NAMES,
     PolicyEngineUSVarAdapter,
     get_pe_us_var_adapter,
     normalize_state_code_from_utility_region,
 )
-from axiom_encode.oracles.policyengine.registry import (
+from axiom_oracles.bridges.registry import (
     PolicyEngineMapping,
     PolicyEngineOracleCoverage,
     load_policyengine_registry,
 )
+
+from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
+from axiom_encode.constants import (
+    DEFAULT_OPENAI_MODEL,
+    REVIEWER_CLI_MODEL,
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_TEST_FILE_SUFFIX,
+)
+from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
+    CorpusSourceNotFoundError,
+    InvalidCorpusCitationError,
+    LocalCorpusRelease,
+    UnsafeCorpusPathError,
+    require_canonical_corpus_citation_path,
+    resolve_local_corpus_source,
+)
 from axiom_encode.repo_routing import (
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
+    canonical_rulespec_root_identity,
     find_policy_repo_root,
     is_jurisdiction_content_root,
     jurisdiction_subdir_names,
@@ -81,10 +90,21 @@ from .dependency_stubs import (
     resolve_defined_terms_from_text,
     rulespec_content_has_stub_status,
     rulespec_file_has_stub_status,
+    validate_rulespec_context_directory,
     validate_rulespec_context_file,
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
-from .proof_validator import find_rulespec_proof_issues, validate_rulespec_proofs
+from .eval_evidence import scrub_attestation_signing_keys
+from .policyengine_runtime import (
+    PolicyEngineRuntime,
+    PolicyEngineRuntimeError,
+    policyengine_subprocess_environment,
+)
+from .proof_validator import (
+    find_plural_corpus_citation_path_issues,
+    find_rulespec_proof_issues,
+    validate_rulespec_proofs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,30 +116,43 @@ _SENSITIVE_ENV_NAME_MARKERS = (
     "SECRET",
     "TOKEN",
 )
-_AUTHORITATIVE_CORPUS_ROOT: ContextVar[Path | None] = ContextVar(
-    "axiom_authoritative_corpus_root",
+_AUTHORITATIVE_CORPUS_RELEASE: ContextVar[LocalCorpusRelease | None] = ContextVar(
+    "axiom_authoritative_corpus_release",
     default=None,
 )
-_MAX_LOCAL_CORPUS_JSONL_BYTES = 64 * 1024 * 1024
+_AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = ContextVar(
+    "axiom_authoritative_rulespec_dependency_roots",
+    default=(),
+)
 
 
 @contextlib.contextmanager
 def _authoritative_corpus_scope(
-    corpus_root: Path | None,
-) -> Iterator[Path | None]:
-    """Restrict corpus lookups to one explicit checkout for the whole scope."""
+    release: LocalCorpusRelease,
+) -> Iterator[LocalCorpusRelease]:
+    """Restrict corpus lookups to one named local release for the whole scope."""
 
-    # A proof-free RuleSpec does not need a corpus checkout.  Keep a missing
-    # configured root authoritative, though, so claim/evidence lookups fail
-    # closed instead of falling back to an ambient AXIOM_CORPUS_REPO checkout.
-    resolved_root = (
-        Path(corpus_root).resolve(strict=False) if corpus_root is not None else None
-    )
-    token = _AUTHORITATIVE_CORPUS_ROOT.set(resolved_root)
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    token = _AUTHORITATIVE_CORPUS_RELEASE.set(release)
     try:
-        yield resolved_root
+        yield release
     finally:
-        _AUTHORITATIVE_CORPUS_ROOT.reset(token)
+        _AUTHORITATIVE_CORPUS_RELEASE.reset(token)
+
+
+@contextlib.contextmanager
+def _authoritative_rulespec_dependency_scope(
+    roots: Iterable[Path],
+) -> Iterator[tuple[Path, ...]]:
+    """Bind the exact caller-authorized RuleSpec dependency checkouts."""
+
+    normalized = _normalize_rulespec_dependency_roots(roots)
+    token = _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.set(normalized)
+    try:
+        yield normalized
+    finally:
+        _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.reset(token)
 
 
 def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
@@ -130,16 +163,6 @@ def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
         for name, value in env.items()
         if not any(marker in name.upper() for marker in _SENSITIVE_ENV_NAME_MARKERS)
     }
-
-
-DEFAULT_AXIOM_SUPABASE_URL = "https://swocpijqqahhuwtuahwc.supabase.co"
-DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3b2NwaWpxcWFoaHV3dHVhaHdjI"
-    "iwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMzU3NzcsImV4cCI6MjA5Mjkx"
-    "MTc3N30."
-    "spiF6Z6LLJmETL8eI0z_QbwgXce7J5CIqHTiXZ6K9Zk"
-)
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -206,7 +229,27 @@ def run_claude_code(
     if reviewer_cli_preference == "codex":
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
 
-    cmd = ["claude", "--print", "--model", model, "-p", prompt]
+    cmd = [
+        "claude",
+        "--print",
+        "--permission-mode",
+        "dontAsk",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--no-chrome",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{}",
+        "--tools",
+        "",
+        "--allowed-tools",
+        "",
+        "--model",
+        model,
+        "-p",
+        prompt,
+    ]
 
     try:
         idle_timeout_env = os.getenv(
@@ -220,6 +263,7 @@ def run_claude_code(
             timeout=timeout,
             idle_timeout=idle_timeout,
             cwd=cwd,
+            env=scrub_attestation_signing_keys(),
         )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
@@ -299,6 +343,7 @@ def _run_subprocess_with_idle_timeout(
     timeout: int,
     idle_timeout: int,
     cwd: Optional[Path] = None,
+    env: Mapping[str, str] | None = None,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -315,6 +360,11 @@ def _run_subprocess_with_idle_timeout(
             stderr=stderr_file,
             text=True,
             cwd=cwd,
+            env=(
+                scrub_attestation_signing_keys()
+                if env is None
+                else scrub_attestation_signing_keys(env)
+            ),
         )
 
     start = time.time()
@@ -794,9 +844,7 @@ def _rule_has_source_proof(rule: dict[str, Any]) -> bool:
             continue
         source = atom.get("source")
         if isinstance(source, dict) and (
-            source.get("corpus_citation_path")
-            or source.get("corpus_citation_paths")
-            or source.get("excerpt")
+            source.get("corpus_citation_path") or source.get("excerpt")
         ):
             return True
     return False
@@ -1582,9 +1630,6 @@ _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
 )
 _APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
-_UPSTREAM_SOURCE_CHECK_BASELINE_PATH = (
-    Path(".axiom") / "upstream-source-check-baseline.txt"
-)
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
     r"section\s+(?P<section>[0-9A-Za-z.-]+(?:\([^)]+\))*)"
@@ -1593,89 +1638,13 @@ _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
 )
 
 
-def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] | None:
-    """Load source-metadata from a nearby eval workspace when present.
-
-    When several workspaces share a parent directory (e.g. /tmp encode runs
-    for siblings a, c, d under one eval root), pick the manifest whose
-    citation maps to the same RuleSpec output path as `rulespec_file`. Falling
-    back to the first alphabetical manifest mixes up sibling subsections —
-    validate of c.yaml would silently load a/'s metadata and reject (c) for
-    not covering (a)'s siblings.
-    """
-    rulespec_norm = _rulespec_file_normalized_target(rulespec_file)
-    fallback: dict[str, object] | None = None
-    for ancestor in rulespec_file.parents:
-        eval_root = ancestor / "_eval_workspaces"
-        if not eval_root.exists():
-            continue
-        for manifest_path in sorted(eval_root.glob("**/context-manifest.json")):
-            try:
-                payload = json.loads(manifest_path.read_text())
-            except Exception:
-                continue
-            metadata = payload.get("source_metadata")
-            if not isinstance(metadata, dict):
-                continue
-            if fallback is None:
-                fallback = metadata
-            if rulespec_norm is None:
-                continue
-            citation_raw = payload.get("citation")
-            manifest_norms: list[tuple[str, ...]] = []
-            for candidate in (
-                citation_raw,
-                metadata.get("requested_source"),
-                metadata.get("corpus_citation_path"),
-            ):
-                if not isinstance(candidate, str):
-                    continue
-                candidate_norm = _citation_to_normalized_target(candidate)
-                if candidate_norm is not None:
-                    manifest_norms.append(candidate_norm)
-            if rulespec_norm in manifest_norms:
-                return metadata
-    return fallback
-
-
-def _load_applied_encoding_manifest_source_metadata(
-    rulespec_file: Path,
-    policy_repo_path: Path,
-) -> dict[str, object] | None:
-    """Load durable requested-source metadata from a generated apply manifest."""
-    try:
-        relative_rulespec = rulespec_file.resolve().relative_to(
-            policy_repo_path.resolve()
-        )
-    except (OSError, ValueError):
-        return None
-    manifest_path = (
-        policy_repo_path
-        / _APPLIED_ENCODING_MANIFEST_DIR
-        / relative_rulespec.with_suffix(".json")
-    )
-    if not manifest_path.exists():
-        return None
-    try:
-        payload = json.loads(manifest_path.read_text())
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    source_metadata = payload.get("source_metadata")
-    metadata: dict[str, object] = (
-        dict(source_metadata) if isinstance(source_metadata, dict) else {}
-    )
-    citation = payload.get("citation")
-    if isinstance(citation, str) and citation.strip():
-        metadata.setdefault("requested_source", citation.strip())
-    return metadata or None
-
-
 def _requested_source_from_metadata(metadata: dict[str, object] | None) -> str | None:
     if not isinstance(metadata, dict):
         return None
-    requested_source = metadata.get("requested_source")
+    attestation = metadata.get("source_attestation")
+    if not isinstance(attestation, dict):
+        return None
+    requested_source = attestation.get("requested_corpus_citation_path")
     if not isinstance(requested_source, str):
         return None
     requested_source = requested_source.strip()
@@ -2184,10 +2153,11 @@ def _infer_us_state_code_from_rulespec_path(
     rulespec_source_content: str = "",
 ) -> str | None:
     """Infer a US state code from canonical RuleSpec repo paths or legal ids."""
-    path_text = rulespec_file.as_posix().lower()
-    match = re.search(r"(?:^|/)rulespec-us-([a-z]{2})(?:/|$)", path_text)
-    if match:
-        return match.group(1).upper()
+    content_root = find_policy_repo_root(rulespec_file)
+    if content_root is not None:
+        match = re.fullmatch(r"us-([a-z]{2})", content_root.name)
+        if match:
+            return match.group(1).upper()
 
     source_text = rulespec_source_content.lower()
     match = re.search(r"\bus-([a-z]{2}):", source_text)
@@ -4236,8 +4206,7 @@ def find_ungrounded_numeric_issues(
     if not source:
         return [
             "Numeric source required: RuleSpec defines policy numeric literals "
-            "but does not provide `source_verification.corpus_citation_path` "
-            "or `source_verification.corpus_citation_paths` text. "
+            "but does not provide `source_verification.corpus_citation_path` text. "
             "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
@@ -4312,54 +4281,12 @@ def find_deprecated_source_url_issues(content: str) -> list[str]:
         "Legacy source URL metadata not allowed: "
         + ", ".join(locations[:5])
         + ("; ..." if len(locations) > 5 else "")
-        + ". Use `module.source_verification.corpus_citation_path` or "
-        "`module.source_verification.corpus_citation_paths`."
+        + ". Use `module.source_verification.corpus_citation_path`."
     ]
 
 
-_SOURCE_CLAIM_ALLOWED_KINDS = frozenset(
-    {
-        "defines",
-        "sets",
-        "implements",
-        "amends",
-        "supersedes",
-        "restates",
-        "delegates",
-        "applies_to",
-        "requires",
-        "creates_exception",
-    }
-)
-_SOURCE_CLAIM_EXECUTABLE_KEYS = frozenset(
-    {
-        "formula",
-        "formulas",
-        "input",
-        "inputs",
-        "output",
-        "outputs",
-        "case",
-        "cases",
-        "test",
-        "tests",
-        "test_cases",
-        "runtime",
-        "trace",
-        "traces",
-        "result",
-        "results",
-        "eligibility",
-        "benefit_amount",
-        "decision",
-    }
-)
-_SOURCE_CLAIM_ABSOLUTE_TARGET_ID = re.compile(r"^[a-z][a-z0-9_.-]*:[^\s]+$")
-_SOURCE_CLAIM_FRIENDLY_CONCEPT_ID = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
-
-
 def find_source_claim_reference_issues(content: str) -> list[str]:
-    """Validate optional RuleSpec refs to accepted corpus-backed source claims."""
+    """Reject mutable source-claim references in favor of direct provisions."""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -4367,400 +4294,42 @@ def find_source_claim_reference_issues(content: str) -> list[str]:
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
 
+    issues: list[str] = []
     module = payload.get("module")
-    if not isinstance(module, dict) or "source_claims" not in module:
-        return []
-
-    raw_refs = module.get("source_claims")
-    if not isinstance(raw_refs, list) or not raw_refs:
-        return [
-            "Source claims malformed: `module.source_claims` must be a non-empty "
-            "list of accepted claim IDs."
-        ]
-
-    source_verification = _source_verification_block(payload)
-    citation_paths: tuple[str, ...] = ()
-    if source_verification is not None:
-        citation_paths, _ = _source_verification_source_fields(source_verification)
-
-    issues: list[str] = []
-    if not citation_paths:
+    if isinstance(module, dict) and "source_claims" in module:
         issues.append(
-            "Source claims require direct source verification: "
-            "`module.source_claims` may only supplement, not replace, "
-            "`module.source_verification.corpus_citation_path` or "
-            "`module.source_verification.corpus_citation_paths`."
+            "Source claims are not supported: `module.source_claims` references "
+            "mutable, release-agnostic claim artifacts. Cite immutable, "
+            "release-bound corpus provisions with "
+            "`module.source_verification.corpus_citation_path`, and use direct "
+            "proof atom `source` evidence."
         )
 
-    claim_ids = _extract_source_claim_ids(raw_refs)
-    if not claim_ids:
-        issues.append(
-            "Source claims malformed: `module.source_claims` must contain claim "
-            "IDs as strings or `{id: ...}` mappings."
-        )
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
         return issues
-
-    for claim_id in claim_ids:
-        claim = _fetch_local_source_claim_record(claim_id)
-        if claim is None:
-            issues.append(
-                "Source claim missing: "
-                f"`{claim_id}` was not found in local corpus claim artifacts."
-            )
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
             continue
-        issues.extend(
-            _validate_source_claim_record(
-                claim_id=claim_id,
-                claim=claim,
-                rulespec_citation_paths=citation_paths,
-            )
-        )
-
-    return issues
-
-
-def _extract_source_claim_ids(raw_refs: list[Any]) -> list[str]:
-    claim_ids: list[str] = []
-    for raw_ref in raw_refs:
-        claim_id = ""
-        if isinstance(raw_ref, str):
-            claim_id = raw_ref.strip()
-        elif isinstance(raw_ref, dict):
-            claim_id = str(raw_ref.get("id") or "").strip()
-        if claim_id:
-            claim_ids.append(claim_id)
-    return claim_ids
-
-
-def _validate_source_claim_record(
-    *,
-    claim_id: str,
-    claim: dict[str, Any],
-    rulespec_citation_paths: tuple[str, ...],
-) -> list[str]:
-    issues: list[str] = []
-
-    actual_id = str(claim.get("id") or "").strip()
-    if actual_id != claim_id:
-        issues.append(
-            "Source claim ID mismatch: "
-            f"`{claim_id}` resolved to a claim with id `{actual_id or '<missing>'}`."
-        )
-
-    status = str(claim.get("status") or "").strip()
-    if status != "accepted":
-        issues.append(
-            "Source claim not accepted: "
-            f"`{claim_id}` has status `{status or '<missing>'}`; RuleSpec may only "
-            "reference accepted source claims."
-        )
-
-    kind = str(claim.get("kind") or "").strip()
-    if kind not in _SOURCE_CLAIM_ALLOWED_KINDS:
-        allowed = ", ".join(sorted(_SOURCE_CLAIM_ALLOWED_KINDS))
-        issues.append(
-            "Source claim kind invalid: "
-            f"`{claim_id}` has kind `{kind or '<missing>'}`; allowed kinds are "
-            f"{allowed}."
-        )
-
-    executable_paths = _source_claim_executable_field_paths(claim)
-    if executable_paths:
-        issues.append(
-            "Source claim is executable: "
-            f"`{claim_id}` contains execution fields "
-            + ", ".join(f"`{path}`" for path in executable_paths[:5])
-            + ("; ..." if len(executable_paths) > 5 else "")
-            + ". Claims may assert source meaning but must not contain formulas, "
-            "case inputs, outputs, tests, runtime traces, decisions, or benefit amounts."
-        )
-
-    issues.extend(_validate_source_claim_subject(claim_id=claim_id, claim=claim))
-
-    evidence = claim.get("evidence")
-    if not isinstance(evidence, list) or not evidence:
-        issues.append(
-            "Source claim evidence missing: "
-            f"`{claim_id}` must cite at least one corpus evidence span."
-        )
-        return issues
-
-    for index, evidence_item in enumerate(evidence):
-        if not isinstance(evidence_item, dict):
-            issues.append(
-                "Source claim evidence malformed: "
-                f"`{claim_id}.evidence[{index}]` must be a mapping."
-            )
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        if not isinstance(proof, dict):
+            proof = rule.get("proof")
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
             continue
-        evidence_path = str(evidence_item.get("corpus_citation_path") or "").strip()
-        if not evidence_path:
+        rule_name = str(rule.get("name") or f"rules[{rule_index}]").strip()
+        for atom_index, atom in enumerate(atoms):
+            if not isinstance(atom, dict) or "claim" not in atom:
+                continue
             issues.append(
-                "Source claim evidence missing corpus path: "
-                f"`{claim_id}.evidence[{index}]` must declare "
-                "`corpus_citation_path`."
-            )
-            continue
-        if rulespec_citation_paths and evidence_path not in rulespec_citation_paths:
-            issues.append(
-                "Source claim evidence outside RuleSpec source: "
-                f"`{claim_id}` cites `{evidence_path}`, but the RuleSpec verifies "
-                "against "
-                + _format_source_verification_paths(rulespec_citation_paths)
-                + ". Add the corpus path to `module.source_verification` or split "
-                "the claim reference."
-            )
-        source_text = _fetch_corpus_source_text(evidence_path)
-        if source_text is None:
-            issues.append(
-                "Source claim evidence source missing: "
-                f"`{claim_id}.evidence[{index}]` cites `{evidence_path}`, "
-                "which was not found in corpus.provisions."
-            )
-            continue
-        quote = str(evidence_item.get("quote") or "").strip()
-        if quote and quote not in source_text:
-            issues.append(
-                "Source claim quote not found: "
-                f"`{claim_id}.evidence[{index}].quote` does not appear in "
-                f"`{evidence_path}`."
+                "Proof claim references are not supported: "
+                f"rule `{rule_name}` proof atom {atom_index} declares `claim`. "
+                "Cite the immutable, release-bound corpus provision directly "
+                "with proof atom `source` evidence."
             )
 
     return issues
-
-
-def _validate_source_claim_subject(
-    *,
-    claim_id: str,
-    claim: dict[str, Any],
-) -> list[str]:
-    subject = claim.get("subject")
-    if not isinstance(subject, dict):
-        return [
-            "Source claim subject missing: "
-            f"`{claim_id}` must declare `subject` with an absolute legal or "
-            "RuleSpec target."
-        ]
-
-    subject_id = str(subject.get("id") or "").strip()
-    subject_type = str(subject.get("type") or "").strip()
-    issues: list[str] = []
-    if not _SOURCE_CLAIM_ABSOLUTE_TARGET_ID.match(subject_id):
-        issues.append(
-            "Source claim subject target invalid: "
-            f"`{claim_id}.subject.id` is `{subject_id or '<missing>'}`; use an "
-            "absolute legal, corpus, or RuleSpec target such as "
-            "`us:statutes/7/2014/e`."
-        )
-    if subject_type == "concept" or _SOURCE_CLAIM_FRIENDLY_CONCEPT_ID.match(subject_id):
-        issues.append(
-            "Source claim subject placeholder not allowed: "
-            f"`{claim_id}` uses `{subject_id or '<missing>'}`; friendly concept "
-            "IDs are not valid claim subjects."
-        )
-    return issues
-
-
-def _source_claim_executable_field_paths(value: Any, prefix: str = "") -> list[str]:
-    paths: list[str] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            key_text = str(key)
-            path = f"{prefix}.{key_text}" if prefix else key_text
-            if key_text in _SOURCE_CLAIM_EXECUTABLE_KEYS:
-                paths.append(path)
-            paths.extend(_source_claim_executable_field_paths(child, path))
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            paths.extend(
-                _source_claim_executable_field_paths(child, f"{prefix}[{index}]")
-            )
-    return paths
-
-
-def _fetch_local_source_claim_record(claim_id: str) -> dict[str, Any] | None:
-    """Fetch a claim using the current authoritative-corpus scope as a cache key."""
-
-    root = _AUTHORITATIVE_CORPUS_ROOT.get()
-    return _fetch_local_source_claim_record_cached(
-        claim_id,
-        str(root) if root is not None else None,
-    )
-
-
-@functools.lru_cache(maxsize=512)
-def _fetch_local_source_claim_record_cached(
-    claim_id: str,
-    authoritative_root: str | None,
-) -> dict[str, Any] | None:
-    normalized_id = claim_id.strip()
-    if not normalized_id:
-        return None
-
-    root = Path(authoritative_root) if authoritative_root is not None else None
-    for claims_root in _local_corpus_claims_roots(root):
-        for claim_file in _validated_local_corpus_jsonl_files(
-            claims_root,
-            label="corpus claims tree",
-        ):
-            claim = _read_local_source_claim_file(claim_file, normalized_id)
-            if claim is not None:
-                return claim
-    return None
-
-
-def _read_local_source_claim_file(
-    claim_file: Path,
-    claim_id: str,
-) -> dict[str, Any] | None:
-    try:
-        lines = claim_file.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        return None
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict) or record.get("id") != claim_id:
-            continue
-        return record
-    return None
-
-
-def _clear_local_source_claim_cache() -> None:
-    _fetch_local_source_claim_record_cached.cache_clear()
-
-
-_fetch_local_source_claim_record.cache_clear = (  # type: ignore[attr-defined]
-    _clear_local_source_claim_cache
-)
-
-
-def _local_corpus_claims_roots(
-    authoritative_root: Path | None = None,
-) -> tuple[Path, ...]:
-    roots: list[Path] = []
-    if authoritative_root is not None:
-        roots.append(authoritative_root)
-    else:
-        for env_name in (
-            "AXIOM_CORPUS_CLAIMS_ROOT",
-            "AXIOM_CORPUS_ARTIFACT_ROOT",
-            "AXIOM_CORPUS_REPO",
-        ):
-            raw_root = os.environ.get(env_name)
-            if raw_root:
-                roots.append(Path(raw_root).expanduser())
-
-        with contextlib.suppress(OSError):
-            cwd = Path.cwd().resolve()
-            for base in (cwd, *cwd.parents):
-                roots.extend(
-                    (
-                        base,
-                        base / "axiom-corpus",
-                        base / "TheAxiomFoundation" / "axiom-corpus",
-                        base.parent / "axiom-corpus",
-                        base / "_axiom" / "axiom-corpus",
-                    )
-                )
-
-        with contextlib.suppress(RuntimeError, OSError):
-            roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
-
-    claims_roots: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        candidates = (
-            (root,)
-            if root.name == "claims"
-            else (root / "data" / "corpus" / "claims", root / "claims")
-        )
-        for candidate in candidates:
-            resolved = _resolve_local_corpus_subdirectory(
-                root,
-                candidate,
-                label="corpus claims root",
-            )
-            if resolved is not None and resolved not in seen:
-                seen.add(resolved)
-                claims_roots.append(resolved)
-                if authoritative_root is not None:
-                    return tuple(claims_roots)
-    return tuple(claims_roots)
-
-
-def _resolve_local_corpus_subdirectory(
-    root: Path,
-    candidate: Path,
-    *,
-    label: str,
-) -> Path | None:
-    """Resolve one contained corpus directory without following inner symlinks."""
-
-    raw_root = Path(os.path.abspath(Path(root).expanduser()))
-    raw_candidate = Path(os.path.abspath(Path(candidate).expanduser()))
-    if raw_root.is_symlink():
-        return None
-    try:
-        resolved_root = raw_root.resolve(strict=True)
-        relative = raw_candidate.relative_to(raw_root)
-    except (OSError, ValueError):
-        return None
-
-    cursor = resolved_root
-    for part in relative.parts:
-        cursor /= part
-        if cursor.is_symlink():
-            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {cursor}")
-    if not cursor.exists():
-        return None
-    resolved = cursor.resolve(strict=True)
-    try:
-        resolved.relative_to(resolved_root)
-    except ValueError as exc:
-        raise UnsafeRulespecContextPath(
-            f"{label} escapes {resolved_root}: {raw_candidate}"
-        ) from exc
-    if not resolved.is_dir():
-        raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw_candidate}")
-    return resolved
-
-
-def _validated_local_corpus_jsonl_files(
-    data_root: Path,
-    *,
-    label: str,
-) -> tuple[Path, ...]:
-    """Return bounded regular JSONL files without following corpus symlinks."""
-
-    resolved_root = Path(data_root).resolve(strict=True)
-    files: list[Path] = []
-    for candidate in sorted(resolved_root.rglob("*")):
-        if candidate.is_symlink():
-            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {candidate}")
-        if candidate.suffix != ".jsonl":
-            continue
-        resolved = candidate.resolve(strict=True)
-        try:
-            resolved.relative_to(resolved_root)
-        except ValueError as exc:
-            raise UnsafeRulespecContextPath(
-                f"{label} file escapes {resolved_root}: {candidate}"
-            ) from exc
-        if not resolved.is_file():
-            raise UnsafeRulespecContextPath(
-                f"{label} path is not a regular file: {candidate}"
-            )
-        if resolved.stat().st_size > _MAX_LOCAL_CORPUS_JSONL_BYTES:
-            raise UnsafeRulespecContextPath(
-                f"{label} file exceeds the {_MAX_LOCAL_CORPUS_JSONL_BYTES}-byte "
-                f"safety limit: {candidate}"
-            )
-        files.append(resolved)
-    return tuple(files)
 
 
 _INTERVAL_TABLE_SELECTOR_BOUND_KIND = "selector_inline_interval_bound"
@@ -5702,11 +5271,7 @@ def _source_table_bound_values_proof_source(
             source = atom.get("source")
             if not isinstance(source, dict):
                 continue
-            if not (
-                source.get("corpus_citation_path")
-                or source.get("corpus_citation_paths")
-                or source.get("excerpt")
-            ):
+            if not (source.get("corpus_citation_path") or source.get("excerpt")):
                 continue
             return copy.deepcopy(source)
     return None
@@ -7258,6 +6823,7 @@ def find_upstream_placement_issues(
     *,
     rules_file: Path | None = None,
     source_metadata: dict[str, object] | None = None,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> list[str]:
     """Flag rules encoded downstream of their canonical legal authority."""
     try:
@@ -7269,9 +6835,6 @@ def find_upstream_placement_issues(
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
-
-    if source_metadata is None and rules_file is not None:
-        source_metadata = _load_nearby_eval_source_metadata(rules_file)
 
     issues: list[str] = []
     issues.extend(_find_rule_metadata_schema_issues(rules))
@@ -7286,6 +6849,7 @@ def find_upstream_placement_issues(
         _find_duplicate_upstream_executable_issues(
             rules=rules,
             rules_file=rules_file,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
     )
     return issues
@@ -7445,7 +7009,7 @@ def _normalize_relation_target(value: Any) -> str | None:
     if not normalized:
         return None
     base, separator, symbol = normalized.partition("#")
-    if base.endswith((".yaml", ".yml")):
+    if base.endswith(RULESPEC_FILE_SUFFIX):
         base = str(Path(base).with_suffix(""))
         base = str(Path(base).with_suffix(""))
     return f"{base}{separator}{symbol}" if separator else base
@@ -7524,6 +7088,7 @@ def _find_duplicate_upstream_executable_issues(
     *,
     rules: list[Any],
     rules_file: Path | None,
+    rulespec_dependency_roots: Iterable[Path] | None,
 ) -> list[str]:
     """Reject copied executable rules when an upstream RuleSpec target exists."""
     if rules_file is None:
@@ -7535,7 +7100,10 @@ def _find_duplicate_upstream_executable_issues(
 
     prefix = _rulespec_repo_prefix(repo_root)
     current_file = Path(rules_file).resolve()
-    candidate_roots = _candidate_upstream_rulespec_roots(repo_root)
+    candidate_roots = _candidate_upstream_rulespec_roots(
+        repo_root,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+    )
     index = _rulespec_executable_index_for_roots(
         tuple(str(root.resolve()) for root in candidate_roots)
     )
@@ -7583,50 +7151,37 @@ def _rulespec_target_is_descendant_of(target: str, ancestor: str) -> bool:
     """Return whether a RuleSpec target is a more-specific path under ancestor."""
     target_base = _canonical_rulespec_target_identity_base(target)
     ancestor_base = _canonical_rulespec_target_identity_base(ancestor)
-    return target_base.startswith(f"{ancestor_base}/")
+    return (
+        target_base is not None
+        and ancestor_base is not None
+        and target_base.startswith(f"{ancestor_base}/")
+    )
 
 
 def _rulespec_targets_are_equivalent(left: str, right: str) -> bool:
-    return _canonical_rulespec_target_identity_base(
-        left
-    ) == _canonical_rulespec_target_identity_base(right) and _target_symbol(
-        left
-    ) == _target_symbol(right)
+    left_base = _canonical_rulespec_target_identity_base(left)
+    right_base = _canonical_rulespec_target_identity_base(right)
+    return (
+        left_base is not None
+        and right_base is not None
+        and left_base == right_base
+        and _target_symbol(left) == _target_symbol(right)
+    )
 
 
-def _canonical_rulespec_target_identity_base(target: str) -> str:
-    """Normalize country-monorepo and per-jurisdiction target prefixes.
+def _canonical_rulespec_target_identity_base(target: str) -> str | None:
+    """Return one canonical ``jurisdiction:path`` target for comparison."""
 
-    CI validates files in a country monorepo checkout while also loading a
-    second dependency checkout named like ``rulespec-us``. The same physical
-    country file can therefore be represented as either
-    ``us-co:regulations/...`` or ``us:rulespec-us/us-co/regulations/...``.
-    These are the same RuleSpec target for placement purposes.
-    """
-    base = _rulespec_target_base(target)
-    prefix, separator, relative = base.partition(":")
-    if not separator:
-        return base
-    relative = relative.strip("/")
-    parts = tuple(part for part in relative.split("/") if part)
-    if parts and parts[0] == f"rulespec-{prefix}":
-        remainder = parts[1:]
-        if remainder and remainder[0].startswith(f"{prefix}-"):
-            return "/".join(remainder)
-        return "/".join((prefix, *remainder))
-    return "/".join((prefix, *parts))
-
-
-def _rulespec_target_base(target: str) -> str:
-    return target.split("#", 1)[0].strip().strip("/").strip("\"'")
+    target_ref = _parse_rulespec_target(target)
+    if target_ref is None:
+        return None
+    relative = target_ref.relative_path.with_suffix("").as_posix()
+    return f"{target_ref.prefix}:{relative}"
 
 
 def _rulespec_repo_root(rules_file: Path) -> Path | None:
-    """Return the jurisdiction content root holding ``rules_file``.
+    """Return the canonical jurisdiction content root holding ``rules_file``."""
 
-    The enclosing ``rulespec-*`` checkout root in the legacy layout, or the
-    first-level jurisdiction directory inside a country monorepo checkout.
-    """
     return find_policy_repo_root(Path(rules_file))
 
 
@@ -7634,8 +7189,12 @@ def _rulespec_repo_prefix(repo_root: Path) -> str:
     return jurisdiction_prefix(repo_root)
 
 
-def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
-    """Return repos that can contain canonical targets for this repo."""
+def _candidate_upstream_rulespec_roots(
+    repo_root: Path,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return upstream roots from the active and explicit dependency checkouts."""
     roots: list[Path] = []
 
     def add(candidate: Path) -> None:
@@ -7643,18 +7202,21 @@ def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
             roots.append(candidate)
 
     add(repo_root)
-    workspaces = [repo_root.parent, repo_root / "_axiom", repo_root.parent / "_axiom"]
-    if repo_root.parent.name.startswith("rulespec-"):
-        # A monorepo jurisdiction directory: ancestor jurisdictions live next
-        # to it inside the same checkout, and sibling checkouts live next to
-        # the monorepo itself.
-        workspaces.extend([repo_root.parent.parent, repo_root.parent.parent / "_axiom"])
+    checkout_roots: list[Path] = []
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    if canonical_rulespec_root_identity(repo_root) is not None:
+        checkout_roots.append(repo_root.parent)
+        dependency_roots = _rulespec_dependencies_for_active_root(
+            repo_root,
+            dependency_roots,
+        )
+    checkout_roots.extend(dependency_roots)
     prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
     for length in range(len(prefix_parts) - 1, 0, -1):
         ancestor_prefix = "-".join(prefix_parts[:length])
-        for workspace in workspaces:
+        for checkout_root in checkout_roots:
             for candidate in candidate_jurisdiction_content_dirs(
-                workspace, ancestor_prefix
+                checkout_root, ancestor_prefix
             ):
                 add(candidate)
 
@@ -7679,47 +7241,48 @@ def _rulespec_executable_index_for_roots(
         if not root.exists():
             continue
         prefix = _rulespec_repo_prefix(root)
-        # When the root is a (partially migrated) country monorepo checkout,
-        # sibling jurisdiction directories carry their own prefixes and must
-        # not be indexed under this root's prefix.
-        sibling_jurisdiction_dirs = jurisdiction_subdir_names(root)
-        for rules_file in sorted(root.rglob("*.yaml")):
-            if rules_file.name.endswith(".test.yaml"):
+        for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+            source_root = validate_rulespec_context_directory(
+                root / source_root_name,
+                root,
+            )
+            if source_root is None:
                 continue
-            relative_parts = rules_file.relative_to(root).parts
-            if "_axiom" in relative_parts:
-                continue
-            if relative_parts and relative_parts[0] in sibling_jurisdiction_dirs:
-                continue
-            try:
-                payload = yaml.safe_load(rules_file.read_text())
-            except (OSError, yaml.YAMLError, ValueError):
-                continue
-            if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-                continue
-            rules = payload.get("rules")
-            if not isinstance(rules, list):
-                continue
-            for rule in rules:
-                if not _is_executable_rulespec_rule(rule):
+            for rules_file in sorted(source_root.rglob("*.yaml")):
+                if rules_file.name.endswith(".test.yaml"):
                     continue
-                signature = _rulespec_executable_signature(rule)
-                if signature is None:
+                try:
+                    payload = yaml.safe_load(rules_file.read_text())
+                except (OSError, yaml.YAMLError, ValueError):
                     continue
-                symbol = _rulespec_rule_name(rule)
-                records.append(
-                    _IndexedExecutableRule(
-                        target=_canonical_rulespec_target(
-                            prefix=prefix,
-                            repo_root=root,
-                            rules_file=rules_file,
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = payload.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                for rule in rules:
+                    if not _is_executable_rulespec_rule(rule):
+                        continue
+                    signature = _rulespec_executable_signature(rule)
+                    if signature is None:
+                        continue
+                    symbol = _rulespec_rule_name(rule)
+                    records.append(
+                        _IndexedExecutableRule(
+                            target=_canonical_rulespec_target(
+                                prefix=prefix,
+                                repo_root=root,
+                                rules_file=rules_file,
+                                symbol=symbol,
+                            ),
                             symbol=symbol,
-                        ),
-                        symbol=symbol,
-                        signature=signature,
-                        source_file=str(rules_file.resolve()),
+                            signature=signature,
+                            source_file=str(rules_file.resolve()),
+                        )
                     )
-                )
     return tuple(records)
 
 
@@ -7740,10 +7303,8 @@ def _has_module_source_locator(payload: dict[str, Any]) -> bool:
     source_verification = module.get("source_verification")
     if not isinstance(source_verification, dict):
         return False
-    if source_verification.get("corpus_citation_path"):
-        return True
-    citation_paths = source_verification.get("corpus_citation_paths")
-    return isinstance(citation_paths, list) and any(citation_paths)
+    citation_path = source_verification.get("corpus_citation_path")
+    return isinstance(citation_path, str) and bool(citation_path.strip())
 
 
 def find_rule_source_metadata_issues(content: str) -> list[str]:
@@ -7766,8 +7327,7 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     if not _has_module_source_locator(payload):
         issues.append(
             "Rule source locator required: module.source_verification must include "
-            "`corpus_citation_path` or `corpus_citation_paths` when executable "
-            "rules are present."
+            "exactly one `corpus_citation_path` when executable rules are present."
         )
 
     for rule in executable_rules:
@@ -7782,254 +7342,6 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     return issues
 
 
-_PRIMARY_SOURCE_AUTHORITY_SEGMENTS = {
-    "act",
-    "acts",
-    "code",
-    "cfr",
-    "legislation",
-    "public-law",
-    "public-laws",
-    "regulation",
-    "regulations",
-    "statute",
-    "statutes",
-    "usc",
-}
-_LOWER_SOURCE_AUTHORITY_SEGMENTS = {
-    "form",
-    "forms",
-    "guidance",
-    "guide",
-    "guides",
-    "manual",
-    "manuals",
-    "plan",
-    "plans",
-    "policy",
-    "policies",
-    "state-plan",
-    "state-plans",
-    "state_plan",
-    "state_plans",
-    "table",
-    "tables",
-}
-_UPSTREAM_SOURCE_CHECK_STATUSES = {
-    "checked_higher_authority",
-    "delegated_parameter_source",
-    "no_higher_authority_found",
-    "official_parameter_source",
-}
-
-
-def find_upstream_source_authority_issues(content: str) -> list[str]:
-    """Require an upstream-authority audit before encoding lower sources.
-
-    Statutes and regulations can be encoded directly because they are
-    potentially maximally upstream for a computable rule. Implementation
-    sources such as manuals, guidance, state plans, forms, and CMS tables are
-    sometimes the right source, but only after checking higher authority first.
-    """
-    try:
-        payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
-        return []
-    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return []
-    rules = payload.get("rules")
-    if not isinstance(rules, list) or not any(
-        _is_executable_rulespec_rule(rule) for rule in rules
-    ):
-        return []
-
-    source_verification = _source_verification_block(payload)
-    if source_verification is None:
-        return []
-    citation_paths, _source_label = _source_verification_source_fields(
-        source_verification
-    )
-    lower_authority_paths = tuple(
-        path for path in citation_paths if _source_path_requires_upstream_check(path)
-    )
-    if not lower_authority_paths:
-        return []
-
-    check = source_verification.get("upstream_source_check")
-    formatted_sources = _format_source_verification_paths(lower_authority_paths)
-    if not isinstance(check, dict):
-        return [
-            "Upstream source check required: "
-            f"{formatted_sources} is below statute/regulation authority. "
-            "Check statute/regulation sources first, then record "
-            "`module.source_verification.upstream_source_check` with "
-            "`status`, `checked_paths`, and `rationale`, or encode the "
-            "higher source instead."
-        ]
-
-    issues: list[str] = []
-    status = str(check.get("status") or "").strip()
-    if status not in _UPSTREAM_SOURCE_CHECK_STATUSES:
-        issues.append(
-            "Upstream source check status invalid: "
-            "`module.source_verification.upstream_source_check.status` must be "
-            "one of "
-            + ", ".join(
-                f"`{value}`" for value in sorted(_UPSTREAM_SOURCE_CHECK_STATUSES)
-            )
-            + "."
-        )
-
-    checked_paths = _source_check_paths(check.get("checked_paths"))
-    if not checked_paths:
-        issues.append(
-            "Upstream source check paths required: "
-            "`module.source_verification.upstream_source_check.checked_paths` "
-            "must list statute/regulation corpus paths or RuleSpec targets "
-            "that were checked before using the lower-authority source."
-        )
-    elif not any(
-        _source_reference_is_potentially_primary(path) for path in checked_paths
-    ):
-        issues.append(
-            "Upstream source check must include higher authority: "
-            "`module.source_verification.upstream_source_check.checked_paths` "
-            "must include at least one statute/regulation corpus path or "
-            "RuleSpec target."
-        )
-
-    rationale = str(check.get("rationale") or "").strip()
-    if len(rationale) < 20:
-        issues.append(
-            "Upstream source check rationale required: "
-            "`module.source_verification.upstream_source_check.rationale` must "
-            "explain why the lower-authority source is still the correct source "
-            "for this encoding."
-        )
-
-    return issues
-
-
-def _upstream_source_check_baseline_roots(
-    policy_repo_path: Path | None,
-) -> tuple[Path, ...]:
-    if policy_repo_path is None:
-        return ()
-    root = Path(policy_repo_path).resolve(strict=False)
-    roots = [root]
-    parent = root.parent
-    if (
-        not root.name.startswith("rulespec-")
-        and parent.name.startswith("rulespec-")
-        and is_jurisdiction_content_root(root)
-    ):
-        roots.append(parent)
-
-    deduped: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in roots:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        deduped.append(candidate)
-    return tuple(deduped)
-
-
-def _load_upstream_source_check_baseline(baseline_root: Path | None) -> set[str]:
-    if baseline_root is None:
-        return set()
-    baseline_path = Path(baseline_root) / _UPSTREAM_SOURCE_CHECK_BASELINE_PATH
-    try:
-        text = baseline_path.read_text()
-    except OSError:
-        return set()
-    entries: set[str] = set()
-    for raw_line in text.splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        entries.add(Path(line).as_posix().lstrip("./"))
-    return entries
-
-
-def _rules_file_baseline_key(
-    rules_file: Path,
-    policy_repo_path: Path | None,
-) -> str | None:
-    if policy_repo_path is None:
-        return None
-    try:
-        return (
-            Path(rules_file)
-            .resolve(strict=False)
-            .relative_to(Path(policy_repo_path).resolve(strict=False))
-            .as_posix()
-        )
-    except (OSError, ValueError):
-        return None
-
-
-def _upstream_source_issue_is_missing_check_only(issue: str) -> bool:
-    return issue.startswith("Upstream source check required: ")
-
-
-def upstream_source_authority_issues_for_rules_file(
-    content: str,
-    *,
-    rules_file: Path,
-    policy_repo_path: Path | None,
-) -> list[str]:
-    """Apply the strict upstream-source check, honoring explicit legacy baselines."""
-    issues = find_upstream_source_authority_issues(content)
-    if not issues or not all(
-        _upstream_source_issue_is_missing_check_only(issue) for issue in issues
-    ):
-        return issues
-
-    for baseline_root in _upstream_source_check_baseline_roots(policy_repo_path):
-        key = _rules_file_baseline_key(rules_file, baseline_root)
-        if key is None:
-            continue
-        if key in _load_upstream_source_check_baseline(baseline_root):
-            return []
-    return issues
-
-
-def _source_check_paths(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        text = value.strip()
-        return (text,) if text else ()
-    if not isinstance(value, list):
-        return ()
-    paths: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        text = item.strip()
-        if text:
-            paths.append(text)
-    return tuple(dict.fromkeys(paths))
-
-
-def _source_path_requires_upstream_check(path: str) -> bool:
-    segments = _source_reference_segments(path)
-    if segments & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS:
-        return False
-    return bool(segments & _LOWER_SOURCE_AUTHORITY_SEGMENTS)
-
-
-def _source_reference_is_potentially_primary(reference: str) -> bool:
-    return bool(
-        _source_reference_segments(reference) & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS
-    )
-
-
-def _source_reference_segments(reference: str) -> set[str]:
-    head = reference.split("#", 1)[0].strip().lower()
-    head = head.replace(":", "/")
-    return {segment for segment in re.split(r"[/\s]+", head) if segment}
-
-
 def _rulespec_rule_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name") or "<unknown>").strip() or "<unknown>"
 
@@ -8042,10 +7354,13 @@ def _canonical_rulespec_target(
     symbol: str,
 ) -> str:
     relative = rules_file.resolve().relative_to(repo_root.resolve())
-    if relative.suffix in {".yaml", ".yml"}:
+    if relative.suffix == RULESPEC_FILE_SUFFIX:
         relative = relative.with_suffix("")
-    if relative.parts and relative.parts[0] == prefix:
-        relative = Path(*relative.parts[1:])
+    if not relative.parts or relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        raise ValueError(
+            "RuleSpec target must be beneath a canonical content root "
+            f"in the canonical jurisdiction root: {rules_file}"
+        )
     return f"{prefix}:{relative.as_posix()}#{symbol}"
 
 
@@ -8060,8 +7375,7 @@ def _canonical_rulespec_file_target(
         Path(policy_repo_path)
     ):
         repo_root = Path(policy_repo_path)
-        # Inside a country monorepo checkout the jurisdiction directory is
-        # the target anchor; prefer it when it sits under the explicit root.
+        # The direct jurisdiction directory is the canonical target anchor.
         walked_root = _rulespec_repo_root(rules_file)
         if walked_root is not None:
             try:
@@ -8443,6 +7757,10 @@ def find_source_verification_issues(
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
 
+    plural_issues = find_plural_corpus_citation_path_issues(payload)
+    if plural_issues:
+        return plural_issues
+
     source_verification = _source_verification_block(payload)
     if source_verification is None:
         return []
@@ -8452,10 +7770,7 @@ def find_source_verification_issues(
     )
     expected_values = source_verification.get("values")
     if not citation_paths:
-        return [
-            "Source verification source required: missing `corpus_citation_path`, "
-            "or `corpus_citation_paths`."
-        ]
+        return ["Source verification source required: missing `corpus_citation_path`."]
     if not isinstance(expected_values, dict) or not expected_values:
         if expected_values is not None:
             return [
@@ -9566,13 +8881,6 @@ def _rule_proof_source_contexts(rule: dict[str, Any]) -> list[tuple[str, str]]:
             value = source.get(key)
             if isinstance(value, str) and value.strip():
                 contexts.append((key, value.strip()))
-        many_paths = source.get("corpus_citation_paths")
-        if isinstance(many_paths, list):
-            for value in many_paths:
-                if isinstance(value, str) and value.strip():
-                    contexts.append(("corpus_citation_paths", value.strip()))
-        elif isinstance(many_paths, str) and many_paths.strip():
-            contexts.append(("corpus_citation_paths", many_paths.strip()))
     return contexts
 
 
@@ -10581,9 +9889,6 @@ def _module_source_is_us_tax_code(payload: dict[str, Any]) -> bool:
     single = sv.get("corpus_citation_path")
     if isinstance(single, str):
         paths.append(single)
-    plural = sv.get("corpus_citation_paths")
-    if isinstance(plural, list):
-        paths.extend(p for p in plural if isinstance(p, str))
     if not paths:
         return True
     return any(_is_us_tax_code_path(path) for path in paths)
@@ -10750,7 +10055,7 @@ def find_source_subparagraph_coverage_issues(
     citation_paths, source_label = _source_verification_source_fields(
         source_verification
     )
-    if len(citation_paths) != 1:
+    if not citation_paths:
         return []
 
     citation_path = citation_paths[0]
@@ -11235,10 +10540,8 @@ def _rulespec_relative_path_parts(path: Path) -> tuple[str, ...]:
     parts = list(path.parts)
     if parts:
         last = parts[-1]
-        for suffix in (".yaml", ".yml"):
-            if last.endswith(suffix):
-                parts[-1] = last[: -len(suffix)]
-                break
+        if last.endswith(RULESPEC_FILE_SUFFIX):
+            parts[-1] = last[: -len(RULESPEC_FILE_SUFFIX)]
     return tuple(parts)
 
 
@@ -12062,100 +11365,6 @@ def find_current_year_final_amount_table_issues(
     return issues
 
 
-def repair_current_year_final_amount_tables(
-    content: str,
-    *,
-    rules_file: Path,
-    policy_repo_path: Path | None = None,
-) -> tuple[str, list[str]]:
-    """Mechanically select supported imported final amount tables."""
-    payload = _rulespec_payload(content)
-    if payload is None:
-        return content, []
-
-    rule_names = _rulespec_rule_names(payload)
-    imported_exports = _imported_rulespec_exports(
-        payload,
-        rules_file=rules_file,
-        policy_repo_path=policy_repo_path,
-    )
-
-    repaired = content
-    repaired_rules: list[str] = []
-    for name, kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
-        payload
-    ):
-        if kind != "derived":
-            continue
-        phased_in_repair = _current_year_phased_in_cap_repair(
-            name=name,
-            formula=formula,
-            rule_names=rule_names,
-        )
-        if phased_in_repair is not None:
-            repaired = _replace_formula_text_once(repaired, formula, phased_in_repair)
-            repaired_rules.append(name)
-            continue
-        if not imported_exports:
-            continue
-        if not _CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN.search(name):
-            continue
-        if not _CURRENT_YEAR_FINAL_AMOUNT_RECOMPUTE_PATTERN.search(formula):
-            continue
-        final_export = _matching_final_amount_export(name, imported_exports)
-        if final_export is None:
-            continue
-        index_rule = _final_amount_index_rule_name(name, rule_names)
-        if index_rule is None:
-            continue
-        keys = _parameter_table_keys(final_export.file, final_export.name)
-        if not keys:
-            continue
-        replacement = _final_amount_table_match_formula(
-            table_name=final_export.name,
-            index_rule=index_rule,
-            keys=keys,
-        )
-        repaired = _replace_formula_text_once(repaired, formula, replacement)
-        import_hash = f"sha256:{_file_sha256(final_export.file)}"
-        repaired = _insert_rule_proof_import_atom(
-            repaired,
-            rule_name=name,
-            target=final_export.target,
-            output=final_export.name,
-            import_hash=import_hash,
-        )
-        repaired_rules.append(name)
-
-    return repaired, repaired_rules
-
-
-def _current_year_phased_in_cap_repair(
-    *,
-    name: str,
-    formula: str,
-    rule_names: set[str],
-) -> str | None:
-    if not name.endswith("_phased_in"):
-        return None
-    prefix = name.removesuffix("_phased_in")
-    maximum_name = f"{prefix}_maximum"
-    if maximum_name not in rule_names:
-        return None
-    stripped = formula.strip()
-    if stripped.startswith("if earned_income >= eitc_earned_income_amount:"):
-        return None
-    if "phase_in_rate" not in stripped or "earned_income_amount" not in stripped:
-        return None
-    raw_formula = re.sub(
-        rf"^min\s*\(\s*{re.escape(maximum_name)}\s*,\s*(?P<body>.*)\)\s*$",
-        r"\g<body>",
-        stripped,
-        count=1,
-    )
-    return f"if earned_income >= eitc_earned_income_amount: {maximum_name} else: {raw_formula}"
-
-
 def _rulespec_rule_names(payload: dict[str, Any]) -> set[str]:
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -12181,10 +11390,12 @@ def _imported_rulespec_exports(
     for raw_import in imports:
         if not isinstance(raw_import, str):
             continue
-        target = raw_import.split("#", 1)[0].strip().strip("/")
-        target_ref = _parse_rulespec_target(target)
+        target_ref = _parse_rulespec_target(raw_import)
         if target_ref is None:
             continue
+        target_base = (
+            f"{target_ref.prefix}:{target_ref.relative_path.with_suffix('').as_posix()}"
+        )
         target_file = _resolve_rulespec_target_file(
             target_ref,
             policy_repo_path or _rulespec_repo_root(Path(rules_file).resolve()),
@@ -12199,7 +11410,7 @@ def _imported_rulespec_exports(
                 rule_name,
                 _ImportedRulespecExport(
                     name=rule_name,
-                    target=f"{target}#{rule_name}",
+                    target=f"{target_base}#{rule_name}",
                     file=target_file,
                 ),
             )
@@ -12227,106 +11438,6 @@ def _final_amount_export_candidates(rule_name: str) -> tuple[str, ...]:
         if prefix:
             candidates.append(f"{prefix}_maximum_credit_amounts")
     return tuple(dict.fromkeys(candidates))
-
-
-def _final_amount_index_rule_name(
-    rule_name: str,
-    rule_names: set[str],
-) -> str | None:
-    prefixes = [rule_name]
-    if rule_name.endswith("_maximum"):
-        prefixes.append(rule_name.removesuffix("_maximum"))
-    for prefix in prefixes:
-        for candidate in (
-            f"{prefix}_capped_child_count",
-            f"{prefix}_child_count",
-            f"{prefix}_capped_count",
-        ):
-            if candidate in rule_names:
-                return candidate
-    return None
-
-
-def _parameter_table_keys(target_file: Path, rule_name: str) -> list[str]:
-    payload = _rulespec_payload_from_file(target_file)
-    if payload is None:
-        return []
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        return []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if str(rule.get("name") or "").strip() != rule_name:
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list) or not versions:
-            return []
-        first_version = versions[0]
-        if not isinstance(first_version, dict):
-            return []
-        values = first_version.get("values")
-        if not isinstance(values, dict):
-            return []
-        return [str(key) for key in values]
-    return []
-
-
-def _final_amount_table_match_formula(
-    *,
-    table_name: str,
-    index_rule: str,
-    keys: list[str],
-) -> str:
-    sorted_keys = sorted(keys, key=lambda key: int(key) if key.isdigit() else key)
-    lines = [f"match {index_rule}:"]
-    lines.extend(f"    {key} => {table_name}[{key}]" for key in sorted_keys)
-    return "\n".join(lines)
-
-
-def _insert_rule_proof_import_atom(
-    content: str,
-    *,
-    rule_name: str,
-    target: str,
-    output: str,
-    import_hash: str,
-) -> str:
-    if f"target: {target}" in content:
-        return content
-
-    lines = content.splitlines(keepends=True)
-    rule_starts = [
-        index for index, line in enumerate(lines) if re.match(r"^  - name:\s*", line)
-    ]
-    for rule_start, next_rule_start in zip(
-        rule_starts,
-        rule_starts[1:] + [len(lines)],
-        strict=False,
-    ):
-        name_match = re.match(r"^  - name:\s*(.+?)\s*$", lines[rule_start])
-        if name_match is None or name_match.group(1).strip() != rule_name:
-            continue
-        atom_index = next(
-            (
-                index
-                for index in range(rule_start, next_rule_start)
-                if re.match(r"^        atoms:\s*$", lines[index])
-            ),
-            None,
-        )
-        if atom_index is None:
-            return content
-        inserted = [
-            "          - path: versions[0].formula\n",
-            "            kind: import\n",
-            "            import:\n",
-            f"              target: {target}\n",
-            f"              output: {output}\n",
-            f"              hash: {import_hash}\n",
-        ]
-        return "".join(lines[: atom_index + 1] + inserted + lines[atom_index + 1 :])
-    return content
 
 
 def _replace_formula_text_once(content: str, old: str, new: str) -> str:
@@ -13057,17 +12168,18 @@ def _rulespec_file_matches_target_ref(
     rules_file: Path,
     target_ref: "_RuleSpecTargetRef",
 ) -> bool:
-    """Return whether a file path carries the canonical target path suffix.
+    """Return whether a file has the exact canonical target identity."""
 
-    Generated candidates are often validated outside a `rulespec-*` checkout,
-    for example under `/tmp/.../statutes/26/63/f.yaml`. A proof import pointing
-    to `us:statutes/26/63/f#symbol` is still a same-file import in that context.
-    """
-    path_parts = Path(rules_file).resolve().parts
-    target_parts = target_ref.relative_path.parts
-    if len(path_parts) < len(target_parts):
+    content_root = find_policy_repo_root(rules_file)
+    if content_root is None:
         return False
-    return path_parts[-len(target_parts) :] == target_parts
+    if canonical_rulespec_repo_name(content_root) != target_ref.repo_name:
+        return False
+    try:
+        relative = Path(rules_file).resolve().relative_to(content_root.resolve())
+    except ValueError:
+        return False
+    return relative == target_ref.relative_path
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -17115,7 +16227,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
 
 
 def find_import_shape_issues(content: str) -> list[str]:
-    """Reject non-string top-level RuleSpec imports."""
+    """Reject non-string or non-atomic top-level RuleSpec imports."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
         payload = yaml.safe_load(content)
         if not isinstance(payload, dict):
@@ -17140,6 +16252,16 @@ def find_import_shape_issues(content: str) -> list[str]:
                         f"`imports[{index}]` uses `{raw_item}`. Imports must use "
                         "absolute RuleSpec targets like "
                         "`us:statutes/26/45A/a#base_year_1993_indian_employment_costs`."
+                    )
+                elif import_base and _parse_rulespec_target(import_item) is None:
+                    issues.append(
+                        "Import target invalid: "
+                        f"`imports[{index}]` uses `{raw_item}`. Atomic RuleSpec "
+                        "imports must use a jurisdiction-prefixed target beneath "
+                        "one of "
+                        f"{sorted(RULESPEC_ATOMIC_MODULE_ROOTS)}; "
+                        f"`{RULESPEC_COMPOSITION_SPEC_ROOT}/` contains separate "
+                        "axiom-compose ProgramSpecs and cannot be imported."
                     )
                 continue
             issues.append(
@@ -17337,11 +16459,13 @@ def _normalize_rulespec_import_path_static(import_path: str) -> str:
     return normalized.strip("/")
 
 
-_RULESPEC_IMPORT_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
+_RULESPEC_IMPORT_SOURCE_ROOTS = RULESPEC_ATOMIC_MODULE_ROOTS
 
 
 def _rulespec_import_path_aliases_static(import_path: str) -> set[str]:
     normalized = _normalize_rulespec_import_path_static(import_path)
+    if normalized.partition("/")[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
+        return set()
     aliases = {normalized} if normalized else set()
     head, separator, tail = normalized.partition("/")
     if separator and head in _RULESPEC_IMPORT_SOURCE_ROOTS:
@@ -17424,6 +16548,7 @@ def _resolve_rulespec_import_file_static(
     *,
     rules_file: Path,
     policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
     """Resolve an import to a validated file in a recognized RuleSpec root."""
 
@@ -17440,28 +16565,34 @@ def _resolve_rulespec_import_file_static(
     normalized = _normalize_rulespec_import_path_static(import_path)
     if not normalized:
         return None
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return None
 
     repo_prefix = _rulespec_import_prefix_static(import_path)
     if repo_prefix:
         target_ref = _parse_rulespec_target(import_path)
         if target_ref is None:
             return None
-        # A declared jurisdiction prefix is authoritative.  Route it through
-        # the shared monorepo/legacy resolver rather than probing the current
-        # repo first, where a same-relative-path file could shadow the target.
+        # A declared jurisdiction prefix is authoritative. Route it only
+        # through the canonical active checkout or explicit dependency roots;
+        # a same-relative-path flat fixture must not shadow the target.
         resolved = _resolve_rulespec_target_file(
             target_ref,
             policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
         if resolved is not None:
             return resolved
-        # Standalone validation fixtures and legacy runner bundles can expose
-        # a single flat, non-checkout source root while retaining canonical
-        # prefixes in their imports. Permit that explicit root only when it
-        # has no RuleSpec repository identity; recognized checkouts must never
-        # fall back to a same-path shadow from the wrong jurisdiction.
-        if canonical_rulespec_repo_name(policy_repo_path) is None:
-            return validated_existing(policy_repo_path / f"{normalized}.yaml")
         return None
 
     candidate = policy_repo_path / f"{normalized}.yaml"
@@ -18946,9 +18077,6 @@ def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None
     module = payload.get("module")
     if isinstance(module, dict) and isinstance(module.get("source_verification"), dict):
         return module["source_verification"]
-    source_verification = payload.get("source_verification")
-    if isinstance(source_verification, dict):
-        return source_verification
     return None
 
 
@@ -18961,14 +18089,6 @@ def _source_verification_source_fields(
     ).strip()
     if raw_citation_path:
         citation_paths.append(raw_citation_path)
-    raw_citation_paths = source_verification.get("corpus_citation_paths")
-    if isinstance(raw_citation_paths, list):
-        for raw_path in raw_citation_paths:
-            if not isinstance(raw_path, str):
-                continue
-            citation_path = raw_path.strip()
-            if citation_path:
-                citation_paths.append(citation_path)
     citation_path_tuple = tuple(dict.fromkeys(citation_paths))
     return citation_path_tuple, ", ".join(citation_path_tuple)
 
@@ -19123,172 +18243,30 @@ def _find_source_text_value_issues(
 
 
 def _fetch_corpus_source_text(citation_path: str) -> str | None:
-    """Fetch a corpus.provisions body by citation path.
+    """Fetch a body from the one authoritative named local corpus release."""
 
-    Local corpus artifacts are preferred so encoder and CI runs verify against
-    normalized source text without re-reading original PDFs or HTML pages.
-    Supabase is the network fallback for environments without local artifacts.
-    """
-
-    root = _AUTHORITATIVE_CORPUS_ROOT.get()
-    local_text = _fetch_local_corpus_source_text(citation_path)
-    if local_text is not None:
-        return local_text
-    if root is not None or os.environ.get("AXIOM_CORPUS_REPO"):
-        return None
-    return _fetch_supabase_corpus_source_text(citation_path)
+    return _fetch_local_corpus_source_text(citation_path)
 
 
 def _fetch_local_corpus_source_text(
     citation_path: str,
-    *,
-    require_release: bool = True,
 ) -> str | None:
-    """Fetch current local text from the authoritative corpus, if configured.
+    """Fetch local text without ambient checkout or unversioned fallbacks."""
 
-    Production validation requires the current release selector.  Tests or
-    compatibility callers using an unversioned corpus fixture must opt out
-    explicitly with ``require_release=False``.
-    """
-
-    root = _AUTHORITATIVE_CORPUS_ROOT.get()
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
     normalized_path = citation_path.strip().strip("/")
     if not normalized_path:
         return None
-
-    if root is not None:
-        try:
-            return resolve_local_corpus_source(
-                normalized_path,
-                root,
-                require_release=require_release,
-            ).body
-        except CorpusSourceNotFoundError:
-            return None
-        except UnsafeCorpusPathError as exc:
-            raise UnsafeRulespecContextPath(str(exc)) from exc
-
-    ambient_root = os.environ.get("AXIOM_CORPUS_REPO")
-    if ambient_root:
-        try:
-            return resolve_local_corpus_source(
-                normalized_path,
-                Path(ambient_root).expanduser().resolve(),
-                require_release=require_release,
-            ).body
-        except CorpusSourceNotFoundError:
-            return None
-        except UnsafeCorpusPathError as exc:
-            raise UnsafeRulespecContextPath(str(exc)) from exc
-
-    for provisions_root in _local_corpus_provisions_roots(root):
-        corpus_root = (
-            root
-            if root is not None
-            else _corpus_repository_root_for_provisions_root(provisions_root)
+    if release is None:
+        raise CorpusResolutionError(
+            "Corpus source resolution requires a bound LocalCorpusRelease"
         )
-        try:
-            return resolve_local_corpus_source(
-                normalized_path,
-                corpus_root,
-                require_release=require_release,
-            ).body
-        except CorpusSourceNotFoundError:
-            continue
-        except UnsafeCorpusPathError as exc:
-            # Preserve the validator's established security exception while
-            # delegating path validation to the shared corpus resolver.
-            raise UnsafeRulespecContextPath(str(exc)) from exc
-    return None
-
-
-def _local_corpus_provisions_roots(
-    authoritative_root: Path | None = None,
-) -> tuple[Path, ...]:
-    roots: list[Path] = []
-    cwd: Path | None = None
-    if authoritative_root is not None:
-        roots.append(authoritative_root)
-    else:
-        with contextlib.suppress(OSError):
-            cwd = Path.cwd().resolve()
-            roots.append(cwd)
-
-        for env_name in (
-            "AXIOM_CORPUS_ARTIFACT_ROOT",
-            "AXIOM_CORPUS_LOCAL_ROOT",
-            "AXIOM_CORPUS_REPO",
-        ):
-            raw_root = os.environ.get(env_name)
-            if raw_root:
-                roots.append(Path(raw_root).expanduser())
-
-        if cwd is not None:
-            for base in (cwd, *cwd.parents):
-                roots.extend(
-                    (
-                        base / "axiom-corpus",
-                        base / "TheAxiomFoundation" / "axiom-corpus",
-                        base.parent / "axiom-corpus",
-                    )
-                )
-
-        with contextlib.suppress(RuntimeError, OSError):
-            roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
-
-    provisions_roots: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        candidates = (
-            (root,)
-            if root.name == "provisions"
-            else (root / "data" / "corpus" / "provisions", root / "provisions")
-        )
-        for candidate in candidates:
-            resolved = _resolve_local_corpus_subdirectory(
-                root,
-                candidate,
-                label="corpus provisions root",
-            )
-            if resolved is not None and resolved not in seen:
-                seen.add(resolved)
-                provisions_roots.append(resolved)
-                if authoritative_root is not None:
-                    # Match the encoder's canonical-then-legacy layout choice.
-                    # A secondary tree in the same checkout is not authoritative.
-                    return tuple(provisions_roots)
-    return tuple(provisions_roots)
-
-
-def _corpus_repository_root_for_provisions_root(provisions_root: Path) -> Path:
-    """Recover the checkout root used for release-selector discovery."""
-
-    if (
-        provisions_root.parent.name == "corpus"
-        and provisions_root.parent.parent.name == "data"
-    ):
-        return provisions_root.parent.parent.parent
-    return provisions_root.parent
-
-
-def _fetch_supabase_corpus_source_text(citation_path: str) -> str | None:
-    """Resolve current corpus source text through the shared Supabase resolver."""
-    supabase_url = os.environ.get(
-        "AXIOM_SUPABASE_URL", DEFAULT_AXIOM_SUPABASE_URL
-    ).rstrip("/")
-    anon_key = (
-        os.environ.get("SUPABASE_ANON_KEY")
-        or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-        or DEFAULT_AXIOM_SUPABASE_ANON_KEY
-    )
     try:
-        return resolve_supabase_corpus_source(
-            citation_path,
-            supabase_url=supabase_url,
-            anon_key=anon_key,
-        ).body
-    except (CorpusSourceNotFoundError, CorpusRemoteError):
+        return resolve_local_corpus_source(normalized_path, release).body
+    except CorpusSourceNotFoundError:
         return None
+    except UnsafeCorpusPathError as exc:
+        raise UnsafeRulespecContextPath(str(exc)) from exc
 
 
 def _normalize_source_verification_text(text: str) -> str:
@@ -19411,7 +18389,6 @@ class _DelegatedPolicySettingTarget:
     rule_name_patterns: tuple[str, ...]
 
 
-_US_STATE_RULESPEC_PATH_PART = re.compile(r"(?:rulespec-)?us-[a-z]{2}(?:-[a-z0-9]+)*")
 _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS = (
     _DelegatedPolicySettingTarget(
         label="standard utility allowance",
@@ -19652,9 +18629,14 @@ def _source_relation_sets_rules_for_local_values(
 def _is_us_state_rulespec_path(rules_file: Path | None) -> bool:
     if rules_file is None:
         return False
-    return any(
-        _US_STATE_RULESPEC_PATH_PART.fullmatch(part) is not None
-        for part in rules_file.parts
+    content_root = find_policy_repo_root(rules_file)
+    return (
+        content_root is not None
+        and re.fullmatch(
+            r"us-[a-z]{2}(?:-[a-z0-9]+)*",
+            content_root.name,
+        )
+        is not None
     )
 
 
@@ -19770,22 +18752,34 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
     """Parse `us:policies/foo#rule` into a target repo and relative file path."""
     normalized = target.strip().strip("'\"")
     match = re.match(
-        r"^(?P<prefix>[a-z][a-z0-9_-]*):(?P<path>[^#]+)(?:#(?P<symbol>[^#]+))?$",
+        r"^(?P<prefix>[a-z]{2}(?:-[a-z0-9]+)*):(?P<path>[^#]+)(?:#(?P<symbol>[^#]+))?$",
         normalized,
     )
     if match is None:
         return None
 
-    path_text = match.group("path").strip().strip("/")
-    if not path_text:
+    raw_path = match.group("path")
+    path_text = raw_path.strip()
+    if (
+        not path_text
+        or path_text != raw_path
+        or path_text.startswith("/")
+        or path_text.endswith("/")
+        or any(not part for part in path_text.split("/"))
+    ):
         return None
     relative_path = Path(path_text)
     if relative_path.is_absolute() or any(
         part in {"", ".", ".."} for part in relative_path.parts
     ):
         return None
-    if not path_text.endswith((".yaml", ".yml")):
-        relative_path = Path(f"{path_text}.yaml")
+    if (
+        not relative_path.parts
+        or relative_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return None
+    if not path_text.endswith(RULESPEC_FILE_SUFFIX):
+        relative_path = Path(f"{path_text}{RULESPEC_FILE_SUFFIX}")
 
     prefix = match.group("prefix")
     symbol = match.group("symbol")
@@ -19800,7 +18794,7 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
 def _target_path_embeds_jurisdiction(target_ref: _RuleSpecTargetRef) -> bool:
     """Return whether a RuleSpec path repeats a jurisdiction after the kind."""
     parts = target_ref.relative_path.with_suffix("").parts
-    if len(parts) < 2 or parts[0] not in {"policies", "regulations", "statutes"}:
+    if len(parts) < 2 or parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
         return False
     embedded = parts[1]
     return (
@@ -19809,29 +18803,174 @@ def _target_path_embeds_jurisdiction(target_ref: _RuleSpecTargetRef) -> bool:
     )
 
 
+def _validate_explicit_rulespec_directory(
+    root: Path,
+    *,
+    label: str,
+) -> Path:
+    """Return one existing directory whose lexical path has no symlinks."""
+
+    raw = Path(os.path.abspath(Path(root).expanduser()))
+    checked = _normalize_macos_system_path_alias(raw)
+    cursor = Path(checked.anchor)
+    relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
+    for part in relative_parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {cursor}")
+    try:
+        resolved = checked.resolve(strict=True)
+    except OSError as exc:
+        raise UnsafeRulespecContextPath(f"{label} does not exist: {raw}") from exc
+    if not resolved.is_dir():
+        raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
+    return resolved
+
+
+def _normalize_macos_system_path_alias(path: Path) -> Path:
+    """Normalize only Apple's fixed top-level aliases before symlink checks."""
+
+    if sys.platform != "darwin":
+        return path
+    for alias, expected_target in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+        (Path("/etc"), Path("/private/etc")),
+    ):
+        try:
+            relative = path.relative_to(alias)
+        except ValueError:
+            continue
+        try:
+            if not alias.is_symlink() or alias.resolve(strict=True) != expected_target:
+                return path
+        except OSError:
+            return path
+        return expected_target / relative
+    return path
+
+
+def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
+    """Return the direct country checkout for one explicit content root."""
+
+    active = _validate_explicit_rulespec_directory(
+        path,
+        label="active RuleSpec root",
+    )
+    identity = canonical_rulespec_root_identity(active)
+    if identity is None:
+        raise UnsafeRulespecContextPath(
+            "Active RuleSpec root must be an exact direct jurisdiction child of "
+            "a canonical rulespec-<country> checkout: "
+            f"{active}"
+        )
+    checkout = active.parent
+    _reject_rulespec_checkout_symlinks(
+        checkout,
+        label="active RuleSpec checkout",
+    )
+    return checkout
+
+
+def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
+    """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
+
+    for current, directory_names, file_names in os.walk(checkout, followlinks=False):
+        current_path = Path(current)
+        for name in (*directory_names, *file_names):
+            candidate = current_path / name
+            if candidate.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"{label} contains a symlink: {candidate}"
+                )
+
+
+def _normalize_rulespec_dependency_roots(
+    roots: Iterable[Path],
+) -> tuple[Path, ...]:
+    """Validate exact canonical dependency checkouts supplied by the caller."""
+
+    normalized: list[Path] = []
+    seen: set[Path] = set()
+    names: dict[str, Path] = {}
+    for raw_root in roots:
+        root = _validate_explicit_rulespec_directory(
+            Path(raw_root),
+            label="RuleSpec dependency root",
+        )
+        _reject_rulespec_checkout_symlinks(
+            root,
+            label="RuleSpec dependency root",
+        )
+        jurisdiction_children = jurisdiction_subdir_names(root)
+        if not jurisdiction_children:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency roots must be exact canonical checkout roots "
+                "named rulespec-<country> with direct jurisdiction children: "
+                f"{root}"
+            )
+        existing = names.get(root.name)
+        if existing is not None and existing != root:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency roots must not authorize two checkouts for "
+                f"the same namespace {root.name!r}: {existing}, {root}"
+            )
+        names[root.name] = root
+        if root not in seen:
+            seen.add(root)
+            normalized.append(root)
+    return tuple(normalized)
+
+
+def _rulespec_dependencies_for_active_root(
+    policy_repo_path: Path,
+    dependency_roots: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    """Remove the active checkout and reject same-namespace checkout ambiguity."""
+
+    if not dependency_roots:
+        return ()
+    active_checkout = _rulespec_checkout_root_for_active_path(policy_repo_path)
+    filtered: list[Path] = []
+    for root in dependency_roots:
+        if root == active_checkout:
+            continue
+        if root.name == active_checkout.name:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency root collides with the active checkout "
+                f"namespace {active_checkout.name!r}: {root}"
+            )
+        filtered.append(root)
+    return tuple(filtered)
+
+
+def _effective_rulespec_dependency_roots(
+    roots: Iterable[Path] | None,
+) -> tuple[Path, ...]:
+    if roots is None:
+        return _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.get()
+    return _normalize_rulespec_dependency_roots(roots)
+
+
 def _resolve_rulespec_target_file(
     target_ref: _RuleSpecTargetRef,
     policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
-    """Resolve and validate a canonical target across sibling/CI checkouts."""
+    """Resolve a canonical target only through caller-authorized checkouts."""
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     ):
         if not root.is_dir():
             continue
-        configured_candidate = _is_configured_rulespec_candidate(
+        root = _validate_explicit_rulespec_directory(
             root,
-            target_ref,
+            label="resolved RuleSpec content root",
         )
-        if not configured_candidate and not _ambient_rulespec_candidate_is_direct(
-            root,
-            policy_repo_path,
-        ):
-            raise UnsafeRulespecContextPath(
-                f"Ambient RuleSpec candidate root contains symlink indirection: {root}"
-            )
         canonical_root = canonical_rulespec_repo_name(root)
         if canonical_root != target_ref.repo_name:
             continue
@@ -19842,238 +18981,56 @@ def _resolve_rulespec_target_file(
             raise UnsafeRulespecContextPath(
                 f"Resolved RuleSpec target is a symlink: {target_file}"
             )
-        # Validate against the recognized candidate content root that produced
-        # the target. This preserves configured lexical aliases (including
-        # macOS /var -> /private/var and an explicitly configured checkout
-        # symlink) while still rejecting every symlink below that trusted root.
         return validate_rulespec_context_file(target_file, root)
     return None
-
-
-def _is_configured_rulespec_candidate(
-    root: Path,
-    target_ref: _RuleSpecTargetRef,
-) -> bool:
-    """Return whether ``root`` was derived from explicit trusted configuration."""
-
-    raw_root = Path(os.path.abspath(Path(root).expanduser()))
-    for raw_configured in os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(
-        os.pathsep
-    ):
-        if not raw_configured.strip():
-            continue
-        configured = Path(os.path.abspath(Path(raw_configured.strip()).expanduser()))
-        for candidate in candidate_jurisdiction_content_dirs(
-            configured,
-            target_ref.prefix,
-        ):
-            if Path(os.path.abspath(candidate)) == raw_root:
-                return True
-    return False
-
-
-def _ambient_rulespec_candidate_is_direct(
-    root: Path,
-    policy_repo_path: Path | None,
-) -> bool:
-    """Reject repo-controlled symlinks in automatically discovered roots."""
-
-    raw_root = Path(os.path.abspath(Path(root).expanduser()))
-    anchors = [Path.cwd().resolve()]
-    if policy_repo_path is not None:
-        policy_root = Path(policy_repo_path).resolve()
-        anchors.extend((policy_root, policy_root.parent))
-        if policy_root.name in jurisdiction_subdir_names(policy_root.parent):
-            # Country-monorepo content roots legitimately import from direct
-            # sibling country checkouts in the shared workspace.
-            anchors.append(policy_root.parent.parent)
-
-    for anchor in sorted(set(anchors), key=lambda path: len(path.parts), reverse=True):
-        try:
-            relative = raw_root.relative_to(anchor)
-        except ValueError:
-            continue
-        cursor = anchor
-        for part in relative.parts:
-            cursor /= part
-            if cursor.is_symlink():
-                return False
-        return True
-    return False
 
 
 def _candidate_rulespec_repo_roots(
     repo_name: str,
     policy_repo_path: Path | None,
     prefix: str | None = None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> list[Path]:
-    """Return possible local content roots for a canonical rules repository.
-
-    Each base location yields its candidates in monorepo-first order
-    (``<base>/rulespec-<country>/<prefix>``, then ``<base>/rulespec-<prefix>``);
-    bases that are themselves the jurisdiction's checkout (by name or Git
-    origin) resolve to the jurisdiction's content root in either layout.
-    """
+    """Return content roots derived only from exact authorized checkouts."""
     candidates: list[Path] = []
     jurisdiction = prefix or repo_name.removeprefix("rulespec-")
 
-    def add(base: Path | None) -> None:
-        if base is None:
+    def add(base: Path) -> None:
+        if base.name != monorepo_checkout_name(jurisdiction):
             return
-        candidates.extend(
-            candidate_jurisdiction_content_dirs(base.expanduser(), jurisdiction)
-        )
+        candidates.extend(candidate_jurisdiction_content_dirs(base, jurisdiction))
 
-    configured_roots = [
-        Path(raw_root.strip())
-        for raw_root in os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(
-            os.pathsep
-        )
-        if raw_root.strip()
-    ]
-
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
     if policy_repo_path is not None:
-        policy_root = Path(policy_repo_path).resolve()
-        target_legacy_name = f"rulespec-{jurisdiction}"
-        target_monorepo_name = monorepo_checkout_name(jurisdiction)
-        active_name = canonical_rulespec_repo_name(policy_root)
-        parent_name = canonical_rulespec_repo_name(policy_root.parent)
-
-        # Only search inside the active content root when its canonical
-        # jurisdiction matches the explicit target.  Treating a different
-        # ``rulespec-*`` checkout as a generic workspace would let a nested
-        # repo-controlled directory shadow the declared authority.
-        if active_name == target_legacy_name:
-            add(policy_root)
-
-        # A matching active checkout is authoritative over stale configured
-        # copies. For cross-jurisdiction targets, explicitly configured roots
-        # still take precedence over ambient sibling discovery.
-        for configured_root in configured_roots:
-            add(configured_root)
-
-        parent_is_monorepo_checkout = (
-            policy_root.parent != policy_root
-            and policy_root.name in jurisdiction_subdir_names(policy_root.parent)
+        active_checkout = _rulespec_checkout_root_for_active_path(policy_repo_path)
+        add(active_checkout)
+        dependency_roots = _rulespec_dependencies_for_active_root(
+            policy_repo_path,
+            dependency_roots,
         )
-        if parent_is_monorepo_checkout:
-            checkout_root = policy_root.parent
-            if parent_name == target_monorepo_name:
-                add(checkout_root)
-            workspace_root = checkout_root.parent
-        else:
-            workspace_root = policy_root.parent
-
-        # Prefer canonical sibling checkouts to vendored fallbacks, in
-        # monorepo-first order.
-        add(workspace_root)
-        add(workspace_root / "_axiom")
-        add(policy_root / "_axiom")
-    else:
-        for configured_root in configured_roots:
-            add(configured_root)
-
-    cwd = Path.cwd()
-    add(cwd)
-    add(cwd / "_axiom")
+    for dependency_root in dependency_roots:
+        add(dependency_root)
 
     unique: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
-        resolved = candidate.resolve() if candidate.exists() else candidate
-        if resolved in seen:
+        lexical = Path(os.path.abspath(candidate))
+        if lexical in seen:
             continue
-        seen.add(resolved)
+        seen.add(lexical)
         unique.append(candidate)
     return unique
-
-
-def _rulespec_repo_alias_parent(policy_repo_path: Path) -> Path | None:
-    """Expose a temp checkout under its canonical `rulespec-*` repo name."""
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    return _rulespec_repo_alias_parent_for_root(policy_repo_path, canonical_name)
-
-
-def _monorepo_rulespec_repo_alias(
-    policy_repo_path: Path,
-) -> tuple[Path, str] | None:
-    """Expose a country monorepo root when validating one jurisdiction subdir."""
-    policy_root = Path(policy_repo_path).resolve()
-    monorepo_root = policy_root.parent
-    if not monorepo_root.name.startswith("rulespec-"):
-        return None
-    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
-        return None
-    canonical_name = canonical_rulespec_repo_name(monorepo_root)
-    alias_parent = _rulespec_repo_alias_parent_for_root(monorepo_root, canonical_name)
-    if alias_parent is None or canonical_name is None:
-        return None
-    return alias_parent, canonical_name
-
-
-def _is_canonical_monorepo_content_root(policy_repo_path: Path) -> bool:
-    """Return true for a country content root inside its canonical checkout."""
-    policy_root = Path(policy_repo_path).resolve()
-    monorepo_root = policy_root.parent
-    if not monorepo_root.name.startswith("rulespec-"):
-        return False
-    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
-        return False
-    return canonical_rulespec_repo_name(monorepo_root) == monorepo_root.name
-
-
-def _rulespec_repo_alias_parent_for_root(
-    rulespec_root: Path,
-    canonical_name: str | None,
-) -> Path | None:
-    """Expose a checkout root under a canonical `rulespec-*` repo name."""
-    if not canonical_name or Path(rulespec_root).name == canonical_name:
-        return None
-
-    resolved_repo = Path(rulespec_root).resolve()
-    digest = hashlib.sha256(str(resolved_repo).encode()).hexdigest()[:16]
-    alias_parent = Path(tempfile.gettempdir()) / "axiom-rulespec-repo-aliases" / digest
-    alias_parent.mkdir(parents=True, exist_ok=True)
-    alias = alias_parent / canonical_name
-    if alias.exists() or alias.is_symlink():
-        with contextlib.suppress(OSError, RuntimeError):
-            if alias.resolve() == resolved_repo:
-                return alias_parent
-        if alias.is_symlink() or alias.is_file():
-            alias.unlink()
-        else:
-            shutil.rmtree(alias)
-    alias.symlink_to(resolved_repo, target_is_directory=True)
-    return alias_parent
 
 
 def _canonical_rulespec_compile_path(
     rules_file: Path,
     policy_repo_path: Path,
 ) -> Path:
-    """Return a compile path under the canonical repo alias when needed."""
-    monorepo_alias = _monorepo_rulespec_repo_alias(policy_repo_path)
-    if monorepo_alias is not None:
-        monorepo_alias_parent, monorepo_canonical_name = monorepo_alias
-        try:
-            relative = rules_file.resolve().relative_to(
-                Path(policy_repo_path).resolve().parent
-            )
-        except ValueError:
-            return rules_file
-        return monorepo_alias_parent / monorepo_canonical_name / relative
-    if _is_canonical_monorepo_content_root(policy_repo_path):
-        return rules_file
+    """Return the direct, non-symlink compile path inside the active root."""
 
-    alias_parent = _rulespec_repo_alias_parent(policy_repo_path)
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    if alias_parent is None or canonical_name is None:
-        return rules_file
-    try:
-        relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
-    except ValueError:
-        return rules_file
-    return alias_parent / canonical_name / relative
+    _rulespec_checkout_root_for_active_path(policy_repo_path)
+    return validate_rulespec_context_file(rules_file, policy_repo_path)
 
 
 def _extract_source_relation_target_values(
@@ -20335,7 +19292,6 @@ class PipelineResult:
             policyengine_match=self.results.get(
                 "policyengine", ValidationResult("", False)
             ).score,
-            taxsim_match=self.results.get("taxsim", ValidationResult("", False)).score,
             oracle_context=self.oracle_context,
         )
 
@@ -20354,109 +19310,6 @@ def _rulespec_public_item_key(item: Any) -> str:
     return str(item.get("name") or "").strip()
 
 
-def _canonical_rulespec_item_id_alias(
-    item_id: str,
-    *,
-    policy_repo_path: Path,
-) -> str | None:
-    if ":" not in item_id:
-        return None
-    raw_prefix, raw_path = item_id.split(":", 1)
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    local_prefixes = _rulespec_local_item_prefixes(policy_repo_path)
-    if raw_prefix != canonical_prefix and raw_prefix not in local_prefixes:
-        return None
-    canonical_path = _canonical_rulespec_item_path_for_policy_root(
-        raw_path,
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    alias = f"{canonical_prefix}:{canonical_path}"
-    if alias == item_id:
-        return None
-    return alias
-
-
-def _rulespec_local_item_prefixes(policy_repo_path: Path) -> set[str]:
-    """Return noncanonical prefixes the engine may stamp for this checkout."""
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    prefixes: set[str] = set()
-    current = Path(policy_repo_path).resolve()
-    for candidate in (current, *current.parents):
-        name = candidate.name
-        if name.startswith("rulespec-"):
-            prefixes.add(name.removeprefix("rulespec-"))
-            break
-    local_prefix = Path(policy_repo_path).name.removeprefix("rulespec-")
-    if local_prefix:
-        prefixes.add(local_prefix)
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    if canonical_name and canonical_name.startswith("rulespec-"):
-        prefixes.add(canonical_name.removeprefix("rulespec-"))
-    prefixes.discard(canonical_prefix)
-    return {prefix for prefix in prefixes if prefix}
-
-
-def _rulespec_local_item_prefix(policy_repo_path: Path) -> str | None:
-    """Return the preferred engine-local prefix for same-repo test requests."""
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    current = Path(policy_repo_path).resolve()
-    for candidate in (current, *current.parents):
-        name = candidate.name
-        if name.startswith("rulespec-"):
-            prefix = name.removeprefix("rulespec-")
-            if prefix and prefix != canonical_prefix:
-                return prefix
-            break
-    return None
-
-
-def _rulespec_content_prefix_segment(
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str | None:
-    """Return a monorepo content-root path segment when engine ids include it."""
-    policy_path = Path(policy_repo_path)
-    if policy_path.name == canonical_prefix and policy_path.parent.name.startswith(
-        "rulespec-"
-    ):
-        return canonical_prefix
-    if (policy_path / canonical_prefix).is_dir():
-        return canonical_prefix
-    return None
-
-
-def _canonical_rulespec_item_path_for_policy_root(
-    item_path: str,
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str:
-    content_segment = _rulespec_content_prefix_segment(
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    if content_segment and item_path.startswith(f"{content_segment}/"):
-        return item_path.split("/", 1)[1]
-    return item_path
-
-
-def _engine_rulespec_item_path_for_policy_root(
-    item_path: str,
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str:
-    content_segment = _rulespec_content_prefix_segment(
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    if content_segment and not item_path.startswith(f"{content_segment}/"):
-        return f"{content_segment}/{item_path}"
-    return item_path
-
-
 def _rulespec_public_item_keys(
     item: Any,
     *,
@@ -20465,13 +19318,7 @@ def _rulespec_public_item_keys(
     key = _rulespec_public_item_key(item)
     if not key:
         return set()
-    keys = {key}
-    if alias := _canonical_rulespec_item_id_alias(
-        key,
-        policy_repo_path=policy_repo_path,
-    ):
-        keys.add(alias)
-    return keys
+    return {key}
 
 
 def _rulespec_item_friendly_name_and_legal_id(item: Any) -> tuple[str, str] | None:
@@ -20846,47 +19693,101 @@ class ValidatorPipeline:
         self,
         policy_repo_path: Path,
         axiom_rules_path: Path,
+        *,
+        local_corpus_release: LocalCorpusRelease | None,
         enable_oracles: bool = True,
         oracle_validators: tuple[str, ...] | None = None,
         max_workers: int = 4,
         encoding_db: Optional[EncodingDB] = None,
         session_id: Optional[str] = None,
-        policyengine_country: str = "auto",
+        policyengine_runtime: PolicyEngineRuntime | None = None,
         policyengine_rule_hint: str | None = None,
         require_policy_proofs: bool = False,
         enforce_repository_layout: bool = True,
         source_text: str | None = None,
-        local_corpus_root: Path | None = None,
-        source_citation_paths: tuple[str, ...] | None = None,
+        source_metadata: dict[str, object] | None = None,
+        source_citation_path: str | None = None,
+        rulespec_dependency_roots: Iterable[Path] = (),
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
         self.enable_oracles = enable_oracles
-        self.oracle_validators = oracle_validators or ("policyengine", "taxsim")
+        self.oracle_validators = (
+            ("policyengine",) if oracle_validators is None else oracle_validators
+        )
+        unsupported_oracles = sorted(set(self.oracle_validators) - {"policyengine"})
+        if unsupported_oracles:
+            raise ValueError(
+                "Unsupported oracle validator(s): " + ", ".join(unsupported_oracles)
+            )
+        if (
+            policyengine_runtime is not None
+            and type(policyengine_runtime) is not PolicyEngineRuntime
+        ):
+            raise TypeError(
+                "policyengine_runtime must be an admitted PolicyEngineRuntime"
+            )
+        if self.enable_oracles and "policyengine" in self.oracle_validators:
+            if policyengine_runtime is None:
+                raise PolicyEngineRuntimeError(
+                    "PolicyEngine oracle requires one explicit admitted runtime; "
+                    "ambient interpreters and automatic installation are forbidden"
+                )
+            policyengine_runtime.assert_matches_rulespec_root(self.policy_repo_path)
+        self.policyengine_runtime = policyengine_runtime
         self.max_workers = max_workers
         self.encoding_db = encoding_db
         self.session_id = session_id
-        self.policyengine_country = policyengine_country
         self.policyengine_rule_hint = policyengine_rule_hint
         self.require_policy_proofs = require_policy_proofs
         self.enforce_repository_layout = enforce_repository_layout
         self.source_text = source_text
-        self.local_corpus_root = (
-            Path(local_corpus_root).resolve(strict=True)
-            if local_corpus_root is not None
-            else None
-        )
-        self.source_citation_paths = (
-            tuple(
-                dict.fromkeys(
-                    path.strip().strip("/")
-                    for path in source_citation_paths
-                    if path.strip().strip("/")
-                )
+        if source_metadata is not None and not isinstance(source_metadata, dict):
+            raise TypeError("source_metadata must be a dictionary when provided")
+        self.source_metadata = copy.deepcopy(source_metadata)
+        if local_corpus_release is not None and not isinstance(
+            local_corpus_release, LocalCorpusRelease
+        ):
+            raise TypeError(
+                "local_corpus_release must be a validated LocalCorpusRelease"
             )
-            if source_citation_paths is not None
+        self.local_corpus_release = local_corpus_release
+        self.rulespec_dependency_roots = _rulespec_dependencies_for_active_root(
+            self.policy_repo_path,
+            _normalize_rulespec_dependency_roots(rulespec_dependency_roots),
+        )
+        if source_citation_path is not None and not isinstance(
+            source_citation_path, str
+        ):
+            raise TypeError("source_citation_path must be a string when provided")
+        self.source_citation_path = (
+            require_canonical_corpus_citation_path(source_citation_path)
+            if source_citation_path is not None
             else None
         )
+        source_attestation = (
+            self.source_metadata.get("source_attestation")
+            if isinstance(self.source_metadata, dict)
+            else None
+        )
+        if isinstance(source_attestation, dict):
+            attested_path = source_attestation.get("requested_corpus_citation_path")
+            if attested_path is not None:
+                if not isinstance(attested_path, str):
+                    raise InvalidCorpusCitationError(
+                        "Source attestation requested_corpus_citation_path must "
+                        "be a string"
+                    )
+                canonical_attested_path = require_canonical_corpus_citation_path(
+                    attested_path
+                )
+                if self.source_citation_path is None:
+                    self.source_citation_path = canonical_attested_path
+                elif self.source_citation_path != canonical_attested_path:
+                    raise CorpusResolutionError(
+                        "Trusted source_citation_path does not match the source "
+                        "attestation requested_corpus_citation_path"
+                    )
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -20913,38 +19814,24 @@ class ValidatorPipeline:
         return env
 
     def _source_texts_for_rulespec_content(self, content: str) -> dict[str, str] | None:
-        """Map declared RuleSpec source paths to the in-memory source text, if any."""
+        """Resolve trusted source paths through the bound named corpus release."""
         if self.source_text is None:
             return None
-        if self.source_citation_paths is not None:
-            return {
-                citation_path: self.source_text
-                for citation_path in self.source_citation_paths
-            }
-        if self.local_corpus_root is not None:
-            # A local-only run without trusted source metadata must resolve every
-            # model-declared path from the authoritative checkout itself.
+        if self.source_citation_path is None:
+            # Caller-provided text is reviewer/numeric-grounding context, never
+            # legal authority. Without resolver-owned paths, proof source lookup
+            # must fall through to the bound release.
             return {}
-        try:
-            payload = yaml.safe_load(content)
-        except (yaml.YAMLError, ValueError):
-            return None
-        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-            return None
-        source_verification = _source_verification_block(payload)
-        if source_verification is None:
-            return None
-        citation_paths, source_label = _source_verification_source_fields(
-            source_verification
-        )
-        if not citation_paths:
-            return None
-        source_texts = {
-            citation_path: self.source_text for citation_path in citation_paths
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            raise CorpusResolutionError(
+                "Trusted source resolution requires a bound LocalCorpusRelease"
+            )
+        return {
+            self.source_citation_path: resolve_local_corpus_source(
+                self.source_citation_path,
+                self.local_corpus_release,
+            ).body
         }
-        if source_label:
-            source_texts[source_label] = self.source_text
-        return source_texts
 
     def _proof_source_texts_for_rulespec_content(
         self,
@@ -20990,7 +19877,7 @@ class ValidatorPipeline:
     def _trusted_source_binding_issues(self, content: str) -> list[str]:
         """Require generated metadata to retain the resolver-selected source."""
 
-        if not self.source_citation_paths:
+        if self.source_citation_path is None:
             return []
         try:
             payload = yaml.safe_load(content)
@@ -21004,7 +19891,7 @@ class ValidatorPipeline:
             if source_verification is not None
             else ((), None)
         )
-        trusted_primary = self.source_citation_paths[0]
+        trusted_primary = self.source_citation_path
         if trusted_primary in declared_paths:
             return []
         declared = (
@@ -21018,45 +19905,38 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
-    def _rulespec_compile_env(self) -> dict[str, str]:
-        """Build a credential-free env for the deterministic RuleSpec engine."""
+    def _rulespec_compile_roots(self) -> tuple[Path, ...]:
+        """Return the exact country checkouts authorized for engine compilation."""
+        active_checkout = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        return (active_checkout, *self.rulespec_dependency_roots)
+
+    def _rulespec_root_args(self) -> list[str]:
+        """Render required repeatable engine root arguments."""
+        return [
+            item
+            for root in self._rulespec_compile_roots()
+            for item in ("--rulespec-root", str(root))
+        ]
+
+    def _rulespec_engine_env(self) -> dict[str, str]:
+        """Build the credential-free environment for RuleSpec engine calls."""
         env = _without_sensitive_environment(self._pythonpath_env())
-        roots: list[Path] = []
-        if Path(self.policy_repo_path).parent.name.startswith("rulespec-"):
-            # A monorepo jurisdiction directory: sibling checkouts live next
-            # to the monorepo checkout itself.
-            incidental_roots = [
-                self.policy_repo_path.parent,
-                self.policy_repo_path.parent.parent,
-            ]
-        else:
-            incidental_roots = [self.policy_repo_path.parent]
-        monorepo_alias = _monorepo_rulespec_repo_alias(self.policy_repo_path)
-        if monorepo_alias is not None:
-            monorepo_alias_parent, _monorepo_canonical_name = monorepo_alias
-            roots.append(monorepo_alias_parent)
-        if not _is_canonical_monorepo_content_root(self.policy_repo_path):
-            alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
-            if alias_parent is not None:
-                roots.append(alias_parent)
-        roots.append(self.policy_repo_path)
-        existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-        if existing_roots:
-            roots.extend(
-                Path(root) for root in existing_roots.split(os.pathsep) if root
-            )
-        roots.extend(incidental_roots)
-        deduped_roots: list[str] = []
-        seen: set[str] = set()
-        for root in roots:
-            raw = str(root)
-            if raw and raw not in seen:
-                seen.add(raw)
-                deduped_roots.append(raw)
-        env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
+        env.pop("AXIOM_RULESPEC_REPO_ROOTS", None)
+        env.pop("AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE", None)
         return env
 
     def validate(
+        self, rulespec_file: Path, skip_reviewers: bool = False
+    ) -> PipelineResult:
+        """Run validation with the caller-authorized dependency roots bound."""
+
+        with _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots):
+            return self._validate_with_authoritative_roots(
+                rulespec_file,
+                skip_reviewers=skip_reviewers,
+            )
+
+    def _validate_with_authoritative_roots(
         self, rulespec_file: Path, skip_reviewers: bool = False
     ) -> PipelineResult:
         """Run 4-tier validation on a RuleSpec file.
@@ -21064,12 +19944,18 @@ class ValidatorPipeline:
         Tiers run in order:
         0. Compile check - can the file compile to engine IR?
         1. CI checks (instant) - parse, lint, companion tests, structural validation
-        2. Oracles (fast, ~10s) - PolicyEngine + TAXSIM comparison data
+        2. Oracle (fast, ~10s) - explicit local PolicyEngine comparison data
         3. LLM reviewers (uses oracle context) - diagnose issues
 
         Oracle results are passed to LLM reviewers as context.
         Each tier is logged as session events with timestamps.
         """
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            raise RuntimeError(
+                "ValidatorPipeline.validate requires a bound LocalCorpusRelease; "
+                "load the RuleSpec checkout's named release from its "
+                ".axiom/toolchain.toml using an explicit corpus root"
+            )
         start = time.time()
         results = {}
 
@@ -21118,13 +20004,12 @@ class ValidatorPipeline:
         oracle_context = {}
         if self.enable_oracles:
             self._log_event(
-                "validation_oracle_start", "Starting oracle validation (PE + TAXSIM)"
+                "validation_oracle_start", "Starting explicit PolicyEngine validation"
             )
             oracle_start = time.time()
 
             available_oracle_validators = {
                 "policyengine": lambda: self._run_policyengine(rulespec_file),
-                "taxsim": lambda: self._run_taxsim(rulespec_file),
             }
             oracle_validators = {
                 name: available_oracle_validators[name]
@@ -21132,7 +20017,7 @@ class ValidatorPipeline:
                 if name in available_oracle_validators
             }
 
-            with ThreadPoolExecutor(max_workers=2) as executor:
+            with ThreadPoolExecutor(max_workers=1) as executor:
                 futures = {
                     executor.submit(fn): name for name, fn in oracle_validators.items()
                 }
@@ -21250,8 +20135,8 @@ class ValidatorPipeline:
 
     def _is_rulespec_file(self, rules_file: Path) -> bool:
         """Return true for current RuleSpec files."""
-        if rules_file.suffix not in {".yaml", ".yml"} or rules_file.name.endswith(
-            ".test.yaml"
+        if rules_file.suffix != RULESPEC_FILE_SUFFIX or rules_file.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
         ):
             return False
         try:
@@ -21286,10 +20171,9 @@ class ValidatorPipeline:
         for candidate in candidates:
             if candidate.exists():
                 return candidate
-        if resolved := shutil.which("axiom-rules-engine"):
-            return Path(resolved)
         raise FileNotFoundError(
-            f"axiom-rules-engine binary not found under {self.axiom_rules_path} or on PATH"
+            "axiom-rules-engine binary not found in the explicitly declared "
+            f"checkout: {self.axiom_rules_path}"
         )
 
     def _compile_rulespec_to_artifact(
@@ -21309,6 +20193,7 @@ class ValidatorPipeline:
                 "compile",
                 "--program",
                 str(compile_file),
+                *self._rulespec_root_args(),
                 "--output",
                 str(output_path),
             ],
@@ -21316,7 +20201,7 @@ class ValidatorPipeline:
             text=True,
             timeout=60,
             cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
-            env=self._rulespec_compile_env(),
+            env=self._rulespec_engine_env(),
         )
         if result.returncode != 0:
             return result, None
@@ -21805,13 +20690,6 @@ class ValidatorPipeline:
                 if pair is None:
                     continue
                 name, item_id = pair
-                item_id = (
-                    _canonical_rulespec_item_id_alias(
-                        item_id,
-                        policy_repo_path=self.policy_repo_path,
-                    )
-                    or item_id
-                )
                 legal_ids_by_name.setdefault(name, set()).add(item_id)
         return {name: sorted(item_ids) for name, item_ids in legal_ids_by_name.items()}
 
@@ -22097,7 +20975,7 @@ class ValidatorPipeline:
             text=True,
             timeout=60,
             cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
-            env=self._rulespec_compile_env(),
+            env=self._rulespec_engine_env(),
         )
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
@@ -22439,13 +21317,6 @@ class ValidatorPipeline:
         issues.extend(self._trusted_source_binding_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
-        issues.extend(
-            upstream_source_authority_issues_for_rules_file(
-                content,
-                rules_file=rules_file,
-                policy_repo_path=self.policy_repo_path,
-            )
-        )
         proof_issues = (
             validate_rulespec_proofs(
                 content,
@@ -22461,7 +21332,14 @@ class ValidatorPipeline:
         issues.extend(proof_issues)
         issues.extend(find_structured_scale_parameter_issues(content))
         issues.extend(find_versioned_derived_formula_issues(content))
-        issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
+        issues.extend(
+            find_upstream_placement_issues(
+                content,
+                rules_file=rules_file,
+                source_metadata=self.source_metadata,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+        )
         issues.extend(
             find_source_verification_issues(
                 content, source_texts=validation_source_texts
@@ -22485,20 +21363,9 @@ class ValidatorPipeline:
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         issues.extend(find_mixed_case_rule_name_token_issues(content))
-        # Read the requested-source target from the nearby eval workspace or
-        # the durable apply manifest so subparagraph-coverage scoping respects
-        # encoder intent even when the corpus served a parent-fallback source
-        # slice (issue #71).
-        requested_source = _requested_source_from_metadata(
-            _load_nearby_eval_source_metadata(rules_file)
-        )
-        if requested_source is None:
-            requested_source = _requested_source_from_metadata(
-                _load_applied_encoding_manifest_source_metadata(
-                    rules_file,
-                    self.policy_repo_path,
-                )
-            )
+        # Generation metadata is an explicit caller-owned input. Persisted
+        # RuleSpec must carry its own citation scope.
+        requested_source = _requested_source_from_metadata(self.source_metadata)
         issues.extend(
             find_out_of_scope_rule_source_issues(
                 content,
@@ -22714,8 +21581,24 @@ class ValidatorPipeline:
 
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
-        with _authoritative_corpus_scope(self.local_corpus_root):
-            yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
+        with (
+            _authoritative_corpus_scope(self.local_corpus_release),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
+            try:
+                canonical_file = _canonical_rulespec_compile_path(
+                    rulespec_file,
+                    self.policy_repo_path,
+                )
+            except (OSError, ValueError, UnsafeRulespecContextPath) as exc:
+                issue = f"RuleSpec validation target is not canonical: {exc}"
+                return ValidationResult(
+                    validator_name="ci",
+                    passed=False,
+                    issues=[issue],
+                    error=issue,
+                )
+            yaml_issue = self._rulespec_yaml_preflight_issue(canonical_file)
             if yaml_issue:
                 return ValidationResult(
                     validator_name="ci",
@@ -22723,7 +21606,7 @@ class ValidatorPipeline:
                     issues=[yaml_issue],
                     error=yaml_issue,
                 )
-            return self._run_rulespec_ci(rulespec_file)
+            return self._run_rulespec_ci(canonical_file)
 
     def _copy_validation_import_closure(
         self,
@@ -22771,20 +21654,14 @@ class ValidatorPipeline:
                     pending.append(dependency)
 
     def _validation_source_root(self, rulespec_file: Path) -> Path:
-        """Resolve the root directory used for import lookup during CI validation."""
-        resolved_file = rulespec_file.resolve()
-        resolved_root = self.policy_repo_path.resolve()
-        with contextlib.suppress(ValueError):
-            resolved_file.relative_to(resolved_root)
-            return resolved_root
-        if resolved_file.parent.name == "source":
-            runner_root = resolved_file.parent.parent
-            if any(
-                (runner_root / sibling).exists()
-                for sibling in ("external", "legislation", "regulation", "statutes")
-            ):
-                return runner_root
-        return resolved_file.parent
+        """Return the exact caller-supplied root for static import lookup."""
+
+        source_root = _validate_explicit_rulespec_directory(
+            self.policy_repo_path,
+            label="RuleSpec validation root",
+        )
+        validate_rulespec_context_file(rulespec_file, source_root)
+        return source_root
 
     def _resolve_import_dependencies(
         self,
@@ -22798,6 +21675,7 @@ class ValidatorPipeline:
                 import_path,
                 rules_file=rulespec_file,
                 policy_repo_path=source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if target is None:
                 continue
@@ -22862,7 +21740,7 @@ class ValidatorPipeline:
     def _import_to_relative_rulespec_path(self, import_target: str) -> Path:
         """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
         normalized = self._normalize_rulespec_import_path(import_target)
-        if normalized.endswith((".yaml", ".yml")):
+        if normalized.endswith(RULESPEC_FILE_SUFFIX):
             return Path(normalized)
         return Path(f"{normalized}.yaml")
 
@@ -23217,6 +22095,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -23316,6 +22195,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -23475,6 +22355,7 @@ class ValidatorPipeline:
             import_item,
             rules_file=rulespec_file,
             policy_repo_path=self.policy_repo_path,
+            rulespec_dependency_roots=self.rulespec_dependency_roots,
         )
         if import_file is None:
             return []
@@ -23839,6 +22720,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -23880,6 +22762,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -24145,7 +23028,7 @@ class ValidatorPipeline:
             has_source = has_corpus_provision_for_import_target(
                 relative.with_suffix("").as_posix(),
                 source_root,
-                corpus_root=self.local_corpus_root,
+                corpus_release=self.local_corpus_release,
             )
         except CorpusResolutionError as exc:
             return [f"Dependency corpus check failed: {type(exc).__name__}: {exc}"]
@@ -24169,6 +23052,7 @@ class ValidatorPipeline:
                     import_path,
                     rules_file=rulespec_file,
                     policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
                 )
             except UnsafeRulespecContextPath as exc:
                 issues.append(
@@ -24184,7 +23068,7 @@ class ValidatorPipeline:
                 has_source = has_corpus_provision_for_import_target(
                     import_base,
                     source_root,
-                    corpus_root=self.local_corpus_root,
+                    corpus_release=self.local_corpus_release,
                 )
             except CorpusResolutionError as exc:
                 issues.append(
@@ -24212,8 +23096,6 @@ class ValidatorPipeline:
         source_text = extract_embedded_source_text(content)
         if not source_text:
             return []
-        source_metadata = _load_nearby_eval_source_metadata(rulespec_file)
-
         issues: list[str] = []
         for block in self._extract_definition_blocks(content):
             if block["dtype"] != "Boolean":
@@ -24225,7 +23107,7 @@ class ValidatorPipeline:
             constant_boolean = bool(block["constant_boolean"])
             if not (constant_boolean or status == "deferred"):
                 continue
-            if _source_metadata_sets_target_symbol(source_metadata, block["name"]):
+            if _source_metadata_sets_target_symbol(self.source_metadata, block["name"]):
                 continue
 
             issues.append(
@@ -24308,6 +23190,7 @@ class ValidatorPipeline:
                 base,
                 rules_file=rulespec_file,
                 policy_repo_path=source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if target is None:
                 continue
@@ -24869,7 +23752,7 @@ class ValidatorPipeline:
         Args:
             reviewer_type: Type of reviewer (rulespec-reviewer, formula-reviewer, etc.)
             rulespec_file: Path to the RuleSpec file to review
-            oracle_context: Results from oracle validators (PE, TAXSIM) for context
+            oracle_context: Results from the explicit PolicyEngine oracle for context
 
         Returns:
             ValidationResult with score, issues, and raw output
@@ -25079,124 +23962,38 @@ Output ONLY valid JSON:
                 prompt_sha256=prompt_sha256,
             )
 
-    def _detect_policyengine_country(
-        self, rulespec_file: Path, rulespec_content: str
-    ) -> str:
-        """Infer which PolicyEngine country package to use."""
-        if self.policyengine_country in {"us", "uk"}:
-            return self.policyengine_country
+    def _required_policyengine_runtime(self) -> PolicyEngineRuntime:
+        """Return the one admitted runtime bound to this canonical RuleSpec root."""
 
-        haystack = f"{rulespec_file}\n{rulespec_content}".lower()
-        if "legislation.gov.uk" in haystack or re.search(
-            r"\b(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)(?:/|-)", haystack
-        ):
-            return "uk"
-        return "us"
-
-    def _find_pe_python(self, country: str = "us") -> Optional[str]:
-        """Find a Python interpreter with the requested PolicyEngine package installed.
-
-        Checks: 1) explicit env override, 2) known PE checkout/worktree venv paths,
-        3) current interpreter, 4) auto-install.
-        Returns the path to a working Python, or None.
-        """
-        module_name = f"policyengine_{country}"
-        package_name = f"policyengine-{country}"
-        repo_name = f"policyengine-{country}"
-        env_var_name = f"AXIOM_ENCODE_POLICYENGINE_{country.upper()}_PYTHON"
-
-        def _python_imports_policyengine(python_path: str) -> bool:
-            try:
-                result = subprocess.run(
-                    [
-                        python_path,
-                        "-c",
-                        f"from {module_name} import Simulation; print('ok')",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                return result.returncode == 0 and "ok" in result.stdout
-            except Exception:
-                return False
-
-        env_python = os.getenv(env_var_name)
-        if env_python and Path(env_python).exists():
-            if _python_imports_policyengine(env_python):
-                return env_python
-
-        pe_venv_paths = [
-            Path.home()
-            / "worktrees"
-            / f"{repo_name}-main-view"
-            / ".venv"
-            / "bin"
-            / "python",
-            Path.home() / "worktrees" / repo_name / ".venv" / "bin" / "python",
-            Path.home() / repo_name / ".venv" / "bin" / "python",
-            Path.home() / "TheAxiomFoundation" / repo_name / ".venv" / "bin" / "python",
-            Path.home() / "PolicyEngine" / repo_name / ".venv" / "bin" / "python",
-        ]
-        for pe_python in pe_venv_paths:
-            if pe_python.exists() and _python_imports_policyengine(str(pe_python)):
-                return str(pe_python)
-
-        # Try current interpreter after explicit checkout/worktree environments so
-        # local source trees win over stale globally-installed packages.
-        if _python_imports_policyengine(sys.executable):
-            return sys.executable
-
-        # Try auto-installing into current venv as last resort
-        try:
-            print("  PolicyEngine not found, attempting install...")
-            install_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", package_name],
-                capture_output=True,
-                text=True,
-                timeout=300,
+        runtime = self.policyengine_runtime
+        if runtime is None:
+            raise PolicyEngineRuntimeError(
+                "PolicyEngine oracle requires one explicit admitted runtime"
             )
-            if install_result.returncode == 0:
-                return sys.executable
-            else:
-                print(f"  Install failed: {install_result.stderr[:200]}")
-        except Exception as e:
-            print(f"  Auto-install failed: {e}")
+        runtime.assert_matches_rulespec_root(self.policy_repo_path)
+        return runtime
 
-        return None
+    def _run_pe_subprocess(self, script: str) -> Optional[str]:
+        """Run a Python script only through the admitted isolated runtime."""
 
-    def _run_pe_subprocess(self, script: str, pe_python: str) -> Optional[str]:
-        """Run a Python script using the PE-capable interpreter.
-
-        Returns stdout on success, None on failure.
-        """
-        result = self._run_pe_subprocess_detailed(script, pe_python)
+        result = self._run_pe_subprocess_detailed(script)
         if result.returncode == 0:
             return result.stdout
         return None
 
-    def _run_pe_subprocess_detailed(
-        self, script: str, pe_python: str
-    ) -> OracleSubprocessResult:
-        """Run a Python script using the PE-capable interpreter with stderr."""
-        timeout = int(os.getenv("AXIOM_ENCODE_POLICYENGINE_TIMEOUT_SECONDS", "300"))
+    def _run_pe_subprocess_detailed(self, script: str) -> OracleSubprocessResult:
+        """Run a Python script with no ambient environment or interpreter lookup."""
+
+        runtime = self._required_policyengine_runtime()
+        timeout = 300
+        runtime.assert_unchanged()
         try:
-            idle_timeout = min(
-                timeout,
-                max(
-                    0,
-                    int(
-                        os.getenv(
-                            "AXIOM_ENCODE_POLICYENGINE_IDLE_TIMEOUT_SECONDS",
-                            "45",
-                        )
-                    ),
-                ),
-            )
             result = _run_subprocess_with_idle_timeout(
-                [pe_python, "-c", script],
+                runtime.oracle_command(script),
                 timeout=timeout,
-                idle_timeout=idle_timeout,
+                idle_timeout=45,
+                cwd=runtime.root,
+                env=policyengine_subprocess_environment(),
             )
             return OracleSubprocessResult(
                 returncode=result.returncode,
@@ -25212,6 +24009,8 @@ Output ONLY valid JSON:
             )
         except Exception as exc:
             return OracleSubprocessResult(returncode=1, stderr=str(exc))
+        finally:
+            runtime.assert_unchanged()
 
     def _is_pe_unsupported_error(self, error_text: str) -> bool:
         """Return True when PE cannot evaluate the cited period or variable."""
@@ -25232,6 +24031,24 @@ Output ONLY valid JSON:
         return "unknown error"
 
     def _run_policyengine(self, rulespec_file: Path) -> ValidationResult:
+        """Run PolicyEngine and reject any runtime mutation across the execution."""
+
+        runtime = self._required_policyengine_runtime()
+        runtime.assert_unchanged()
+        try:
+            result = self._run_policyengine_bound(rulespec_file, runtime.country)
+        finally:
+            runtime.assert_unchanged()
+        result.details = {
+            **result.details,
+            "runtime_identity": runtime.canonical_identity(),
+            "runtime_identity_sha256": runtime.identity_sha256,
+        }
+        return result
+
+    def _run_policyengine_bound(
+        self, rulespec_file: Path, country: str
+    ) -> ValidationResult:
         """Validate against PolicyEngine oracle.
 
         Uses scenario-based comparison: builds standard PE households from
@@ -25263,11 +24080,6 @@ Output ONLY valid JSON:
             rulespec_source_content = rulespec_file.read_text()
         except Exception:
             rulespec_source_content = ""
-        source_metadata = _load_nearby_eval_source_metadata(rulespec_file)
-
-        country = self._detect_policyengine_country(
-            rulespec_file, rulespec_source_content
-        )
 
         # Extract RuleSpec test cases.
         tests = self._extract_rulespec_tests(rulespec_content)
@@ -25276,28 +24088,12 @@ Output ONLY valid JSON:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
                 validator_name="policyengine",
-                passed=True,
-                score=None,
-                issues=["No test cases with expected values found"],
-                duration_ms=duration,
-            )
-
-        # Find a PE-capable Python interpreter
-        pe_python = self._find_pe_python(country)
-        if not pe_python:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="policyengine",
                 passed=False,
                 score=None,
-                issues=[
-                    "No PolicyEngine-capable Python found (tried local, known venvs, auto-install)"
-                ],
+                issues=["PolicyEngine produced zero comparable oracle evidence"],
                 duration_ms=duration,
-                error=f"policyengine-{country} not available",
-                details={
-                    "coverage": PolicyEngineOracleCoverage(setup_errors=1).as_dict()
-                },
+                error="No test cases with expected values found",
+                details={"coverage": PolicyEngineOracleCoverage().as_dict()},
             )
 
         # Run comparison for each legal-ID keyed test output.
@@ -25392,7 +24188,7 @@ Output ONLY valid JSON:
             source_jurisdiction = None
             if country == "us":
                 source_jurisdiction = _source_metadata_jurisdiction(
-                    source_metadata
+                    self.source_metadata
                 ) or _infer_us_state_code_from_rulespec_path(
                     rulespec_file,
                     rulespec_source_content,
@@ -25452,7 +24248,7 @@ Output ONLY valid JSON:
                     country=country,
                     rule_name=pe_var,
                 )
-            output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
+            output = self._run_pe_subprocess_detailed(scenario_script)
 
             if output.returncode != 0:
                 summary = self._summarize_oracle_error(output.stderr or output.stdout)
@@ -25520,10 +24316,12 @@ Output ONLY valid JSON:
                 issues.append("No PolicyEngine-comparable tests found")
             return ValidationResult(
                 validator_name="policyengine",
-                passed=True,
+                passed=False,
                 score=None,
-                issues=issues,
+                issues=issues
+                or ["PolicyEngine produced zero comparable oracle evidence"],
                 duration_ms=duration,
+                error="PolicyEngine produced zero comparable oracle evidence",
                 details={"coverage": coverage.as_dict()},
             )
 
@@ -25546,141 +24344,6 @@ Output ONLY valid JSON:
         if test_file.exists():
             return test_file.read_text()
         return ""
-
-    def _run_taxsim(self, rulespec_file: Path) -> ValidationResult:
-        """Validate against TAXSIM oracle.
-
-        Converts test cases to TAXSIM format, runs through TAXSIM API,
-        and compares relevant outputs. Returns match rate as score (0-1).
-        """
-        start = time.time()
-        issues = []
-
-        # Read companion RuleSpec test content.
-        try:
-            rulespec_content = self._read_test_content(rulespec_file)
-        except Exception as e:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=0.0,
-                issues=[f"Failed to read RuleSpec/test file: {e}"],
-                duration_ms=duration,
-                error=str(e),
-            )
-
-        # Extract RuleSpec test cases.
-        tests = self._extract_rulespec_tests(rulespec_content)
-
-        if not tests:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=True,
-                score=None,
-                issues=["No test cases found — cannot validate"],
-                duration_ms=duration,
-            )
-
-        # Try to run through TAXSIM
-        try:
-            import requests
-
-            # TAXSIM API endpoint
-            taxsim_url = "https://taxsim.nber.org/taxsim35/taxsim.cgi"
-
-            matches = 0
-            total = 0
-            unmappable = 0
-
-            for test in tests:
-                try:
-                    # Convert test to TAXSIM input format
-                    taxsim_input = self._build_taxsim_input(test.get("inputs", {}))
-
-                    if not taxsim_input:
-                        issues.append(
-                            f"TAXSIM could not map inputs for '{test.get('name', 'unknown')}'"
-                        )
-                        unmappable += 1
-                        continue
-
-                    # Submit to TAXSIM
-                    response = requests.post(
-                        taxsim_url,
-                        data=taxsim_input,
-                        timeout=30,
-                    )
-
-                    if response.status_code == 200:
-                        # Parse TAXSIM output and compare
-                        taxsim_result = self._parse_taxsim_output(response.text)
-                        expected = test.get("expect")
-
-                        if expected is not None and self._values_match(
-                            taxsim_result, expected
-                        ):
-                            matches += 1
-
-                    total += 1
-
-                except requests.RequestException as req_error:
-                    issues.append(f"TAXSIM request failed: {req_error}")
-                    total += 1
-                except Exception as test_error:
-                    issues.append(
-                        f"Test '{test.get('name', 'unknown')}' failed: {test_error}"
-                    )
-                    total += 1
-
-            if total == 0:
-                duration = int((time.time() - start) * 1000)
-                if unmappable:
-                    issues.append(
-                        "TAXSIM could not evaluate any oracle-comparable tests"
-                    )
-                return ValidationResult(
-                    validator_name="taxsim",
-                    passed=True,
-                    score=None,
-                    issues=issues or ["No TAXSIM-comparable tests found"],
-                    duration_ms=duration,
-                )
-
-            score = matches / total
-            passed = score >= 0.8
-
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=passed,
-                score=score,
-                issues=issues,
-                duration_ms=duration,
-            )
-
-        except ImportError:
-            # requests not installed
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=None,
-                issues=["requests package not installed for TAXSIM API"],
-                duration_ms=duration,
-                error="requests not available",
-            )
-        except Exception as e:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=None,
-                issues=[f"TAXSIM validation error: {e}"],
-                duration_ms=duration,
-                error=str(e),
-            )
 
     def _run_microdata_benchmark(
         self,
@@ -25707,17 +24370,16 @@ Output ONLY valid JSON:
         start = time.time()
         issues = []
 
-        # Find PE-capable Python
-        pe_python = self._find_pe_python()
-        if not pe_python:
+        runtime = self._required_policyengine_runtime()
+        if runtime.country != "us":
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
                 validator_name="microdata_benchmark",
                 passed=False,
                 score=0.0,
-                issues=["No PolicyEngine-capable Python found"],
+                issues=["PolicyEngine-US runtime is required for this benchmark"],
                 duration_ms=duration,
-                error="policyengine-us not available",
+                error="PolicyEngine runtime country is not us",
             )
 
         # Run PE microsimulation and collect statistics
@@ -25761,7 +24423,11 @@ result = {{
 print("BENCHMARK:" + json.dumps(result))
 """
 
-        output = self._run_pe_subprocess(script, pe_python)
+        runtime.assert_unchanged()
+        try:
+            output = self._run_pe_subprocess(script)
+        finally:
+            runtime.assert_unchanged()
 
         if output is None:
             duration = int((time.time() - start) * 1000)
@@ -25853,58 +24519,6 @@ print("BENCHMARK:" + json.dumps(result))
                 situation["people"]["person"][key] = value
 
         return situation
-
-    def _build_taxsim_input(self, inputs: dict) -> Optional[str]:
-        """Build TAXSIM input string from test inputs.
-
-        Returns None if inputs cannot be mapped to TAXSIM format.
-        """
-        # TAXSIM input mapping
-        # See: https://taxsim.nber.org/taxsim35/
-
-        # Build input line
-        values = ["0"] * 27  # TAXSIM expects 27 fields
-
-        # Set defaults
-        values[0] = "1"  # taxsimid
-        values[1] = "2024"  # year
-        values[2] = "0"  # state
-        values[3] = "1"  # marital status (single)
-
-        # Map inputs
-        mapped = False
-        for key, value in inputs.items():
-            key_lower = key.lower()
-            if "wage" in key_lower:
-                values[7] = str(value)
-                mapped = True
-            elif "self_employment" in key_lower or "semp" in key_lower:
-                values[9] = str(value)
-                mapped = True
-            elif "year" in key_lower:
-                values[1] = str(value)
-                mapped = True
-
-        if not mapped:
-            return None
-
-        return ",".join(values)
-
-    def _parse_taxsim_output(self, output: str) -> Optional[float]:
-        """Parse TAXSIM output and extract federal tax liability."""
-        try:
-            # TAXSIM returns comma-separated values
-            # Field 7 is typically federal tax liability
-            lines = output.strip().split("\n")
-            if len(lines) >= 2:
-                # Skip header line
-                data_line = lines[-1]
-                values = data_line.split(",")
-                if len(values) > 7:
-                    return float(values[7])
-        except Exception:
-            pass
-        return None
 
     def _values_match(
         self, actual: Any, expected: Any, tolerance: float = 0.01
@@ -29951,27 +28565,3 @@ annual = sim.calculate('{pe_var}', int('{year}'))
 val = float(annual[0]) / {scale}
 print(f'RESULT:{{val}}')
 """
-
-
-def validate_file(rulespec_file: str | Path) -> PipelineResult:
-    """Convenience function to validate a single file."""
-    file_path = Path(rulespec_file)
-    policy_repo_root = find_policy_repo_root(file_path)
-    if policy_repo_root is None:
-        policy_repo_root = file_path.parent
-    axiom_rules_path = policy_repo_root.parent / "axiom-rules-engine"
-    if not axiom_rules_path.exists() and policy_repo_root.parent.name.startswith(
-        "rulespec-"
-    ):
-        # A monorepo jurisdiction directory: the engine checkout sits next to
-        # the monorepo checkout, not next to the jurisdiction directory.
-        axiom_rules_path = policy_repo_root.parent.parent / "axiom-rules-engine"
-    if not axiom_rules_path.exists():
-        axiom_rules_path = Path(__file__).resolve().parents[4] / "axiom-rules-engine"
-
-    pipeline = ValidatorPipeline(
-        policy_repo_path=policy_repo_root,
-        axiom_rules_path=axiom_rules_path,
-    )
-
-    return pipeline.validate(file_path)

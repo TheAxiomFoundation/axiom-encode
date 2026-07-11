@@ -1,4 +1,4 @@
-__version__ = "0.2.1213"
+__version__ = "0.2.1214"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
@@ -45,7 +45,6 @@ from .harness import (
     print_calibration_report,
     run_model_eval,
     save_calibration_snapshot,
-    validate_file,
     validate_rulespec_proofs,
 )
 
@@ -66,7 +65,6 @@ __all__ = [
     "ValidatorPipeline",
     "ValidationResult",
     "PipelineResult",
-    "validate_file",
     "ProofValidationResult",
     "find_rulespec_proof_issues",
     "validate_rulespec_proofs",

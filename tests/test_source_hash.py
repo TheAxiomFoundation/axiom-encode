@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from axiom_encode.corpus_resolver import InvalidReleaseSelectorError
+from axiom_encode.corpus_resolver import (
+    InvalidCorpusCitationError,
+    InvalidCorpusReleaseError,
+    LocalCorpusRelease,
+)
 from axiom_encode.source_hash import (
     PinnedModule,
     RuleSpecScanError,
@@ -15,42 +19,19 @@ from axiom_encode.source_hash import (
     check_staleness,
     iter_pinned_modules,
     provenance_block,
-    read_corpus_provision_text,
     resolved_source_verification_block,
     run_check_source_staleness,
     source_text_sha256,
-    source_verification_block,
+)
+from tests.release_object_fixtures import (
+    TEST_RELEASE_PUBLIC_KEY,
+    bind_test_corpus_release,
 )
 
 CITATION_PATH = "us/statute/7/2014/e"
 SOURCE_TEXT = "The standard deduction shall be $198 for fiscal year 2026."
 TEST_RELEASE = "test-release"
-
-
-def _write_release_selector(
-    corpus_root: Path,
-    *,
-    jurisdiction: str = "us",
-    document_class: str = "statute",
-    version: str = TEST_RELEASE,
-) -> None:
-    selector = corpus_root / "manifests" / "releases" / "current.json"
-    selector.parent.mkdir(parents=True, exist_ok=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": jurisdiction,
-                        "document_class": document_class,
-                        "version": version,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
+TEST_SELECTOR = "source-hash-test-release"
 
 
 def _release_row(citation_path: str, body: str | None, **extra) -> dict:
@@ -70,14 +51,34 @@ def _release_row(citation_path: str, body: str | None, **extra) -> dict:
 
 def _write_corpus(tmp_path: Path, body: str = SOURCE_TEXT) -> Path:
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     provision_file.write_text(
         json.dumps(_release_row(CITATION_PATH, body)) + "\n",
         encoding="utf-8",
     )
-    _write_release_selector(corpus_root)
+    bind_test_corpus_release(
+        corpus_root,
+        TEST_SELECTOR,
+        [("us", "statute", TEST_RELEASE)],
+    )
     return corpus_root
+
+
+def _local_release(corpus_root: Path) -> LocalCorpusRelease:
+    return bind_test_corpus_release(
+        corpus_root,
+        TEST_SELECTOR,
+        [("us", "statute", TEST_RELEASE)],
+    )
 
 
 def _write_module(
@@ -86,8 +87,28 @@ def _write_module(
     *,
     citation_path: str = CITATION_PATH,
 ) -> Path:
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "statutes" / "7" / "2014" / "e.yaml"
+    rulespec_checkout = tmp_path / "rulespec-us"
+    content_root = rulespec_checkout / "us"
+    waiver = rulespec_checkout / "known-validation-gaps.yaml"
+    waiver.parent.mkdir(parents=True, exist_ok=True)
+    waiver.write_text("validate_failures: {}\n", encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = rulespec_checkout / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    release_objects = sorted(
+        (tmp_path / "axiom-corpus" / "releases" / TEST_SELECTOR).glob("*.json")
+    )
+    release_content_sha256 = (
+        release_objects[0].stem if len(release_objects) == 1 else "0" * 64
+    )
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{TEST_SELECTOR}"\n'
+        f'axiom_corpus_release_content_sha256 = "{release_content_sha256}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n',
+        encoding="utf-8",
+    )
+    module_path = content_root / "statutes" / "7" / "2014" / "e.yaml"
     module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "format: rulespec/v1\n"
@@ -112,14 +133,6 @@ def test_source_text_sha256_matches_hashlib():
     assert source_text_sha256(SOURCE_TEXT) == expected
 
 
-def test_source_verification_block_pins_citation_and_hash():
-    block = source_verification_block(CITATION_PATH, SOURCE_TEXT)
-    assert block == {
-        "corpus_citation_path": CITATION_PATH,
-        "source_sha256": source_text_sha256(SOURCE_TEXT),
-    }
-
-
 def test_provenance_block_records_encoder_model_and_run():
     block = provenance_block(model="claude-fable-5", run_id="run-001")
     assert block["encoder"].startswith("axiom-encode/")
@@ -128,151 +141,8 @@ def test_provenance_block_records_encoder_model_and_run():
     assert set(block) == {"encoder", "model", "run_id"}
 
 
-def test_read_corpus_provision_text_returns_exact_match(tmp_path):
-    corpus_root = _write_corpus(tmp_path)
-    assert read_corpus_provision_text(corpus_root, CITATION_PATH) == SOURCE_TEXT
-
-
-def test_read_corpus_provision_text_rejects_ambiguous_duplicate(tmp_path):
-    corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
-    provision_file.parent.mkdir(parents=True)
-    records = [
-        {
-            "citation_path": CITATION_PATH,
-            "body": "old text",
-            "source_as_of": "2025-01-01",
-        },
-        {
-            "citation_path": CITATION_PATH,
-            "body": "new text",
-            "source_as_of": "2026-01-01",
-        },
-    ]
-    provision_file.write_text(
-        "".join(json.dumps(record) + "\n" for record in records),
-        encoding="utf-8",
-    )
-
-    assert (
-        read_corpus_provision_text(
-            corpus_root,
-            CITATION_PATH,
-            require_release=False,
-        )
-        is None
-    )
-
-
-def test_read_corpus_provision_text_requires_release_by_default(tmp_path):
-    corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "legacy.jsonl"
-    provision_file.parent.mkdir(parents=True)
-    provision_file.write_text(
-        json.dumps({"citation_path": CITATION_PATH, "body": SOURCE_TEXT}) + "\n",
-        encoding="utf-8",
-    )
-
-    assert read_corpus_provision_text(corpus_root, CITATION_PATH) is None
-    assert (
-        read_corpus_provision_text(
-            corpus_root,
-            CITATION_PATH,
-            require_release=False,
-        )
-        == SOURCE_TEXT
-    )
-
-    with pytest.raises(InvalidReleaseSelectorError, match="Release selector not found"):
-        resolved_source_verification_block(corpus_root, CITATION_PATH)
-
-
-def test_read_corpus_provision_text_filters_to_active_release(tmp_path):
-    corpus_root = tmp_path / "axiom-corpus"
-    provisions = corpus_root / "provisions" / "us" / "statute"
-    provisions.mkdir(parents=True)
-    for version, body in (
-        ("release-old", "old active text"),
-        ("release-new", "new text"),
-    ):
-        (provisions / f"{version}.jsonl").write_text(
-            json.dumps(
-                {
-                    "id": f"row-{version}",
-                    "citation_path": CITATION_PATH,
-                    "body": body,
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": version,
-                    "source_path": f"sources/us/statute/{version}/title-7.xml",
-                    "source_as_of": "2026-01-02",
-                    "expression_date": "2026-01-01",
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-    selector = corpus_root / "manifests" / "releases" / "current.json"
-    selector.parent.mkdir(parents=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "us",
-                        "document_class": "statute",
-                        "version": "release-old",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert read_corpus_provision_text(corpus_root, CITATION_PATH) == "old active text"
-
-
-def test_read_corpus_provision_text_falls_back_to_descendants(tmp_path):
-    corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
-    provision_file.parent.mkdir(parents=True)
-    records = [
-        {"citation_path": CITATION_PATH, "body": None, "heading": "Deductions"},
-        {
-            "citation_path": f"{CITATION_PATH}/2",
-            "body": "second child",
-            "level": 1,
-            "ordinal": 2,
-        },
-        {
-            "citation_path": f"{CITATION_PATH}/1",
-            "body": "first child",
-            "level": 1,
-            "ordinal": 1,
-            "heading": "In general",
-        },
-    ]
-    provision_file.write_text(
-        "".join(json.dumps(record) + "\n" for record in records),
-        encoding="utf-8",
-    )
-
-    text = read_corpus_provision_text(
-        corpus_root,
-        CITATION_PATH,
-        require_release=False,
-    )
-    assert text == "In general\n\nfirst child\n\nsecond child"
-
-
-def test_read_corpus_provision_text_missing_returns_none(tmp_path):
-    corpus_root = _write_corpus(tmp_path)
-    assert read_corpus_provision_text(corpus_root, "us/statute/26/1") is None
-
-
 def test_iter_pinned_modules_reports_unpinned_modules(tmp_path):
-    rulespec_root = tmp_path / "rulespec-us"
+    rulespec_root = tmp_path / "rulespec-us" / "us"
     unpinned = rulespec_root / "statutes" / "7" / "2017.yaml"
     unpinned.parent.mkdir(parents=True)
     unpinned.write_text(
@@ -286,7 +156,7 @@ def test_iter_pinned_modules_reports_unpinned_modules(tmp_path):
 
 
 def test_iter_pinned_modules_reports_verification_without_source_hash(tmp_path):
-    rulespec_root = tmp_path / "rulespec-us"
+    rulespec_root = tmp_path / "rulespec-us" / "us"
     unpinned = rulespec_root / "statutes" / "7" / "2017.yaml"
     unpinned.parent.mkdir(parents=True)
     unpinned.write_text(
@@ -312,9 +182,115 @@ def test_iter_pinned_modules_yields_pin_and_citation(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("suffix", [".test.yaml", ".test.yml"])
+@pytest.mark.parametrize(
+    "citation_path",
+    [
+        f"/{CITATION_PATH}/",
+        f"'{CITATION_PATH} '",
+        "us:statutes/7/2014/e",
+    ],
+)
+def test_iter_pinned_modules_rejects_noncanonical_persisted_citation_identity(
+    tmp_path,
+    citation_path,
+):
+    module_path = _write_module(
+        tmp_path,
+        source_text_sha256(SOURCE_TEXT),
+        citation_path=citation_path,
+    )
+
+    with pytest.raises(RuleSpecScanError, match="exact canonical"):
+        list(iter_pinned_modules(module_path.parents[3]))
+
+
+@pytest.mark.parametrize(
+    "source_root",
+    ["legislation", "policies", "regulations", "statutes"],
+)
+def test_iter_pinned_modules_accepts_each_atomic_module_root(tmp_path, source_root):
+    pinned_sha = source_text_sha256(SOURCE_TEXT)
+    original = _write_module(tmp_path, pinned_sha)
+    content_root = tmp_path / "rulespec-us" / "us"
+    module_path = content_root / source_root / "example.yaml"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    original.replace(module_path)
+
+    expected = [PinnedModule(module_path, CITATION_PATH, pinned_sha)]
+    assert list(iter_pinned_modules(content_root)) == expected
+    assert list(iter_pinned_modules(content_root.parent)) == expected
+
+
+def test_iter_pinned_modules_ignores_composition_specs(tmp_path):
+    pinned_sha = source_text_sha256(SOURCE_TEXT)
+    module_path = _write_module(tmp_path, pinned_sha)
+    content_root = tmp_path / "rulespec-us" / "us"
+    program_spec = content_root / "programs" / "snap" / "fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("secret: do-not-read\n", encoding="utf-8")
+    # A RuleSpec scanner normally rejects YAML symlinks before reading. The
+    # ProgramSpec subtree must be absent from that scanner altogether.
+    program_spec.symlink_to(outside)
+
+    expected = [PinnedModule(module_path, CITATION_PATH, pinned_sha)]
+    assert list(iter_pinned_modules(content_root)) == expected
+    assert list(iter_pinned_modules(content_root.parent)) == expected
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "message"),
+    [
+        ("regulation/example.yaml", "outside the canonical"),
+        ("sources/example.yaml", "outside the canonical"),
+        ("statutes/example.yaml", "exact canonical country checkout"),
+    ],
+)
+def test_iter_pinned_modules_rejects_noncanonical_layout(
+    tmp_path,
+    relative_path,
+    message,
+):
+    original = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
+    checkout = tmp_path / "rulespec-us"
+    module_path = checkout / relative_path
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    original.replace(module_path)
+
+    with pytest.raises(RuleSpecScanError, match=message):
+        list(iter_pinned_modules(checkout))
+
+
+@pytest.mark.parametrize("suffix", [".yml", ".test.yml"])
+def test_iter_pinned_modules_rejects_removed_yml_extension(tmp_path, suffix):
+    content_root = tmp_path / "rulespec-us" / "us"
+    path = content_root / "statutes" / f"example{suffix}"
+    path.parent.mkdir(parents=True)
+    path.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n", encoding="utf-8")
+
+    with pytest.raises(RuleSpecScanError, match=r"\.yml is removed"):
+        list(iter_pinned_modules(content_root))
+
+
+def test_iter_pinned_modules_rejects_plural_corpus_citation_paths_anywhere(tmp_path):
+    module_path = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            f"    corpus_citation_path: {CITATION_PATH}\n",
+            f"    corpus_citation_path: {CITATION_PATH}\n"
+            "    corpus_citation_paths:\n"
+            f"      - {CITATION_PATH}\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuleSpecScanError, match="corpus_citation_paths"):
+        list(iter_pinned_modules(module_path.parents[3]))
+
+
+@pytest.mark.parametrize("suffix", [".test.yaml"])
 def test_iter_pinned_modules_skips_explicit_companion_tests(tmp_path, suffix):
-    rulespec_root = tmp_path / "rulespec-us"
+    rulespec_root = tmp_path / "rulespec-us" / "us"
     companion = rulespec_root / "statutes" / "7" / f"2014{suffix}"
     companion.parent.mkdir(parents=True)
     companion.write_text("malformed: [", encoding="utf-8")
@@ -326,19 +302,19 @@ def test_malformed_candidate_rulespec_fails_staleness_scan_closed(
     tmp_path,
     capsys,
 ):
-    rulespec_root = tmp_path / "rulespec-us"
+    rulespec_root = tmp_path / "rulespec-us" / "us"
     module_path = rulespec_root / "statutes" / "7" / "malformed.yaml"
     module_path.parent.mkdir(parents=True)
     module_path.write_text("format: rulespec/v1\nmodule: [", encoding="utf-8")
 
     with pytest.raises(RuleSpecScanError, match="could not parse"):
-        check_staleness(rulespec_root, tmp_path / "unused-corpus")
+        list(iter_pinned_modules(rulespec_root))
 
     exit_code = run_check_source_staleness(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -367,13 +343,13 @@ def test_unreadable_candidate_rulespec_fails_staleness_scan_closed(
     monkeypatch.setattr("axiom_encode.source_hash.os.open", deny_candidate_read)
 
     with pytest.raises(RuleSpecScanError, match="could not securely open"):
-        check_staleness(rulespec_root, tmp_path / "unused-corpus")
+        list(iter_pinned_modules(rulespec_root))
 
     exit_code = run_check_source_staleness(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -403,13 +379,13 @@ def test_duplicate_source_hash_key_fails_staleness_scan_closed(tmp_path, capsys)
     )
 
     with pytest.raises(RuleSpecScanError, match="duplicate key 'source_sha256'"):
-        check_staleness(rulespec_root, tmp_path / "unused-corpus")
+        list(iter_pinned_modules(rulespec_root))
 
     exit_code = run_check_source_staleness(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -439,7 +415,7 @@ def test_invalid_rulespec_root_fails_staleness_scan_closed(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -464,7 +440,7 @@ def test_yaml_symlink_fails_staleness_scan_closed(tmp_path, capsys, link_kind):
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -494,7 +470,7 @@ def test_non_regular_yaml_entry_fails_staleness_scan_closed(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -519,7 +495,7 @@ def test_traversal_error_fails_staleness_scan_closed(tmp_path, monkeypatch, caps
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -584,7 +560,7 @@ def test_ignored_infrastructure_symlink_and_noise_are_not_scanned(
     outside = tmp_path / "outside-infrastructure"
     outside.mkdir()
     (outside / "hidden.yaml").write_text("module: []\n", encoding="utf-8")
-    (rulespec_root / ".git").symlink_to(outside, target_is_directory=True)
+    (rulespec_root / ".venv").symlink_to(outside, target_is_directory=True)
     monkeypatch.setattr("axiom_encode.source_hash._MAX_RULESPEC_SCAN_ENTRIES", 0)
 
     assert list(iter_pinned_modules(rulespec_root)) == []
@@ -672,9 +648,9 @@ def test_yaml_structure_budgets_fail_closed(
 
 
 def test_bounded_yaml_anchor_and_alias_remain_supported(tmp_path):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "anchored.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "anchored.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "format: rulespec/v1\n"
         "module:\n"
@@ -689,9 +665,9 @@ def test_bounded_yaml_anchor_and_alias_remain_supported(tmp_path):
 
 
 def test_yaml_alias_budget_fails_closed(tmp_path, monkeypatch):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "anchored.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "anchored.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "module:\n  summary: &summary Shared summary\n  description: *summary\n",
         encoding="utf-8",
@@ -703,9 +679,9 @@ def test_yaml_alias_budget_fails_closed(tmp_path, monkeypatch):
 
 
 def test_top_level_yaml_merge_cannot_hide_pinned_module(tmp_path, capsys):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "merged.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "merged.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "defaults: &defaults\n"
         "  module:\n"
@@ -720,7 +696,7 @@ def test_top_level_yaml_merge_cannot_hide_pinned_module(tmp_path, capsys):
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -733,9 +709,9 @@ def test_top_level_yaml_merge_cannot_hide_pinned_module(tmp_path, capsys):
 
 
 def test_nested_yaml_merge_in_rulespec_module_fails_closed(tmp_path):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "merged.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "merged.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "defaults: &defaults\n"
         "  corpus_citation_path: us/statute/7/2014/e\n"
@@ -778,16 +754,16 @@ def test_structurally_invalid_rulespec_candidate_fails_closed(
     module_yaml,
     error,
 ):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "invalid.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "invalid.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(module_yaml, encoding="utf-8")
 
     exit_code = run_check_source_staleness(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -812,9 +788,9 @@ def test_duplicate_keys_in_non_rulespec_metadata_remain_ignored(tmp_path):
 
 
 def test_multiple_yaml_documents_fail_staleness_scan_closed(tmp_path, capsys):
-    rulespec_root = tmp_path / "rulespec-us"
-    module_path = rulespec_root / "multiple.yaml"
-    rulespec_root.mkdir()
+    rulespec_root = tmp_path / "rulespec-us" / "us"
+    module_path = rulespec_root / "statutes" / "multiple.yaml"
+    module_path.parent.mkdir(parents=True)
     module_path.write_text(
         "module: {}\n---\nmodule: {}\n",
         encoding="utf-8",
@@ -824,7 +800,7 @@ def test_multiple_yaml_documents_fail_staleness_scan_closed(tmp_path, capsys):
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
+            "--corpus-path",
             str(tmp_path / "unused-corpus"),
         ]
     )
@@ -840,7 +816,7 @@ def test_check_staleness_passes_matching_pin(tmp_path):
     corpus_root = _write_corpus(tmp_path)
     module_path = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
 
-    assert check_staleness(module_path.parents[3], corpus_root) == []
+    assert check_staleness(module_path.parents[3], _local_release(corpus_root)) == []
 
 
 def test_check_staleness_reports_mismatched_pin(tmp_path):
@@ -848,14 +824,22 @@ def test_check_staleness_reports_mismatched_pin(tmp_path):
     pinned_sha = source_text_sha256(SOURCE_TEXT)
     module_path = _write_module(tmp_path, pinned_sha)
 
-    assert check_staleness(module_path.parents[3], corpus_root) == [
+    assert check_staleness(module_path.parents[3], _local_release(corpus_root)) == [
         StaleModule(module_path, pinned_sha, source_text_sha256("republished text"))
     ]
 
 
 def test_check_staleness_hashes_full_stored_parent_body(tmp_path):
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     parent_citation = "us/statute/7/2014"
     parent_body = "(e) The standard deduction is $198.\n(f) Other rules apply."
@@ -863,19 +847,26 @@ def test_check_staleness_hashes_full_stored_parent_body(tmp_path):
         json.dumps(_release_row(parent_citation, parent_body)) + "\n",
         encoding="utf-8",
     )
-    _write_release_selector(corpus_root)
     module_path = _write_module(
         tmp_path,
         source_text_sha256(parent_body),
         citation_path=CITATION_PATH,
     )
 
-    assert check_staleness(module_path.parents[3], corpus_root) == []
+    assert check_staleness(module_path.parents[3], _local_release(corpus_root)) == []
 
 
 def test_resolved_source_verification_block_pins_full_stored_parent_body(tmp_path):
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     parent_citation = "us/statute/7/2014"
     parent_body = "(e) The standard deduction is $198.\n(f) Other rules apply."
@@ -883,9 +874,10 @@ def test_resolved_source_verification_block_pins_full_stored_parent_body(tmp_pat
         json.dumps(_release_row(parent_citation, parent_body)) + "\n",
         encoding="utf-8",
     )
-    _write_release_selector(corpus_root)
-
-    block = resolved_source_verification_block(corpus_root, CITATION_PATH)
+    block = resolved_source_verification_block(
+        _local_release(corpus_root),
+        CITATION_PATH,
+    )
     module_path = _write_module(
         tmp_path,
         block["source_sha256"],
@@ -896,17 +888,35 @@ def test_resolved_source_verification_block_pins_full_stored_parent_body(tmp_pat
         "corpus_citation_path": CITATION_PATH,
         "source_sha256": source_text_sha256(parent_body),
     }
-    assert check_staleness(module_path.parents[3], corpus_root) == []
+    assert check_staleness(module_path.parents[3], _local_release(corpus_root)) == []
+
+
+def test_resolved_source_verification_block_rejects_noncanonical_identity(tmp_path):
+    corpus_root = _write_corpus(tmp_path)
+
+    with pytest.raises(InvalidCorpusCitationError, match="exact canonical"):
+        resolved_source_verification_block(
+            _local_release(corpus_root),
+            f"/{CITATION_PATH}/",
+        )
 
 
 def test_check_staleness_reports_missing_provision_as_unverifiable(tmp_path):
-    corpus_root = tmp_path / "axiom-corpus"
-    (corpus_root / "provisions").mkdir(parents=True)
-    _write_release_selector(corpus_root)
+    corpus_root = _write_corpus(tmp_path)
+    release = _local_release(corpus_root)
+    (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    ).unlink()
     pinned_sha = source_text_sha256(SOURCE_TEXT)
     module_path = _write_module(tmp_path, pinned_sha)
 
-    stale = check_staleness(module_path.parents[3], corpus_root)
+    stale = check_staleness(module_path.parents[3], release)
 
     assert len(stale) == 1
     assert stale[0].module_path == module_path
@@ -917,7 +927,15 @@ def test_check_staleness_reports_missing_provision_as_unverifiable(tmp_path):
 
 def test_check_staleness_surfaces_ambiguous_corpus_source(tmp_path):
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     provision_file.write_text(
         json.dumps(_release_row(CITATION_PATH, "first active text", id="first"))
@@ -926,11 +944,10 @@ def test_check_staleness_surfaces_ambiguous_corpus_source(tmp_path):
         + "\n",
         encoding="utf-8",
     )
-    _write_release_selector(corpus_root)
     pinned_sha = source_text_sha256("first active text")
     module_path = _write_module(tmp_path, pinned_sha)
 
-    stale = check_staleness(module_path.parents[3], corpus_root)
+    stale = check_staleness(module_path.parents[3], _local_release(corpus_root))
 
     assert len(stale) == 1
     assert stale[0].current_sha is None
@@ -938,25 +955,29 @@ def test_check_staleness_surfaces_ambiguous_corpus_source(tmp_path):
     assert "AmbiguousCorpusSourceError" in stale[0].resolution_error
 
 
-def test_check_staleness_surfaces_missing_release_selector(tmp_path):
+def test_local_release_rejects_missing_release_object_without_fallback(tmp_path):
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "legacy.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / "legacy.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     provision_file.write_text(
         json.dumps({"citation_path": CITATION_PATH, "body": SOURCE_TEXT}) + "\n",
         encoding="utf-8",
     )
-    pinned_sha = source_text_sha256(SOURCE_TEXT)
-    module_path = _write_module(tmp_path, pinned_sha)
-
-    stale = check_staleness(module_path.parents[3], corpus_root)
-
-    assert len(stale) == 1
-    assert stale[0].module_path == module_path
-    assert stale[0].pinned_sha == pinned_sha
-    assert stale[0].current_sha is None
-    assert stale[0].resolution_error is not None
-    assert "InvalidReleaseSelectorError" in stale[0].resolution_error
+    with pytest.raises(InvalidCorpusReleaseError, match="release object not found"):
+        LocalCorpusRelease(
+            corpus_root,
+            TEST_SELECTOR,
+            "0" * 64,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
 
 
 @pytest.mark.parametrize(
@@ -976,6 +997,7 @@ def test_malformed_source_hash_pin_is_unverifiable_without_resolution(
     capsys,
     yaml_pin,
 ):
+    corpus_root = _write_corpus(tmp_path)
     module_path = _write_module(tmp_path, yaml_pin)
     rulespec_root = module_path.parents[3]
 
@@ -990,7 +1012,7 @@ def test_malformed_source_hash_pin_is_unverifiable_without_resolution(
     pinned = list(iter_pinned_modules(rulespec_root))
     assert len(pinned) == 1
 
-    stale = check_staleness(rulespec_root, tmp_path / "unused-corpus")
+    stale = check_staleness(rulespec_root, _local_release(corpus_root))
     assert len(stale) == 1
     assert stale[0].module_path == module_path
     assert stale[0].current_sha is None
@@ -1001,8 +1023,8 @@ def test_malformed_source_hash_pin_is_unverifiable_without_resolution(
         [
             "--rulespec-root",
             str(rulespec_root),
-            "--corpus-root",
-            str(tmp_path / "unused-corpus"),
+            "--corpus-path",
+            str(corpus_root),
         ]
     )
 
@@ -1020,13 +1042,61 @@ def test_run_check_source_staleness_exit_zero_when_fresh(tmp_path, capsys):
         [
             "--rulespec-root",
             str(module_path.parents[3]),
-            "--corpus-root",
+            "--corpus-path",
             str(corpus_root),
         ]
     )
 
     assert exit_code == 0
     assert "1 pinned module(s) match" in capsys.readouterr().out
+
+
+def test_run_check_source_staleness_binds_release_before_empty_scan(tmp_path, capsys):
+    corpus_root = _write_corpus(tmp_path)
+    rulespec_root = tmp_path / "rulespec-us"
+    waiver = rulespec_root / "known-validation-gaps.yaml"
+    waiver.parent.mkdir(parents=True, exist_ok=True)
+    waiver.write_text("validate_failures: {}\n", encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = rulespec_root / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{TEST_SELECTOR}"\n'
+        f'axiom_corpus_release_content_sha256 = "{_local_release(corpus_root).content_sha256}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n',
+        encoding="utf-8",
+    )
+
+    exit_code = run_check_source_staleness(
+        [
+            "--rulespec-root",
+            str(rulespec_root),
+            "--corpus-path",
+            str(corpus_root),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "No RuleSpec modules found" in capsys.readouterr().out
+
+
+def test_run_check_source_staleness_rejects_empty_unbound_checkout(tmp_path, capsys):
+    corpus_root = _write_corpus(tmp_path)
+    rulespec_root = tmp_path / "rulespec-us"
+    rulespec_root.mkdir()
+
+    exit_code = run_check_source_staleness(
+        [
+            "--rulespec-root",
+            str(rulespec_root),
+            "--corpus-path",
+            str(corpus_root),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "ERROR corpus release" in capsys.readouterr().out
 
 
 def test_run_check_source_staleness_exit_one_when_stale(tmp_path, capsys):
@@ -1037,7 +1107,7 @@ def test_run_check_source_staleness_exit_one_when_stale(tmp_path, capsys):
         [
             "--rulespec-root",
             str(module_path.parents[3]),
-            "--corpus-root",
+            "--corpus-path",
             str(corpus_root),
         ]
     )
@@ -1053,7 +1123,15 @@ def test_run_check_source_staleness_reports_ambiguity_and_exits_one(
     capsys,
 ):
     corpus_root = tmp_path / "axiom-corpus"
-    provision_file = corpus_root / "provisions" / "us" / "statute" / "title-7.jsonl"
+    provision_file = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "us"
+        / "statute"
+        / f"{TEST_RELEASE}.jsonl"
+    )
     provision_file.parent.mkdir(parents=True)
     provision_file.write_text(
         json.dumps(_release_row(CITATION_PATH, "active A", id="active-a"))
@@ -1062,14 +1140,18 @@ def test_run_check_source_staleness_reports_ambiguity_and_exits_one(
         + "\n",
         encoding="utf-8",
     )
-    _write_release_selector(corpus_root)
+    bind_test_corpus_release(
+        corpus_root,
+        TEST_SELECTOR,
+        [("us", "statute", TEST_RELEASE)],
+    )
     module_path = _write_module(tmp_path, source_text_sha256("active A"))
 
     exit_code = run_check_source_staleness(
         [
             "--rulespec-root",
             str(module_path.parents[3]),
-            "--corpus-root",
+            "--corpus-path",
             str(corpus_root),
         ]
     )
@@ -1090,7 +1172,7 @@ def test_entrypoint_dispatches_check_source_staleness(tmp_path, monkeypatch):
             "check-source-staleness",
             "--rulespec-root",
             str(module_path.parents[3]),
-            "--corpus-root",
+            "--corpus-path",
             str(corpus_root),
         ],
     )

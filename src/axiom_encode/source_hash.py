@@ -4,8 +4,6 @@ RuleSpec modules ground to legal text through
 ``module.source_verification.corpus_citation_path``. The helpers here add
 the mechanical half of that grounding:
 
-- :func:`source_text_sha256` / :func:`source_verification_block` pin the
-  SHA-256 of a complete stored provision body when it is already known.
 - :func:`resolved_source_verification_block` resolves a citation and pins the
   complete stored body, including when encoding used a child slice.
 - :func:`provenance_block` builds the ``module.encoding_provenance`` block
@@ -30,10 +28,24 @@ from typing import Iterable, Iterator, NamedTuple, Sequence
 
 import yaml
 
+from axiom_encode.constants import (
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_TEST_FILE_SUFFIX,
+)
 from axiom_encode.corpus_resolver import (
     CorpusResolutionError,
+    InvalidCorpusCitationError,
+    LocalCorpusRelease,
+    require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    is_policy_repo_root,
+)
+from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 
 class PinnedModule(NamedTuple):
@@ -251,6 +263,8 @@ def _iter_yaml_sources_in_directory(
     directory_path: Path,
     budget: _ScanBudget,
     depth: int,
+    scan_root: Path,
+    layout: str,
 ) -> Iterator[tuple[Path, str]]:
     """Yield YAML sources through a symlink-free descriptor-relative walk."""
     if depth > _MAX_RULESPEC_SCAN_DEPTH:
@@ -283,6 +297,12 @@ def _iter_yaml_sources_in_directory(
 
     for entry in entries:
         entry_path = directory_path / entry.name
+        if _is_canonical_composition_spec_directory(
+            scan_root,
+            entry_path,
+            layout=layout,
+        ):
+            continue
         try:
             entry_stat = entry.stat(follow_symlinks=False)
         except OSError as exc:
@@ -292,8 +312,8 @@ def _iter_yaml_sources_in_directory(
             ) from exc
 
         mode = entry_stat.st_mode
-        is_yaml = entry.name.endswith((".yaml", ".yml"))
-        is_companion = entry.name.endswith((".test.yaml", ".test.yml"))
+        is_yaml = entry.name.endswith((RULESPEC_FILE_SUFFIX, ".yml"))
+        is_companion = entry.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
         if stat.S_ISLNK(mode):
             if is_yaml:
                 raise RuleSpecScanError(
@@ -334,6 +354,8 @@ def _iter_yaml_sources_in_directory(
                     entry_path,
                     budget,
                     depth + 1,
+                    scan_root,
+                    layout,
                 )
             finally:
                 os.close(child_fd)
@@ -357,7 +379,11 @@ def _iter_yaml_sources_in_directory(
         )
 
 
-def _iter_rulespec_yaml_sources(rulespec_root: Path) -> Iterator[tuple[Path, str]]:
+def _iter_rulespec_yaml_sources(
+    rulespec_root: Path,
+    *,
+    layout: str,
+) -> Iterator[tuple[Path, str]]:
     """Validate ``rulespec_root`` and securely enumerate its YAML files."""
     root = Path(rulespec_root)
     try:
@@ -388,7 +414,14 @@ def _iter_rulespec_yaml_sources(rulespec_root: Path) -> Iterator[tuple[Path, str
                 "RuleSpec root changed while it was being opened",
             )
         try:
-            yield from _iter_yaml_sources_in_directory(root_fd, root, _ScanBudget(), 0)
+            yield from _iter_yaml_sources_in_directory(
+                root_fd,
+                root,
+                _ScanBudget(),
+                0,
+                root,
+                layout,
+            )
         except RecursionError as exc:
             raise RuleSpecScanError(
                 root,
@@ -396,6 +429,97 @@ def _iter_rulespec_yaml_sources(rulespec_root: Path) -> Iterator[tuple[Path, str
             ) from exc
     finally:
         os.close(root_fd)
+
+
+def _rulespec_scan_root_layout(root: Path) -> str:
+    """Return the one canonical layout represented by a scan root."""
+
+    if canonical_rulespec_root_identity(root) is not None:
+        return "jurisdiction"
+    if is_policy_repo_root(root):
+        return "country"
+    raise RuleSpecScanError(
+        root,
+        "RuleSpec scan root must be an exact canonical country checkout or "
+        "jurisdiction content root (rulespec-<country>/<jurisdiction>)",
+    )
+
+
+def _is_canonical_rulespec_module_path(
+    root: Path,
+    path: Path,
+    *,
+    layout: str,
+) -> bool:
+    """Return whether ``path`` occupies one of the four atomic module roots."""
+
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    if layout == "jurisdiction":
+        return (
+            len(relative.parts) >= 2
+            and relative.parts[0] in RULESPEC_ATOMIC_MODULE_ROOTS
+        )
+    if layout == "country":
+        return (
+            len(relative.parts) >= 3
+            and relative.parts[1] in RULESPEC_ATOMIC_MODULE_ROOTS
+            and canonical_rulespec_root_identity(root / relative.parts[0]) is not None
+        )
+    return False
+
+
+def _is_canonical_composition_spec_directory(
+    root: Path,
+    path: Path,
+    *,
+    layout: str,
+) -> bool:
+    """Identify ProgramSpec roots lexically during the secure directory walk."""
+
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    if layout == "jurisdiction":
+        return relative.parts == (RULESPEC_COMPOSITION_SPEC_ROOT,)
+    if layout != "country" or len(relative.parts) != 2:
+        return False
+    country = root.name.removeprefix("rulespec-")
+    jurisdiction, source_root = relative.parts
+    return (
+        source_root == RULESPEC_COMPOSITION_SPEC_ROOT
+        and re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", jurisdiction)
+        is not None
+    )
+
+
+def _plural_corpus_citation_path_locations(payload: object) -> list[str]:
+    """Return every retired plural corpus-source field in a parsed RuleSpec."""
+
+    locations: list[str] = []
+    seen: set[int] = set()
+    stack: list[tuple[str, object]] = [("$", payload)]
+    while stack:
+        location, value = stack.pop()
+        if isinstance(value, (dict, list)):
+            identity = id(value)
+            if identity in seen:
+                continue
+            seen.add(identity)
+        if isinstance(value, dict):
+            for key, item in value.items():
+                child = f"{location}.{key}"
+                if key == "corpus_citation_paths":
+                    locations.append(child)
+                stack.append((child, item))
+        elif isinstance(value, list):
+            stack.extend(
+                (f"{location}[{index}]", item) for index, item in enumerate(value)
+            )
+    return sorted(locations)
 
 
 def _validate_yaml_tokens(source: str, path: Path) -> None:
@@ -524,42 +648,19 @@ def source_text_sha256(source_text: str) -> str:
     return hashlib.sha256(source_text.encode("utf-8")).hexdigest()
 
 
-def source_verification_block(citation_path: str, source_text: str) -> dict[str, str]:
-    """Build a ``module.source_verification`` block pinning ``source_text``.
-
-    ``source_text`` must be the complete stored provision body.  A resolved
-    child citation can expose only a slice of its stored parent, so callers
-    resolving corpus citations should use
-    :func:`resolved_source_verification_block` instead.  That helper hashes
-    the resolver's full stored body and therefore cannot create an
-    immediately-stale parent-fallback pin.
-    """
-    return {
-        "corpus_citation_path": citation_path,
-        "source_sha256": source_text_sha256(source_text),
-    }
-
-
 def resolved_source_verification_block(
-    corpus_root: Path,
+    release: LocalCorpusRelease,
     citation_path: str,
-    *,
-    require_release: bool = True,
 ) -> dict[str, str]:
     """Resolve ``citation_path`` and pin the complete stored corpus body.
 
-    Production use requires ``manifests/releases/current.json``.  Set
-    ``require_release=False`` only when deliberately reading a legacy,
-    unversioned fixture.  The requested citation is retained in the block
-    while the hash covers the complete selected row (or composed descendant
-    body), matching :func:`check_staleness` exactly.
+    The requested citation is retained in the block while the hash covers the
+    complete selected row (or composed descendant body), matching
+    :func:`check_staleness` exactly.
     """
 
-    resolved = resolve_local_corpus_source(
-        citation_path,
-        corpus_root,
-        require_release=require_release,
-    )
+    citation_path = require_canonical_corpus_citation_path(citation_path)
+    resolved = resolve_local_corpus_source(citation_path, release)
     return {
         "corpus_citation_path": citation_path,
         "source_sha256": resolved.stored_body_sha256,
@@ -583,65 +684,30 @@ def _encoder_version() -> str:
     return __version__
 
 
-def corpus_provisions_root(corpus_root: Path) -> Path | None:
-    """Locate the ``provisions/`` directory inside a corpus checkout."""
-    root = Path(corpus_root).expanduser()
-    candidates = (
-        root,
-        root / "provisions",
-        root / "data" / "corpus",
-        root / "data" / "corpus" / "provisions",
-    )
-    for candidate in candidates:
-        provisions_root = (
-            candidate if candidate.name == "provisions" else candidate / "provisions"
-        )
-        try:
-            resolved = provisions_root.resolve()
-            if resolved.is_dir():
-                return resolved
-        except OSError:
-            continue
-    return None
-
-
-def read_corpus_provision_text(
-    corpus_root: Path,
-    citation_path: str,
-    *,
-    require_release: bool = True,
-) -> str | None:
-    """Read the body text for ``citation_path`` from a local corpus checkout.
-
-    Resolution requires the current release by default and fails closed on
-    ambiguous active rows.  The returned text can be a child slice; do not
-    pass it to :func:`source_verification_block` when creating a corpus pin.
-    Use :func:`resolved_source_verification_block` for that purpose.
-
-    This compatibility helper returns ``None`` for any resolution failure;
-    callers that must distinguish ambiguity from absence should call the
-    shared resolver directly.  Legacy fixtures must opt out of release
-    selection explicitly with ``require_release=False``.
-    """
-    try:
-        return resolve_local_corpus_source(
-            citation_path,
-            corpus_root,
-            require_release=require_release,
-        ).body
-    except CorpusResolutionError:
-        return None
-
-
 def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
     """Yield every module, marking missing source hashes for explicit reporting.
 
-    Explicit ``*.test.yaml`` / ``*.test.yml`` companions are not RuleSpec
+    Explicit ``*.test.yaml`` companions are not RuleSpec
     modules and are intentionally skipped. Candidate module files fail closed:
     an unreadable file, malformed YAML, or duplicate mapping key raises
     :class:`RuleSpecScanError` instead of being mistaken for an unpinned file.
     """
-    for path, source in _iter_rulespec_yaml_sources(Path(rulespec_root)):
+    root = Path(rulespec_root)
+    layout = _rulespec_scan_root_layout(root)
+    for path, source in _iter_rulespec_yaml_sources(
+        root,
+        layout=layout,
+    ):
+        canonical_path = _is_canonical_rulespec_module_path(
+            root,
+            path,
+            layout=layout,
+        )
+        if path.suffix == ".yml" and canonical_path:
+            raise RuleSpecScanError(
+                path,
+                "RuleSpec files must use the canonical .yaml extension; .yml is removed",
+            )
         root_node = _compose_bounded_yaml(source, path)
         if not isinstance(root_node, yaml.MappingNode):
             continue
@@ -658,6 +724,17 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
             # worklists. Inspect the syntax, but reserve module validation for
             # documents that actually declare a top-level ``module`` key.
             continue
+        if path.suffix != RULESPEC_FILE_SUFFIX:
+            raise RuleSpecScanError(
+                path,
+                "RuleSpec files must use the canonical .yaml extension; .yml is removed",
+            )
+        if not canonical_path:
+            raise RuleSpecScanError(
+                path,
+                "RuleSpec module is outside the canonical "
+                "rulespec-<country>/<jurisdiction>/<content-root> layout",
+            )
         _validate_yaml_node_graph(root_node, path, reject_merges=True)
         try:
             payload = yaml.load(source, Loader=_UniqueKeySafeLoader)
@@ -668,6 +745,13 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
             ) from exc
         if not isinstance(payload, dict):
             raise RuleSpecScanError(path, "candidate RuleSpec root must be a mapping")
+        plural_locations = _plural_corpus_citation_path_locations(payload)
+        if plural_locations:
+            raise RuleSpecScanError(
+                path,
+                "retired corpus_citation_paths field is not supported: "
+                + ", ".join(plural_locations[:5]),
+            )
         module = payload.get("module")
         if not isinstance(module, dict):
             raise RuleSpecScanError(
@@ -684,9 +768,10 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
                 "module.source_verification must be a mapping",
             )
         if "source_sha256" not in verification:
-            citation_path = verification.get("corpus_citation_path")
-            if not isinstance(citation_path, str) or not citation_path.strip():
-                citation_path = None
+            citation_path = _validated_persisted_citation_path(
+                path,
+                verification.get("corpus_citation_path"),
+            )
             yield PinnedModule(path, citation_path, "<missing>")
             continue
         raw_sha = verification["source_sha256"]
@@ -700,15 +785,36 @@ def iter_pinned_modules(rulespec_root: Path) -> Iterator[PinnedModule]:
             # The wrapper is intentionally outside the valid digest alphabet,
             # so ``check_staleness`` can fail closed without source resolution.
             pinned_sha = f"<non-string {type(raw_sha).__name__}: {raw_sha!r}>"
-        citation_path = verification.get("corpus_citation_path")
-        if not isinstance(citation_path, str) or not citation_path.strip():
-            citation_path = None
+        citation_path = _validated_persisted_citation_path(
+            path,
+            verification.get("corpus_citation_path"),
+        )
         yield PinnedModule(path, citation_path, pinned_sha)
+
+
+def _validated_persisted_citation_path(
+    module_path: Path,
+    value: object,
+) -> str | None:
+    """Return one byte-exact machine identity or reject its alternate spelling."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise RuleSpecScanError(
+            module_path,
+            "module.source_verification.corpus_citation_path must be a non-empty "
+            "canonical string",
+        )
+    try:
+        return require_canonical_corpus_citation_path(value)
+    except InvalidCorpusCitationError as exc:
+        raise RuleSpecScanError(module_path, str(exc)) from exc
 
 
 def _check_pinned_modules_staleness(
     pinned_modules: Iterable[PinnedModule],
-    corpus_root: Path,
+    release: LocalCorpusRelease,
 ) -> list[StaleModule]:
     """Check already-scanned pins against the active corpus release."""
     stale: list[StaleModule] = []
@@ -738,8 +844,7 @@ def _check_pinned_modules_staleness(
             try:
                 resolved = resolve_local_corpus_source(
                     citation_path,
-                    corpus_root,
-                    require_release=True,
+                    release,
                 )
             except CorpusResolutionError as exc:
                 resolution_error = f"{type(exc).__name__}: {exc}"
@@ -759,7 +864,10 @@ def _check_pinned_modules_staleness(
     return stale
 
 
-def check_staleness(rulespec_root: Path, corpus_root: Path) -> list[StaleModule]:
+def check_staleness(
+    rulespec_root: Path,
+    release: LocalCorpusRelease,
+) -> list[StaleModule]:
     """Report every pinned module whose corpus text no longer matches.
 
     Returns ``(module_path, pinned_sha, current_sha, resolution_error)`` tuples for each
@@ -774,7 +882,7 @@ def check_staleness(rulespec_root: Path, corpus_root: Path) -> list[StaleModule]
     """
     return _check_pinned_modules_staleness(
         iter_pinned_modules(rulespec_root),
-        corpus_root,
+        release,
     )
 
 
@@ -795,10 +903,11 @@ def run_check_source_staleness(argv: Sequence[str] | None = None) -> int:
         help="Root of a jurisdiction RuleSpec checkout to scan for pinned modules.",
     )
     parser.add_argument(
-        "--corpus-root",
+        "--corpus-path",
+        dest="corpus_path",
         required=True,
         type=Path,
-        help="Root of a local axiom-corpus checkout (containing provisions/).",
+        help="Root of a canonical local axiom-corpus checkout.",
     )
     args = parser.parse_args(argv)
 
@@ -808,13 +917,25 @@ def run_check_source_staleness(argv: Sequence[str] | None = None) -> int:
         print(f"ERROR {exc.module_path}")
         print(f"  error   {exc.reason}")
         return 1
+
+    try:
+        release = load_rulespec_local_corpus_release(
+            args.rulespec_root,
+            args.corpus_path,
+        )
+    except (CorpusResolutionError, ValueError) as exc:
+        print(f"ERROR corpus release: {type(exc).__name__}: {exc}")
+        return 1
+
     if not pinned:
         print(f"No RuleSpec modules found under {args.rulespec_root}.")
         return 0
 
-    stale = _check_pinned_modules_staleness(pinned, args.corpus_root)
+    stale = _check_pinned_modules_staleness(pinned, release)
     if not stale:
-        print(f"All {len(pinned)} pinned module(s) match the current corpus text.")
+        print(
+            f"All {len(pinned)} pinned module(s) match corpus release {release.name!r}."
+        )
         return 0
 
     for entry in stale:

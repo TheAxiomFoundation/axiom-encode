@@ -1,0 +1,148 @@
+name: Signing supervisor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/axiom-encode-signing-supervisor/**"
+      - "go.mod"
+      - "go.sum"
+      - "src/axiom_encode/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "tests/**"
+      - ".github/workflows/signing-supervisor.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/axiom-encode-signing-supervisor/**"
+      - "go.mod"
+      - "go.sum"
+      - "src/axiom_encode/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "tests/**"
+      - ".github/workflows/signing-supervisor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install Python test dependencies
+        run: |
+          uv venv --python 3.13
+          uv pip install -e ".[dev]"
+
+      - name: Test supervisor package
+        run: |
+          go test ./cmd/axiom-encode-signing-supervisor
+          go test -tags=signing_supervisor_test_fixture ./cmd/axiom-encode-signing-supervisor
+          go vet ./cmd/axiom-encode-signing-supervisor
+          go vet -tags=signing_supervisor_test_fixture ./cmd/axiom-encode-signing-supervisor
+
+      - name: Race-test supervisor package
+        run: |
+          go test -race ./cmd/axiom-encode-signing-supervisor
+          go test -race -tags=signing_supervisor_test_fixture ./cmd/axiom-encode-signing-supervisor
+
+      - name: Build twice reproducibly
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -buildvcs=false -ldflags='-buildid=' -o supervisor.first ./cmd/axiom-encode-signing-supervisor
+          go build -trimpath -buildvcs=false -ldflags='-buildid=' -o supervisor.second ./cmd/axiom-encode-signing-supervisor
+          cmp supervisor.first supervisor.second
+
+      - name: Identify production and fixture binaries
+        run: |
+          test "$(./supervisor.first --build-kind)" = production
+          go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -tags=signing_supervisor_test_fixture \
+            -o supervisor.fixture ./cmd/axiom-encode-signing-supervisor
+          test "$(./supervisor.fixture --build-kind)" = test-fixture-nonpublishable
+
+      - name: Run supervisor integration and security tests
+        run: >-
+          .venv/bin/pytest -q
+          tests/test_signing_broker.py
+          tests/test_signing_supervisor.py
+          tests/test_eval_evidence.py
+          tests/test_cli.py::test_apply_manifest_environment_public_key_cannot_replace_protected_broker
+          tests/test_evals.py::TestEvalSuiteManifest::test_run_eval_suite_resume_rejects_old_signed_verdict_schema
+          -o addopts='' --tb=short
+
+      - name: Prepare root-owned production fixture
+        run: |
+          rm -rf /tmp/axiom-signing-production-fixture
+          .venv/bin/python tests/production_signing_fixture.py \
+            --destination /tmp/axiom-signing-production-fixture \
+            --supervisor supervisor.first
+          sudo mkdir -p /opt
+          sudo rm -rf /opt/axiom-signing-production-fixture
+          sudo mv /tmp/axiom-signing-production-fixture /opt/
+          sudo chown -R 0:0 /opt/axiom-signing-production-fixture
+          sudo chmod -R go-w /opt/axiom-signing-production-fixture
+          if [ "$(uname -s)" = Darwin ]; then
+            sudo chmod -RN /opt/axiom-signing-production-fixture
+          fi
+
+      - name: Run untagged production binary end to end
+        env:
+          AXIOM_ENCODE_PRODUCTION_SIGNING_FIXTURE: /opt/axiom-signing-production-fixture
+        run: >-
+          .venv/bin/pytest -q
+          tests/test_signing_supervisor.py::test_untagged_production_binary_root_owned_end_to_end
+          -o addopts='' --tb=short
+
+      - name: Reject privileged production execution
+        run: |
+          binary=/opt/axiom-signing-production-fixture/axiom-encode-signing-supervisor
+          if sudo "$binary" --help; then
+            echo "production supervisor unexpectedly accepted root execution"
+            exit 1
+          fi
+          if [ "$(uname -s)" = Linux ]; then
+            sudo setcap cap_net_bind_service=ep "$binary"
+            if "$binary" --help >/tmp/capability.out 2>/tmp/capability.err; then
+              echo "production supervisor unexpectedly accepted file capabilities"
+              exit 1
+            fi
+            sudo setcap -r "$binary"
+            runtime=/opt/axiom-signing-production-fixture/python
+            package="$runtime/lib/python3.13/site-packages/axiom_encode"
+            capability_file="$package/__init__.py"
+            sudo setcap cap_net_bind_service=ep "$capability_file"
+            if "$binary" \
+              --trusted-signing-roots /opt/axiom-signing-production-fixture/signing-trust-roots.json \
+              --trusted-python-runtime-root "$runtime" \
+              --trusted-python-import-root "$runtime/lib/python3.13/site-packages" \
+              --trusted-python-package-root "$package" \
+              -- /opt/axiom-signing-production-fixture/axiom-encode \
+              >/tmp/file-capability.out 2>/tmp/file-capability.err; then
+              echo "production supervisor unexpectedly accepted a file capability"
+              exit 1
+            fi
+            grep -q security.capability /tmp/file-capability.err
+            sudo setcap -r "$capability_file"
+          fi

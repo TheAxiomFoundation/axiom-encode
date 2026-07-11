@@ -16,7 +16,7 @@ import os
 import re
 from pathlib import Path
 
-from axiom_encode.oracles.policyengine.coverage import (
+from axiom_oracles.bridges.coverage import (
     build_policyengine_coverage_report,
 )
 

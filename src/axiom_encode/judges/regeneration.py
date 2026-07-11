@@ -2,8 +2,9 @@
 
 Module names and encoding manifests come from a repository checkout, so both
 are untrusted. Regeneration exposes no command-template surface: it validates
-and binds those inputs, derives a safe source id, and invokes this installed
-encoder with a fixed argv and a minimal environment.
+and binds those inputs, requires the module path derived from the manifest's
+corpus citation, and invokes this installed encoder with a fixed argv and a
+minimal environment.
 """
 
 from __future__ import annotations
@@ -17,6 +18,15 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
+
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
+from axiom_encode.corpus_resolver import LocalCorpusRelease
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    is_policy_repo_root,
+)
+from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 SUPPORTED_BACKENDS = ("openai",)
 REGENERATION_TIMEOUT_SECONDS = 20 * 60
@@ -33,19 +43,18 @@ _SAFE_CHILD_ENV = (
     "TMPDIR",
 )
 _SAFE_PATH_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
-_JURISDICTION = re.compile(r"[a-z]{2}(?:-[a-z0-9_]+)*\Z")
-_SOURCE_DIRECTORIES = frozenset(
-    {"forms", "guidance", "manuals", "policies", "regulations", "statutes"}
-)
+_SOURCE_DIRECTORIES = RULESPEC_ATOMIC_MODULE_ROOTS
 _MAX_MODULE_BYTES = 10 * 1024 * 1024
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _MAX_GENERATED_BYTES = 10 * 1024 * 1024
-_MAX_CORPUS_PROVISION_BYTES = 64 * 1024 * 1024
-_MAX_CORPUS_CLAIM_BYTES = 64 * 1024 * 1024
 
 
 class RegenerationInputError(ValueError):
     """A module cannot be safely or faithfully regenerated."""
+
+
+class NoReplayableManifestError(RegenerationInputError):
+    """A module has no current model-encoder manifest to replay."""
 
 
 class UnsafeRegenerationPath(RegenerationInputError):
@@ -150,6 +159,26 @@ def validate_module_path(root: Path, module: str) -> PurePosixPath:
         raise UnsafeRegenerationPath(f"module path is not normalized: {module!r}")
 
     resolved_root = Path(root).resolve(strict=True)
+    if not is_policy_repo_root(resolved_root):
+        raise RegenerationInputError(
+            "regeneration root must be the exact canonical "
+            f"rulespec-<country> checkout: {resolved_root}"
+        )
+    if (
+        len(relative.parts) < 3
+        or relative.parts[1] not in _SOURCE_DIRECTORIES
+        or relative.name.endswith(".test.yaml")
+    ):
+        raise RegenerationInputError(
+            "module path must be "
+            "<jurisdiction>/<atomic-module-root>/.../<module>.yaml: "
+            f"{module!r}"
+        )
+    jurisdiction_root = resolved_root / relative.parts[0]
+    if canonical_rulespec_root_identity(jurisdiction_root) is None:
+        raise RegenerationInputError(
+            f"module has a non-canonical jurisdiction directory: {module!r}"
+        )
     candidate = resolved_root.joinpath(*relative.parts)
     resolved = _resolved_regular_file(
         resolved_root,
@@ -168,68 +197,52 @@ def generated_subpath(module: PurePosixPath) -> Path:
     """Return the runner-relative output path for a validated module."""
 
     parts = module.parts
-    if parts[0] in _SOURCE_DIRECTORIES:
-        content_parts = parts
-    elif len(parts) >= 2:
-        content_parts = parts[1:]
-    else:
-        raise RegenerationInputError(f"module has no source-root path: {module}")
-    content = PurePosixPath(*content_parts)
-    if content.parts[0] not in _SOURCE_DIRECTORIES:
+    if len(parts) < 3 or parts[1] not in _SOURCE_DIRECTORIES:
         raise RegenerationInputError(
-            f"module is outside a RuleSpec source root: {module}"
+            "module path must be "
+            f"<jurisdiction>/<atomic-module-root>/.../<module>.yaml: {module}"
         )
+    content = PurePosixPath(*parts[1:])
     return Path(*content.parts).with_suffix(".yaml")
 
 
-def source_id_for_module(root: Path, module: PurePosixPath) -> str:
-    """Derive a canonical source id whose output is exactly this module path."""
+def require_citation_derived_output_path(
+    module: PurePosixPath,
+    citation: str,
+) -> Path:
+    """Require ``module`` to occupy the output path derived from ``citation``."""
 
-    if module.parts[0] in _SOURCE_DIRECTORIES:
-        repo_name = Path(root).resolve(strict=True).name
-        if not repo_name.startswith("rulespec-"):
-            raise RegenerationInputError(
-                f"cannot infer jurisdiction from repository root: {repo_name}"
-            )
-        jurisdiction = repo_name.removeprefix("rulespec-")
-    else:
-        jurisdiction = module.parts[0]
-    if _JURISDICTION.fullmatch(jurisdiction) is None:
-        raise RegenerationInputError(f"invalid module jurisdiction: {jurisdiction!r}")
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+    from axiom_encode.statute import citation_to_relative_rulespec_path
 
     expected = generated_subpath(module)
-    source_id = f"{jurisdiction}:{expected.with_suffix('').as_posix()}"
-    from axiom_encode.harness.evals import _resolve_eval_output_path
-
-    resolved = _resolve_eval_output_path(source_id)
-    if resolved != expected:
-        raise RegenerationInputError(
-            f"source id {source_id!r} resolves to {resolved}, expected {expected}"
+    try:
+        derived = _resolve_eval_output_path(
+            citation,
+            fallback=citation_to_relative_rulespec_path,
         )
-    return source_id
+    except ValueError as exc:
+        raise RegenerationInputError(
+            f"manifest citation {citation!r} cannot derive a canonical RuleSpec "
+            "output path; migrate or re-encode this module"
+        ) from exc
+    if derived != expected:
+        raise RegenerationInputError(
+            f"manifest citation {citation!r} canonically encodes to {derived}, "
+            f"but the replay manifest binds {expected}; migrate or re-encode "
+            "the module at its citation-derived path"
+        )
+    return derived
 
 
 def _manifest_candidates(root: Path, module: PurePosixPath) -> list[Path]:
-    """Return supported root-mirror, content-root, and legacy manifest paths."""
+    """Return the single checkout-root mirror manifest path."""
 
     resolved_root = Path(root).resolve(strict=True)
     full_relative = Path(*module.parts).with_suffix(".json")
-    content_relative = generated_subpath(module).with_suffix(".json")
-    candidates = [
+    return [
         resolved_root / ".axiom" / "encoding-manifests" / full_relative,
     ]
-    if module.parts[0] not in _SOURCE_DIRECTORIES:
-        candidates.append(
-            resolved_root
-            / module.parts[0]
-            / ".axiom"
-            / "encoding-manifests"
-            / content_relative
-        )
-    candidates.append(
-        resolved_root / ".axiom" / "encoding-manifests" / content_relative
-    )
-    return list(dict.fromkeys(candidates))
 
 
 def _manifest_binds_module(
@@ -238,25 +251,28 @@ def _manifest_binds_module(
     module: PurePosixPath,
     module_sha256: str,
 ) -> bool:
-    expected_paths = {module.as_posix(), generated_subpath(module).as_posix()}
+    expected_path = module.as_posix()
     applied_files = manifest.get("applied_files")
     if not isinstance(applied_files, list):
         return False
     return any(
         isinstance(item, dict)
-        and item.get("path") in expected_paths
+        and item.get("path") == expected_path
         and item.get("sha256") == module_sha256
         for item in applied_files
     )
 
 
 def _manifest_is_replayable_encode(manifest: dict[str, object]) -> bool:
-    return manifest.get("backend") in {
-        "codex",
-        "openai",
-        "claude",
-        "anthropic",
-    } and str(manifest.get("tool", "")).startswith("axiom-encode encode")
+    return (
+        manifest.get("backend")
+        in {
+            "codex",
+            "openai",
+            "claude",
+        }
+        and manifest.get("tool") == "axiom-encode encode --apply"
+    )
 
 
 def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]:
@@ -276,14 +292,20 @@ def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]
         )
         if path is None:
             continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        from axiom_encode.cli import _load_verified_applied_encoding_manifest_payload
+
+        payload, _root_prefix, _manifest_sha256, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                resolved_root,
+                path.relative_to(resolved_root).as_posix(),
+            )
+        )
+        if issues:
             raise RegenerationInputError(
-                f"invalid encoding manifest {path}: {exc}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise RegenerationInputError(f"encoding manifest is not an object: {path}")
+                f"invalid encoding manifest {path}: " + "; ".join(issues)
+            )
+        if payload is None:
+            continue
         if not _manifest_binds_module(
             payload,
             module=module,
@@ -293,7 +315,7 @@ def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]
         if _manifest_is_replayable_encode(payload):
             return payload
 
-    raise RegenerationInputError(
+    raise NoReplayableManifestError(
         f"no current replayable encoding manifest binds module {module}"
     )
 
@@ -321,145 +343,11 @@ def read_citation(root: Path, module: PurePosixPath) -> str:
     return _validate_citation(load_replay_manifest(root, module).get("citation"))
 
 
-def validate_corpus_path(corpus_path: Path) -> Path:
-    """Return a corpus checkout with a locally readable provisions tree."""
-
-    resolved_corpus = Path(corpus_path).resolve(strict=True)
-    if not resolved_corpus.is_dir():
-        raise RegenerationInputError(
-            f"corpus path is not a directory: {resolved_corpus}"
-        )
-
-    raw_candidates = (
-        resolved_corpus / "data" / "corpus" / "provisions",
-        (
-            resolved_corpus
-            if resolved_corpus.name == "provisions"
-            else resolved_corpus / "provisions"
-        ),
-    )
-    provisions_root: Path | None = None
-    for candidate in dict.fromkeys(raw_candidates):
-        cursor = resolved_corpus
-        for part in candidate.relative_to(resolved_corpus).parts:
-            cursor /= part
-            if cursor.is_symlink():
-                raise UnsafeRegenerationPath(
-                    f"corpus provisions path contains a symlink: {cursor}"
-                )
-        if not cursor.exists():
-            continue
-        if not cursor.is_dir():
-            raise UnsafeRegenerationPath(
-                f"corpus provisions path is not a directory: {cursor}"
-            )
-        resolved_provisions = cursor.resolve(strict=True)
-        try:
-            resolved_provisions.relative_to(resolved_corpus)
-        except ValueError as exc:
-            raise UnsafeRegenerationPath(
-                f"corpus provisions path escapes {resolved_corpus}: {cursor}"
-            ) from exc
-        provisions_root = resolved_provisions
-        break
-
-    if provisions_root is None:
-        raise RegenerationInputError(
-            f"corpus checkout has no provisions directory: {resolved_corpus}"
-        )
-
-    provision_files = 0
-    for candidate in provisions_root.rglob("*"):
-        if candidate.is_symlink():
-            raise UnsafeRegenerationPath(
-                f"corpus provisions tree contains a symlink: {candidate}"
-            )
-        if candidate.suffix != ".jsonl":
-            continue
-        provision_files += 1
-        resolved = candidate.resolve(strict=True)
-        try:
-            resolved.relative_to(resolved_corpus)
-        except ValueError as exc:
-            raise UnsafeRegenerationPath(
-                f"corpus provision escapes {resolved_corpus}: {candidate}"
-            ) from exc
-        if not resolved.is_file():
-            raise UnsafeRegenerationPath(
-                f"corpus provision is not a regular file: {candidate}"
-            )
-        if resolved.stat().st_size > _MAX_CORPUS_PROVISION_BYTES:
-            raise UnsafeRegenerationPath(
-                "corpus provision exceeds the "
-                f"{_MAX_CORPUS_PROVISION_BYTES}-byte safety limit: {candidate}"
-            )
-    if provision_files == 0:
-        raise RegenerationInputError(
-            f"corpus checkout has no provision JSONL files: {resolved_corpus}"
-        )
-
-    for candidate in dict.fromkeys(
-        (
-            resolved_corpus / "data" / "corpus" / "claims",
-            resolved_corpus / "claims",
-        )
-    ):
-        cursor = resolved_corpus
-        for part in candidate.relative_to(resolved_corpus).parts:
-            cursor /= part
-            if cursor.is_symlink():
-                raise UnsafeRegenerationPath(
-                    f"corpus claims path contains a symlink: {cursor}"
-                )
-        if not cursor.exists():
-            continue
-        if not cursor.is_dir():
-            raise UnsafeRegenerationPath(
-                f"corpus claims path is not a directory: {cursor}"
-            )
-        resolved_claims = cursor.resolve(strict=True)
-        try:
-            resolved_claims.relative_to(resolved_corpus)
-        except ValueError as exc:
-            raise UnsafeRegenerationPath(
-                f"corpus claims path escapes {resolved_corpus}: {cursor}"
-            ) from exc
-        for claim_file in resolved_claims.rglob("*"):
-            if claim_file.is_symlink():
-                raise UnsafeRegenerationPath(
-                    f"corpus claims tree contains a symlink: {claim_file}"
-                )
-            if claim_file.suffix != ".jsonl":
-                continue
-            resolved_claim = claim_file.resolve(strict=True)
-            try:
-                resolved_claim.relative_to(resolved_corpus)
-            except ValueError as exc:
-                raise UnsafeRegenerationPath(
-                    f"corpus claim escapes {resolved_corpus}: {claim_file}"
-                ) from exc
-            if not resolved_claim.is_file():
-                raise UnsafeRegenerationPath(
-                    f"corpus claim is not a regular file: {claim_file}"
-                )
-            if resolved_claim.stat().st_size > _MAX_CORPUS_CLAIM_BYTES:
-                raise UnsafeRegenerationPath(
-                    "corpus claim exceeds the "
-                    f"{_MAX_CORPUS_CLAIM_BYTES}-byte safety limit: {claim_file}"
-                )
-    return resolved_corpus
-
-
-def resolve_local_citation(citation: str, corpus_path: Path) -> str | None:
-    """Return the single local source selected by the shared resolver, if any.
-
-    The live resolver falls back to Supabase, which would make a scheduled run
-    depend on mutable remote state.  Use its exact normalization and
-    nearest-parent candidates, but deliberately stop after the local corpus
-    lookup.
-    """
-
-    resolved_corpus = validate_corpus_path(corpus_path)
+def resolve_local_citation(
+    citation: str,
+    corpus_release: LocalCorpusRelease,
+) -> str | None:
+    """Return the single release-bound source selected by the shared resolver."""
 
     from axiom_encode.corpus_resolver import (
         CorpusSourceNotFoundError,
@@ -469,31 +357,56 @@ def resolve_local_citation(citation: str, corpus_path: Path) -> str | None:
 
     normalized = normalize_corpus_identifier(citation)
     try:
-        resolved = resolve_local_corpus_source(normalized, resolved_corpus)
+        resolved = resolve_local_corpus_source(normalized, corpus_release)
     except CorpusSourceNotFoundError:
         return None
     return resolved.citation_path
 
 
-def citation_resolves_locally(citation: str, corpus_path: Path) -> bool:
+def citation_resolves_locally(
+    citation: str,
+    corpus_release: LocalCorpusRelease,
+) -> bool:
     """Return whether ``citation`` has an exact or parent local candidate."""
 
-    return resolve_local_citation(citation, corpus_path) is not None
+    return resolve_local_citation(citation, corpus_release) is not None
 
 
 def read_resolvable_citation(
     root: Path,
     module: PurePosixPath,
     *,
-    corpus_path: Path,
+    corpus_release: LocalCorpusRelease,
 ) -> str:
     """Read a replay manifest citation that is available in the local corpus."""
 
-    citation = read_citation(root, module)
-    if resolve_local_citation(citation, corpus_path) is None:
+    manifest = load_replay_manifest(root, module)
+    citation = _validate_citation(manifest.get("citation"))
+    from axiom_encode.corpus_resolver import (
+        CorpusSourceNotFoundError,
+        normalize_corpus_identifier,
+        resolve_local_corpus_source,
+    )
+
+    try:
+        resolved = resolve_local_corpus_source(
+            normalize_corpus_identifier(citation),
+            corpus_release,
+        )
+    except CorpusSourceNotFoundError:
         raise RegenerationInputError(
             f"manifest citation does not resolve in the local corpus: {citation!r}"
-        )
+        ) from None
+    attestation = manifest.get("source_attestation")
+    if not isinstance(attestation, dict):
+        raise RegenerationInputError("replay manifest has no source attestation")
+    current_attestation = resolved.to_attestation()
+    for field, expected in current_attestation.items():
+        if attestation.get(field) != expected:
+            raise RegenerationInputError(
+                "replay manifest source attestation does not match the active "
+                f"corpus release at {field}"
+            )
     return citation
 
 
@@ -505,10 +418,16 @@ def child_environment(backend: str) -> dict[str, str]:
     credential = os.environ.get("OPENAI_API_KEY")
     if not credential:
         raise RuntimeError("OPENAI_API_KEY is required for drift regeneration")
+    release_public_key = os.environ.get(RELEASE_OBJECT_PUBLIC_KEY_ENV)
+    if not release_public_key:
+        raise RuntimeError(
+            f"{RELEASE_OBJECT_PUBLIC_KEY_ENV} is required for drift regeneration"
+        )
 
     env = {name: os.environ[name] for name in _SAFE_CHILD_ENV if name in os.environ}
     env.setdefault("PATH", os.defpath)
     env["OPENAI_API_KEY"] = credential
+    env[RELEASE_OBJECT_PUBLIC_KEY_ENV] = release_public_key
     return env
 
 
@@ -540,44 +459,45 @@ def regenerate_module(
     *,
     root: Path,
     corpus_path: Path,
+    axiom_rules_path: Path,
     backend: str = "openai",
 ) -> str:
     """Regenerate one merged module with a fixed argv and isolated secrets."""
 
     resolved_root = Path(root).resolve(strict=True)
-    resolved_corpus = validate_corpus_path(corpus_path)
     relative = validate_module_path(resolved_root, module)
+    corpus_release = load_rulespec_local_corpus_release(
+        resolved_root,
+        corpus_path,
+    )
     citation = read_resolvable_citation(
         resolved_root,
         relative,
-        corpus_path=resolved_corpus,
+        corpus_release=corpus_release,
     )
-    source_id = source_id_for_module(resolved_root, relative)
-    expected = generated_subpath(relative)
+    expected = require_citation_derived_output_path(relative, citation)
     env = child_environment(backend)
-    policy_root = (
-        resolved_root
-        if relative.parts[0] in _SOURCE_DIRECTORIES
-        else resolved_root / relative.parts[0]
-    )
-
+    resolved_axiom_rules_path = Path(axiom_rules_path).resolve(strict=True)
+    if not resolved_axiom_rules_path.is_dir():
+        raise RegenerationInputError(
+            f"axiom-rules-engine path is not a directory: {resolved_axiom_rules_path}"
+        )
     with tempfile.TemporaryDirectory() as tmp:
         command = [
             sys.executable,
             "-m",
             "axiom_encode.cli",
             "encode",
-            "--source-id",
-            source_id,
             "--output",
             tmp,
             "--backend",
             backend,
             "--corpus-path",
-            str(resolved_corpus),
-            "--local-corpus-only",
+            str(corpus_release.root),
+            "--axiom-rules-engine-path",
+            str(resolved_axiom_rules_path),
             "--policy-repo-path",
-            str(policy_root),
+            str(resolved_root),
             "--no-sync",
             "--skip-reviewers",
             "--",

@@ -1,9 +1,8 @@
 import argparse
 
+import axiom_oracles.bridges.tax_populace as ecps_tax
 import pytest
-
-import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
-from axiom_encode.oracles.policyengine.ecps_tax import (
+from axiom_oracles.bridges.tax_populace import (
     AOTC_BASE,
     AOTC_OUTPUTS,
     CAPITAL_GAINS_BASE,
@@ -164,36 +163,27 @@ def test_remove_raw_columns_replaced_by_outputs_prefers_period_values():
     assert merged.loc[0, "american_opportunity_credit"] == 2_500
 
 
-def test_run_axiom_program_compiles_through_canonical_repo_alias(
-    monkeypatch,
-    tmp_path,
+def test_run_axiom_program_passes_exact_checkout_as_explicit_argument(
+    monkeypatch, tmp_path
 ):
-    rulespec_root = tmp_path / "rulespec-uk-worktree"
-    program = rulespec_root / "statutes" / "ukpga" / "2007" / "3" / "35.yaml"
+    rulespec_root = tmp_path / "rulespec-uk"
+    program = rulespec_root / "uk" / "statutes" / "ukpga" / "2007" / "3" / "35.yaml"
     program.parent.mkdir(parents=True)
     program.write_text("format: rulespec/v1\nrules: []\n")
-    axiom_rules_path = tmp_path / "axiom-rules-engine"
-    binary = axiom_rules_path / "target" / "release" / "axiom-rules-engine"
-    binary.parent.mkdir(parents=True)
+    binary = tmp_path / "axiom-rules-engine"
     binary.write_text("")
+    binary.chmod(0o755)
 
     compiled_programs = []
-    compile_env_roots = []
+    compile_commands = []
     runtime_requests = []
 
     def fake_run(cmd, **kwargs):
-        if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(rulespec_root)]:
-            return ecps_tax.subprocess.CompletedProcess(
-                cmd,
-                0,
-                stdout="https://github.com/TheAxiomFoundation/rulespec-uk.git\n",
-                stderr="",
-            )
         if "compile" in cmd:
             compiled_programs.append(cmd[cmd.index("--program") + 1])
-            compile_env_roots.extend(
-                kwargs["env"]["AXIOM_RULESPEC_REPO_ROOTS"].split(ecps_tax.os.pathsep)
-            )
+            compile_commands.append(cmd)
+            assert "AXIOM_RULESPEC_REPO_ROOTS" not in kwargs["env"]
+            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in kwargs["env"]
             output_path = cmd[cmd.index("--output") + 1]
             with open(output_path, "w") as artifact:
                 artifact.write(
@@ -203,7 +193,7 @@ def test_run_axiom_program_compiles_through_canonical_repo_alias(
                                 "parameters": [],
                                 "derived": [
                                     {
-                                        "id": "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance",
+                                        "id": "uk:statutes/ukpga/2007/3/35#personal_allowance",
                                         "name": "personal_allowance",
                                         "entity": "Person",
                                     }
@@ -223,7 +213,7 @@ def test_run_axiom_program_compiles_through_canonical_repo_alias(
                         "results": [
                             {
                                 "outputs": {
-                                    "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance": {
+                                    "uk:statutes/ukpga/2007/3/35#personal_allowance": {
                                         "kind": "scalar",
                                         "value": {
                                             "kind": "integer",
@@ -285,7 +275,7 @@ def test_run_axiom_program_compiles_through_canonical_repo_alias(
             ],
         },
         rulespec_root=rulespec_root,
-        axiom_rules_path=axiom_rules_path,
+        axiom_binary=binary,
     )
 
     assert (
@@ -295,20 +285,19 @@ def test_run_axiom_program_compiles_through_canonical_repo_alias(
         == 12570
     )
     assert compiled_programs
-    assert "rulespec-uk" in compiled_programs[0].split("/")
-    assert "rulespec-uk-worktree" not in compiled_programs[0].split("/")
+    assert compiled_programs[0] == str(program.resolve())
+    assert compile_commands[0][compile_commands[0].index("--rulespec-root") + 1] == str(
+        rulespec_root.resolve()
+    )
     assert runtime_requests[0]["dataset"]["inputs"][0]["name"] == (
-        "uk-worktree:statutes/ukpga/2007/3/35#input.adjusted_net_income"
+        "uk:statutes/ukpga/2007/3/35#input.adjusted_net_income"
     )
     assert runtime_requests[0]["dataset"]["relations"][0]["name"] == (
-        "uk-worktree:statutes/ukpga/2007/3/35#relation.members"
+        "uk:statutes/ukpga/2007/3/35#relation.members"
     )
     assert runtime_requests[0]["queries"][0]["outputs"] == [
-        "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance"
+        "uk:statutes/ukpga/2007/3/35#personal_allowance"
     ]
-    assert str(rulespec_root) in compile_env_roots
-    assert str(rulespec_root.parent) in compile_env_roots
-    assert compile_env_roots[0] != str(rulespec_root)
 
 
 @pytest.mark.parametrize(

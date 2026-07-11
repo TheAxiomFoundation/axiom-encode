@@ -144,15 +144,18 @@ def test_apply_hook_uses_state_repo_jurisdiction(tmp_path: Path):
             """
         )
     )
+    repo = tmp_path / "rulespec-us" / "us-co"
+    repo.mkdir(parents=True)
     _enforce_canonical_concept_registry(
         candidate_files=[generated],
         relative_output=Path("regulations/10-ccr-2506-1/4.407.31.yaml"),
-        policy_repo_path=tmp_path / "rules-us-co",
+        policy_repo_path=repo,
     )
 
 
-def test_relative_output_to_anchor_uses_rules_repo_prefix():
-    repo = Path("/workspace/rules-us-co")
+def test_relative_output_to_anchor_uses_canonical_jurisdiction_root(tmp_path: Path):
+    repo = tmp_path / "rulespec-us" / "us-co"
+    repo.mkdir(parents=True)
     assert _repo_jurisdiction_prefix(repo) == "us-co"
     assert (
         _relative_output_to_anchor(
@@ -163,9 +166,17 @@ def test_relative_output_to_anchor_uses_rules_repo_prefix():
     )
 
 
+def test_jurisdiction_prefix_rejects_legacy_flat_repo(tmp_path: Path):
+    repo = tmp_path / "rulespec-us-co"
+    repo.mkdir()
+
+    with pytest.raises(ValueError, match="canonical"):
+        _repo_jurisdiction_prefix(repo)
+
+
 def test_concepts_audit_cli_runs_and_emits_json(tmp_path: Path):
     """Smoke test: CLI walks an empty root and emits JSON without crashing."""
-    empty_root = tmp_path / "fake_rulespec"
+    empty_root = tmp_path / "rulespec-us"
     empty_root.mkdir()
     result = subprocess.run(
         [
@@ -192,7 +203,7 @@ def test_concepts_audit_cli_surfaces_blocked_synonym(tmp_path: Path):
     """Real-content smoke test: the CLI must surface a blocked-synonym finding
     with the expected structure when the corpus actually contains drift."""
     root = tmp_path / "rulespec-us"
-    drift = root / "policies/example.yaml"
+    drift = root / "us" / "policies/example.yaml"
     drift.parent.mkdir(parents=True)
     drift.write_text(
         textwrap.dedent(

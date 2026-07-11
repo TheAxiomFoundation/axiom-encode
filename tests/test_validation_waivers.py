@@ -25,6 +25,7 @@ TODAY = date(2026, 7, 10)
 EXPIRY = (TODAY + timedelta(days=MAX_WAIVER_DAYS)).isoformat()
 PATH = "us/statutes/26/1.yaml"
 OTHER_PATH = "us-ca/regulations/mpp/1.yaml"
+PROGRAM_PATH = "us/programs/snap/fy-2026.yaml"
 
 
 def _metadata(
@@ -130,6 +131,15 @@ def test_loads_nested_active_and_pending_with_cross_repo_issue(tmp_path: Path):
     assert loaded.active_paths == {PATH}
     assert loaded.pending_paths == {PATH}
     assert loaded.entries[PATH].pending.issue.endswith("axiom-encode/issues/1036")
+
+
+def test_rejects_composition_specs_from_atomic_validation_waivers(tmp_path: Path):
+    root = _repo(tmp_path, PROGRAM_PATH)
+    waiver_file = root / "known-validation-gaps.yaml"
+    waiver_file.write_text(_valid_yaml().replace(PATH, PROGRAM_PATH))
+
+    with pytest.raises(WaiverSchemaError, match="unsafe"):
+        load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
 
 
 @pytest.mark.parametrize(

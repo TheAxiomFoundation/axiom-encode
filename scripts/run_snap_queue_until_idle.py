@@ -26,6 +26,7 @@ from typing import Any
 import yaml
 
 from axiom_encode.harness.evals import resolve_corpus_source_unit
+from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 CODEX_HOME = (
     Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
@@ -34,16 +35,6 @@ CODEX_HOME = (
 )
 AXIOM_ENCODE_ROOT = (
     Path(os.environ.get("AXIOM_ENCODE_ROOT", str(Path(__file__).resolve().parents[1])))
-    .expanduser()
-    .resolve()
-)
-AXIOM_CORPUS_ROOT = (
-    Path(
-        os.environ.get(
-            "AXIOM_CORPUS_ROOT",
-            str(AXIOM_ENCODE_ROOT.parent / "axiom-corpus"),
-        )
-    )
     .expanduser()
     .resolve()
 )
@@ -77,11 +68,7 @@ DEFAULT_ARCHIVE_ROOT = (
     .resolve()
 )
 BENCHMARK_GLOB = "us_snap_*_refresh.yaml"
-SOURCE_TRACKING_VERSION = 1
-POLICYENGINE_CANDIDATES = [
-    Path.home() / "worktrees" / "policyengine-us-main-view",
-    Path.home() / "PolicyEngine" / "policyengine-us",
-]
+SOURCE_TRACKING_VERSION = 2
 REQUIRED_PATH_ENTRIES = [
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
@@ -92,21 +79,6 @@ REQUIRED_PATH_ENTRIES = [
 UV_CANDIDATES = [
     Path("/opt/homebrew/bin/uv"),
     Path("/usr/local/bin/uv"),
-]
-POLICYENGINE_US_PYTHON_CANDIDATES = [
-    Path.home()
-    / "worktrees"
-    / "policyengine-us-main-view"
-    / ".venv"
-    / "bin"
-    / "python",
-    Path.home() / "PolicyEngine" / "policyengine-us" / ".venv" / "bin" / "python",
-]
-WORKSPACES = [
-    AXIOM_ENCODE_ROOT,
-    *sorted(
-        path for path in AXIOM_ENCODE_ROOT.parent.glob("rulespec-*") if path.is_dir()
-    ),
 ]
 RETRYABLE_PATTERNS = (
     "usage limit",
@@ -226,13 +198,6 @@ def git_root_for_path(path: Path | None) -> Path | None:
     return Path(result.stdout.strip()) if result.stdout.strip() else None
 
 
-def detect_policyengine_root() -> Path | None:
-    for candidate in POLICYENGINE_CANDIDATES:
-        if (candidate / ".git").exists():
-            return candidate
-    return None
-
-
 def append_event(data: dict[str, Any], message: str) -> None:
     log = data.setdefault("event_log", [])
     log.append({"timestamp": now_utc(), "message": message})
@@ -242,15 +207,14 @@ def append_event(data: dict[str, Any], message: str) -> None:
 
 def build_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
+    env.pop("AXIOM_ENCODE_POLICYENGINE_US_PYTHON", None)
+    env.pop("AXIOM_ENCODE_POLICYENGINE_UK_PYTHON", None)
     existing = [entry for entry in env.get("PATH", "").split(":") if entry]
     merged: list[str] = []
     for entry in [*REQUIRED_PATH_ENTRIES, *existing]:
         if entry not in merged:
             merged.append(entry)
     env["PATH"] = ":".join(merged)
-    pe_python = resolve_policyengine_us_python()
-    if pe_python:
-        env["AXIOM_ENCODE_POLICYENGINE_US_PYTHON"] = pe_python
     return env
 
 
@@ -264,20 +228,15 @@ def resolve_uv_bin() -> str:
     return "uv"
 
 
-def resolve_policyengine_us_python() -> str | None:
-    for candidate in POLICYENGINE_US_PYTHON_CANDIDATES:
-        if candidate.exists():
-            return str(candidate)
-    return None
-
-
 def infer_repo(corpus_citation_path: str | None) -> str:
     if not corpus_citation_path:
         return "none"
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0]
     if not jurisdiction:
         return "none"
-    return "rulespec-us" if jurisdiction == "us" else f"rulespec-{jurisdiction}"
+    if jurisdiction == "us" or jurisdiction.startswith("us-"):
+        return "rulespec-us"
+    return f"rulespec-{jurisdiction}"
 
 
 def resolve_manifest_case_corpus_citation_path(
@@ -290,25 +249,37 @@ def resolve_manifest_case_corpus_citation_path(
     return None
 
 
-def sha256_corpus_source(corpus_citation_path: str | None) -> str | None:
+def sha256_corpus_source(
+    corpus_citation_path: str | None,
+    corpus_root: Path,
+    policy_repo_root: Path,
+) -> str | None:
     if not corpus_citation_path:
         return None
-    try:
-        source_unit = resolve_corpus_source_unit(
-            corpus_citation_path,
-            AXIOM_CORPUS_ROOT,
-        )
-    except Exception:
-        return None
+    corpus_release = load_rulespec_local_corpus_release(
+        policy_repo_root,
+        corpus_root,
+    )
+    source_unit = resolve_corpus_source_unit(
+        corpus_citation_path,
+        corpus_release,
+    )
     digest = hashlib.sha256()
     digest.update(b"corpus\0")
+    digest.update(corpus_release.name.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(corpus_release.content_sha256.encode("ascii"))
+    digest.update(b"\0")
     digest.update(source_unit.citation_path.encode("utf-8"))
     digest.update(b"\0")
     digest.update(source_unit.body.encode("utf-8"))
     return digest.hexdigest()
 
 
-def iter_manifest_queue_candidates() -> list[dict[str, str]]:
+def iter_manifest_queue_candidates(
+    corpus_root: Path,
+    policy_repo_root: Path,
+) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     for manifest_path in sorted(
         (AXIOM_ENCODE_ROOT / "benchmarks").glob(BENCHMARK_GLOB)
@@ -330,7 +301,11 @@ def iter_manifest_queue_candidates() -> list[dict[str, str]]:
             source_repo = infer_repo(corpus_citation_path)
             if source_repo in {"none", "unknown"}:
                 continue
-            source_sha = sha256_corpus_source(corpus_citation_path)
+            source_sha = sha256_corpus_source(
+                corpus_citation_path,
+                corpus_root,
+                policy_repo_root,
+            )
             if source_sha is None:
                 continue
             candidates.append(
@@ -347,9 +322,11 @@ def iter_manifest_queue_candidates() -> list[dict[str, str]]:
 
 def sync_queue_with_manifests(
     data: dict[str, Any],
+    corpus_root: Path,
+    policy_repo_root: Path,
 ) -> tuple[bool, list[str], list[str], list[str]]:
     items = data.setdefault("items", [])
-    candidates = iter_manifest_queue_candidates()
+    candidates = iter_manifest_queue_candidates(corpus_root, policy_repo_root)
     candidate_names = {candidate["name"] for candidate in candidates}
     by_name = {
         item.get("name"): item
@@ -383,6 +360,15 @@ def sync_queue_with_manifests(
         previous_manifest_sha = existing.get("manifest_sha256")
         previous_source_sha = existing.get("corpus_source_sha256")
         previous_tracking_version = existing.get("source_tracking_version")
+        identity_changed = (
+            previous_tracking_version != SOURCE_TRACKING_VERSION
+            or previous_manifest_sha != manifest_sha
+            or previous_source_sha != source_sha
+        )
+        if existing.get("status") == "running" and identity_changed:
+            # Preserve the identity an in-flight run actually started with.
+            # Once it stops, a later sync will requeue it against the new one.
+            continue
         for key in ("manifest", "corpus_citation_path"):
             if existing.get(key) != candidate[key]:
                 existing[key] = candidate[key]
@@ -396,22 +382,17 @@ def sync_queue_with_manifests(
         if existing.get("source_tracking_version") != SOURCE_TRACKING_VERSION:
             existing["source_tracking_version"] = SOURCE_TRACKING_VERSION
             changed = True
-        source_tracking_migrated = previous_tracking_version != SOURCE_TRACKING_VERSION
-        if (
-            previous_manifest_sha is not None
-            and previous_source_sha is not None
-            and (
-                previous_manifest_sha != manifest_sha
-                or (previous_source_sha != source_sha and not source_tracking_migrated)
-            )
-            and existing.get("status") in {"done", "blocked", "retryable"}
-        ):
+        if identity_changed and existing.get("status") in {
+            "done",
+            "blocked",
+            "retryable",
+        }:
             existing["status"] = "queued"
             existing["started_at"] = None
             existing["finished_at"] = None
             existing["output_dir"] = None
             existing["archive_path"] = None
-            existing["note"] = "requeued after manifest/source change"
+            existing["note"] = "requeued after manifest/source identity change"
             refreshed.append(candidate["name"])
             changed = True
     for item in items:
@@ -492,7 +473,13 @@ def classify_status(
 
 
 def run_eval_item(
-    item: dict[str, Any], backend: str, reviewer_cli: str, output_dir: Path
+    item: dict[str, Any],
+    reviewer_cli: str,
+    output_dir: Path,
+    corpus_root: Path,
+    axiom_rules_root: Path,
+    policy_repo_root: Path,
+    policyengine_runtime_root: Path,
 ) -> int:
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     env = build_subprocess_env()
@@ -503,8 +490,14 @@ def run_eval_item(
         "axiom-encode",
         "eval-suite",
         item["manifest"],
-        "--gpt-backend",
-        backend,
+        "--corpus-path",
+        str(corpus_root),
+        "--axiom-rules-engine-path",
+        str(axiom_rules_root),
+        "--policy-repo-path",
+        str(policy_repo_root),
+        "--policyengine-runtime-root",
+        str(policyengine_runtime_root),
         "--output",
         str(output_dir),
     ]
@@ -515,13 +508,28 @@ def run_eval_item(
     return result.returncode
 
 
-def archive_eval(output_dir: Path) -> Path | None:
+def archive_eval(
+    output_dir: Path,
+    *,
+    corpus_root: Path,
+    axiom_rules_root: Path,
+    policy_repo_root: Path,
+    policyengine_runtime_root: Path,
+) -> Path | None:
     cmd = [
         resolve_uv_bin(),
         "run",
         "axiom-encode",
         "eval-suite-archive",
         str(output_dir),
+        "--corpus-path",
+        str(corpus_root),
+        "--axiom-rules-engine-path",
+        str(axiom_rules_root),
+        "--policy-repo-path",
+        str(policy_repo_root),
+        "--policyengine-runtime-root",
+        str(policyengine_runtime_root),
     ]
     try:
         result = subprocess.run(
@@ -618,7 +626,6 @@ def classify_failure_class(
 def build_run_record(
     item: dict[str, Any],
     *,
-    backend: str,
     reviewer_cli: str,
     returncode: int | None,
     summary: dict[str, Any] | None,
@@ -626,16 +633,14 @@ def build_run_record(
     archive_path: Path | None,
     status: str,
     note: str,
+    policy_repo_root: Path,
+    policyengine_runtime_root: Path,
     backfilled: bool = False,
 ) -> dict[str, Any]:
     manifest_path = Path(item["manifest"]).resolve() if item.get("manifest") else None
     corpus_citation_path = item.get("corpus_citation_path")
     output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
     source_repo = infer_repo(corpus_citation_path)
-    policy_repo_root = AXIOM_ENCODE_ROOT.parent / source_repo
-    if not policy_repo_root.exists():
-        policy_repo_root = None
-    policyengine_root = detect_policyengine_root()
     effective_runner = None
     readiness_block = None
     if summary:
@@ -700,21 +705,20 @@ def build_run_record(
             status, returncode, summary, results, note
         ),
         "backfilled_from_queue": backfilled,
-        "backend": backend,
+        "backend": first_result.get("backend") or None,
         "effective_runner": effective_runner,
         "reviewer_cli": reviewer_cli,
         "manifest_path": str(manifest_path) if manifest_path else None,
         "manifest_sha256": sha256_file(manifest_path),
         "corpus_citation_path": corpus_citation_path,
-        "corpus_source_sha256": item.get("corpus_source_sha256")
-        or sha256_corpus_source(corpus_citation_path),
+        "corpus_source_sha256": item["corpus_source_sha256"],
         "source_tracking_version": item.get(
             "source_tracking_version", SOURCE_TRACKING_VERSION
         ),
         "source_repo": source_repo,
         "axiom_encode_sha": git_head(AXIOM_ENCODE_ROOT),
         "policy_repo_sha": git_head(policy_repo_root),
-        "policyengine_sha": git_head(policyengine_root),
+        "policyengine_sha": git_head(policyengine_runtime_root),
         "started_at": item.get("started_at"),
         "finished_at": item.get("finished_at"),
         "returncode": returncode,
@@ -761,7 +765,12 @@ def append_run_record(path: Path, record: dict[str, Any], known_ids: set[str]) -
     known_ids.add(run_id)
 
 
-def backfill_run_ledger(data: dict[str, Any], known_ids: set[str]) -> None:
+def backfill_run_ledger(
+    data: dict[str, Any],
+    known_ids: set[str],
+    policy_repo_root: Path,
+    policyengine_runtime_root: Path,
+) -> None:
     for item in data.get("items", []):
         if item.get("status") not in {"done", "blocked", "retryable"}:
             continue
@@ -781,7 +790,6 @@ def backfill_run_ledger(data: dict[str, Any], known_ids: set[str]) -> None:
             results = load_json(archive_path / "results.json")
         record = build_run_record(
             item,
-            backend=str(data.get("default_backend") or "codex"),
             reviewer_cli=str(data.get("default_reviewer_cli") or "claude"),
             returncode=None,
             summary=summary,
@@ -789,6 +797,8 @@ def backfill_run_ledger(data: dict[str, Any], known_ids: set[str]) -> None:
             archive_path=archive_path,
             status=str(item.get("status") or "unknown"),
             note=str(item.get("note") or ""),
+            policy_repo_root=policy_repo_root,
+            policyengine_runtime_root=policyengine_runtime_root,
             backfilled=True,
         )
         append_run_record(RUN_LEDGER_PATH, record, known_ids)
@@ -875,7 +885,6 @@ def reconcile_stale_running_items(
         if summary and summary.get("all_ready"):
             item["status"] = "done"
             item["finished_at"] = now_utc()
-            item["source_tracking_version"] = SOURCE_TRACKING_VERSION
             item["note"] = "closed fully ready after orphaned eval completed"
             changed = True
             append_event(
@@ -916,17 +925,45 @@ def reconcile_ready_output_items(data: dict[str, Any]) -> tuple[bool, list[str]]
 
         item["status"] = "done"
         item["finished_at"] = now_utc()
-        item["source_tracking_version"] = SOURCE_TRACKING_VERSION
         item["note"] = "closed fully ready after revalidation"
         changed = True
         reconciled.append(str(item.get("name") or "unknown"))
     return changed, reconciled
 
 
-def process_queue(queue_path: Path) -> int:
+def _resolve_required_checkout(path: Path, *, label: str) -> Path:
+    try:
+        resolved = Path(path).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError(f"invalid {label} checkout {path}: {exc}") from exc
+    if not resolved.is_dir():
+        raise RuntimeError(f"invalid {label} checkout (not a directory): {resolved}")
+    return resolved
+
+
+def process_queue(
+    queue_path: Path,
+    corpus_root: Path,
+    axiom_rules_root: Path,
+    policy_repo_root: Path,
+    policyengine_runtime_root: Path,
+) -> int:
+    corpus_root = _resolve_required_checkout(corpus_root, label="axiom-corpus")
+    axiom_rules_root = _resolve_required_checkout(
+        axiom_rules_root,
+        label="axiom-rules-engine",
+    )
+    policy_repo_root = _resolve_required_checkout(
+        policy_repo_root,
+        label="RuleSpec policy",
+    )
+    policyengine_runtime_root = _resolve_required_checkout(
+        policyengine_runtime_root,
+        label="PolicyEngine runtime",
+    )
     data = load_queue(queue_path)
     sync_changed, added_items, retired_items, refreshed_items = (
-        sync_queue_with_manifests(data)
+        sync_queue_with_manifests(data, corpus_root, policy_repo_root)
     )
     if sync_changed:
         save_queue(queue_path, data)
@@ -950,7 +987,6 @@ def process_queue(queue_path: Path) -> int:
             + ", ".join(refreshed_items),
         )
         save_queue(queue_path, data)
-    backend = str(data.get("default_backend") or "codex")
     reviewer_cli = str(data.get("default_reviewer_cli") or "claude")
     known_run_ids = load_run_ledger_ids(RUN_LEDGER_PATH)
     ready_changed, ready_items = reconcile_ready_output_items(data)
@@ -960,7 +996,12 @@ def process_queue(queue_path: Path) -> int:
             "Marked revalidated queue items done: " + ", ".join(ready_items),
         )
         save_queue(queue_path, data)
-    backfill_run_ledger(data, known_run_ids)
+    backfill_run_ledger(
+        data,
+        known_run_ids,
+        policy_repo_root,
+        policyengine_runtime_root,
+    )
 
     while True:
         active_processes = find_active_eval_processes()
@@ -976,7 +1017,7 @@ def process_queue(queue_path: Path) -> int:
             time.sleep(30)
             data = load_queue(queue_path)
             sync_changed, added_items, retired_items, refreshed_items = (
-                sync_queue_with_manifests(data)
+                sync_queue_with_manifests(data, corpus_root, policy_repo_root)
             )
             if sync_changed:
                 if added_items:
@@ -1023,7 +1064,7 @@ def process_queue(queue_path: Path) -> int:
         item["output_dir"] = str(output_dir)
         item["archive_path"] = None
         item.pop("finished_at", None)
-        item["note"] = f"started with backend `{backend}`"
+        item["note"] = "started with manifest-declared runners"
         save_queue(queue_path, data)
         active = ActiveState(
             status="running",
@@ -1034,17 +1075,29 @@ def process_queue(queue_path: Path) -> int:
             corpus_citation_path=item.get("corpus_citation_path", "none"),
             output_dir=str(output_dir),
             started_at=item["started_at"],
-            outcome=f"started at {now_local()} with backend `{backend}`",
+            outcome=f"started at {now_local()} with manifest-declared runners",
         )
         write_memory(data, active)
 
         returncode = run_eval_item(
-            item, backend=backend, reviewer_cli=reviewer_cli, output_dir=output_dir
+            item,
+            reviewer_cli=reviewer_cli,
+            output_dir=output_dir,
+            corpus_root=corpus_root,
+            axiom_rules_root=axiom_rules_root,
+            policy_repo_root=policy_repo_root,
+            policyengine_runtime_root=policyengine_runtime_root,
         )
         summary = load_json(output_dir / "summary.json")
         results = load_json(output_dir / "results.json")
         archive_path = (
-            archive_eval(output_dir)
+            archive_eval(
+                output_dir,
+                corpus_root=corpus_root,
+                axiom_rules_root=axiom_rules_root,
+                policy_repo_root=policy_repo_root,
+                policyengine_runtime_root=policyengine_runtime_root,
+            )
             if (output_dir / "suite-run.json").exists()
             else None
         )
@@ -1064,7 +1117,6 @@ def process_queue(queue_path: Path) -> int:
         )
         record = build_run_record(
             item,
-            backend=backend,
             reviewer_cli=reviewer_cli,
             returncode=returncode,
             summary=summary,
@@ -1072,6 +1124,8 @@ def process_queue(queue_path: Path) -> int:
             archive_path=archive_path,
             status=new_status,
             note=reason,
+            policy_repo_root=policy_repo_root,
+            policyengine_runtime_root=policyengine_runtime_root,
         )
         append_run_record(RUN_LEDGER_PATH, record, known_run_ids)
         save_queue(queue_path, data)
@@ -1093,7 +1147,7 @@ def process_queue(queue_path: Path) -> int:
 
         data = load_queue(queue_path)
         sync_changed, added_items, retired_items, refreshed_items = (
-            sync_queue_with_manifests(data)
+            sync_queue_with_manifests(data, corpus_root, policy_repo_root)
         )
         if sync_changed:
             if added_items:
@@ -1119,6 +1173,30 @@ def process_queue(queue_path: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the SNAP queue until idle.")
     parser.add_argument("--queue", default=str(QUEUE_PATH))
+    parser.add_argument(
+        "--corpus-path",
+        required=True,
+        type=Path,
+        help="Canonical axiom-corpus checkout bound by RuleSpec toolchains",
+    )
+    parser.add_argument(
+        "--axiom-rules-engine-path",
+        required=True,
+        type=Path,
+        help="Exact axiom-rules-engine checkout used by eval validation",
+    )
+    parser.add_argument(
+        "--policy-repo-path",
+        required=True,
+        type=Path,
+        help="Exact rulespec-us checkout used by the SNAP eval suite",
+    )
+    parser.add_argument(
+        "--policyengine-runtime-root",
+        required=True,
+        type=Path,
+        help="Exact clean official policyengine-us checkout used by oracle cases",
+    )
     args = parser.parse_args()
 
     queue_path = Path(args.queue).resolve()
@@ -1128,7 +1206,13 @@ def main() -> int:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0
-        return process_queue(queue_path)
+        return process_queue(
+            queue_path,
+            args.corpus_path,
+            args.axiom_rules_engine_path,
+            args.policy_repo_path,
+            args.policyengine_runtime_root,
+        )
 
 
 if __name__ == "__main__":

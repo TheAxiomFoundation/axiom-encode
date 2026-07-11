@@ -1,12 +1,10 @@
 import shutil
 from datetime import date
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-from axiom_encode.oracles.policyengine import ecps_snap
-from axiom_encode.oracles.policyengine.ecps_snap import (
+from axiom_oracles.bridges import snap_populace as ecps_snap
+from axiom_oracles.bridges.snap_populace import (
     COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
     JURISDICTION_CONFIGS,
     Period,
@@ -21,6 +19,11 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
     projected_child_support_payment,
     run_axiom_cases,
     set_input_value,
+)
+
+from axiom_encode.harness.eval_evidence import (
+    APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
+    EVAL_EVIDENCE_PRIVATE_KEY_ENV,
 )
 from axiom_encode.oracles.snapscreener import (
     project_payload,
@@ -41,25 +44,16 @@ def test_set_input_value_updates_every_matching_legal_input():
     assert set(inputs.values()) == {4}
 
 
-def test_axiom_rules_env_prioritizes_active_rulespec_worktree(monkeypatch, tmp_path):
-    workspace = tmp_path / "workspace"
-    stale_repo = workspace / "rulespec-us"
-    active_repo = tmp_path / "worktrees" / "rulespec-us-medicaid-primary-categories"
-    program = active_repo / "us" / "statutes" / "42" / "1396a" / "a" / "10.yaml"
+def test_axiom_engine_env_scrubs_ambient_rulespec_roots(monkeypatch, tmp_path):
+    stale_repo = tmp_path / "stale" / "rulespec-us"
     stale_repo.mkdir(parents=True)
-    program.parent.mkdir(parents=True)
-    program.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
     monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
 
-    env = ecps_snap.axiom_rules_env(program, workspace)
+    env = ecps_snap.axiom_engine_env()
 
-    roots = [
-        Path(root)
-        for root in env["AXIOM_RULESPEC_REPO_ROOTS"].split(ecps_snap.os.pathsep)
-    ]
-    assert roots[0] == active_repo.resolve()
-    assert stale_repo.resolve() in roots
-    assert roots.index(active_repo.resolve()) < roots.index(stale_repo.resolve())
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in env
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in env
+    assert str(stale_repo.resolve()) not in env.values()
 
 
 def test_set_input_value_can_skip_optional_unknown_inputs():
@@ -417,3 +411,26 @@ var SnapAPI = {
             "errors": [],
         }
     ]
+
+
+def test_snapscreener_runner_scrubs_attestation_signing_keys(tmp_path, monkeypatch):
+    captured_env = None
+
+    def fake_run(*_args, **kwargs):
+        nonlocal captured_env
+        captured_env = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+
+    monkeypatch.setenv(EVAL_EVIDENCE_PRIVATE_KEY_ENV, "eval-private")
+    monkeypatch.setenv(APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV, "apply-private")
+    monkeypatch.setattr(
+        "axiom_encode.oracles.snapscreener.shutil.which", lambda _: "node"
+    )
+    monkeypatch.setattr("axiom_encode.oracles.snapscreener.subprocess.run", fake_run)
+
+    assert (
+        run_payloads([{"state_or_territory": "CO"}], api_js=tmp_path / "api.js") == []
+    )
+    assert captured_env is not None
+    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in captured_env
+    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in captured_env

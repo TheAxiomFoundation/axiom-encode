@@ -1,23 +1,31 @@
-name: Bulk encode
+name: Bulk worklist pre-classification
 
-# Bulk/cloud-parallel encoding entrypoint (#738). The load-bearing new step is
-# the cheap worklist pre-classifier, which routes amendment-act (#1079) and
-# xref-heavy (#1058) entries to skip-with-reason *before* paying for a generation
-# the compile gate would reject. Generation is gated behind an input so this
-# workflow can be run pre-classify-only.
+# This workflow only routes worklist entries. The former generation lane could
+# not bind the signed corpus release or explicit RuleSpec and engine checkouts,
+# so the prelaunch hard cut removes it. Generation now runs through the
+# corpus-bound encode/eval surfaces that require all dependency roots.
 
 on:
   workflow_dispatch:
     inputs:
       worklist:
-        description: "Path to the worklist JSON (list of {citation, source_text})"
+        description: "Path to JSON list of canonical corpus_citation_path strings"
         required: false
         default: worklist.json
-      run_generation:
-        description: "Run generation on self-contained (generate-routed) entries"
-        type: boolean
-        required: false
-        default: false
+      country:
+        description: "Canonical RuleSpec country checkout"
+        required: true
+        type: choice
+        options:
+          - us
+          - uk
+          - nz
+      rulespec_ref:
+        description: "Immutable rulespec-<country> commit SHA"
+        required: true
+      corpus_ref:
+        description: "Immutable axiom-corpus commit SHA"
+        required: true
 
 concurrency:
   group: bulk-encode-${{ github.ref }}
@@ -26,43 +34,57 @@ concurrency:
 jobs:
   preclassify:
     runs-on: ubuntu-latest
-    outputs:
-      generate_count: ${{ steps.pre.outputs.generate_count }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out canonical RuleSpec release consumer
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-${{ inputs.country }}
+          ref: ${{ inputs.rulespec_ref }}
+          path: external/rulespec
+          persist-credentials: false
+
+      - name: Check out immutable corpus release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.corpus_ref }}
+          path: external/axiom-corpus
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
 
       - name: Set up Python
         run: uv python install 3.13
 
       - name: Install
-        run: |
-          uv venv --python 3.13
-          uv pip install -e ".[api]"
+        run: uv sync --locked --python 3.13 --extra api
 
       - name: Pre-classify the worklist (cheap pre-step, before generation)
-        id: pre
         env:
           # Judges (and the ambiguous-entry arbiter) run cross-family on Claude.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Generator credential, provisioned the same way (agent-secret canonical).
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AXIOM_CORPUS_RELEASE_PUBLIC_KEY: ${{ secrets.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
         run: |
           .venv/bin/axiom-encode preclassify \
             --worklist "${{ inputs.worklist }}" \
+            --root external/rulespec \
+            --corpus-path external/axiom-corpus \
             --json > preclassify.json
           .venv/bin/python - <<'PY'
-          import json, os
+          import json
           data = json.load(open("preclassify.json"))
           gen = data["generate"]
           print(f"generate={gen} skip={data['skip']} total={data['total']}")
           # Route generate-routed entries to a downstream generation manifest.
           keep = [r for r in data["results"] if r["route"] == "generate"]
           json.dump(keep, open("generate_worklist.json", "w"), indent=2)
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"generate_count={gen}\n")
           # Skipped entries are recorded with a reason — never silently dropped.
           for r in data["results"]:
               if r["route"] == "skip":
@@ -70,48 +92,9 @@ jobs:
           PY
 
       - name: Upload routing artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: preclassify-routing
           path: |
             preclassify.json
             generate_worklist.json
-
-  generate:
-    needs: preclassify
-    if: ${{ inputs.run_generation && needs.preclassify.outputs.generate_count != '0' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install
-        run: |
-          uv venv --python 3.13
-          uv pip install -e ".[api]"
-
-      - name: Download routing
-        uses: actions/download-artifact@v4
-        with:
-          name: preclassify-routing
-
-      - name: Encode generate-routed entries
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          .venv/bin/python - <<'PY'
-          import json, subprocess
-          for r in json.load(open("generate_worklist.json")):
-              cite = r["entry_ref"]
-              print(f"encode {cite}")
-              subprocess.run(
-                  [".venv/bin/axiom-encode", "encode", cite, "--backend", "openai"],
-                  check=False,
-              )
-          PY

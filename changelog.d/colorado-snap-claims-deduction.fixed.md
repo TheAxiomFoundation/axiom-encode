@@ -1,1 +1,0 @@
-Fix the Colorado SNAP federal reference repair to bridge claim earned income deduction calculations to the federal SNAP earned income deduction rate instead of generating a duplicate executable parameter.
