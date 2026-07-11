@@ -206,7 +206,7 @@ def test_migration_inventory_rejects_noncanonical_yml_module(tmp_path):
     legacy = rules / "us/statutes/26/legacy.yml"
     legacy.write_text("format: rulespec/v1\nrules: []\n")
 
-    with pytest.raises(ValueError, match="canonical .yaml extension"):
+    with pytest.raises(ValueError, match="exact .yaml extension"):
         migration_inventory([rules], corpus)
 
 

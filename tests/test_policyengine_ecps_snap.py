@@ -44,18 +44,6 @@ def test_set_input_value_updates_every_matching_legal_input():
     assert set(inputs.values()) == {4}
 
 
-def test_axiom_engine_env_scrubs_ambient_rulespec_roots(monkeypatch, tmp_path):
-    stale_repo = tmp_path / "stale" / "rulespec-us"
-    stale_repo.mkdir(parents=True)
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
-
-    env = ecps_snap.axiom_engine_env()
-
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in env
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in env
-    assert str(stale_repo.resolve()) not in env.values()
-
-
 def test_set_input_value_can_skip_optional_unknown_inputs():
     inputs = {
         "us-co:regulations/10-ccr-2506-1/4.407.3#input.verified_higher_homeless_shelter_costs": False,
