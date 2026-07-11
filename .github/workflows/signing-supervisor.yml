@@ -94,13 +94,13 @@ jobs:
 
       - name: Prepare root-owned production fixture
         run: |
-          rm -rf /tmp/axiom-signing-production-fixture
-          .venv/bin/python tests/production_signing_fixture.py \
-            --destination /tmp/axiom-signing-production-fixture \
-            --supervisor supervisor.first
           sudo mkdir -p /opt
+          sudo chown 0:0 /opt
+          sudo chmod go-w /opt
           sudo rm -rf /opt/axiom-signing-production-fixture
-          sudo mv /tmp/axiom-signing-production-fixture /opt/
+          sudo .venv/bin/python tests/production_signing_fixture.py \
+            --destination /opt/axiom-signing-production-fixture \
+            --supervisor "$PWD/supervisor.first"
           sudo chown -R 0:0 /opt/axiom-signing-production-fixture
           sudo chmod -R go-w /opt/axiom-signing-production-fixture
           if [ "$(uname -s)" = Darwin ]; then
