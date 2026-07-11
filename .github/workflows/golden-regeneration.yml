@@ -75,6 +75,12 @@ jobs:
         with:
           version: "0.11.7"
 
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
       - name: Set up Python
         run: uv python install 3.13
 
@@ -91,13 +97,36 @@ jobs:
 
       - name: Install encoder
         working-directory: axiom-encode
-        run: uv sync --locked --python 3.13 --extra api
+        run: |
+          uv sync --locked --python 3.13 --extra api
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          uv pip install --python .venv/bin/python \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Provision protected verification supervisor
+        working-directory: axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+        run: |
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          sudo rm -rf /opt/axiom-verification
+          sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT"
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
 
       - name: Validate dry-run wiring
         if: ${{ inputs.dry_run }}
         working-directory: axiom-encode
         env:
-          AXIOM_CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
           AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
           DRIFT_SAMPLE_SIZE: ${{ inputs.k || '5' }}
@@ -106,7 +135,12 @@ jobs:
             3|4|5) ;;
             *) echo "k must be an integer from 3 through 5" >&2; exit 2 ;;
           esac
-          .venv/bin/axiom-encode drift-check \
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode drift-check \
             --root "$AXIOM_DRIFT_ROOT" --corpus-path "$AXIOM_CORPUS_ROOT" \
             --k "$DRIFT_SAMPLE_SIZE" --dry-run --json
 
@@ -115,7 +149,6 @@ jobs:
         working-directory: axiom-encode
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          AXIOM_CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
           AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
           AXIOM_RULES_ENGINE_ROOT: ${{ github.workspace }}/axiom-rules-engine
@@ -127,11 +160,22 @@ jobs:
             *) echo "k must be an integer from 3 through 5" >&2; exit 2 ;;
           esac
           set +e
-          .venv/bin/axiom-encode drift-check \
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode drift-check \
             --root "$AXIOM_DRIFT_ROOT" --corpus-path "$AXIOM_CORPUS_ROOT" \
             --axiom-rules-engine-path "$AXIOM_RULES_ENGINE_ROOT" \
             --k "$DRIFT_SAMPLE_SIZE" \
             --regenerate --regenerate-backend openai \
+            --verification-supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --verification-trusted-roots /opt/axiom-verification/signing-trust-roots.json \
+            --verification-runtime-root /opt/axiom-verification/python \
+            --verification-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --verification-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --verification-launcher /opt/axiom-verification/axiom-encode \
             --report-file "$DRIFT_REPORT" --json
           drift_status=$?
           set -e
