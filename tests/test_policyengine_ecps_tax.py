@@ -163,6 +163,15 @@ def test_remove_raw_columns_replaced_by_outputs_prefers_period_values():
     assert merged.loc[0, "american_opportunity_credit"] == 2_500
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("CITIZEN", True),
+        ("NON_CITIZEN_VALID_EAD", True),
+        ("NONE", False),
+        ("OTHER_NON_CITIZEN", False),
+    ],
+)
 def test_valid_child_ssn_type_maps_policyengine_enum(value, expected):
     assert valid_child_ssn_type(value) is expected
 
