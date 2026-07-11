@@ -287,7 +287,7 @@ def test_validator_allows_producer_missing_canonical_under_temporary_anchor(
 
 def test_audit_uses_state_jurisdiction_prefix_for_rules_roots(tmp_path: Path):
     registry = load_concept_registry()
-    root = tmp_path / "rules-us-co"
+    root = tmp_path / "rulespec-us" / "us-co"
     path = root / "regulations/10-ccr-2506-1/4.401.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -313,9 +313,41 @@ def test_audit_uses_state_jurisdiction_prefix_for_rules_roots(tmp_path: Path):
     )
 
 
+def test_audit_rejects_legacy_yml_rulespec_files(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us" / "us"
+    legacy = root / "policies/example.yml"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Legacy \.yml RuleSpec"):
+        audit_corpus([root], registry)
+
+
+def test_audit_rejects_malformed_rulespec_yaml(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us" / "us"
+    malformed = root / "policies/example.yaml"
+    malformed.parent.mkdir(parents=True)
+    malformed.write_text("format: rulespec/v1\nrules: [\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Could not parse canonical RuleSpec YAML"):
+        audit_corpus([root], registry)
+
+
+def test_audit_ignores_composition_specs(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us" / "us"
+    program_spec = root / "programs" / "snap" / "fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    program_spec.write_text("not: [valid\n", encoding="utf-8")
+
+    assert audit_corpus([root], registry) == []
+
+
 def test_audit_name_prefix_filters_blocked_synonyms(tmp_path: Path):
     registry = load_concept_registry()
-    root = tmp_path / "rulespec-us"
+    root = tmp_path / "rulespec-us" / "us"
     path = root / "policies/example.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -343,7 +375,7 @@ def test_audit_suppresses_missing_producer_for_producer_missing_canonical(
     missing_producer in the audit, since the registry already approves its
     use ahead of the encoder back-filling the producer rule."""
     registry = load_concept_registry()
-    root = tmp_path / "rulespec-us"
+    root = tmp_path / "rulespec-us" / "us"
     path = root / "policies/example.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -368,7 +400,7 @@ def test_audit_suppresses_missing_producer_for_producer_missing_canonical(
 
 def test_audit_scans_uppercase_path_anchored_refs(tmp_path: Path):
     registry = load_concept_registry()
-    root = tmp_path / "rulespec-us"
+    root = tmp_path / "rulespec-us" / "us"
     path = root / "policies/example.test.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(

@@ -4,8 +4,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
-
-from axiom_encode.oracles.policyengine import population
+from axiom_oracles.bridges import population
 
 
 # ---------------------------------------------------------------------------

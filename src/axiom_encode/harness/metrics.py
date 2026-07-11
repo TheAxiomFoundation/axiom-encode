@@ -138,10 +138,6 @@ def compute_calibration(
             metric_pairs.setdefault("policyengine_match", []).append(
                 (1.0, run.review_results.policyengine_match)
             )
-        if run.review_results.taxsim_match is not None:
-            metric_pairs.setdefault("taxsim_match", []).append(
-                (1.0, run.review_results.taxsim_match)
-            )
 
     # Compute metrics for each reviewer (only if enough samples)
     metrics = {}

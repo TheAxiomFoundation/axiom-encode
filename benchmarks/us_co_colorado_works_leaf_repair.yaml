@@ -13,21 +13,16 @@ gates:
 cases:
   - kind: source
     name: co-3-606-1-g
-    source_id: 9 CCR 2503-6 3.606.1(G)
     corpus_citation_path: us-co/regulation/9-ccr-2503-6/3.606.1/G
   - kind: source
     name: co-3-606-1-h
-    source_id: 9 CCR 2503-6 3.606.1(H)
     corpus_citation_path: us-co/regulation/9-ccr-2503-6/3.606.1/H
   - kind: source
     name: co-3-606-1-i
-    source_id: 9 CCR 2503-6 3.606.1(I)
     corpus_citation_path: us-co/regulation/9-ccr-2503-6/3.606.1/I
   - kind: source
     name: co-3-606-1-j
-    source_id: 9 CCR 2503-6 3.606.1(J)
     corpus_citation_path: us-co/regulation/9-ccr-2503-6/3.606.1/J
   - kind: source
     name: co-3-606-1-k
-    source_id: 9 CCR 2503-6 3.606.1(K)
     corpus_citation_path: us-co/regulation/9-ccr-2503-6/3.606.1/K

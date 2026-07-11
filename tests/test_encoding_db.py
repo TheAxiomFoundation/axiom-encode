@@ -6,6 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -477,7 +479,6 @@ class TestRowToRun:
                     }
                 ],
                 "policyengine_match": 0.95,
-                "taxsim_match": None,
                 "oracle_context": {},
                 "lessons": "Some lessons",
             }
@@ -513,6 +514,42 @@ class TestRowToRun:
         assert run.source_text == "source text"
         assert run.axiom_encode_version == "0.2.0"
         assert run.outcome == {}
+
+    def test_row_to_run_rejects_removed_taxsim_field(self, experiment_db):
+        import json
+
+        review_results = json.dumps(
+            {
+                "reviews": [],
+                "policyengine_match": None,
+                "taxsim_match": None,
+                "oracle_context": {},
+                "lessons": "",
+            }
+        )
+        row = (
+            "test-id",
+            "2024-01-01T00:00:00",
+            "26 USC 32",
+            "/path/file.yaml",
+            "source text",
+            "{}",
+            "[]",
+            3000,
+            "encoder",
+            "opus",
+            "content",
+            None,
+            1,
+            None,
+            review_results,
+            "",
+            "0.2.0",
+            "{}",
+        )
+
+        with pytest.raises(ValueError, match="unsupported schema"):
+            experiment_db._row_to_run(row)
 
 
 class TestAxiomEncodeVersion:

@@ -14,7 +14,8 @@ entries pay for a Claude arbiter call. The load-bearing guarantee: an entry is
 uncertainty or judge error the entry is marked skip-with-reason, never dropped
 and never silently sent to generation.
 
-Wired into ``bulk-encode.yml`` as a cheap pre-step.
+Wired into ``bulk-encode.yml`` as a routing-only workflow. Generation uses the
+separate corpus-bound encode/eval surfaces.
 """
 
 from __future__ import annotations

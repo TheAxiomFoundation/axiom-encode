@@ -41,7 +41,6 @@ def _review_results_to_scores(review_results) -> dict:
     """Convert checklist review results to the dashboard score shape."""
     scores = {
         "policyengine_match": review_results.policyengine_match,
-        "taxsim_match": review_results.taxsim_match,
     }
     reviewer_keys = {
         "rulespec": "rulespec",
@@ -349,6 +348,9 @@ def run_from_apply_manifest(manifest_path: Path, payload: dict) -> "EncodingRun"
     """
     from .harness.encoding_db import EncodingRun, Iteration
 
+    if payload.get("schema_version") != "axiom-encode/applied-rulespec/v5":
+        raise ValueError(f"{manifest_path}: manifest is not canonical v3")
+
     citation = payload.get("citation")
     generated_at = payload.get("generated_at")
     if not isinstance(citation, str) or not citation:
@@ -357,9 +359,8 @@ def run_from_apply_manifest(manifest_path: Path, payload: dict) -> "EncodingRun"
         raise ValueError(f"{manifest_path}: manifest has no generated_at")
 
     # Only trust run_id as an upsert key when it looks like a real per-run id
-    # (uuid4 prefix). Repair tools stamp shared sentinels like
-    # "deterministic-repair" into every manifest they touch, which would make
-    # those rows overwrite each other.
+    # (uuid4 prefix). Missing, malformed, or shared values would make unrelated
+    # manifest rows overwrite each other.
     run_id = payload.get("run_id")
     if not (isinstance(run_id, str) and re.fullmatch(r"[0-9a-f]{8}", run_id)):
         digest_source = (
@@ -416,14 +417,24 @@ def sync_applied_manifest_runs(
     stats = {"total": 0, "synced": 0, "failed": 0, "skipped": 0, "preserved": 0}
     runs: list["EncodingRun"] = []
     for repo_path in repo_paths:
-        for manifest_path in find_apply_manifests(Path(repo_path)):
+        repo_path = Path(repo_path).resolve()
+        for manifest_path in find_apply_manifests(repo_path):
             stats["total"] += 1
             try:
-                payload = json.loads(manifest_path.read_text())
+                from .cli import _load_verified_applied_encoding_manifest_payload
+
+                payload, _root_prefix, _manifest_sha256, issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        repo_path,
+                        manifest_path.relative_to(repo_path).as_posix(),
+                    )
+                )
+                if issues or payload is None:
+                    raise ValueError("; ".join(issues) or "manifest is not canonical")
                 runs.append(run_from_apply_manifest(manifest_path, payload))
             except Exception as e:
-                print(f"Skipping {manifest_path}: {e}")
-                stats["skipped"] += 1
+                print(f"Invalid apply manifest {manifest_path}: {e}")
+                stats["failed"] += 1
 
     if dry_run:
         for run in runs:

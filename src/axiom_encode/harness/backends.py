@@ -24,6 +24,7 @@ from axiom_encode.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
 from axiom_encode.prompts.encoder import get_encoder_prompt
 
 from .encoding_db import TokenUsage
+from .eval_evidence import scrub_attestation_signing_keys
 from .observability import extract_reasoning_output_tokens
 from .pricing import estimate_usage_cost_usd
 
@@ -63,7 +64,6 @@ class PredictionScores:
     integration_reviewer: float = 7.0
     ci_pass: bool = True
     policyengine_match: Optional[float] = None
-    taxsim_match: Optional[float] = None
     confidence: float = 0.5
 
 
@@ -79,14 +79,6 @@ class EncoderBackend(ABC):
     def predict(self, citation: str, source_text: str) -> PredictionScores:
         """Predict quality scores before encoding."""
         pass  # pragma: no cover
-
-
-def _is_within(root: Path, candidate: Path) -> bool:
-    try:
-        candidate.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
 
 
 def parse_claude_cli_json_output(
@@ -224,7 +216,6 @@ Score each dimension from 1-10. Output ONLY valid JSON:
   "integration_reviewer": <float 1-10>,
   "ci_pass": <boolean>,
   "policyengine_match": <float 0-1>,
-  "taxsim_match": <float 0-1>,
   "confidence": <float 0-1>
 }}
 """
@@ -252,7 +243,6 @@ Score each dimension from 1-10. Output ONLY valid JSON:
                 integration_reviewer=float(data.get("integration_reviewer", 7.0)),
                 ci_pass=bool(data.get("ci_pass", True)),
                 policyengine_match=data.get("policyengine_match"),
-                taxsim_match=data.get("taxsim_match"),
                 confidence=float(data.get("confidence", 0.5)),
             )
 
@@ -267,21 +257,32 @@ Score each dimension from 1-10. Output ONLY valid JSON:
         timeout: int = 300,
         writable_dir: Path | None = None,
     ) -> tuple[str, int]:
-        """Run Claude Code CLI as subprocess."""
+        """Run Claude in one isolated output directory without shell authority."""
+        execution_root = (writable_dir or self.cwd).resolve()
+        tools = "Read,Write,Edit" if writable_dir is not None else ""
+        permission_mode = "acceptEdits" if writable_dir is not None else "dontAsk"
         cmd = [
             "claude",
             "--print",
             "--output-format",
             "json",
             "--permission-mode",
-            "bypassPermissions",
+            permission_mode,
+            "--safe-mode",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--no-chrome",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{}",
+            "--tools",
+            tools,
+            "--allowed-tools",
+            tools,
         ]
 
         if model:
             cmd.extend(["--model", model])
-
-        if writable_dir and not _is_within(self.cwd, writable_dir):
-            cmd.extend(["--add-dir", str(writable_dir)])
 
         cmd.extend(["-p", prompt])
 
@@ -291,7 +292,8 @@ Score each dimension from 1-10. Output ONLY valid JSON:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=self.cwd,
+                cwd=execution_root,
+                env=scrub_attestation_signing_keys(),
             )
             return result.stdout + result.stderr, result.returncode
         except subprocess.TimeoutExpired:
@@ -398,7 +400,8 @@ class CodexCLIBackend(EncoderBackend):
         timeout: int,
         writable_dir: Path,
     ) -> tuple[str, int]:
-        """Run codex exec as subprocess."""
+        """Run codex exec with writes confined to the output directory."""
+        execution_root = writable_dir.resolve()
         cmd = [
             resolve_codex_cli(),
             "exec",
@@ -406,12 +409,10 @@ class CodexCLIBackend(EncoderBackend):
             "--model",
             model,
             "-C",
-            str(self.cwd),
+            str(execution_root),
             "--sandbox",
             self.sandbox,
         ]
-        if not _is_within(self.cwd, writable_dir):
-            cmd.extend(["--add-dir", str(writable_dir)])
         cmd.append(prompt)
 
         try:
@@ -420,7 +421,8 @@ class CodexCLIBackend(EncoderBackend):
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=self.cwd,
+                cwd=execution_root,
+                env=scrub_attestation_signing_keys(),
             )
             return result.stdout + result.stderr, result.returncode
         except subprocess.TimeoutExpired:

@@ -1,14 +1,13 @@
 from pathlib import Path
 
 import pytest
-
-from axiom_encode.oracles.policyengine.coverage import (
+from axiom_oracles.bridges.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_cloud_queue_report,
     build_policyengine_coverage_report,
     build_policyengine_program_surface_report,
 )
-from axiom_encode.oracles.policyengine.registry import (
+from axiom_oracles.bridges.registry import (
     PolicyEngineMapping,
     load_policyengine_registry,
 )

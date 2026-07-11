@@ -1,30 +1,31 @@
-"""Helpers for resolving jurisdiction RuleSpec repos versus the rules engine.
+"""Canonical country-checkout routing for RuleSpec content.
 
-Two on-disk layouts are supported for jurisdiction RuleSpec content. Wherever
-a jurisdiction's checkout is located, candidates are tried in this order:
+RuleSpec content has one supported on-disk shape::
 
-1. Country monorepo: ``rulespec-<country>/<prefix>/...`` — one repository per
-   country holding a directory per jurisdiction (``rulespec-us/us/`` for
-   federal content, ``rulespec-us/us-ca/``, ``rulespec-uk/uk-kingston-upon-thames/``,
-   ...), plus shared non-encoding directories such as ``programs/``. The
-   country is the jurisdiction prefix up to the first ``-``.
-2. Legacy sibling checkouts: ``rulespec-<prefix>/...`` — one repository per
-   jurisdiction with encoding buckets at the repository root.
+    rulespec-<country>/<jurisdiction>/...
 
-The "content root" for a jurisdiction is the directory its ``<prefix>:...``
-references resolve against: the jurisdiction directory inside a monorepo, or
-the repository root of a legacy checkout. Durable references are unchanged
-across layouts — ``us-ca:regulations/mpp/63-300/1`` resolves to
-``<rulespec-us>/us-ca/regulations/mpp/63-300/1.yaml`` in the monorepo layout
-and ``<rulespec-us-ca>/regulations/mpp/63-300/1.yaml`` in the legacy layout.
+For example, ``us-ca:regulations/mpp/63-300/1`` resolves beneath
+``rulespec-us/us-ca``.  A flat ``rulespec-us-ca`` checkout, a workspace that
+merely contains a matching checkout, or a checkout alias inferred from Git
+origin is not a RuleSpec content root.  Callers must authorize the exact
+country checkout (for dependencies) or its direct jurisdiction child (for the
+active content root).
 """
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
+import sys
 from collections.abc import Iterable
-from functools import lru_cache
 from pathlib import Path
+
+from .constants import RULESPEC_FILESYSTEM_ROOTS
+
+
+class _GitProbeError(RuntimeError):
+    """Git identity could not be checked for an observed repository boundary."""
 
 
 def jurisdiction_country(prefix: str) -> str:
@@ -37,128 +38,181 @@ def monorepo_checkout_name(prefix: str) -> str:
     return f"rulespec-{jurisdiction_country(prefix)}"
 
 
-def legacy_checkout_name(prefix: str) -> str:
-    """Return the legacy per-jurisdiction repository name for a prefix."""
-    return f"rulespec-{prefix}"
+def _lexical_rulespec_path(path: Path) -> Path | None:
+    """Return one absolute path only when no component is caller-controlled indirection."""
+
+    raw = Path(os.path.abspath(Path(path).expanduser()))
+    if sys.platform == "darwin":
+        for alias, expected_target in (
+            (Path("/var"), Path("/private/var")),
+            (Path("/tmp"), Path("/private/tmp")),
+            (Path("/etc"), Path("/private/etc")),
+        ):
+            try:
+                relative = raw.relative_to(alias)
+            except ValueError:
+                continue
+            try:
+                if alias.is_symlink() and alias.resolve(strict=True) == expected_target:
+                    raw = expected_target / relative
+            except OSError:
+                pass
+            break
+
+    cursor = Path(raw.anchor)
+    for part in raw.parts[1:]:
+        cursor /= part
+        if cursor.is_symlink():
+            return None
+    return raw
+
+
+def _canonical_country_checkout_name(path: Path) -> str | None:
+    """Return the exact canonical country-checkout name for ``path``."""
+
+    lexical = _lexical_rulespec_path(path)
+    if lexical is None:
+        return None
+    if not lexical.is_dir():
+        return None
+    checkout = lexical.resolve()
+    name = checkout.name
+    if not name.startswith("rulespec-"):
+        return None
+    country = name.removeprefix("rulespec-")
+    if re.fullmatch(r"[a-z]{2}", country) is None:
+        return None
+    if any(
+        (checkout / root_name).exists() or (checkout / root_name).is_symlink()
+        for root_name in RULESPEC_FILESYSTEM_ROOTS
+    ):
+        return None
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+    except _GitProbeError:
+        return None
+    if git_boundary is not None and git_boundary != checkout:
+        return None
+    if git_boundary is None:
+        return name
+    try:
+        git_top_level = _git_top_level(str(checkout))
+    except _GitProbeError:
+        return None
+    if git_top_level is None:
+        return None
+    if git_top_level is not None and git_top_level != checkout:
+        return None
+    try:
+        origin_name = _git_origin_repo_name(str(checkout))
+    except _GitProbeError:
+        return None
+    if origin_name is not None and origin_name != name:
+        return None
+    return name
+
+
+def canonical_rulespec_root_identity(path: Path) -> str | None:
+    """Return a stable identity for an exact canonical jurisdiction root.
+
+    ``rulespec-us/us-co`` is returned for the direct ``us-co`` child of the
+    canonical ``rulespec-us`` checkout.  Checkout roots, flat legacy roots,
+    nested files, workspace directories, and aliased checkout names return
+    ``None``.
+    """
+
+    lexical = _lexical_rulespec_path(path)
+    if lexical is None:
+        return None
+    content_root = lexical.resolve()
+    if not content_root.is_dir():
+        return None
+    jurisdiction = content_root.name
+    checkout = content_root.parent
+    expected_checkout = monorepo_checkout_name(jurisdiction)
+    if checkout.name != expected_checkout:
+        return None
+    if _canonical_country_checkout_name(checkout) != expected_checkout:
+        return None
+    country = jurisdiction_country(jurisdiction)
+    if not _is_jurisdiction_dir_name(jurisdiction, country):
+        return None
+    return f"{expected_checkout}/{jurisdiction}"
 
 
 def is_policy_repo_root(path: Path) -> bool:
-    """Return True when a path is the root of a jurisdiction RuleSpec repo."""
-    name = Path(path).resolve().name
-    return name.startswith("rulespec-")
+    """Return True for an exact canonical country checkout root."""
+
+    return _canonical_country_checkout_name(Path(path)) is not None
 
 
 def is_jurisdiction_content_root(path: Path) -> bool:
-    """Return True when ``path`` anchors a jurisdiction's RuleSpec content.
+    """Return True for an exact direct jurisdiction child of a country checkout."""
 
-    Either a ``rulespec-*`` checkout root (legacy layout) or a first-level
-    jurisdiction directory inside a country monorepo checkout
-    (``<rulespec-us>/us-ca``).
-    """
-    candidate = Path(path).resolve()
-    if candidate.name.startswith("rulespec-"):
-        return True
-    parent = candidate.parent
-    if not parent.name.startswith("rulespec-"):
-        return False
-    return _jurisdiction_subdir_under(parent, candidate) is not None
+    return canonical_rulespec_root_identity(path) is not None
 
 
 def find_policy_repo_root(path: Path) -> Path | None:
-    """Walk upward from a file or directory to its jurisdiction content root.
+    """Return the canonical jurisdiction content root containing ``path``."""
 
-    Legacy checkouts resolve to the enclosing ``rulespec-*`` repository root.
-    Inside a country monorepo checkout, the jurisdiction directory is the
-    policy root: ``<rulespec-us>/us-ca/regulations/x.yaml`` resolves to
-    ``<rulespec-us>/us-ca`` so repo-relative paths and ``us-ca:`` references
-    keep their legacy shape.
-    """
-    current = Path(path).resolve()
+    lexical = _lexical_rulespec_path(path)
+    if lexical is None:
+        return None
+    current = lexical.resolve()
     if current.is_file():
         current = current.parent
 
     for candidate in (current, *current.parents):
-        if is_policy_repo_root(candidate):
-            subdir = _jurisdiction_subdir_under(candidate, current)
-            return candidate / subdir if subdir else candidate
+        if canonical_rulespec_root_identity(candidate) is not None:
+            return candidate
     return None
 
 
 def canonical_rulespec_repo_name(path: Path) -> str | None:
-    """Return the canonical `rulespec-*` repo name for a checkout when known.
+    """Return the canonical import-repository name for ``path`` when known."""
 
-    Temp checkouts resolve through their Git origin (``rulespec-us-clean.abcd``
-    with origin ``rulespec-us`` -> ``rulespec-us``). Paths under a first-level
-    jurisdiction directory of a country monorepo resolve to that
-    jurisdiction's canonical legacy repo name:
-    ``<rulespec-us>/us-ca/...`` -> ``rulespec-us-ca``.
-    """
-    current = Path(path).resolve()
-    if current.is_file():
-        current = current.parent
-
-    root: Path | None = None
-    for candidate in (current, *current.parents):
-        if candidate.name.startswith("rulespec-"):
-            root = candidate
-            break
-
-    base = root if root is not None else current
-    origin_name = _git_origin_repo_name(str(base))
-    if origin_name and origin_name.startswith("rulespec-"):
-        checkout_name = origin_name
-    elif base.name.startswith("rulespec-"):
-        checkout_name = base.name
-    else:
+    lexical = _lexical_rulespec_path(path)
+    if lexical is None:
         return None
-
-    if root is not None:
-        suffix = checkout_name.removeprefix("rulespec-")
-        subdir = _jurisdiction_subdir_under(root, current, suffix=suffix)
-        if subdir is not None:
-            return f"rulespec-{subdir}"
-        if current != root and jurisdiction_subdir_names(root):
-            return None
-    return checkout_name
+    current = lexical.resolve()
+    content_root = find_policy_repo_root(current)
+    if content_root is not None:
+        return f"rulespec-{content_root.name}"
+    return _canonical_country_checkout_name(current)
 
 
 def jurisdiction_content_dir(checkout: Path, prefix: str) -> Path:
-    """Return the content root for ``prefix`` inside a checkout, either layout.
+    """Return ``prefix``'s direct root inside one canonical country checkout."""
 
-    ``<checkout>/<prefix>`` when that directory exists (country monorepo),
-    otherwise the checkout root itself (legacy layout, including a monorepo
-    whose country content has not moved into its jurisdiction directory yet).
-    """
-    checkout = Path(checkout)
-    subdir = checkout / prefix
-    return subdir if subdir.is_dir() else checkout
+    candidates = candidate_jurisdiction_content_dirs(checkout, prefix)
+    if len(candidates) != 1:
+        raise ValueError(
+            f"{checkout} is not the canonical RuleSpec root for {prefix!r}"
+        )
+    return candidates[0]
 
 
 def candidate_jurisdiction_content_dirs(base: Path, prefix: str) -> list[Path]:
-    """Return ordered candidate content roots for ``prefix`` relative to ``base``.
+    """Return the one canonical content-root candidate authorized by ``base``.
 
-    ``base`` may be the jurisdiction's own checkout (legacy name, monorepo
-    jurisdiction directory, or a temp checkout resolved via Git origin), a
-    country monorepo checkout, or a workspace directory holding checkouts.
-    Monorepo candidates come before legacy ones. Candidates are not
-    existence-checked; callers filter with ``is_dir()`` / ``exists()``.
+    ``base`` must be either the exact country checkout or the exact matching
+    jurisdiction content root.  Workspace and sibling-checkout probing is not
+    performed.  The returned direct child is not existence-checked.
     """
-    base = Path(base).expanduser()
-    legacy_name = legacy_checkout_name(prefix)
-    monorepo_name = monorepo_checkout_name(prefix)
-    names = {base.name, canonical_rulespec_repo_name(base)}
-    if legacy_name in names:
-        # The jurisdiction's own checkout: its content root in either layout.
-        return [jurisdiction_content_dir(base, prefix)]
-    if monorepo_name in names:
-        if base.name.startswith("rulespec-"):
-            # A country monorepo checkout holding this jurisdiction's directory.
-            return [base / prefix]
-        # The country's own jurisdiction directory inside a monorepo
-        # (`rulespec-us/us`): siblings live next to it, not inside it.
-        return [base.parent / prefix]
-    # A workspace directory holding checkouts: monorepo first, then legacy.
-    return [base / monorepo_name / prefix, base / legacy_name]
+
+    lexical = _lexical_rulespec_path(base)
+    if lexical is None:
+        return []
+    base = lexical.resolve()
+    expected_checkout = monorepo_checkout_name(prefix)
+    if (
+        base.name == expected_checkout
+        and _canonical_country_checkout_name(base) == expected_checkout
+    ):
+        return [base / prefix]
+    if canonical_rulespec_root_identity(base) == f"{expected_checkout}/{prefix}":
+        return [base]
+    return []
 
 
 def resolve_jurisdiction_content_dir(
@@ -173,135 +227,78 @@ def resolve_jurisdiction_content_dir(
     return None
 
 
-def monorepo_alternative_path(path: Path) -> Path | None:
-    """Map a legacy-layout path to its country-monorepo equivalent.
-
-    ``.../rulespec-<prefix>/<rest>`` becomes
-    ``.../rulespec-<country>/<prefix>/<rest>``; for country-level content the
-    jurisdiction directory is inserted (``rulespec-us/statutes/...`` ->
-    ``rulespec-us/us/statutes/...``). The innermost ``rulespec-*`` component
-    wins so nested checkouts (``.../_axiom/rulespec-us/...``) rewrite
-    correctly. Returns ``None`` when the path has no ``rulespec-*`` component.
-    The result is not existence-checked.
-    """
-    parts = Path(path).parts
-    for index in range(len(parts) - 1, -1, -1):
-        part = parts[index]
-        if not part.startswith("rulespec-"):
-            continue
-        prefix = part.removeprefix("rulespec-")
-        if not prefix:
-            continue
-        candidate = Path(
-            *parts[:index],
-            monorepo_checkout_name(prefix),
-            prefix,
-            *parts[index + 1 :],
-        )
-        return candidate if candidate != Path(path) else None
-    return None
-
-
 def jurisdiction_subdir_names(checkout: Path) -> set[str]:
-    """Return the first-level jurisdiction directory names of a checkout.
+    """Return direct jurisdiction children of one canonical country checkout."""
 
-    Empty for legacy checkouts; for a country monorepo this is the set of
-    per-jurisdiction directories (``{"us", "us-ca", ...}``).
-    """
-    checkout = Path(checkout)
-    suffix = _checkout_suffix(checkout)
-    if suffix is None or not checkout.is_dir():
+    lexical = _lexical_rulespec_path(checkout)
+    if lexical is None:
         return set()
+    checkout = lexical.resolve()
+    checkout_name = _canonical_country_checkout_name(checkout)
+    if checkout_name is None or not checkout.is_dir():
+        return set()
+    country = checkout_name.removeprefix("rulespec-")
     return {
         child.name
         for child in checkout.iterdir()
-        if child.is_dir() and _is_jurisdiction_dir_name(child.name, suffix)
+        if not child.is_symlink()
+        and child.is_dir()
+        and _is_jurisdiction_dir_name(child.name, country)
     }
 
 
 def iter_jurisdiction_content_dirs(workspace_root: Path) -> list[tuple[str, Path]]:
-    """Enumerate ``(prefix, content_root)`` for checkouts under a workspace.
+    """Enumerate direct jurisdiction roots of one explicit country checkout."""
 
-    Legacy checkouts contribute themselves under their name suffix; country
-    monorepo checkouts contribute each first-level jurisdiction directory.
-    A monorepo whose country content still sits at the repository root (a
-    partially migrated checkout) contributes the root under the country
-    prefix as well — callers walking such a root should skip the jurisdiction
-    subdirectories via ``jurisdiction_subdir_names``.
-    """
-    out: list[tuple[str, Path]] = []
-    seen: set[Path] = set()
-
-    def add(prefix: str, content_dir: Path) -> None:
-        resolved = content_dir.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            out.append((prefix, content_dir))
-
-    root = Path(workspace_root)
-    candidate_checkouts = []
-    if (
-        root.is_dir()
-        and root.name.startswith("rulespec-")
-        and not (root / root.name).is_dir()
-    ):
-        candidate_checkouts.append(root)
-    candidate_checkouts.extend(sorted(root.glob("rulespec-*")))
-
-    for checkout in candidate_checkouts:
-        if not checkout.is_dir():
-            continue
-        suffix = _checkout_suffix(checkout)
-        if suffix is None:
-            continue
-        subdir_names = jurisdiction_subdir_names(checkout)
-        for name in sorted(subdir_names):
-            add(name, checkout / name)
-        if suffix not in subdir_names:
-            add(suffix, checkout)
-    return out
+    lexical = _lexical_rulespec_path(workspace_root)
+    if lexical is None:
+        return []
+    checkout = lexical.resolve()
+    return [
+        (name, checkout / name) for name in sorted(jurisdiction_subdir_names(checkout))
+    ]
 
 
 def _is_jurisdiction_dir_name(name: str, suffix: str) -> bool:
     """Return whether a directory name is a jurisdiction dir of ``rulespec-<suffix>``."""
-    return name == suffix or name.startswith(f"{suffix}-")
+    if re.fullmatch(r"[a-z]{2}", suffix) is None:
+        return False
+    return re.fullmatch(rf"{re.escape(suffix)}(?:-[a-z0-9]+)*", name) is not None
 
 
-def _jurisdiction_subdir_under(
-    repo_root: Path,
-    descendant: Path,
-    *,
-    suffix: str | None = None,
-) -> str | None:
-    """Return the first-level jurisdiction dir of ``repo_root`` holding ``descendant``."""
-    if suffix is None:
-        suffix = _checkout_suffix(repo_root)
-    if not suffix:
-        return None
+def _nearest_git_boundary(path: Path) -> Path | None:
+    """Return the nearest lexical `.git` boundary without invoking Git."""
+
+    for candidate in (path, *path.parents):
+        marker = candidate / ".git"
+        if marker.is_symlink():
+            raise _GitProbeError(f"Git boundary is a symlink: {marker}")
+        if marker.exists():
+            return candidate
+    return None
+
+
+def _git_top_level(root: str) -> Path | None:
+    """Return the exact Git worktree root containing ``root``, when present."""
+
     try:
-        parts = Path(descendant).relative_to(repo_root).parts
-    except ValueError:
+        completed = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(f"Could not inspect Git top-level for {root}") from exc
+    if completed.returncode != 0:
         return None
-    if not parts:
+    top_level = completed.stdout.strip()
+    if not top_level:
         return None
-    head = parts[0]
-    return head if _is_jurisdiction_dir_name(head, suffix) else None
+    return Path(top_level).resolve()
 
 
-def _checkout_suffix(checkout: Path) -> str | None:
-    """Return a checkout's jurisdiction suffix (Git origin beats dir name)."""
-    origin_name = _git_origin_repo_name(str(checkout))
-    name = (
-        origin_name
-        if origin_name and origin_name.startswith("rulespec-")
-        else checkout.name
-    )
-    if not name.startswith("rulespec-"):
-        return None
-    return name.removeprefix("rulespec-") or None
-
-
-@lru_cache(maxsize=256)
 def _git_origin_repo_name(root: str) -> str | None:
     """Best-effort repository basename from Git origin."""
     try:
@@ -312,8 +309,8 @@ def _git_origin_repo_name(root: str) -> str | None:
             text=True,
             timeout=2,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(f"Could not inspect Git origin for {root}") from exc
     if completed.returncode != 0:
         return None
     remote = completed.stdout.strip().rstrip("/")

@@ -15,23 +15,22 @@ Three layers are validated independently:
 
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from axiom_encode.cli import (
-    _enforce_no_apply_collision,
-    _read_corpus_citation_paths_from_rulespec,
-)
+from axiom_encode.cli import _enforce_no_apply_collision
 from axiom_encode.harness.evals import (
-    CorpusSourceUnit,
     EvalPromptResponse,
     EvalWorkspace,
     _run_single_eval,
     parse_runner_spec,
+    resolve_corpus_source_unit,
 )
+from tests.release_object_fixtures import bind_test_corpus_release
 
 # ---------------------------------------------------------------------------
 # Layer 2: requested-not-resolved drives the output path
@@ -66,21 +65,61 @@ def test_run_single_eval_uses_requested_citation_even_when_resolver_falls_back(
     requested_citation = "us-ca/regulation/mpp/63-503.132"
     parent_fallback_path = "us-ca/regulation/mpp/63-503"
 
-    fake_source_unit = CorpusSourceUnit(
-        requested=requested_citation,
-        citation_path=parent_fallback_path,
-        body="operative source text",
-        source="local",
-    )
-    workspace = _make_workspace(tmp_path / "workspace")
-
     output_root = tmp_path / "out"
+    workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
+
     policy_path = tmp_path / "policy"
     policy_path.mkdir()
     rules_path = tmp_path / "rules"
     rules_path.mkdir()
     corpus_path = tmp_path / "corpus"
-    corpus_path.mkdir()
+    (corpus_path / "data/corpus/provisions").mkdir(parents=True)
+    selector = corpus_path / "manifests/releases/path-collision-test-release.json"
+    selector.parent.mkdir(parents=True)
+    selector.write_text(
+        json.dumps(
+            {
+                "name": "path-collision-test-release",
+                "scopes": [
+                    {
+                        "jurisdiction": "us-ca",
+                        "document_class": "regulation",
+                        "version": "test-version",
+                    }
+                ],
+            }
+        )
+    )
+    provision_file = (
+        corpus_path / "data/corpus/provisions/us-ca/regulation/test-version.jsonl"
+    )
+    provision_file.parent.mkdir(parents=True, exist_ok=True)
+    provision_file.write_text(
+        json.dumps(
+            {
+                "id": "parent-fallback",
+                "citation_path": parent_fallback_path,
+                "body": "63-503.132 operative source text\n63-503.133 next text",
+                "jurisdiction": "us-ca",
+                "document_class": "regulation",
+                "version": "test-version",
+                "source_path": "sources/us-ca/regulation/test-version",
+                "source_as_of": "2026-01-01",
+                "expression_date": "2026-01-01",
+            }
+        )
+        + "\n"
+    )
+    corpus_release = bind_test_corpus_release(
+        corpus_path,
+        "path-collision-test-release",
+        [("us-ca", "regulation", "test-version")],
+    )
+    parent_source_unit = resolve_corpus_source_unit(
+        parent_fallback_path,
+        corpus_release,
+    )
+    fake_source_unit = parent_source_unit
 
     response = EvalPromptResponse(
         text="format: rulespec/v1\nmodule:\n  summary: stub\nrules: []\n",
@@ -106,9 +145,10 @@ def test_run_single_eval_uses_requested_citation_even_when_resolver_falls_back(
             output_root=output_root,
             policy_path=policy_path,
             runtime_axiom_rules_path=rules_path,
-            corpus_path=corpus_path,
+            corpus_release=corpus_release,
             mode="cold",
             extra_context_paths=[],
+            source_unit=fake_source_unit,
         )
 
     assert result.output_file.endswith("regulations/mpp/63-503/132.yaml"), (
@@ -162,7 +202,7 @@ def test_collision_guard_allows_overwrite_with_same_citation_path(tmp_path: Path
     _enforce_no_apply_collision(source_file=source, target_file=target)
 
 
-def test_collision_guard_allows_uk_legislation_gov_alias(tmp_path: Path):
+def test_collision_guard_rejects_unattested_uk_alias(tmp_path: Path):
     source = _write_rulespec(
         tmp_path / "src.yaml",
         corpus_citation_path="uk/statute/ukpga/1992/4/8",
@@ -172,7 +212,8 @@ def test_collision_guard_allows_uk_legislation_gov_alias(tmp_path: Path):
         corpus_citation_path="uk/statute/legislation.gov.uk/ukpga/1992/4/section/8",
     )
 
-    _enforce_no_apply_collision(source_file=source, target_file=target)
+    with pytest.raises(RuntimeError, match="Refusing to overwrite"):
+        _enforce_no_apply_collision(source_file=source, target_file=target)
 
 
 def test_collision_guard_refuses_overwrite_with_different_citation_path(
@@ -199,51 +240,5 @@ def test_collision_guard_silent_when_citation_path_unparseable(tmp_path: Path):
     target = _write_rulespec(
         tmp_path / "target.yaml",
         corpus_citation_path="us-ca/regulation/mpp/63-503.132",
-    )
-    _enforce_no_apply_collision(source_file=source, target_file=target)
-
-
-def test_read_corpus_citation_paths_picks_up_plural_form(tmp_path: Path):
-    path = tmp_path / "rs.yaml"
-    path.write_text(
-        textwrap.dedent(
-            """\
-            format: rulespec/v1
-            module:
-              source_verification:
-                corpus_citation_paths:
-                  - us-ca/regulation/mpp/63-503.132
-                  - us-ca/regulation/mpp/63-503
-            """
-        )
-    )
-    assert _read_corpus_citation_paths_from_rulespec(path) == {
-        "us-ca/regulation/mpp/63-503.132",
-        "us-ca/regulation/mpp/63-503",
-    }
-
-
-def test_collision_guard_allows_overwrite_when_paths_share_an_entry(
-    tmp_path: Path,
-):
-    # Re-encoding a child whose target previously declared the same path
-    # alongside a parent (multi-path source_verification) should pass.
-    source = _write_rulespec(
-        tmp_path / "src.yaml",
-        corpus_citation_path="us-ca/regulation/mpp/63-503.132",
-    )
-    target = tmp_path / "target.yaml"
-    target.write_text(
-        textwrap.dedent(
-            """\
-            format: rulespec/v1
-            module:
-              source_verification:
-                corpus_citation_paths:
-                  - us-ca/regulation/mpp/63-503.132
-                  - us-ca/regulation/mpp/63-503
-            rules: []
-            """
-        )
     )
     _enforce_no_apply_collision(source_file=source, target_file=target)

@@ -2,31 +2,39 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import tempfile
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
+from axiom_oracles.bridges.registry import (
+    PolicyEngineMapping,
+    PolicyEngineOracleRegistry,
+    load_policyengine_registry,
+)
 
 from axiom_encode.corpus_resolver import (
     AmbiguousCorpusSourceError,
-    CorpusLayoutError,
-    InvalidReleaseSelectorError,
+    LocalCorpusRelease,
 )
 from axiom_encode.harness import validator_pipeline
+from axiom_encode.harness.evals import _rulespec_validation_target
+from axiom_encode.harness.policyengine_runtime import (
+    PolicyEngineRuntime,
+    PolicyEngineRuntimeError,
+)
 from axiom_encode.harness.proof_validator import (
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
 )
 from axiom_encode.harness.validator_pipeline import (
     OracleSubprocessResult,
-    ValidatorPipeline,
     _extract_json_object,
     _infer_us_state_code_from_rulespec_path,
-    _load_applied_encoding_manifest_source_metadata,
-    _load_nearby_eval_source_metadata,
     _normalize_us_tax_filing_status,
     _policyengine_expected_float,
     _policyengine_period_string,
@@ -102,25 +110,308 @@ from axiom_encode.harness.validator_pipeline import (
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
     find_upstream_placement_issues,
-    find_upstream_source_authority_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
     repair_copied_cross_reference_summary,
-    repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
     repair_source_table_interval_row_alignment,
     repair_source_table_interval_tests,
-    upstream_source_authority_issues_for_rules_file,
 )
-from axiom_encode.oracles.policyengine.registry import (
-    PolicyEngineMapping,
-    PolicyEngineOracleRegistry,
-    load_policyengine_registry,
+from axiom_encode.harness.validator_pipeline import (
+    ValidatorPipeline as _ValidatorPipeline,
 )
+from axiom_encode.repo_routing import find_policy_repo_root
+from tests.release_object_fixtures import bind_test_corpus_release
 
-AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
+AXIOM_RULES_PATH = Path(
+    "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
+    "axiom-rules-engine-canonical-loader-hard-cut"
+)
+if not AXIOM_RULES_PATH.is_dir():
+    AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
 AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
+TEST_CORPUS_RELEASE_NAME = "test-release"
+TEST_CORPUS_VERSION = "test-version"
+
+
+def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
+    tmp_path,
+    monkeypatch,
+):
+    signing_names = (
+        "AXIOM_ENCODE_EVAL_SIGNING_PRIVATE_KEY",
+        "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY",
+        "AXIOM_ENCODE_SIGNING_BROKER_FD",
+        "AXIOM_ENCODE_SIGNING_BROKER_PID",
+        "AXIOM_ENCODE_SIGNING_BROKER_ACTIVE",
+    )
+    for index, name in enumerate(signing_names):
+        monkeypatch.setenv(name, str(index + 1))
+
+    with patch.object(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        return_value=validator_pipeline._SubprocessRunResult(
+            output='{"passed": true}',
+            returncode=0,
+        ),
+    ) as mock_run:
+        output, returncode = validator_pipeline.run_claude_code(
+            "review this",
+            model="claude-test",
+            timeout=30,
+            cwd=tmp_path,
+        )
+
+    command = mock_run.call_args.args[0]
+    assert command[command.index("--permission-mode") + 1] == "dontAsk"
+    assert command[command.index("--tools") + 1] == ""
+    assert command[command.index("--allowed-tools") + 1] == ""
+    assert command[command.index("--mcp-config") + 1] == "{}"
+    for flag in (
+        "--safe-mode",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--no-chrome",
+        "--strict-mcp-config",
+    ):
+        assert flag in command
+    child_environment = mock_run.call_args.kwargs["env"]
+    assert all(name not in child_environment for name in signing_names)
+    assert mock_run.call_args.kwargs["cwd"] == tmp_path
+    assert output == '{"passed": true}'
+    assert returncode == 0
+
+
+def _canonical_rulespec_content_root(base: Path, jurisdiction: str) -> Path:
+    """Create and return ``rulespec-<country>/<jurisdiction>``."""
+
+    country = jurisdiction.split("-", 1)[0]
+    content_root = base / f"rulespec-{country}" / jurisdiction
+    content_root.mkdir(parents=True, exist_ok=True)
+    return content_root
+
+
+def _canonical_rulespec_test_file(
+    base: Path,
+    *,
+    jurisdiction: str = "us",
+    relative: str = "policies/example/rules.yaml",
+) -> tuple[Path, Path]:
+    """Create a canonical content root and return one RuleSpec fixture path."""
+
+    policy_repo = _canonical_rulespec_content_root(base, jurisdiction)
+    rules_file = policy_repo / relative
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    return policy_repo, rules_file
+
+
+def _admitted_runtime_stub(
+    root: Path,
+    *,
+    country: str,
+    rulespec_checkout_root: Path | None = None,
+) -> PolicyEngineRuntime:
+    """Construct an already-admitted identity for boundary-only unit tests."""
+
+    identity = {
+        "schema": "axiom-policyengine-runtime/v2",
+        "country": country,
+        "repository_root": str(root),
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    runtime = object.__new__(PolicyEngineRuntime)
+    object.__setattr__(runtime, "root", root)
+    object.__setattr__(runtime, "country", country)
+    object.__setattr__(runtime, "python_path", root / ".venv" / "bin" / "python")
+    object.__setattr__(
+        runtime,
+        "site_packages_path",
+        root / ".venv" / "lib" / "python3.13" / "site-packages",
+    )
+    object.__setattr__(
+        runtime,
+        "rulespec_checkout_root",
+        rulespec_checkout_root or root.parent / f"rulespec-{country}",
+    )
+    object.__setattr__(runtime, "identity", identity)
+    object.__setattr__(
+        runtime,
+        "identity_sha256",
+        hashlib.sha256(canonical.encode()).hexdigest(),
+    )
+    return runtime
+
+
+class ValidatorPipeline(_ValidatorPipeline):
+    """Test wrapper that binds a signed release before exercising CI."""
+
+    def __init__(self, *args, local_corpus_release=None, **kwargs):
+        # Legacy oracle behavior tests below isolate mapping/scenario logic with
+        # a stubbed subprocess.  The explicit runtime admission boundary itself
+        # is exercised against _ValidatorPipeline in dedicated hard-cut tests.
+        stub_policyengine = (
+            bool(kwargs.get("enable_oracles"))
+            and kwargs.get("policyengine_runtime") is None
+        )
+        if stub_policyengine:
+            kwargs["enable_oracles"] = False
+        super().__init__(
+            *args,
+            local_corpus_release=local_corpus_release,
+            **kwargs,
+        )
+        if stub_policyengine:
+            self.enable_oracles = True
+
+    def _run_policyengine(self, rulespec_file):
+        if self.policyengine_runtime is None:
+            return self._run_policyengine_bound(rulespec_file, "us")
+        return super()._run_policyengine(rulespec_file)
+
+    def _run_ci(self, rulespec_file):
+        if self.local_corpus_release is None:
+            self.local_corpus_release = _write_local_corpus_provision(
+                self.policy_repo_path,
+                "us/statute/26/1",
+            )
+        return super()._run_ci(rulespec_file)
+
+
+def test_policyengine_oracle_requires_explicit_runtime_before_any_discovery(
+    tmp_path,
+    monkeypatch,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_POLICYENGINE_US_PYTHON",
+        "/attacker/ambient/python",
+    )
+    monkeypatch.setenv("HOME", "/attacker/home")
+    with (
+        patch("axiom_encode.harness.validator_pipeline.subprocess.run") as run,
+        pytest.raises(PolicyEngineRuntimeError, match="explicit admitted runtime"),
+    ):
+        _ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=AXIOM_RULES_PATH,
+            local_corpus_release=None,
+            enable_oracles=True,
+            oracle_validators=("policyengine",),
+        )
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("oracle", ["taxsim", "all"])
+def test_validator_rejects_removed_oracle_modes(tmp_path, oracle):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    with pytest.raises(ValueError, match="Unsupported oracle validator"):
+        _ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=AXIOM_RULES_PATH,
+            local_corpus_release=None,
+            enable_oracles=True,
+            oracle_validators=(oracle,),
+        )
+
+
+def test_policyengine_runtime_country_must_match_canonical_rulespec_root(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    runtime = _admitted_runtime_stub(
+        tmp_path / "policyengine-us",
+        country="us",
+        rulespec_checkout_root=policy_repo.parent,
+    )
+    with pytest.raises(PolicyEngineRuntimeError, match="does not match"):
+        _ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=AXIOM_RULES_PATH,
+            local_corpus_release=None,
+            enable_oracles=True,
+            oracle_validators=("policyengine",),
+            policyengine_runtime=runtime,
+        )
+
+
+def test_policyengine_oracle_reprobes_and_rejects_post_execution_mutation(
+    tmp_path,
+):
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
+    runtime = _admitted_runtime_stub(
+        tmp_path / "policyengine-us",
+        country="us",
+        rulespec_checkout_root=policy_repo.parent,
+    )
+    pipeline = _ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        local_corpus_release=None,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+        policyengine_runtime=runtime,
+    )
+    pipeline._run_policyengine_bound = lambda *_args: (
+        validator_pipeline.ValidationResult(
+            "policyengine",
+            True,
+            score=1.0,
+            details={"coverage": {"comparable": 1}},
+        )
+    )
+
+    with (
+        patch.object(
+            PolicyEngineRuntime,
+            "assert_unchanged",
+            side_effect=[
+                None,
+                PolicyEngineRuntimeError(
+                    "PolicyEngine runtime identity changed after it was admitted"
+                ),
+            ],
+        ),
+        pytest.raises(PolicyEngineRuntimeError, match="identity changed"),
+    ):
+        pipeline._run_policyengine(rules_file)
+
+
+def test_policyengine_oracle_binds_runtime_and_uses_root_country_only(tmp_path):
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
+    rules_file.write_text(
+        "# legislation.gov.uk must not select UK\nformat: rulespec/v1\n"
+    )
+    runtime = _admitted_runtime_stub(
+        tmp_path / "policyengine-us",
+        country="us",
+        rulespec_checkout_root=policy_repo.parent,
+    )
+    pipeline = _ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        local_corpus_release=None,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+        policyengine_runtime=runtime,
+    )
+    observed: list[str] = []
+
+    def run_bound(_rules_file, country):
+        observed.append(country)
+        return validator_pipeline.ValidationResult(
+            "policyengine",
+            True,
+            score=1.0,
+            details={"coverage": {"comparable": 1}},
+        )
+
+    pipeline._run_policyengine_bound = run_bound
+    with patch.object(PolicyEngineRuntime, "assert_unchanged", return_value=None):
+        result = pipeline._run_policyengine(rules_file)
+
+    assert observed == ["us"]
+    assert result.details["runtime_identity"] == runtime.identity
+    assert result.details["runtime_identity_sha256"] == runtime.identity_sha256
 
 
 def test_validator_rejects_duplicate_rulespec_mapping_keys(tmp_path):
@@ -143,10 +434,12 @@ rules:
 """
     )
 
+    release = _write_local_corpus_provision(tmp_path, "us/statute/26/1")
     pipeline = ValidatorPipeline(
         policy_repo_path=repo / "us-ia",
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
+        local_corpus_release=release,
     )
 
     result = pipeline.validate(rules_file, skip_reviewers=True)
@@ -160,6 +453,20 @@ rules:
         "duplicate key" in issue and "10" in issue
         for issue in result.results["ci"].issues
     )
+
+
+def test_validator_validate_requires_bound_local_release(tmp_path):
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    with pytest.raises(RuntimeError, match="requires a bound LocalCorpusRelease"):
+        pipeline.validate(rules_file, skip_reviewers=True)
 
 
 def test_rulespec_numeric_output_comparison_tolerates_decimal_residue(tmp_path):
@@ -203,29 +510,34 @@ def test_rulespec_numeric_output_comparison_accepts_quoted_decimal(tmp_path):
     )
 
 
-def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
+def test_rulespec_compile_roots_use_only_explicit_checkouts(monkeypatch, tmp_path):
     repo_parent = tmp_path / "repos"
-    policy_repo = repo_parent / "rulespec-us-ny"
-    policy_repo.mkdir(parents=True)
-    existing_root = tmp_path / "existing-roots"
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(existing_root))
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us-ny")
+    dependency_root = _canonical_rulespec_content_root(
+        tmp_path / "dependencies", "uk"
+    ).parent
+    ambient_root = _canonical_rulespec_content_root(tmp_path / "ambient", "us").parent
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(ambient_root))
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        rulespec_dependency_roots=(dependency_root,),
     )
 
-    roots = pipeline._rulespec_compile_env()["AXIOM_RULESPEC_REPO_ROOTS"].split(
-        os.pathsep
-    )
-    assert roots[0] == str(policy_repo)
-    assert str(existing_root) in roots
-    assert str(repo_parent) in roots
-    assert roots.index(str(existing_root)) < roots.index(str(repo_parent))
+    roots = pipeline._rulespec_compile_roots()
+    assert roots == (policy_repo.parent.resolve(), dependency_root.resolve())
+    assert ambient_root not in roots
+    assert pipeline._rulespec_root_args() == [
+        "--rulespec-root",
+        str(policy_repo.parent.resolve()),
+        "--rulespec-root",
+        str(dependency_root.resolve()),
+    ]
 
 
-def test_rulespec_compile_env_excludes_model_and_repository_credentials(
+def test_rulespec_engine_env_excludes_model_and_repository_credentials(
     monkeypatch, tmp_path
 ):
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-secret")
@@ -233,13 +545,14 @@ def test_rulespec_compile_env_excludes_model_and_repository_credentials(
     monkeypatch.setenv("GH_TOKEN", "github-test-secret")
     monkeypatch.setenv("AXIOM_REPO_TOKEN", "repository-test-secret")
     monkeypatch.setenv("NON_SENSITIVE_SENTINEL", "preserved")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=policy_repo,
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
     )
 
-    env = pipeline._rulespec_compile_env()
+    env = pipeline._rulespec_engine_env()
 
     assert env["NON_SENSITIVE_SENTINEL"] == "preserved"
     assert "OPENAI_API_KEY" not in env
@@ -248,51 +561,257 @@ def test_rulespec_compile_env_excludes_model_and_repository_credentials(
     assert "AXIOM_REPO_TOKEN" not in env
 
 
-def test_rulespec_compile_env_prefers_configured_roots_over_stale_parent(
+def test_rulespec_compile_roots_ignore_ambient_env_and_sibling_roots(
     monkeypatch,
     tmp_path,
 ):
     repo_parent = tmp_path / "worktrees"
-    policy_repo = repo_parent / "rulespec-us-co"
-    policy_repo.mkdir(parents=True)
-    stale_sibling = repo_parent / "rulespec-us"
-    stale_sibling.mkdir()
-    configured_parent = tmp_path / "configured-roots"
-    (configured_parent / "rulespec-us").mkdir(parents=True)
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us-co")
+    stale_sibling = _canonical_rulespec_content_root(tmp_path / "ambient", "us").parent
+    dependency_root = _canonical_rulespec_content_root(
+        tmp_path / "configured-roots", "uk"
+    ).parent
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_sibling))
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        rulespec_dependency_roots=(dependency_root,),
     )
 
-    roots = pipeline._rulespec_compile_env()["AXIOM_RULESPEC_REPO_ROOTS"].split(
-        os.pathsep
+    roots = pipeline._rulespec_compile_roots()
+    assert roots == (policy_repo.parent.resolve(), dependency_root.resolve())
+    assert stale_sibling not in roots
+    assert repo_parent not in roots
+
+
+def test_rulespec_compile_roots_reject_nested_checkout_symlink(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("secret: true\n")
+    nested = policy_repo / "statutes" / "outside.yaml"
+    nested.parent.mkdir(parents=True)
+    nested.symlink_to(outside)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
     )
-    assert roots[0] == str(policy_repo)
-    assert str(configured_parent) in roots
-    assert str(repo_parent) in roots
-    assert roots.index(str(configured_parent)) < roots.index(str(repo_parent))
+
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="contains a symlink",
+    ):
+        pipeline._rulespec_compile_roots()
 
 
-def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp_path):
+def test_rulespec_dependency_root_rejects_nested_symlink(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "active", "us")
+    dependency_root = _canonical_rulespec_content_root(
+        tmp_path / "dependencies", "uk"
+    ).parent
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("secret: true\n")
+    nested = dependency_root / "uk" / "statutes" / "outside.yaml"
+    nested.parent.mkdir(parents=True)
+    nested.symlink_to(outside)
+
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="contains a symlink",
+    ):
+        ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+            rulespec_dependency_roots=(dependency_root,),
+        )
+
+
+def test_rulespec_dependency_roots_reject_duplicate_namespace(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "active", "us")
+    dependency_one = _canonical_rulespec_content_root(
+        tmp_path / "dependencies-one", "uk"
+    ).parent
+    dependency_two = _canonical_rulespec_content_root(
+        tmp_path / "dependencies-two", "uk"
+    ).parent
+
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="same namespace 'rulespec-uk'",
+    ):
+        ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+            rulespec_dependency_roots=(dependency_one, dependency_two),
+        )
+
+
+def test_rulespec_dependency_root_rejects_active_namespace_collision(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "active", "us")
+    conflicting_dependency = _canonical_rulespec_content_root(
+        tmp_path / "dependency", "us-ca"
+    ).parent
+
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="active checkout namespace 'rulespec-us'",
+    ):
+        ValidatorPipeline(
+            policy_repo_path=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+            rulespec_dependency_roots=(conflicting_dependency,),
+        )
+
+
+def test_rulespec_target_resolution_rejects_active_namespace_fallback(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "active", "us")
+    conflicting_content = _canonical_rulespec_content_root(
+        tmp_path / "dependency", "us-ca"
+    )
+    target = conflicting_content / "regulations" / "example.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    target_ref = validator_pipeline._parse_rulespec_target("us-ca:regulations/example")
+    assert target_ref is not None
+
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="active checkout namespace 'rulespec-us'",
+    ):
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(conflicting_content.parent,),
+        )
+
+
+def test_rulespec_ci_rejects_noncanonical_runner_before_ambient_lookup(tmp_path):
+    runner_root = tmp_path / "runner"
+    rules_file = runner_root / "source" / "example.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    ambient = runner_root / "statutes" / "1" / "ambient.yaml"
+    ambient.parent.mkdir(parents=True)
+    ambient.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=runner_root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=_write_local_corpus_provision(
+            tmp_path / "release",
+            "us/statute/26/1",
+        ),
+    )
+
+    with patch.object(pipeline, "_run_rulespec_ci") as run_rulespec_ci:
+        result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
+    assert "not canonical" in (result.error or "")
+    run_rulespec_ci.assert_not_called()
+
+
+def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes" / "1" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    output_path = tmp_path / "compiled.json"
+    captured: dict[str, object] = {}
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "_axiom_rules_binary",
+        lambda: tmp_path / "axiom-rules-engine-bin",
+    )
+    original_run = validator_pipeline.subprocess.run
+
+    def fake_run(command, **kwargs):
+        if command[0] == "git":
+            return original_run(command, **kwargs)
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        output_path.write_text('{"program": {"derived": []}}')
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+
+    result, payload = pipeline._compile_rulespec_to_artifact(
+        rules_file,
+        output_path,
+    )
+
+    assert result.returncode == 0
+    assert payload == {"program": {"derived": []}}
+    assert captured["command"] == [
+        str(tmp_path / "axiom-rules-engine-bin"),
+        "compile",
+        "--program",
+        str(rules_file),
+        "--rulespec-root",
+        str(policy_repo.parent.resolve()),
+        "--output",
+        str(output_path),
+    ]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured["env"]
+
+
+def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    engine_root = tmp_path / "declared-axiom-rules-engine"
+    engine_root.mkdir()
+    ambient_bin = tmp_path / "ambient-bin"
+    ambient_bin.mkdir()
+    ambient_engine = ambient_bin / "axiom-rules-engine"
+    ambient_engine.write_text("#!/bin/sh\nexit 0\n")
+    ambient_engine.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{ambient_bin}{os.pathsep}{os.environ['PATH']}")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=engine_root,
+        enable_oracles=False,
+    )
+
+    with pytest.raises(FileNotFoundError, match="explicitly declared checkout"):
+        pipeline._axiom_rules_binary()
+
+
+def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
+    monkeypatch, tmp_path
+):
     repo_parent = tmp_path / "repos"
-    policy_repo = repo_parent / "rulespec-us"
-    policy_repo.mkdir(parents=True)
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us")
     stale_root = tmp_path / "stale-rulespec-us"
     stale_root.mkdir()
     monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_root))
+    dependency_root = _canonical_rulespec_content_root(
+        tmp_path / "dependencies", "uk"
+    ).parent
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        rulespec_dependency_roots=(dependency_root,),
     )
     captured_env: dict[str, str] | None = None
+    original_run = validator_pipeline.subprocess.run
 
     def fake_run(cmd, **kwargs):
         nonlocal captured_env
+        if cmd[0] == "git":
+            return original_run(cmd, **kwargs)
         captured_env = kwargs.get("env")
         return subprocess.CompletedProcess(
             cmd,
@@ -340,19 +859,18 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
     assert outputs is not None
     assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
     assert captured_env is not None
-    roots = captured_env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
-    assert roots[0] == str(policy_repo)
-    assert str(stale_root) in roots
-    assert str(repo_parent) in roots
-    assert roots.index(str(stale_root)) < roots.index(str(repo_parent))
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured_env
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured_env
+    assert str(stale_root) not in captured_env.values()
 
 
-def test_rulespec_target_resolution_prefers_configured_roots(monkeypatch, tmp_path):
+def test_rulespec_target_resolution_uses_explicit_dependency_root(
+    monkeypatch, tmp_path
+):
     workspace = tmp_path / "worktrees"
-    policy_repo = workspace / "rulespec-us-co"
-    policy_repo.mkdir(parents=True)
-    stale_sibling = workspace / "rulespec-us"
-    stale_file = stale_sibling / "regulations" / "7-cfr" / "273" / "9.yaml"
+    policy_repo = _canonical_rulespec_content_root(workspace, "us-co")
+    stale_sibling = _canonical_rulespec_content_root(tmp_path / "ambient", "uk")
+    stale_file = stale_sibling / "statutes" / "1" / "example.yaml"
     stale_file.parent.mkdir(parents=True)
     stale_file.write_text(
         """format: rulespec/v1
@@ -369,13 +887,7 @@ rules:
     )
     configured_parent = tmp_path / "configured"
     configured_file = (
-        configured_parent
-        / "rulespec-us"
-        / "us"
-        / "regulations"
-        / "7-cfr"
-        / "273"
-        / "9.yaml"
+        configured_parent / "rulespec-uk" / "uk" / "statutes" / "1" / "example.yaml"
     )
     configured_file.parent.mkdir(parents=True)
     configured_file.write_text(
@@ -391,82 +903,133 @@ rules:
         formula: '0'
 """
     )
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_sibling))
     target_ref = validator_pipeline._parse_rulespec_target(
-        "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
+        "uk:statutes/1/example#snap_standard_utility_allowance_state_option"
     )
 
     assert target_ref is not None
     assert (
-        validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(configured_parent / "rulespec-uk",),
+        )
         == configured_file
     )
 
 
-def test_rulespec_target_resolution_accepts_system_path_alias(monkeypatch, tmp_path):
-    temp_parent = Path("/var/tmp") if Path("/var/tmp").is_dir() else None
-    try:
-        temporary_directory = tempfile.TemporaryDirectory(dir=temp_parent)
-    except PermissionError:
-        pytest.skip("sandbox does not permit creating the system-path alias fixture")
-    with temporary_directory as raw_tmpdir:
-        configured_parent = Path(raw_tmpdir) / "configured"
-        target = configured_parent / "rulespec-us" / "statutes/1/target.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo = tmp_path / "rulespec-uk"
-        policy_repo.mkdir()
-        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(configured_parent))
-        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
-
-        assert target_ref is not None
-        assert (
-            validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
-            == target.resolve()
-        )
-
-
-def test_rulespec_target_resolution_accepts_configured_checkout_alias(
-    monkeypatch, tmp_path
-):
-    checkout = tmp_path / "temporary-checkout"
-    target = checkout / "statutes/1/target.yaml"
+def test_rulespec_target_resolution_ignores_ambient_env(monkeypatch, tmp_path):
+    ambient_repo = _canonical_rulespec_content_root(tmp_path / "ambient", "us")
+    target = ambient_repo / "statutes/1/target.yaml"
     target.parent.mkdir(parents=True)
     target.write_text("format: rulespec/v1\nrules: []\n")
-    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(checkout),
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/TheAxiomFoundation/rulespec-us.git",
-        ],
-        check=True,
-    )
-    aliases = tmp_path / "aliases"
-    aliases.mkdir()
-    (aliases / "rulespec-us").symlink_to(checkout, target_is_directory=True)
-    policy_repo = tmp_path / "rulespec-uk"
-    policy_repo.mkdir()
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(aliases))
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(ambient_repo.parent))
     target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
 
     assert target_ref is not None
     assert (
-        validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
-        == target.resolve()
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+        )
+        is None
     )
+
+
+def test_rulespec_target_resolution_ignores_cwd_and_sibling_checkouts(
+    monkeypatch,
+    tmp_path,
+):
+    ambient_us = _canonical_rulespec_content_root(tmp_path, "us")
+    target = ambient_us / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "workspace", "uk")
+    monkeypatch.chdir(tmp_path)
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+        )
+        is None
+    )
+
+
+def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
+    workspace = tmp_path / "dependencies"
+    target = workspace / "rulespec-us" / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="exact canonical checkout roots",
+    ):
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(workspace,),
+        )
+
+
+def test_rulespec_target_resolution_accepts_macos_system_path_alias(tmp_path):
+    if not Path("/var").is_symlink():
+        pytest.skip("macOS /var system alias is unavailable")
+    with tempfile.TemporaryDirectory(dir="/var/tmp") as raw_tmpdir:
+        checkout = Path(raw_tmpdir) / "rulespec-us"
+        target = checkout / "us" / "statutes/1/target.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+        assert target_ref is not None
+        assert (
+            validator_pipeline._resolve_rulespec_target_file(
+                target_ref,
+                policy_repo,
+                rulespec_dependency_roots=(checkout,),
+            )
+            == target.resolve()
+        )
+
+
+def test_rulespec_target_resolution_rejects_explicit_checkout_symlink(tmp_path):
+    checkout = tmp_path / "private" / "rulespec-us"
+    target = checkout / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    aliases = tmp_path / "aliases"
+    aliases.mkdir()
+    (aliases / "rulespec-us").symlink_to(checkout, target_is_directory=True)
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with pytest.raises(
+        validator_pipeline.UnsafeRulespecContextPath,
+        match="contains a symlink",
+    ):
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(aliases / "rulespec-us",),
+        )
 
 
 def test_rulespec_target_resolution_rejects_repo_controlled_axiom_alias(
     tmp_path,
 ):
-    policy_repo = tmp_path / "workspace" / "rulespec-us"
-    policy_repo.mkdir(parents=True)
-    external_repo = tmp_path / "private" / "rulespec-uk"
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "workspace", "us")
+    external_repo = _canonical_rulespec_content_root(tmp_path / "private", "uk")
     target = external_repo / "statutes/1/secret.yaml"
     target.parent.mkdir(parents=True)
     target.write_text("format: rulespec/v1\nrules: []\n")
@@ -481,9 +1044,46 @@ def test_rulespec_target_resolution_rejects_repo_controlled_axiom_alias(
     assert target_ref is not None
     with pytest.raises(
         validator_pipeline.UnsafeRulespecContextPath,
-        match="symlink indirection",
+        match="active RuleSpec checkout contains a symlink",
     ):
-        validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+        )
+
+
+@pytest.mark.parametrize(
+    "import_target",
+    ["us:statutes/1/target", "us:statutes/1/target#target_amount"],
+)
+def test_imported_rulespec_exports_uses_canonical_target_base(
+    tmp_path,
+    import_target,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes" / "1" / "current.yaml"
+    target_file = policy_repo / "statutes" / "1" / "target.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    target_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: target_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1'
+"""
+    )
+
+    exports = validator_pipeline._imported_rulespec_exports(
+        {"imports": [import_target]},
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert exports["target_amount"].target == ("us:statutes/1/target#target_amount")
 
 
 def test_unrelated_same_section_term_import_rejects_other_section_standin(tmp_path):
@@ -539,7 +1139,7 @@ rules:
 def test_unrelated_same_section_term_import_checks_policy_repo_for_temp_output(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     section_root = repo / "statutes/26/3134"
     section_root.mkdir(parents=True)
     (section_root / "c.yaml").write_text(
@@ -573,13 +1173,15 @@ rules:
 """
     )
 
-    pipeline = ValidatorPipeline(
-        policy_repo_path=repo,
-        axiom_rules_path=tmp_path / "axiom-rules-engine",
-        enable_oracles=False,
-    )
-
-    issues = pipeline._check_unrelated_same_section_term_imports(rules_file)
+    with _rulespec_validation_target(rules_file, repo) as validation_file:
+        validation_root = find_policy_repo_root(validation_file)
+        assert validation_root is not None
+        pipeline = ValidatorPipeline(
+            policy_repo_path=validation_root,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+        )
+        issues = pipeline._check_unrelated_same_section_term_imports(validation_file)
 
     assert issues == [
         "Unrelated same-section term import: "
@@ -591,7 +1193,7 @@ rules:
 
 
 def test_unrelated_same_section_term_import_rejects_file_level_standin(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     section_root = repo / "statutes/26/3134"
     section_root.mkdir(parents=True)
     (section_root / "c.yaml").write_text(
@@ -891,8 +1493,7 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
     monkeypatch, tmp_path
 ):
     repo_parent = tmp_path / "repos"
-    policy_repo = repo_parent / "rulespec-us"
-    policy_repo.mkdir(parents=True)
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us")
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
@@ -1151,259 +1752,12 @@ rules:
 
     assert issues == [
         "Rule source locator required: module.source_verification must include "
-        "`corpus_citation_path` or `corpus_citation_paths` when executable "
-        "rules are present."
+        "exactly one `corpus_citation_path` when executable rules are present."
     ]
-
-
-def test_upstream_source_authority_accepts_statute_source():
-    content = """format: rulespec/v1
-module:
-  summary: The standard is 20 hours.
-  source_verification:
-    corpus_citation_path: us/statute/7/2015
-rules:
-  - name: minimum_hours
-    kind: parameter
-    dtype: Count
-    source: 7 USC 2015(e)(4)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '20'
-"""
-
-    assert find_upstream_source_authority_issues(content) == []
-
-
-def test_upstream_source_authority_rejects_lower_source_without_check():
-    content = """format: rulespec/v1
-module:
-  summary: CMS table states Georgia Medicaid child eligibility levels.
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-rules:
-  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
-    versions:
-      - effective_from: '2023-12-01'
-        formula: '1.33'
-"""
-
-    issues = find_upstream_source_authority_issues(content)
-
-    assert issues == [
-        "Upstream source check required: "
-        "`us/form/cms/medicaid-chip-bhp-eligibility-levels` is below "
-        "statute/regulation authority. Check statute/regulation sources first, "
-        "then record "
-        "`module.source_verification.upstream_source_check` with `status`, "
-        "`checked_paths`, and `rationale`, or encode the higher source instead."
-    ]
-
-
-def test_upstream_source_authority_accepts_lower_source_with_audit():
-    content = """format: rulespec/v1
-module:
-  summary: CMS table states Georgia Medicaid child eligibility levels.
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/42/1396a
-        - us/regulation/42/435/118
-      rationale: |-
-        Federal statute and regulation define the child Medicaid eligibility
-        category and state-plan requirement, while the CMS table is the
-        official published source for this state-specific effective FPL value.
-rules:
-  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
-    versions:
-      - effective_from: '2023-12-01'
-        formula: '1.33'
-"""
-
-    assert find_upstream_source_authority_issues(content) == []
-
-
-def test_upstream_source_authority_baseline_suppresses_legacy_missing_audit(tmp_path):
-    repo = tmp_path / "rulespec-us"
-    rules_file = repo / "us-ga/policies/cms/eligibility-levels.yaml"
-    rules_file.parent.mkdir(parents=True)
-    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
-    baseline.parent.mkdir()
-    baseline.write_text(
-        "# Legacy lower-authority files awaiting upstream-source audit.\n"
-        "us-ga/policies/cms/eligibility-levels.yaml\n"
-    )
-    content = """format: rulespec/v1
-module:
-  summary: CMS table states Georgia Medicaid child eligibility levels.
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-rules:
-  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
-    versions:
-      - effective_from: '2023-12-01'
-        formula: '1.33'
-"""
-
-    assert find_upstream_source_authority_issues(content)
-    assert (
-        upstream_source_authority_issues_for_rules_file(
-            content,
-            rules_file=rules_file,
-            policy_repo_path=repo,
-        )
-        == []
-    )
-
-
-def test_upstream_source_authority_baseline_resolves_country_monorepo_parent(
-    tmp_path,
-):
-    repo = tmp_path / "rulespec-us"
-    content_root = repo / "us-in"
-    rules_file = (
-        content_root
-        / "policies/dfr/snap-tanf-program-policy-manual/3010-15-cash-assistance-income-standards.yaml"
-    )
-    rules_file.parent.mkdir(parents=True)
-    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
-    baseline.parent.mkdir()
-    baseline.write_text(
-        "# Legacy lower-authority files awaiting upstream-source audit.\n"
-        "us-in/policies/dfr/snap-tanf-program-policy-manual/3010-15-cash-assistance-income-standards.yaml\n"
-    )
-    content = """format: rulespec/v1
-module:
-  summary: Indiana TANF cash assistance income standards.
-  source_verification:
-    corpus_citation_path: us-in/manual/dfr/snap-tanf-program-policy-manual/page-296
-rules:
-  - name: indiana_tanf_income_standard
-    kind: parameter
-    dtype: Money
-    source: Indiana SNAP/TANF Program Policy Manual section 3010.15
-    versions:
-      - effective_from: '2024-01-01'
-        formula: '592'
-"""
-
-    assert (
-        upstream_source_authority_issues_for_rules_file(
-            content,
-            rules_file=rules_file,
-            policy_repo_path=content_root,
-        )
-        == []
-    )
-
-
-def test_upstream_source_authority_baseline_does_not_hide_invalid_audit(tmp_path):
-    repo = tmp_path / "rulespec-us"
-    rules_file = repo / "us-ga/policies/cms/eligibility-levels.yaml"
-    rules_file.parent.mkdir(parents=True)
-    baseline = repo / ".axiom" / "upstream-source-check-baseline.txt"
-    baseline.parent.mkdir()
-    baseline.write_text("us-ga/policies/cms/eligibility-levels.yaml\n")
-    content = """format: rulespec/v1
-module:
-  summary: CMS table states Georgia Medicaid child eligibility levels.
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-    upstream_source_check:
-      status: checked_higher_authority
-      checked_paths:
-        - us/form/cms/medicaid-chip-bhp-eligibility-levels
-      rationale: CMS table checked before encoding.
-rules:
-  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
-    versions:
-      - effective_from: '2023-12-01'
-        formula: '1.33'
-"""
-
-    issues = upstream_source_authority_issues_for_rules_file(
-        content,
-        rules_file=rules_file,
-        policy_repo_path=repo,
-    )
-
-    assert issues == [
-        "Upstream source check must include higher authority: "
-        "`module.source_verification.upstream_source_check.checked_paths` must "
-        "include at least one statute/regulation corpus path or RuleSpec target."
-    ]
-
-
-def test_upstream_source_authority_requires_checked_primary_path():
-    content = """format: rulespec/v1
-module:
-  summary: State manual states a TANF payment standard.
-  source_verification:
-    corpus_citation_path: us-ny/policy/otda/tanf-state-plan-2024-2026/standard-of-need-and-monthly-grant
-    upstream_source_check:
-      status: checked_higher_authority
-      checked_paths:
-        - us-ny/policy/otda/tanf-state-plan-2024-2026
-      rationale: State plan checked before encoding this payment standard.
-rules:
-  - name: tanf_payment_standard
-    kind: parameter
-    dtype: Money
-    source: TANF state plan
-    versions:
-      - effective_from: '2024-01-01'
-        formula: '100'
-"""
-
-    issues = find_upstream_source_authority_issues(content)
-
-    assert issues == [
-        "Upstream source check must include higher authority: "
-        "`module.source_verification.upstream_source_check.checked_paths` must "
-        "include at least one statute/regulation corpus path or RuleSpec target."
-    ]
-
-
-def test_upstream_source_authority_requires_check_for_mixed_lower_sources():
-    content = """format: rulespec/v1
-module:
-  summary: Guidance restates the statutory value.
-  source_verification:
-    corpus_citation_paths:
-      - us/statute/7/2014
-      - us/guidance/usda/fns/snap-fy2026-cola/page-2
-rules:
-  - name: snap_guidance_amount
-    kind: parameter
-    dtype: Money
-    source: USDA guidance
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '100'
-"""
-
-    issues = find_upstream_source_authority_issues(content)
-
-    assert len(issues) == 1
-    assert "`us/guidance/usda/fns/snap-fy2026-cola/page-2`" in issues[0]
 
 
 def test_missing_derived_companion_output_rejects_uncovered_derived_rule(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -1450,13 +1804,15 @@ rules:
     ]
 
 
-def test_missing_derived_companion_output_uses_origin_repo_prefix_for_temp_checkout(
+def test_missing_derived_companion_output_uses_canonical_prefix_with_matching_origin(
     tmp_path,
 ):
-    policy_repo = tmp_path / "rulespec-us-clean.abcd"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "26" / "63" / "f.yaml"
     rules_file.parent.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=policy_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init"], cwd=policy_repo.parent, check=True, capture_output=True
+    )
     subprocess.run(
         [
             "git",
@@ -1465,7 +1821,7 @@ def test_missing_derived_companion_output_uses_origin_repo_prefix_for_temp_check
             "origin",
             "https://github.com/TheAxiomFoundation/rulespec-us.git",
         ],
-        cwd=policy_repo,
+        cwd=policy_repo.parent,
         check=True,
         capture_output=True,
     )
@@ -1505,8 +1861,8 @@ rules:
 
 
 def test_missing_derived_companion_output_strips_country_subdir(tmp_path):
-    policy_repo = tmp_path / "rulespec-nz"
-    rules_file = policy_repo / "nz" / "statutes" / "income_tax" / "rates.yaml"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "nz")
+    rules_file = policy_repo / "statutes" / "income_tax" / "rates.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
 rules:
@@ -1540,7 +1896,7 @@ rules:
 
 
 def test_judgment_positive_companion_output_rejects_never_holds(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -1585,7 +1941,7 @@ rules:
 def test_judgment_positive_companion_output_allows_unsatisfiable_false_rule(
     tmp_path,
 ):
-    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = policy_repo / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -1658,7 +2014,7 @@ rules:
 def test_judgment_positive_companion_output_requires_positive_for_or_false_rule(
     tmp_path,
 ):
-    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = policy_repo / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -1916,6 +2272,28 @@ rules: []
     assert "absolute RuleSpec targets" in issues[0]
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "programs/snap/fy-2026#snap_eligible",
+        "us:programs/snap/fy-2026#snap_eligible",
+    ],
+)
+def test_import_shape_rejects_composition_spec_targets(target):
+    content = f"""format: rulespec/v1
+imports:
+  - {target}
+rules: []
+"""
+
+    issues = find_import_shape_issues(content)
+
+    assert len(issues) == 1
+    assert "Import target invalid" in issues[0]
+    if target.startswith("us:"):
+        assert "axiom-compose ProgramSpecs" in issues[0]
+
+
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:
     monkeypatch.setattr(
         "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",
@@ -1927,14 +2305,14 @@ def _write_local_corpus_provision(
     repo_parent: Path,
     citation_path: str,
     body: str = "Authoritative source text.",
-) -> None:
-    version = "test-release"
+) -> LocalCorpusRelease:
+    version = TEST_CORPUS_VERSION
     parts = citation_path.split("/")
     corpus_root = repo_parent / "axiom-corpus"
     provisions_dir = corpus_root / "data" / "corpus" / "provisions"
     provisions_dir = provisions_dir / parts[0] / parts[1]
     provisions_dir.mkdir(parents=True, exist_ok=True)
-    (provisions_dir / "test.jsonl").write_text(
+    (provisions_dir / f"{version}.jsonl").write_text(
         json.dumps(
             _active_corpus_record(
                 citation_path,
@@ -1945,11 +2323,10 @@ def _write_local_corpus_provision(
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    return bind_test_corpus_release(
         corpus_root,
-        jurisdiction=parts[0],
-        document_class=parts[1],
-        version=version,
+        TEST_CORPUS_RELEASE_NAME,
+        [(parts[0], parts[1], version)],
     )
 
 
@@ -1957,7 +2334,7 @@ def _active_corpus_record(
     citation_path: str,
     body: str | None,
     *,
-    version: str = "test-release",
+    version: str = TEST_CORPUS_VERSION,
     **extra,
 ) -> dict:
     jurisdiction, document_class, *_rest = citation_path.split("/")
@@ -1975,34 +2352,14 @@ def _active_corpus_record(
     }
 
 
-def _write_current_release_scope(
+def _test_corpus_release(
     corpus_root: Path,
-    *,
-    jurisdiction: str,
-    document_class: str,
-    version: str = "test-release",
-) -> None:
-    selector = corpus_root / "manifests" / "releases" / "current.json"
-    selector.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"name": "current", "scopes": []}
-    if selector.exists():
-        payload = json.loads(selector.read_text(encoding="utf-8"))
-    scope = {
-        "jurisdiction": jurisdiction,
-        "document_class": document_class,
-        "version": version,
-    }
-    if scope not in payload["scopes"]:
-        payload["scopes"].append(scope)
-    selector.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def _write_local_source_claim(repo_parent: Path, record: dict) -> None:
-    claims_dir = repo_parent / "axiom-corpus" / "data" / "corpus" / "claims" / "us"
-    claims_dir.mkdir(parents=True, exist_ok=True)
-    (claims_dir / "test.jsonl").write_text(
-        json.dumps(record) + "\n",
-        encoding="utf-8",
+    *scopes: tuple[str, str, str],
+) -> LocalCorpusRelease:
+    return bind_test_corpus_release(
+        corpus_root,
+        TEST_CORPUS_RELEASE_NAME,
+        list(scopes),
     )
 
 
@@ -2015,12 +2372,13 @@ def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
         "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n",
         encoding="utf-8",
     )
-    _write_local_corpus_provision(repo_parent, "us/statute/7/2014/e/4")
+    release = _write_local_corpus_provision(repo_parent, "us/statute/7/2014/e/4")
 
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        local_corpus_release=release,
     )
 
     issues = pipeline._check_promoted_stub_file(rules_file)
@@ -2029,7 +2387,7 @@ def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
     assert "corpus.provisions has source text" in issues[0]
 
 
-def test_promoted_stub_ambiguity_is_explicit_validation_failure(tmp_path):
+def test_promoted_stub_ignores_unsigned_duplicate_artifact(tmp_path):
     repo_parent = tmp_path / "repos"
     rules_repo = repo_parent / "rulespec-us"
     rules_file = rules_repo / "statutes" / "7" / "2014" / "e" / "4.yaml"
@@ -2039,7 +2397,7 @@ def test_promoted_stub_ambiguity_is_explicit_validation_failure(tmp_path):
         encoding="utf-8",
     )
     citation = "us/statute/7/2014/e/4"
-    _write_local_corpus_provision(repo_parent, citation)
+    release = _write_local_corpus_provision(repo_parent, citation)
     provisions = repo_parent / "axiom-corpus/data/corpus/provisions/us/statute"
     duplicate = _active_corpus_record(citation, "Duplicate active source.")
     duplicate["id"] = "duplicate-active-row"
@@ -2050,13 +2408,14 @@ def test_promoted_stub_ambiguity_is_explicit_validation_failure(tmp_path):
         policy_repo_path=rules_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        local_corpus_release=release,
     )
 
     issues = pipeline._check_promoted_stub_file(rules_file)
 
     assert len(issues) == 1
-    assert "Dependency corpus check failed" in issues[0]
-    assert "AmbiguousCorpusSourceError" in issues[0]
+    assert "corpus.provisions has source text" in issues[0]
+    assert "Dependency corpus check failed" not in issues[0]
 
 
 def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
@@ -2072,25 +2431,25 @@ def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
     explicit_corpus = tmp_path / "explicit-corpus"
     explicit_provisions = explicit_corpus / "data/corpus/provisions/us/statute"
     explicit_provisions.mkdir(parents=True)
-    explicit_provisions.joinpath("source.jsonl").write_text(
+    canonical_provisions = explicit_provisions / f"{TEST_CORPUS_VERSION}.jsonl"
+    canonical_provisions.write_text(
         json.dumps(_active_corpus_record("us/statute/2", "unrelated")) + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    explicit_release = _test_corpus_release(
         explicit_corpus,
-        jurisdiction="us",
-        document_class="statute",
+        ("us", "statute", TEST_CORPUS_VERSION),
     )
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
-        local_corpus_root=explicit_corpus,
+        local_corpus_release=explicit_release,
     )
 
     assert pipeline._check_promoted_stub_file(rules_file) == []
 
-    explicit_provisions.joinpath("source.jsonl").write_text(
+    canonical_provisions.write_text(
         json.dumps(
             _active_corpus_record(
                 "us/statute/7/2014/e/4",
@@ -2099,6 +2458,10 @@ def test_local_only_promoted_stub_check_ignores_ambient_corpus(tmp_path):
         )
         + "\n",
         encoding="utf-8",
+    )
+    pipeline.local_corpus_release = _test_corpus_release(
+        explicit_corpus,
+        ("us", "statute", TEST_CORPUS_VERSION),
     )
     assert pipeline._check_promoted_stub_file(rules_file)
 
@@ -2121,12 +2484,13 @@ def test_imported_stub_dependency_check_uses_corpus_provisions(tmp_path):
         "rules: []\n",
         encoding="utf-8",
     )
-    _write_local_corpus_provision(repo_parent, "us/statute/7/2014/e/4")
+    release = _write_local_corpus_provision(repo_parent, "us/statute/7/2014/e/4")
 
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
         axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
+        local_corpus_release=release,
     )
 
     issues = pipeline._check_imported_stub_dependencies(rules_file)
@@ -2183,7 +2547,7 @@ def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
         "The official source states the standard utility allowance is $451.",
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -2191,14 +2555,6 @@ module:
     The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on compile and
-        grounding behavior rather than source hierarchy validation.
 rules:
   - name: standard_utility_allowance_value
     kind: parameter
@@ -2225,14 +2581,15 @@ rules:
   period: 2024-01
   input: {}
   output:
-    standard_utility_allowance: 451
+    us:policies/example/rules#standard_utility_allowance: 451
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_compile_check(rules_file).passed is True
@@ -2251,7 +2608,13 @@ def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2280,7 +2643,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2300,7 +2663,13 @@ def test_rulespec_ci_rejects_repo_backed_unresolved_output_reference_path(tmp_pa
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2329,7 +2698,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2349,7 +2718,13 @@ def test_rulespec_ci_rejects_repo_backed_input_reference_in_output_position(tmp_
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2378,7 +2753,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2398,7 +2773,13 @@ def test_rulespec_ci_rejects_repo_backed_friendly_input_keys(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2427,7 +2808,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -2445,7 +2826,13 @@ def test_rulespec_ci_executes_repo_backed_absolute_input_keys(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2474,7 +2861,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2490,7 +2877,13 @@ def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_path(tmp_pat
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2519,7 +2912,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2541,7 +2934,13 @@ def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_fragment(
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2017"
+        / "a.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2570,7 +2969,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -2589,7 +2988,13 @@ def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(tmp_
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2012"
+        / "j.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2622,7 +3027,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -2641,7 +3046,13 @@ def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(tmp
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2012"
+        / "j.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2674,7 +3085,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -2690,7 +3101,13 @@ def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(tmp_path)
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us")
+        / "statutes"
+        / "7"
+        / "2012"
+        / "j.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -2723,7 +3140,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rulespec-us",
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -2847,7 +3264,7 @@ def test_oracle_test_extraction_preserves_relation_list_inputs(tmp_path):
 
 
 def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text("format: rulespec/v1\n")
     rules_file.with_name("rules.test.yaml").write_text(
         """- name: mapped
@@ -2863,7 +3280,7 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
 """
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=True,
         oracle_validators=("policyengine",),
@@ -2888,7 +3305,7 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
 
 
 def test_policyengine_oracle_skips_unprojectable_legal_inputs(tmp_path):
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text("format: rulespec/v1\n")
     rules_file.with_name("rules.test.yaml").write_text(
         """- name: statutory_taxable_income_proof
@@ -2901,7 +3318,7 @@ def test_policyengine_oracle_skips_unprojectable_legal_inputs(tmp_path):
 """
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=True,
         oracle_validators=("policyengine",),
@@ -2921,8 +3338,9 @@ def test_policyengine_oracle_skips_unprojectable_legal_inputs(tmp_path):
     result = pipeline._run_policyengine(rules_file)
 
     assert ran_policyengine is False
-    assert result.passed is True
+    assert result.passed is False
     assert result.score is None
+    assert result.error == "PolicyEngine produced zero comparable oracle evidence"
     assert result.details["coverage"]["unsupported"] == 1
     assert any("unprojectable RuleSpec legal input" in issue for issue in result.issues)
 
@@ -4373,8 +4791,9 @@ def test_policyengine_oracle_has_no_issue_noise_for_unsupported_only(tmp_path):
     result = pipeline._run_policyengine(rules_file)
 
     assert result.score is None
-    assert result.passed is True
-    assert result.issues == []
+    assert result.passed is False
+    assert result.issues == ["PolicyEngine produced zero comparable oracle evidence"]
+    assert result.error == "PolicyEngine produced zero comparable oracle evidence"
     assert result.details["coverage"]["unsupported"] == 1
     assert result.details["coverage"]["unmapped"] == 0
 
@@ -4472,7 +4891,8 @@ def test_policyengine_oracle_rejects_untranslated_legal_facts(tmp_path):
     result = pipeline._run_policyengine(rules_file)
 
     assert result.score is None
-    assert result.passed is True
+    assert result.passed is False
+    assert result.error == "PolicyEngine produced zero comparable oracle evidence"
     assert result.details["coverage"]["unsupported"] == 1
     assert result.details["coverage"]["comparable"] == 0
     assert "unprojectable RuleSpec legal input" in result.issues[0]
@@ -5050,11 +5470,19 @@ def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):
 
 
 def test_policyengine_us_state_inference_uses_rulespec_repo_path(tmp_path):
-    rules_file = tmp_path / "rulespec-us-co" / "regulations" / "rules.yaml"
+    rules_file = (
+        _canonical_rulespec_content_root(tmp_path, "us-co")
+        / "regulations"
+        / "rules.yaml"
+    )
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("format: rulespec/v1\n")
 
     assert _infer_us_state_code_from_rulespec_path(rules_file) == "CO"
+    flat_file = tmp_path / "rulespec-us-ny" / "regulations" / "rules.yaml"
+    flat_file.parent.mkdir(parents=True)
+    flat_file.write_text("format: rulespec/v1\n")
+    assert _infer_us_state_code_from_rulespec_path(flat_file) is None
     assert (
         _infer_us_state_code_from_rulespec_path(
             tmp_path / "rules.yaml",
@@ -7809,85 +8237,7 @@ rules:
     assert "rules.standard_deduction_single.source_url" in issues[0]
 
 
-def test_rulespec_accepts_accepted_source_claim_reference(tmp_path, monkeypatch):
-    repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
-
-    _write_local_corpus_provision(
-        repo_parent,
-        "us/guidance/example/page-1",
-        "Table 1 sets the monthly maximum allotment for household size 1 at $298.",
-    )
-    _write_local_source_claim(
-        repo_parent,
-        {
-            "id": "claims:us/guidance/example/page-1#sets-maximum-allotment",
-            "kind": "sets",
-            "status": "accepted",
-            "subject": {
-                "type": "statutory_rule_slot",
-                "id": "us:statutes/7/2017/a#snap_allotment_before_minimum.input.snap_maximum_allotment",
-                "statutory_reference": "7 USC 2017(a)",
-                "corpus_citation_path": "us/statute/7/2017",
-            },
-            "object": {
-                "type": "parameter_table",
-                "unit": "USD",
-                "effective_from": "2025-10-01",
-                "effective_to": "2026-09-30",
-            },
-            "evidence": [
-                {
-                    "corpus_citation_path": "us/guidance/example/page-1",
-                    "quote": "Table 1 sets the monthly maximum allotment",
-                }
-            ],
-            "provenance": {"method": "manual"},
-        },
-    )
-
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/guidance/example/page-1
-  source_claims:
-    - claims:us/guidance/example/page-1#sets-maximum-allotment
-rules: []
-"""
-
-    assert find_source_claim_reference_issues(content) == []
-
-
-def test_rulespec_rejects_executable_or_unaccepted_source_claim(tmp_path, monkeypatch):
-    repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    monkeypatch.setattr(
-        validator_pipeline, "_fetch_corpus_source_text", lambda _citation: None
-    )
-
-    _write_local_source_claim(
-        repo_parent,
-        {
-            "id": "claims:us/guidance/example/page-1#sets-maximum-allotment",
-            "kind": "sets",
-            "status": "proposed",
-            "subject": {
-                "type": "statutory_rule_slot",
-                "id": "us:statutes/7/2017/a#snap_allotment_before_minimum.input.snap_maximum_allotment",
-                "statutory_reference": "7 USC 2017(a)",
-                "corpus_citation_path": "us/statute/7/2017",
-            },
-            "formula": "if household_size == 1: 298 else: 0",
-            "evidence": [
-                {"corpus_citation_path": "us/guidance/example/page-1"},
-            ],
-        },
-    )
-
+def test_rulespec_rejects_module_source_claims_hard_cut():
     content = """format: rulespec/v1
 module:
   source_verification:
@@ -7899,50 +8249,13 @@ rules: []
 
     issues = find_source_claim_reference_issues(content)
 
-    assert any("Source claim not accepted" in issue for issue in issues)
-    assert any("Source claim is executable" in issue for issue in issues)
+    assert len(issues) == 1
+    assert "`module.source_claims`" in issues[0]
+    assert "release-bound corpus provisions" in issues[0]
+    assert "proof atom `source`" in issues[0]
 
 
-def test_rulespec_rejects_source_claim_placeholder_subject(tmp_path, monkeypatch):
-    repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    monkeypatch.setattr(
-        validator_pipeline, "_fetch_corpus_source_text", lambda _citation: None
-    )
-
-    _write_local_source_claim(
-        repo_parent,
-        {
-            "id": "claims:us/guidance/example/page-1#sets-maximum-allotment",
-            "kind": "sets",
-            "status": "accepted",
-            "subject": {"type": "concept", "id": "snap.maximum_allotment"},
-            "evidence": [
-                {"corpus_citation_path": "us/guidance/example/page-1"},
-            ],
-        },
-    )
-
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/guidance/example/page-1
-  source_claims:
-    - claims:us/guidance/example/page-1#sets-maximum-allotment
-rules: []
-"""
-
-    issues = find_source_claim_reference_issues(content)
-
-    assert any("Source claim subject target invalid" in issue for issue in issues)
-    assert any(
-        "Source claim subject placeholder not allowed" in issue for issue in issues
-    )
-
-
-def test_rulespec_proof_validator_accepts_direct_source_and_claim_atom():
+def test_rulespec_rejects_claim_proof_atom_hard_cut():
     content = """format: rulespec/v1
 module:
   proof_validation:
@@ -7952,8 +8265,6 @@ module:
     values:
       snap_maximum_allotment_table:
         1: 298
-  source_claims:
-    - claims:us/guidance/example/page-1#sets-maximum-allotment
 rules:
   - name: snap_maximum_allotment_table
     kind: parameter
@@ -7982,6 +8293,52 @@ rules:
 
     result = validate_rulespec_proofs(content)
 
+    assert result.passed is False
+    assert any(
+        "Proof claim references are not supported" in issue for issue in result.issues
+    )
+    assert any("proof atom 0" in issue for issue in result.issues)
+    assert any("release-bound corpus provision" in issue for issue in result.issues)
+    assert any("proof atom `source`" in issue for issue in result.issues)
+
+
+def test_rulespec_proof_validator_accepts_direct_release_bound_source_atom():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/example/page-1
+    values:
+      snap_maximum_allotment_table:
+        1: 298
+rules:
+  - name: snap_maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              corpus_citation_path: us/guidance/example/page-1
+              value_key: snap_maximum_allotment_table
+              table:
+                header: Maximum Allotment
+                row_key: household_size
+                column_key: amount
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+"""
+
+    result = validate_rulespec_proofs(content)
+
+    assert find_source_claim_reference_issues(content) == []
     assert result.passed is True
     assert result.proof_required is True
     assert result.atoms_checked == 1
@@ -8060,8 +8417,7 @@ module:
   proof_validation:
     required: true
   source_verification:
-    corpus_citation_paths:
-      - be/x/block-1
+    corpus_citation_path: be/statute/x/block-1
 rules:
   - name: brussels_entry_into_service_tax_amount_by_band
     kind: parameter
@@ -8074,7 +8430,7 @@ rules:
           - path: {atom_path}
             kind: parameter_table
             source:
-              corpus_citation_path: be/x/block-1
+              corpus_citation_path: be/statute/x/block-1
               span: "78,88 EUR"
     versions:
       - effective_from: '2026-07-01'
@@ -8149,128 +8505,13 @@ def test_proof_atom_anchor_on_missing_version_index_fails():
     )
 
 
-def test_rulespec_proof_validator_checks_declared_source_claim_records(
-    tmp_path, monkeypatch
-):
-    repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
-
-    _write_local_corpus_provision(
-        repo_parent,
-        "us/guidance/example/page-1",
-        "Table 1 sets the monthly maximum allotment for household size 1 at $298.",
-    )
-    _write_local_source_claim(
-        repo_parent,
-        {
-            "id": "claims:us/guidance/example/page-1#sets-maximum-allotment",
-            "kind": "sets",
-            "status": "accepted",
-            "subject": {
-                "type": "statutory_rule_slot",
-                "id": "us:statutes/7/2017/a#snap_allotment_before_minimum.input.snap_maximum_allotment",
-            },
-            "evidence": [
-                {
-                    "corpus_citation_path": "us/guidance/example/page-1",
-                    "quote": "Table 1 sets the monthly maximum allotment",
-                }
-            ],
-        },
-    )
-
+def test_rulespec_proof_validator_rejects_missing_and_malformed_proofs():
     content = """format: rulespec/v1
 module:
   proof_validation:
     required: true
   source_verification:
     corpus_citation_path: us/guidance/example/page-1
-    values:
-      snap_maximum_allotment_table:
-        1: 298
-  source_claims:
-    - claims:us/guidance/example/page-1#sets-maximum-allotment
-rules:
-  - name: snap_maximum_allotment_table
-    kind: parameter
-    dtype: Money
-    unit: USD
-    indexed_by: household_size
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].values
-            kind: parameter_table
-            source:
-              corpus_citation_path: us/guidance/example/page-1
-              value_key: snap_maximum_allotment_table
-              table:
-                header: Maximum Allotment
-                row_key: household_size
-                column_key: amount
-            claim:
-              id: claims:us/guidance/example/page-1#sets-maximum-allotment
-    versions:
-      - effective_from: '2025-10-01'
-        values:
-          1: 298
-"""
-
-    result = validate_rulespec_proofs(content, validate_claim_records=True)
-
-    assert result.passed is True
-    assert result.issues == []
-
-
-def test_rulespec_proof_validator_rejects_missing_source_claim_record():
-    content = """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/guidance/example/page-1
-    values:
-      source_amount: 298
-  source_claims:
-    - claims:us/guidance/example/page-1#missing
-rules:
-  - name: amount
-    kind: parameter
-    dtype: Money
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: amount
-            source:
-              corpus_citation_path: us/guidance/example/page-1
-              value_key: source_amount
-            claim:
-              id: claims:us/guidance/example/page-1#missing
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '298'
-"""
-
-    result = validate_rulespec_proofs(content, validate_claim_records=True)
-
-    assert result.passed is False
-    assert any("Source claim missing" in issue for issue in result.issues)
-
-
-def test_rulespec_proof_validator_rejects_missing_and_unscoped_proofs():
-    content = """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/guidance/example/page-1
-    values:
-      source_amount: 298
-  source_claims:
-    - claims:us/guidance/example/page-1#sets-amount
 rules:
   - name: missing_proof_amount
     kind: parameter
@@ -8292,8 +8533,6 @@ rules:
               table:
                 header: Amount table
                 row: household size 1
-            claim:
-              id: claims:us/guidance/example/page-1#sets-other-amount
           - path: versions[0].formula
             kind: import
             import:
@@ -8308,15 +8547,50 @@ rules:
     issues = find_rulespec_proof_issues(content)
 
     assert any("Proof missing" in issue for issue in issues)
-    assert any("Proof source outside RuleSpec source" in issue for issue in issues)
-    assert any("Proof source value key missing" in issue for issue in issues)
     assert any("Proof table cell provenance incomplete" in issue for issue in issues)
-    assert any("Proof claim outside declared claims" in issue for issue in issues)
     assert any("Proof import hash invalid" in issue for issue in issues)
 
 
+def test_proof_atom_can_cite_release_bound_secondary_source():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/example/primary
+rules:
+  - name: independently_supported_amount
+    kind: parameter
+    dtype: Money
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us/regulation/example/secondary
+              excerpt: The independently supported amount is 298.
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '298'
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={
+            "us/statute/example/primary": "Primary module authority.",
+            "us/regulation/example/secondary": (
+                "The independently supported amount is 298."
+            ),
+        },
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
 def test_proof_import_hash_consistency_rejects_same_file_content_hash(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes/26/22.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -8351,7 +8625,7 @@ rules:
 
 
 def test_proof_import_hash_consistency_accepts_same_file_local_hash(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes/26/22.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -8386,10 +8660,10 @@ rules:
     )
 
 
-def test_proof_import_hash_consistency_accepts_generated_same_target_local_hash(
+def test_proof_import_hash_consistency_rejects_outside_checkout_local_hash(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     repo_file = repo / "statutes/26/22.yaml"
     generated_file = tmp_path / "generated/openai/statutes/26/22.yaml"
     repo_file.parent.mkdir(parents=True)
@@ -8417,18 +8691,19 @@ rules:
 """
     generated_file.write_text(content)
 
-    assert (
-        find_proof_import_hash_consistency_issues(
-            content,
-            rules_file=generated_file,
-            policy_repo_path=repo,
-        )
-        == []
+    issues = find_proof_import_hash_consistency_issues(
+        content,
+        rules_file=generated_file,
+        policy_repo_path=repo,
     )
+
+    expected_hash = hashlib.sha256(repo_file.read_bytes()).hexdigest()
+    assert len(issues) == 1
+    assert f"expected `sha256:{expected_hash}`" in issues[0]
 
 
 def test_proof_import_hash_consistency_accepts_external_file_hash(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     current_file = repo / "statutes/26/22.yaml"
     target_file = repo / "statutes/26/1.yaml"
     current_file.parent.mkdir(parents=True)
@@ -8468,7 +8743,7 @@ rules:
 
 
 def test_proof_import_hash_consistency_rejects_external_file_hash_mismatch(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     current_file = repo / "statutes/26/22.yaml"
     target_file = repo / "statutes/26/1.yaml"
     current_file.parent.mkdir(parents=True)
@@ -10630,7 +10905,7 @@ rules:
 
 
 def test_parent_exception_list_requires_child_exception_imports(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
     child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B" / "ii" / "I.yaml"
     child_file.parent.mkdir(parents=True)
@@ -10686,7 +10961,7 @@ rules:
 
 
 def test_parent_exception_list_allows_child_exception_imports(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
     child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B" / "ii" / "I.yaml"
     child_file.parent.mkdir(parents=True)
@@ -11647,6 +11922,11 @@ rules:
 def test_same_section_exception_reference_allows_deferred_output_dependency(
     tmp_path,
 ):
+    release = _write_local_corpus_provision(
+        tmp_path,
+        "us/statute/42/1396a/f",
+        "Except as provided in subsection (e), no 209(b) State is required to provide medical assistance.",
+    )
     repo = tmp_path / "rulespec-us"
     cited_file = repo / "statutes" / "42" / "1396a" / "e.yaml"
     cited_file.parent.mkdir(parents=True)
@@ -11677,17 +11957,22 @@ rules:
 """
     )
 
-    assert (
-        find_missing_same_section_subsection_import_issues(
+    with validator_pipeline._authoritative_corpus_scope(release):
+        issues = find_missing_same_section_subsection_import_issues(
             rules_file.read_text(),
             rules_file=rules_file,
             policy_repo_path=repo,
         )
-        == []
-    )
+
+    assert issues == []
 
 
 def test_same_section_subject_to_reference_allows_pre_limit_output(tmp_path):
+    release = _write_local_corpus_provision(
+        tmp_path,
+        "us/statute/26/3121/i",
+        "Uniformed-services remuneration includes basic pay, subject to subsection (a)(1).",
+    )
     repo = tmp_path / "rulespec-us"
     cited_file = repo / "statutes" / "26" / "3121" / "a" / "1.yaml"
     cited_file.parent.mkdir(parents=True)
@@ -11715,14 +12000,14 @@ rules:
 """
     )
 
-    assert (
-        find_missing_same_section_subsection_import_issues(
+    with validator_pipeline._authoritative_corpus_scope(release):
+        issues = find_missing_same_section_subsection_import_issues(
             rules_file.read_text(),
             rules_file=rules_file,
             policy_repo_path=repo,
         )
-        == []
-    )
+
+    assert issues == []
 
 
 def test_same_section_reference_allows_empty_deferred_fallback(tmp_path):
@@ -11817,13 +12102,10 @@ rules:
 
 
 def test_same_section_import_check_ignores_broad_parent_source_for_child_file(
-    monkeypatch,
     tmp_path,
 ):
     repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
-    _write_local_corpus_provision(
+    release = _write_local_corpus_provision(
         repo_parent,
         "us-co/statute/39/39-22-104",
         "(1.5) Subject to subsection (2), income is taxed.\n\n"
@@ -11857,14 +12139,14 @@ rules:
 """
     )
 
-    assert (
-        find_missing_same_section_subsection_import_issues(
+    with validator_pipeline._authoritative_corpus_scope(release):
+        issues = find_missing_same_section_subsection_import_issues(
             rules_file.read_text(),
             rules_file=rules_file,
             policy_repo_path=repo,
         )
-        == []
-    )
+
+    assert issues == []
 
 
 def test_regulation_subject_to_paragraph_reference_requires_import(tmp_path):
@@ -12087,12 +12369,9 @@ rules:
 
 
 def test_same_section_import_check_slices_compact_cfr_parent_source(
-    monkeypatch,
     tmp_path,
 ):
     repo_parent = tmp_path / "repos"
-    corpus_repo = repo_parent / "axiom-corpus"
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus_repo))
     source = (
         "(a)(1) This section only applies to MAGI-excepted individuals.\n\n"
         "(2) Basic requirements. Subject to the provisions of paragraphs (b) "
@@ -12104,7 +12383,7 @@ def test_same_section_import_check_slices_compact_cfr_parent_source(
         "(c) Use of less restrictive methodologies. The agency may apply less "
         "restrictive methodologies."
     )
-    _write_local_corpus_provision(
+    release = _write_local_corpus_provision(
         repo_parent,
         "us/regulation/42/435/602",
         source,
@@ -12129,20 +12408,19 @@ rules: []
     paragraph_one_file.parent.mkdir(parents=True, exist_ok=True)
     paragraph_one_file.write_text(paragraph_one)
 
-    paragraph_one_source = validator_pipeline._extract_source_verification_text(
-        paragraph_one
-    )
-    assert paragraph_one_source == (
-        "(1) This section only applies to MAGI-excepted individuals."
-    )
-    assert (
-        find_missing_same_section_subsection_import_issues(
+    with validator_pipeline._authoritative_corpus_scope(release):
+        paragraph_one_source = validator_pipeline._extract_source_verification_text(
+            paragraph_one
+        )
+        paragraph_one_issues = find_missing_same_section_subsection_import_issues(
             paragraph_one,
             rules_file=paragraph_one_file,
             policy_repo_path=repo,
         )
-        == []
+    assert paragraph_one_source == (
+        "(1) This section only applies to MAGI-excepted individuals."
     )
+    assert paragraph_one_issues == []
 
     basic_requirements = """format: rulespec/v1
 module:
@@ -12156,16 +12434,17 @@ rules: []
     basic_requirements_file.parent.mkdir(parents=True, exist_ok=True)
     basic_requirements_file.write_text(basic_requirements)
 
-    basic_source = validator_pipeline._extract_source_verification_text(
-        basic_requirements
-    )
+    with validator_pipeline._authoritative_corpus_scope(release):
+        basic_source = validator_pipeline._extract_source_verification_text(
+            basic_requirements
+        )
+        issues = find_missing_same_section_subsection_import_issues(
+            basic_requirements,
+            rules_file=basic_requirements_file,
+            policy_repo_path=repo,
+        )
     assert basic_source.startswith("(2) Basic requirements.")
     assert "paragraphs (b) and (c)" in basic_source
-    issues = find_missing_same_section_subsection_import_issues(
-        basic_requirements,
-        rules_file=basic_requirements_file,
-        policy_repo_path=repo,
-    )
     assert len(issues) == 2
     assert any("regulations/42-cfr/435/602/b" in issue for issue in issues)
     assert any("regulations/42-cfr/435/602/c" in issue for issue in issues)
@@ -12182,17 +12461,16 @@ rules: []
     clause_i_file.parent.mkdir(parents=True, exist_ok=True)
     clause_i_file.write_text(clause_i)
 
-    clause_i_source = validator_pipeline._extract_source_verification_text(clause_i)
-    assert clause_i_source.startswith("(i) Except for a spouse")
-    assert "paragraphs (b)" not in clause_i_source
-    assert (
-        find_missing_same_section_subsection_import_issues(
+    with validator_pipeline._authoritative_corpus_scope(release):
+        clause_i_source = validator_pipeline._extract_source_verification_text(clause_i)
+        clause_i_issues = find_missing_same_section_subsection_import_issues(
             clause_i,
             rules_file=clause_i_file,
             policy_repo_path=repo,
         )
-        == []
-    )
+    assert clause_i_source.startswith("(i) Except for a spouse")
+    assert "paragraphs (b)" not in clause_i_source
+    assert clause_i_issues == []
 
 
 def test_regulation_subject_to_paragraph_reference_rejects_unused_symbol_import(
@@ -12579,7 +12857,7 @@ rules:
 
 
 def test_child_fragment_reencoding_rejects_parent_copying_child_inputs(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
     child = repo / "statutes" / "26" / "63" / "c" / "5.yaml"
     child.parent.mkdir(parents=True)
@@ -12772,7 +13050,7 @@ rules:
 
 
 def test_child_fragment_reencoding_points_to_terminal_child_output(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "3101.yaml"
     child = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
     child.parent.mkdir(parents=True)
@@ -12838,7 +13116,7 @@ rules:
 
 
 def test_child_fragment_reencoding_partial_extent_guides_to_defer(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "3101.yaml"
     child = repo / "statutes" / "26" / "3101" / "a.yaml"
     child.parent.mkdir(parents=True)
@@ -12929,7 +13207,7 @@ rules:
 def test_child_fragment_reencoding_rejects_parent_copying_child_numeric_output(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = tmp_path / "rulespec-us" / "us"
     rules_file = repo / "statutes" / "26" / "24.yaml"
     child = repo / "statutes" / "26" / "24" / "h.yaml"
     child.parent.mkdir(parents=True)
@@ -13033,7 +13311,7 @@ rules:
 
 
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
     imported_file = repo / "statutes" / "7" / "2015" / "b.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13083,7 +13361,7 @@ rules:
 def test_cross_reference_placeholder_rejects_covering_import_without_export(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "63.yaml"
     imported_file = repo / "statutes" / "26" / "163" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13140,7 +13418,7 @@ rules:
 def test_cross_reference_placeholder_allows_deeper_import_for_semantic_tail(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "1411.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -13176,7 +13454,7 @@ rules:
 
 
 def test_cross_reference_placeholder_allows_relation_field_import(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "151.yaml"
     imported_file = repo / "statutes" / "26" / "911" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13237,7 +13515,7 @@ rules:
 def test_encoded_cross_reference_placeholder_rejects_under_section_input_when_source_exists(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "1222.yaml"
     imported_file = repo / "statutes" / "26" / "1211.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13290,7 +13568,7 @@ rules:
 def test_encoded_cross_reference_placeholder_rejects_provided_in_section_input_when_source_exists(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "63.yaml"
     imported_file = repo / "statutes" / "26" / "170" / "p.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13344,7 +13622,7 @@ rules:
 def test_encoded_cross_reference_placeholder_rejects_in_effect_under_section_input_when_source_exists(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "151.yaml"
     imported_file = repo / "statutes" / "26" / "68" / "b.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13396,7 +13674,7 @@ rules:
 def test_cross_reference_numeric_placeholder_rejects_locally_supplied_rates(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "3201.yaml"
     imported_file = repo / "statutes" / "26" / "3101.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13465,7 +13743,7 @@ rules:
 
 
 def test_flattened_thresholded_imported_rate_is_rejected(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
     rules_file = repo / "statutes" / "26" / "3201.yaml"
     imported_file.parent.mkdir(parents=True)
@@ -13526,7 +13804,7 @@ rules:
 
 
 def test_flattened_thresholded_imported_rate_ignores_rate_substring(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "42" / "1396a" / "xx.yaml"
     rules_file = repo / "statutes" / "42" / "1396a" / "a" / "10.yaml"
     imported_file.parent.mkdir(parents=True)
@@ -13573,7 +13851,7 @@ rules:
 
 
 def test_thresholded_imported_rate_allows_excess_amount_formula(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
     rules_file = repo / "statutes" / "26" / "3201.yaml"
     imported_file.parent.mkdir(parents=True)
@@ -13620,7 +13898,7 @@ rules:
 
 
 def test_thresholded_imported_rate_allows_source_stated_composite_rate(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "26" / "1401.yaml"
     rules_file = repo / "statutes" / "26" / "1402" / "a" / "12.yaml"
     imported_file.parent.mkdir(parents=True)
@@ -13682,7 +13960,7 @@ rules:
 
 
 def test_cross_reference_base_mechanics_raw_compensation_tax_is_rejected(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "3201.yaml"
     rules_file.parent.mkdir(parents=True, exist_ok=True)
     rules_file.write_text(
@@ -13725,7 +14003,7 @@ rules:
 
 
 def test_cross_reference_base_mechanics_allows_cited_base_formula(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "3201.yaml"
     rules_file.parent.mkdir(parents=True, exist_ok=True)
     rules_file.write_text(
@@ -13765,7 +14043,7 @@ rules:
 def test_cross_reference_numeric_placeholder_does_not_infer_named_act_title(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "3121" / "b" / "7.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -13803,7 +14081,7 @@ rules:
 def test_cross_reference_numeric_placeholder_accepts_top_level_import_sequence(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "3211.yaml"
     imported_file = repo / "statutes" / "26" / "3241" / "b.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13857,7 +14135,7 @@ rules:
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "1222.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -13890,7 +14168,7 @@ rules:
 def test_encoded_cross_reference_placeholder_rejects_missing_definition_dependency(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "45A" / "e.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -13925,7 +14203,7 @@ rules:
 
 
 def test_encoded_cross_reference_placeholder_allows_covering_import(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "1222.yaml"
     imported_file = repo / "statutes" / "26" / "1211.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -13975,7 +14253,7 @@ rules:
 def test_encoded_cross_reference_placeholder_allows_local_helper_using_import(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes" / "26" / "32" / "c" / "2.yaml"
     imported_file = repo / "statutes" / "26" / "112.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -14061,10 +14339,31 @@ def _write_rulespec_file(path: Path, content: str) -> Path:
     return path
 
 
+def test_upstream_executable_index_ignores_composition_specs(tmp_path):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    _write_rulespec_file(
+        repo / "programs" / "snap" / "fy-2026.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+""",
+    )
+
+    assert validator_pipeline._rulespec_executable_index_for_roots((str(repo),)) == ()
+
+
 def test_upstream_placement_flags_duplicate_upstream_executable_rule(tmp_path):
     repo_parent = tmp_path / "repos"
+    federal_repo = _canonical_rulespec_content_root(repo_parent, "us")
     _write_rulespec_file(
-        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
+        federal_repo / "policies/example/fy-2026.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -14076,8 +14375,9 @@ rules:
         formula: '500'
 """,
     )
+    state_repo = _canonical_rulespec_content_root(repo_parent, "us-co")
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
+        state_repo / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -14093,6 +14393,7 @@ rules:
     issues = find_upstream_placement_issues(
         rules_file.read_text(encoding="utf-8"),
         rules_file=rules_file,
+        rulespec_dependency_roots=(federal_repo.parent,),
     )
 
     assert len(issues) == 1
@@ -14102,8 +14403,9 @@ rules:
 
 def test_upstream_placement_allows_subsection_extraction_from_ancestor(tmp_path):
     repo_parent = tmp_path / "repos"
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us")
     _write_rulespec_file(
-        repo_parent / "rulespec-us" / "statutes/26/151.yaml",
+        policy_repo / "statutes/26/151.yaml",
         """format: rulespec/v1
 rules:
   - name: exemption_amount
@@ -14116,7 +14418,7 @@ rules:
 """,
     )
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us" / "statutes/26/151/d.yaml",
+        policy_repo / "statutes/26/151/d.yaml",
         """format: rulespec/v1
 rules:
   - name: exemption_amount
@@ -14139,8 +14441,9 @@ rules:
 
 def test_upstream_placement_rejects_ancestor_after_subsection_extraction(tmp_path):
     repo_parent = tmp_path / "repos"
+    policy_repo = _canonical_rulespec_content_root(repo_parent, "us")
     _write_rulespec_file(
-        repo_parent / "rulespec-us" / "statutes/26/151/d.yaml",
+        policy_repo / "statutes/26/151/d.yaml",
         """format: rulespec/v1
 rules:
   - name: exemption_amount
@@ -14153,7 +14456,7 @@ rules:
 """,
     )
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us" / "statutes/26/151.yaml",
+        policy_repo / "statutes/26/151.yaml",
         """format: rulespec/v1
 rules:
   - name: exemption_amount
@@ -14176,12 +14479,32 @@ rules:
     assert "us:statutes/26/151/d#exemption_amount" in issues[0]
 
 
-def test_upstream_placement_target_identity_matches_country_monorepo_alias():
-    assert validator_pipeline._rulespec_targets_are_equivalent(
+def test_upstream_placement_target_identity_rejects_legacy_checkout_alias():
+    assert (
+        validator_pipeline._parse_rulespec_target(
+            "us:rulespec-us/us-co/regulations/10-ccr-2506-1/4.130.1#snap_limit"
+        )
+        is None
+    )
+    for malformed in (
+        "us:/regulations/10-ccr-2506-1/4.130.1#snap_limit",
+        "us:regulations/10-ccr-2506-1/4.130.1/#snap_limit",
+        "us:regulations//10-ccr-2506-1/4.130.1#snap_limit",
+    ):
+        assert validator_pipeline._parse_rulespec_target(malformed) is None
+        assert not validator_pipeline._rulespec_targets_are_equivalent(
+            malformed,
+            "us:regulations/10-ccr-2506-1/4.130.1#snap_limit",
+        )
+        assert not validator_pipeline._rulespec_target_is_descendant_of(
+            f"{malformed.rsplit('#', 1)[0]}/child#snap_limit",
+            "us:regulations/10-ccr-2506-1/4.130.1#snap_limit",
+        )
+    assert not validator_pipeline._rulespec_targets_are_equivalent(
         "us-co:regulations/10-ccr-2506-1/4.130.1#snap_limit",
         "us:rulespec-us/us-co/regulations/10-ccr-2506-1/4.130.1#snap_limit",
     )
-    assert validator_pipeline._rulespec_target_is_descendant_of(
+    assert not validator_pipeline._rulespec_target_is_descendant_of(
         "us-co:regulations/10-ccr-2506-1/4.130.1/a#snap_limit",
         "us:rulespec-us/us-co/regulations/10-ccr-2506-1/4.130.1#snap_limit",
     )
@@ -14191,10 +14514,22 @@ def test_upstream_placement_target_identity_matches_country_monorepo_alias():
     )
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "programs/snap/fy-2026#snap_eligible",
+        "us:programs/snap/fy-2026#snap_eligible",
+    ],
+)
+def test_rulespec_target_parser_rejects_composition_specs(target):
+    assert validator_pipeline._parse_rulespec_target(target) is None
+
+
 def test_upstream_placement_allows_distinct_local_rule_with_same_name(tmp_path):
     repo_parent = tmp_path / "repos"
+    federal_root = _canonical_rulespec_content_root(repo_parent, "us")
     _write_rulespec_file(
-        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
+        federal_root / "policies/example/fy-2026.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -14206,8 +14541,9 @@ rules:
         formula: '500'
 """,
     )
+    state_root = _canonical_rulespec_content_root(repo_parent, "us-co")
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
+        state_root / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -14231,6 +14567,7 @@ rules:
 
 def test_upstream_placement_ignores_nested_axiom_dependency_checkout(tmp_path):
     repo_parent = tmp_path / "repos"
+    policy_root = _canonical_rulespec_content_root(repo_parent, "us")
     canonical_content = """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -14242,15 +14579,11 @@ rules:
         formula: '500'
 """
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
+        policy_root / "policies/example/fy-2026.yaml",
         canonical_content,
     )
     _write_rulespec_file(
-        repo_parent
-        / "rulespec-us"
-        / "_axiom"
-        / "rulespec-us"
-        / "policies/example/fy-2026.yaml",
+        policy_root / "_axiom" / "rulespec-us" / "us" / "policies/example/fy-2026.yaml",
         canonical_content,
     )
 
@@ -14297,6 +14630,7 @@ rules:
     )
     _write_rulespec_file(
         checkout
+        / "us-de"
         / "_axiom"
         / "rulespec-us"
         / "us-dc"
@@ -14315,8 +14649,9 @@ rules:
 
 def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
     repo_parent = tmp_path / "repos"
+    new_york_root = _canonical_rulespec_content_root(repo_parent, "us-ny")
     _write_rulespec_file(
-        repo_parent / "rulespec-us-ny" / "regulations/example/benefit.yaml",
+        new_york_root / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: state_allowance
@@ -14328,8 +14663,9 @@ rules:
         formula: '451'
 """,
     )
+    colorado_root = _canonical_rulespec_content_root(repo_parent, "us-co")
     rules_file = _write_rulespec_file(
-        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
+        colorado_root / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: state_allowance
@@ -14819,36 +15155,24 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
     ]
 
 
-def test_rulespec_ci_executes_companion_test_outputs(tmp_path, monkeypatch):
+def test_rulespec_ci_executes_companion_test_outputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
     citation_path = "us/guidance/example/sua"
-    _write_local_corpus_provision(
+    release = _write_local_corpus_provision(
         tmp_path,
         citation_path,
         body="The standard utility allowance is $451.",
     )
-    monkeypatch.setenv(
-        "AXIOM_CORPUS_ARTIFACT_ROOT",
-        str(tmp_path / "axiom-corpus" / "data" / "corpus"),
-    )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
   summary: The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on companion test
-        output behavior rather than source hierarchy validation.
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter
@@ -14873,14 +15197,16 @@ rules:
   period: 2024-01
   input: {}
   output:
-    snap_standard_utility_allowance: 452
+    us:policies/example/rules#snap_standard_utility_allowance: 452
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        local_corpus_release=release,
+        enforce_repository_layout=False,
     )
     result = pipeline._run_ci(rules_file)
 
@@ -14894,7 +15220,7 @@ rules:
 
 def test_rulespec_output_lookup_rejects_friendly_name_aliases(tmp_path):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -14918,7 +15244,7 @@ def test_rulespec_output_lookup_rejects_friendly_name_aliases(tmp_path):
 
 def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=tmp_path / "missing-rules-engine",
         enable_oracles=False,
     )
@@ -14973,7 +15299,7 @@ def test_rulespec_ci_allows_scalar_parameters_with_entity_outputs(
     tmp_path, monkeypatch
 ):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=tmp_path / "missing-rules-engine",
         enable_oracles=False,
     )
@@ -15059,7 +15385,7 @@ def test_rulespec_ci_allows_absolute_outputs_for_generated_local_names(
     tmp_path, monkeypatch
 ):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=tmp_path / "missing-rules-engine",
         enable_oracles=False,
     )
@@ -15135,7 +15461,7 @@ def test_rulespec_ci_allows_absolute_outputs_for_generated_local_names(
 
 
 def test_rulespec_dataset_uses_local_input_names_for_generated_artifacts(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes/26/63/f.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -15177,7 +15503,7 @@ rules:
 
 
 def test_rulespec_dataset_preserves_legal_input_names_for_repo_artifacts(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "statutes/26/63/f.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -15220,7 +15546,7 @@ rules:
 
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=tmp_path / "missing-rules-engine",
         enable_oracles=False,
     )
@@ -15269,12 +15595,16 @@ def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
   summary: Household size is the number of household members.
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: household_size
     kind: derived
     entity: Household
@@ -15289,18 +15619,19 @@ rules:
         """- name: two_members
   period: 2024-01
   input:
-    member_of_household:
+    us:policies/example/rules#relation.member_of_household:
       - {}
       - {}
   output:
-    household_size: 2
+    us:policies/example/rules#household_size: 2
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -15310,7 +15641,7 @@ def test_rulespec_ci_executes_table_entity_list_outputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -15334,21 +15665,22 @@ rules:
     end: '2026-12-31'
   tables:
     Payment:
-      - payment_amount: 100
-        excluded_amount: 40
-      - payment_amount: 20
-        excluded_amount: 50
+      - us:policies/example/rules#input.payment_amount: 100
+        us:policies/example/rules#input.excluded_amount: 40
+      - us:policies/example/rules#input.payment_amount: 20
+        us:policies/example/rules#input.excluded_amount: 50
   output:
-    net_payment:
+    us:policies/example/rules#net_payment:
       - 60
       - -30
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -15362,21 +15694,13 @@ def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
         monkeypatch, "The official source states the policy rate is 0.2."
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
   summary: The policy rate is 0.2.
   source_verification:
     corpus_citation_path: us/guidance/example/rate
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on parameter-only
-        output comparison rather than source hierarchy validation.
 rules:
   - name: policy_rate
     kind: parameter
@@ -15394,14 +15718,15 @@ rules:
     end: 2025-04-05
   input: {}
   output:
-    policy_rate: 0.2
+    us:policies/example/rules#policy_rate: 0.2
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -15416,7 +15741,7 @@ def test_rulespec_ci_executes_indexed_parameter_table_lookup(tmp_path, monkeypat
         "The official source lists $298 and $546 for sizes 1 and 2, plus $218.",
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -15425,14 +15750,6 @@ module:
     plus 218 for each additional person.
   source_verification:
     corpus_citation_path: us/guidance/example/allotments
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on indexed table
-        execution rather than source hierarchy validation.
 rules:
   - name: benefit_amount_table
     kind: parameter
@@ -15469,16 +15786,17 @@ rules:
         """- name: third_household_member_uses_additional_member_amount
   period: 2026-01
   input:
-    household_size: 3
+    us:policies/example/rules#input.household_size: 3
   output:
-    max_allotment: 764
+    us:policies/example/rules#max_allotment: 764
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -15493,21 +15811,13 @@ def test_rulespec_ci_compares_indexed_parameter_outputs(tmp_path, monkeypatch):
         "The official source lists $298 and $546 for household sizes 1 and 2.",
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
   summary: The maximum monthly allotments are 298 and 546.
   source_verification:
     corpus_citation_path: us/guidance/example/allotments
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on indexed
-        parameter output comparison rather than source hierarchy validation.
 rules:
   - name: benefit_amount_table
     kind: parameter
@@ -15525,23 +15835,24 @@ rules:
         """- name: second_household_member_table_value
   period: 2026-01
   input:
-    household_size: 2
+    us:policies/example/rules#input.household_size: 2
   output:
-    benefit_amount_table: 546
+    us:policies/example/rules#benefit_amount_table: 546
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
 
 
 def test_rulespec_legal_input_reference_accepts_parameter_index_slot(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "policies" / "irs" / "brackets.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -15574,7 +15885,7 @@ def test_rulespec_test_reference_prefers_current_repo_over_stale_env_root(
     monkeypatch,
     tmp_path,
 ):
-    stale_repo = tmp_path / "canonical" / "rulespec-us"
+    stale_repo = _canonical_rulespec_content_root(tmp_path / "canonical", "us")
     stale_file = stale_repo / "regulations" / "7-cfr" / "273" / "10.yaml"
     stale_file.parent.mkdir(parents=True)
     stale_file.write_text(
@@ -15591,7 +15902,7 @@ rules:
 """
     )
 
-    current_repo = tmp_path / "workspace" / "rulespec-us"
+    current_repo = _canonical_rulespec_content_root(tmp_path / "workspace", "us")
     current_file = current_repo / "regulations" / "7-cfr" / "273" / "10.yaml"
     current_file.parent.mkdir(parents=True)
     current_file.write_text(
@@ -15608,7 +15919,7 @@ rules:
           if household_size <= 2: snap_minimum_benefit else: snap_net_income
 """
     )
-    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo.parent))
 
     issue = validator_pipeline._rulespec_absolute_test_reference_issue(
         "us:regulations/7-cfr/273/10#input.household_size",
@@ -15626,7 +15937,7 @@ def test_rulespec_reference_summary_cache_reuses_unchanged_file(
     monkeypatch,
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = repo / "regulations" / "7-cfr" / "273" / "10.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -15697,7 +16008,7 @@ def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -15729,7 +16040,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -15746,7 +16057,7 @@ def test_rulespec_ci_rejects_parameter_values_without_indexed_by(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 rules:
@@ -15770,7 +16081,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -17460,11 +17771,10 @@ rules:
 
 def test_source_verification_reads_local_corpus_artifact(
     tmp_path,
-    monkeypatch,
 ):
-    provisions_dir = tmp_path / "provisions" / "us" / "guidance"
+    provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us" / "guidance"
     provisions_dir.mkdir(parents=True)
-    (provisions_dir / "test-source.jsonl").write_text(
+    (provisions_dir / f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         json.dumps(
             _active_corpus_record(
                 "us/guidance/example/page-1",
@@ -17475,12 +17785,10 @@ def test_source_verification_reads_local_corpus_artifact(
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         tmp_path,
-        jurisdiction="us",
-        document_class="guidance",
+        ("us", "guidance", TEST_CORPUS_VERSION),
     )
-    monkeypatch.setenv("AXIOM_CORPUS_ARTIFACT_ROOT", str(tmp_path))
 
     content = """format: rulespec/v1
 module:
@@ -17498,140 +17806,74 @@ rules:
         formula: '123'
 """
 
-    assert find_source_verification_issues(content) == []
-    assert find_ungrounded_numeric_issues(content) == []
+    with validator_pipeline._authoritative_corpus_scope(release):
+        assert find_source_verification_issues(content) == []
+        assert find_ungrounded_numeric_issues(content) == []
 
 
-def test_production_validation_requires_current_release_selector(
-    tmp_path,
-    monkeypatch,
-):
-    provisions = tmp_path / "provisions" / "us" / "guidance"
-    provisions.mkdir(parents=True)
-    provisions.joinpath("legacy.jsonl").write_text(
-        json.dumps(
-            {
-                "citation_path": "us/guidance/example/page-1",
-                "body": "Legacy unversioned source.",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("AXIOM_CORPUS_ARTIFACT_ROOT", str(tmp_path))
-
-    with pytest.raises(InvalidReleaseSelectorError, match="Release selector not found"):
+def test_source_resolution_requires_bound_local_release():
+    with pytest.raises(
+        validator_pipeline.CorpusResolutionError,
+        match="requires a bound LocalCorpusRelease",
+    ):
         validator_pipeline._fetch_local_corpus_source_text("us/guidance/example/page-1")
 
-    assert (
-        validator_pipeline._fetch_local_corpus_source_text(
-            "us/guidance/example/page-1",
-            require_release=False,
-        )
-        == "Legacy unversioned source."
-    )
+
+def test_authoritative_scope_rejects_unbound_root(tmp_path):
+    with pytest.raises(TypeError, match="validated LocalCorpusRelease"):
+        with validator_pipeline._authoritative_corpus_scope(tmp_path):  # type: ignore[arg-type]
+            pass
 
 
-def test_authoritative_validation_surfaces_malformed_corpus_layout(tmp_path):
-    with validator_pipeline._authoritative_corpus_scope(tmp_path):
-        with pytest.raises(CorpusLayoutError, match="No provisions directory"):
-            validator_pipeline._fetch_local_corpus_source_text(
-                "us/guidance/example/page-1"
-            )
-
-
-def test_local_only_pipeline_uses_only_explicit_corpus_and_never_supabase(
+def test_pipeline_uses_only_explicit_corpus_and_never_supabase(
     tmp_path,
     monkeypatch,
 ):
     explicit_corpus = tmp_path / "explicit-corpus"
-    explicit_claims = explicit_corpus / "data/corpus/claims/us"
-    explicit_claims.mkdir(parents=True)
-    explicit_claims.joinpath("claims.jsonl").write_text(
-        json.dumps(
-            {
-                "id": "claim.local",
-                "status": "accepted",
-                "kind": "defines",
-                "subject": {"id": "us:statutes/1", "type": "legal"},
-                "evidence": [
-                    {
-                        "corpus_citation_path": "us/statute/1",
-                        "quote": "local quote",
-                    }
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     explicit_provisions = explicit_corpus / "data/corpus/provisions/us/statute"
     explicit_provisions.mkdir(parents=True)
-    explicit_provisions.joinpath("source.jsonl").write_text(
+    explicit_provisions.joinpath(f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         json.dumps(_active_corpus_record("us/statute/1", "local quote")) + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    explicit_release = _test_corpus_release(
         explicit_corpus,
-        jurisdiction="us",
-        document_class="statute",
+        ("us", "statute", TEST_CORPUS_VERSION),
     )
 
     workspace = tmp_path / "workspace"
-    ambient_claims = workspace / "axiom-corpus/data/corpus/claims/us"
-    ambient_claims.mkdir(parents=True)
-    ambient_claims.joinpath("claims.jsonl").write_text(
-        json.dumps(
-            {
-                "id": "claim.ambient",
-                "status": "accepted",
-                "kind": "defines",
-                "subject": {"id": "us:statutes/1", "type": "legal"},
-                "evidence": [],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     ambient_provisions = workspace / "axiom-corpus/data/corpus/provisions/us/statute"
     ambient_provisions.mkdir(parents=True)
     ambient_provisions.joinpath("source.jsonl").write_text(
-        json.dumps({"citation_path": "us/statute/1", "body": "local quote"}) + "\n",
+        json.dumps(_active_corpus_record("us/statute/2", "ambient quote")) + "\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(workspace)
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
 
-    def fail_remote(_citation_path):
-        raise AssertionError("local-only validation reached Supabase")
-
-    monkeypatch.setattr(
-        validator_pipeline,
-        "_fetch_supabase_corpus_source_text",
-        fail_remote,
-    )
     content = """format: rulespec/v1
 module:
-  source_claims:
-    - claim.local
   source_verification:
     corpus_citation_path: us/statute/1
 rules: []
 """
-    rules_file = tmp_path / "rulespec-us/statutes/1.yaml"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes/1.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(content)
     observed: dict[str, object] = {}
     pipeline = ValidatorPipeline(
-        policy_repo_path=rules_file.parents[1],
+        policy_repo_path=policy_repo,
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
-        local_corpus_root=explicit_corpus,
+        local_corpus_release=explicit_release,
     )
 
     def fake_rulespec_ci(_rules_file):
-        observed["ambient_claim"] = validator_pipeline._fetch_local_source_claim_record(
-            "claim.ambient"
+        observed["explicit_source"] = validator_pipeline._fetch_corpus_source_text(
+            "us/statute/1"
+        )
+        observed["ambient_source"] = validator_pipeline._fetch_corpus_source_text(
+            "us/statute/2"
         )
         observed["issues"] = validator_pipeline.find_source_claim_reference_issues(
             content
@@ -17641,7 +17883,8 @@ rules: []
     monkeypatch.setattr(pipeline, "_run_rulespec_ci", fake_rulespec_ci)
 
     assert pipeline._run_ci(rules_file).passed
-    assert observed["ambient_claim"] is None
+    assert observed["explicit_source"] == "local quote"
+    assert observed["ambient_source"] is None
     assert observed["issues"] == []
 
 
@@ -17649,22 +17892,31 @@ def test_local_only_source_text_is_bound_only_to_trusted_metadata_paths(tmp_path
     corpus = tmp_path / "axiom-corpus"
     provisions = corpus / "data/corpus/provisions/us/guidance"
     provisions.mkdir(parents=True)
-    provisions.joinpath("sources.jsonl").write_text(
-        json.dumps(
-            _active_corpus_record(
-                "us/guidance/model-declared-path",
-                "This different source sets the official amount at 999.",
+    source_text = "The trusted requested source sets the official amount at 1055."
+    provisions.joinpath(f"{TEST_CORPUS_VERSION}.jsonl").write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    _active_corpus_record(
+                        "us/guidance/model-declared-path",
+                        "This different source sets the official amount at 999.",
+                    )
+                ),
+                json.dumps(
+                    _active_corpus_record(
+                        "us/guidance/trusted-request",
+                        source_text,
+                    )
+                ),
             )
         )
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         corpus,
-        jurisdiction="us",
-        document_class="guidance",
+        ("us", "guidance", TEST_CORPUS_VERSION),
     )
-    source_text = "The trusted requested source sets the official amount at 1055."
     content = """format: rulespec/v1
 module:
   source_verification:
@@ -17678,12 +17930,12 @@ rules: []
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
         source_text=source_text,
-        local_corpus_root=corpus,
-        source_citation_paths=("us/guidance/trusted-request",),
+        local_corpus_release=release,
+        source_citation_path="us/guidance/trusted-request",
     )
 
     source_texts = pipeline._source_texts_for_rulespec_content(content)
-    with validator_pipeline._authoritative_corpus_scope(corpus):
+    with validator_pipeline._authoritative_corpus_scope(release):
         issues = find_source_verification_issues(
             content,
             source_texts=source_texts,
@@ -17705,89 +17957,39 @@ rules: []
     assert any("does not contain `official_amount` = 1055" in issue for issue in issues)
 
 
-def test_authoritative_corpus_uses_only_primary_provisions_layout(tmp_path):
+def test_authoritative_corpus_uses_named_canonical_release(tmp_path):
     corpus = tmp_path / "axiom-corpus"
     canonical = corpus / "data/corpus/provisions/us/statute"
     canonical.mkdir(parents=True)
-    canonical.joinpath("source.jsonl").write_text(
+    canonical.joinpath(f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         json.dumps(_active_corpus_record("us/statute/1", "CANONICAL")) + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         corpus,
-        jurisdiction="us",
-        document_class="statute",
+        ("us", "statute", TEST_CORPUS_VERSION),
     )
-    legacy = corpus / "provisions/zz/guidance"
-    legacy.mkdir(parents=True)
-    legacy.joinpath("fake.jsonl").write_text(
-        json.dumps({"citation_path": "zz/guidance/fake", "body": "LEGACY FAKE"}) + "\n",
-        encoding="utf-8",
-    )
-    from axiom_encode.judges.regeneration import validate_corpus_path
 
-    validate_corpus_path(corpus)
-    with validator_pipeline._authoritative_corpus_scope(corpus):
+    with validator_pipeline._authoritative_corpus_scope(release):
         assert validator_pipeline._fetch_corpus_source_text("us/statute/1") == (
             "CANONICAL"
         )
-        assert validator_pipeline._fetch_corpus_source_text("zz/guidance/fake") is None
 
 
-def test_source_claim_rejects_missing_evidence_source(tmp_path):
-    corpus = tmp_path / "axiom-corpus"
-    (corpus / "data/corpus/provisions").mkdir(parents=True)
-    selector = corpus / "manifests/releases/current.json"
-    selector.parent.mkdir(parents=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "us",
-                        "document_class": "guidance",
-                        "version": "active",
-                    }
-                ],
-            }
-        )
+def test_validator_production_has_no_mutable_claim_artifact_reader():
+    source = Path(validator_pipeline.__file__).read_text(encoding="utf-8")
+
+    assert "data/corpus/claims" not in source
+    assert not re.search(
+        r'["\']data["\']\s*/\s*["\']corpus["\']\s*/\s*["\']claims["\']',
+        source,
     )
-    claims = corpus / "data/corpus/claims/us"
-    claims.mkdir(parents=True)
-    claim_id = "claims:us/guidance/missing#assertion"
-    claims.joinpath("claims.jsonl").write_text(
-        json.dumps(
-            {
-                "id": claim_id,
-                "status": "accepted",
-                "kind": "defines",
-                "subject": {"id": "us:statutes/1", "type": "legal"},
-                "evidence": [
-                    {
-                        "corpus_citation_path": "us/guidance/missing",
-                        "quote": "missing quote",
-                    }
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    validator_pipeline._fetch_local_source_claim_record.cache_clear()
-    content = f"""format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/guidance/missing
-  source_claims:
-    - {claim_id}
-rules: []
-"""
-
-    with validator_pipeline._authoritative_corpus_scope(corpus):
-        issues = find_source_claim_reference_issues(content)
-
-    assert any("Source claim evidence source missing" in issue for issue in issues)
+    for retired_name in (
+        "_fetch_local_source_claim_record",
+        "_read_local_source_claim_file",
+        "_local_corpus_claims_roots",
+    ):
+        assert retired_name not in source
 
 
 def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_corpus(
@@ -17807,21 +18009,19 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
         )
         + "\n"
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         corpus_root,
-        jurisdiction="us",
-        document_class="guidance",
-        version="example",
+        ("us", "guidance", "example"),
     )
     content = _corpus_checked_proof_content()
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
-        local_corpus_root=corpus_root,
+        local_corpus_release=release,
     )
 
-    with validator_pipeline._authoritative_corpus_scope(corpus_root):
+    with validator_pipeline._authoritative_corpus_scope(release):
         source_texts = pipeline._proof_source_texts_for_rulespec_content(
             content,
             source_texts=None,
@@ -17831,7 +18031,7 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
 
 
-def test_validator_pipeline_maps_in_memory_source_text_to_declared_corpus_path(
+def test_validator_pipeline_does_not_treat_in_memory_text_as_legal_authority(
     tmp_path,
     monkeypatch,
 ):
@@ -17873,33 +18073,24 @@ rules:
     )
     source_texts = pipeline._source_texts_for_rulespec_content(content)
 
-    assert source_texts == {
-        "us-mn/manual/dhs/combined-manual/msa-revised-sections-2026-01": source_text
-    }
-    assert (
-        validator_pipeline._extract_source_verification_text(
-            content,
-            source_texts=source_texts,
-        )
-        == source_text
-    )
-    assert (
-        find_source_verification_issues(
-            content,
-            source_texts=source_texts,
-        )
-        == []
-    )
+    assert source_texts == {}
+    assert find_source_verification_issues(
+        content,
+        source_texts=source_texts,
+    ) == [
+        "Source verification source missing: "
+        "`us-mn/manual/dhs/combined-manual/msa-revised-sections-2026-01` "
+        "was not found in corpus.provisions."
+    ]
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
 def test_source_verification_slices_local_parent_corpus_artifact(
     tmp_path,
-    monkeypatch,
 ):
     provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us-ca" / "statute"
     provisions_dir.mkdir(parents=True)
-    (provisions_dir / "wic.jsonl").write_text(
+    (provisions_dir / f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         json.dumps(
             _active_corpus_record(
                 "us-ca/statute/wic/11450",
@@ -17915,12 +18106,10 @@ def test_source_verification_slices_local_parent_corpus_artifact(
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         tmp_path,
-        jurisdiction="us-ca",
-        document_class="statute",
+        ("us-ca", "statute", TEST_CORPUS_VERSION),
     )
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
 
     content = """format: rulespec/v1
 module:
@@ -17938,111 +18127,28 @@ rules:
         formula: '326'
 """
 
-    source_text = validator_pipeline._fetch_local_corpus_source_text(
-        "us-ca/statute/wic/11450/a/1/A"
-    )
+    with validator_pipeline._authoritative_corpus_scope(release):
+        source_text = validator_pipeline._fetch_local_corpus_source_text(
+            "us-ca/statute/wic/11450/a/1/A"
+        )
+        source_issues = find_source_verification_issues(content)
+        grounding_issues = find_ungrounded_numeric_issues(content)
 
     assert source_text is not None
     assert source_text.startswith("(A) Aid shall be paid")
     assert "$326" in source_text
     assert "$999" not in source_text
     assert "$47" not in source_text
-    assert find_source_verification_issues(content) == []
-    assert find_ungrounded_numeric_issues(content) == []
+    assert source_issues == []
+    assert grounding_issues == []
 
 
-@pytest.mark.parametrize("layout", ["missing", "no-provisions"])
-def test_ambient_axiom_corpus_repo_invalid_layout_fails_closed(
-    tmp_path, monkeypatch, layout
-):
-    corpus = tmp_path / "ambient-corpus"
-    if layout == "no-provisions":
-        corpus.mkdir()
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(corpus))
-    monkeypatch.setattr(
-        validator_pipeline,
-        "_fetch_supabase_corpus_source_text",
-        lambda _citation: pytest.fail("must not fall through to Supabase"),
-    )
-
-    with pytest.raises(CorpusLayoutError):
-        validator_pipeline._fetch_corpus_source_text("us/statute/1")
-
-
-def test_ambient_axiom_corpus_repo_missing_citation_does_not_fall_through(
-    tmp_path, monkeypatch
-):
-    provisions = tmp_path / "data/corpus/provisions/us/statute"
-    provisions.mkdir(parents=True)
-    (provisions / "empty.jsonl").write_text("")
-    _write_current_release_scope(tmp_path, jurisdiction="us", document_class="statute")
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
-    monkeypatch.setattr(
-        validator_pipeline,
-        "_fetch_supabase_corpus_source_text",
-        lambda _citation: pytest.fail("must not fall through to Supabase"),
-    )
-
-    assert validator_pipeline._fetch_corpus_source_text("us/statute/1") is None
-
-
-def test_source_verification_prefers_explicit_ambient_corpus_artifact(
+def test_source_verification_uses_canonical_uk_statute_corpus_path(
     tmp_path,
-    monkeypatch,
-):
-    workspace = tmp_path / "rulespec-uk"
-    workspace_provisions = (
-        workspace / "data" / "corpus" / "provisions" / "uk" / "regulation"
-    )
-    workspace_provisions.mkdir(parents=True)
-    (workspace_provisions / "local.jsonl").write_text(
-        json.dumps(
-            {
-                "citation_path": "uk/regulation/example/schedule/1",
-                "body": "Local source states the issue fee is GBP 180.00.",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    external_corpus = tmp_path / "axiom-corpus"
-    external_provisions = (
-        external_corpus / "data" / "corpus" / "provisions" / "uk" / "regulation"
-    )
-    external_provisions.mkdir(parents=True)
-    (external_provisions / "external.jsonl").write_text(
-        json.dumps(
-            {
-                "citation_path": "uk/regulation/example/schedule/1",
-                "body": "External source states the issue fee is GBP 999.00.",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.chdir(workspace)
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(external_corpus))
-
-    assert (
-        validator_pipeline._fetch_local_corpus_source_text(
-            "uk/regulation/example/schedule/1",
-            require_release=False,
-        )
-        == "External source states the issue fee is GBP 999.00."
-    )
-
-
-def test_source_verification_resolves_compact_uk_statute_corpus_path(
-    tmp_path,
-    monkeypatch,
 ):
     provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "uk" / "statute"
     provisions_dir.mkdir(parents=True)
-    (provisions_dir / "uk-statute.jsonl").write_text(
+    (provisions_dir / f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         json.dumps(
             _active_corpus_record(
                 ("uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"),
@@ -18053,17 +18159,16 @@ def test_source_verification_resolves_compact_uk_statute_corpus_path(
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         tmp_path,
-        jurisdiction="uk",
-        document_class="statute",
+        ("uk", "statute", TEST_CORPUS_VERSION),
     )
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
 
-    content = """format: rulespec/v1
+    citation_path = "uk/statute/legislation.gov.uk/ukpga/2007/3/section/11d"
+    content = f"""format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_path: uk/statute/ukpga/2007/3/11D
+    corpus_citation_path: {citation_path}
 rules:
   - name: savings_income_charged_at_savings_basic_rate
     kind: derived
@@ -18076,23 +18181,21 @@ rules:
         formula: taxable_dividend_income
 """
 
-    assert (
-        validator_pipeline._fetch_local_corpus_source_text(
-            "uk/statute/ukpga/2007/3/11D"
+    with validator_pipeline._authoritative_corpus_scope(release):
+        assert (
+            validator_pipeline._fetch_local_corpus_source_text(citation_path)
+            == "Income tax is charged at the savings basic rate."
         )
-        == "Income tax is charged at the savings basic rate."
-    )
-    assert find_source_verification_issues(content) == []
+        assert find_source_verification_issues(content) == []
 
 
 def test_source_verification_reads_local_corpus_child_blocks(
     tmp_path,
-    monkeypatch,
 ):
     provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us" / "form"
     provisions_dir.mkdir(parents=True)
     citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
-    (provisions_dir / "test-source.jsonl").write_text(
+    (provisions_dir / f"{TEST_CORPUS_VERSION}.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(
@@ -18123,12 +18226,10 @@ def test_source_verification_reads_local_corpus_child_blocks(
         + "\n",
         encoding="utf-8",
     )
-    _write_current_release_scope(
+    release = _test_corpus_release(
         tmp_path,
-        jurisdiction="us",
-        document_class="form",
+        ("us", "form", TEST_CORPUS_VERSION),
     )
-    monkeypatch.setenv("AXIOM_CORPUS_LOCAL_ROOT", str(tmp_path))
 
     content = """format: rulespec/v1
 module:
@@ -18146,7 +18247,8 @@ rules:
         formula: '260'
 """
 
-    assert find_source_verification_issues(content) == []
+    with validator_pipeline._authoritative_corpus_scope(release):
+        assert find_source_verification_issues(content) == []
 
 
 def test_source_verification_accepts_values_in_corpus_source_text():
@@ -18921,44 +19023,6 @@ rules:
           age >= 19
           and age < 65
           and household_income_as_fraction_of_fpl <= 1.33
-"""
-
-    assert find_source_scope_consistency_issues(content) == []
-
-
-def test_source_scope_consistency_allows_medicaid_magi_plural_corpus_paths():
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_paths:
-      - us/regulation/42/435/119
-      - us/regulation/42/435/603
-  summary: |-
-    Effective January 1, 2014, the agency must provide Medicaid to
-    individuals who are age 19 or older and under age 65 and have household
-    income that is at or below 133 percent FPL for the applicable family size.
-rules:
-  - name: adult_group_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    source: 42 CFR 435.119(b)
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: condition
-            source:
-              corpus_citation_paths:
-                - us/regulation/42/435/119
-                - us/regulation/42/435/603
-    versions:
-      - effective_from: '2014-01-01'
-        formula: |-
-          age >= 19
-          and age < 65
-          and magi_income_as_fraction_of_fpl <= 1.33
 """
 
     assert find_source_scope_consistency_issues(content) == []
@@ -20310,7 +20374,7 @@ rules:
 
 
 def test_imported_person_scoped_definition_unit_rejects_stale_1402a_import(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "26" / "1402" / "a.yaml"
     imported_file.parent.mkdir(parents=True)
     imported_file.write_text(
@@ -22066,170 +22130,95 @@ rules: []
     )
 
 
-def test_source_subparagraph_coverage_uses_applied_manifest_requested_source(tmp_path):
-    source_text = """Eligibility disqualifications
-(a) Income standards. Households with income above thresholds are ineligible.
-(c) Gross income standard. Adjusted October 1 each year.
-(d) Exclusions from income. Various items excluded.
-(e) Deductions from income.
-    (1) Standard deduction.
-    (2) (B) Earned income deduction of 20 percent.
-(g) Allowable financial resources. Asset limits apply.
-"""
-    policy_repo = tmp_path / "rulespec-us"
-    rules_file = policy_repo / "statutes/7/2014/e/2/B.yaml"
-    rules_file.parent.mkdir(parents=True)
-    content = """format: rulespec/v1
-module:
-  status: deferred
-  source_verification:
-    corpus_citation_path: us/statute/7/2014
-  summary: Earned income deduction under 7 USC 2014(e)(2)(B).
-  deferred_outputs:
-    - output: us:statutes/7/2014/e/2/B#snap_earned_income_deduction
-      reason: Requires the (e)(2)(C) exception which is not in scope.
-rules: []
-"""
-    rules_file.write_text(content)
-    manifest_path = policy_repo / ".axiom/encoding-manifests/statutes/7/2014/e/2/B.json"
-    manifest_path.parent.mkdir(parents=True)
-    manifest_path.write_text(
+def test_validator_pipeline_does_not_discover_ambient_source_metadata(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+    ambient_manifest = (
+        tmp_path / "_eval_workspaces" / "runner" / "unrelated" / "context-manifest.json"
+    )
+    ambient_manifest.parent.mkdir(parents=True)
+    ambient_manifest.write_text(
         json.dumps(
             {
-                "citation": "us/statute/7/2014/e/2/B",
-                "schema_version": "axiom-encode/applied-rulespec/v1",
-            }
-        )
-    )
-
-    source_metadata = _load_applied_encoding_manifest_source_metadata(
-        rules_file,
-        policy_repo,
-    )
-    assert source_metadata is not None
-    issues = find_source_subparagraph_coverage_issues(
-        content,
-        rules_file=rules_file,
-        source_texts={"us/statute/7/2014": source_text},
-        requested_source=source_metadata["requested_source"],
-    )
-
-    assert issues == []
-
-
-def test_nearby_eval_source_metadata_matches_corpus_path_shapes(tmp_path):
-    output_root = tmp_path / "axiom-encode-encodings"
-    unrelated_workspace = (
-        output_root
-        / "_eval_workspaces"
-        / "codex-gpt-5.5"
-        / "26-USC-1402-a"
-        / "workspace"
-    )
-    unrelated_workspace.mkdir(parents=True)
-    (unrelated_workspace / "context-manifest.json").write_text(
-        json.dumps(
-            {
-                "citation": "26 USC 1402(a)",
                 "source_metadata": {
-                    "corpus_citation_path": "us/statute/26/1402/a",
-                    "corpus_source": "supabase",
-                    "requested_source": "26 USC 1402(a)",
-                },
+                    "source_attestation": {
+                        "requested_corpus_citation_path": "us-co/statute/1/ambient"
+                    }
+                }
             }
         )
     )
 
-    colorado_workspace = (
-        output_root
-        / "_eval_workspaces"
-        / "codex-gpt-5.5"
-        / "us-co-regulation-9-ccr-2503-6-3.606.3"
-        / "workspace"
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
     )
-    colorado_workspace.mkdir(parents=True)
-    colorado_metadata = {
-        "corpus_citation_path": "us-co/regulation/9-ccr-2503-6/3.606.3",
-        "corpus_source": "supabase",
-        "requested_source": "us-co/regulation/9-ccr-2503-6/3.606.3",
+
+    assert pipeline.source_metadata is None
+
+
+def test_validator_pipeline_snapshots_explicit_source_metadata(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+    source_metadata = {
+        "source_attestation": {
+            "requested_corpus_citation_path": "us-co/statute/1/explicit"
+        }
     }
-    (colorado_workspace / "context-manifest.json").write_text(
-        json.dumps(
-            {
-                "citation": "9 CCR 2503-6 3.606.3",
-                "source_metadata": colorado_metadata,
-            }
-        )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        source_metadata=source_metadata,
     )
 
-    rulespec_file = (
-        output_root / "codex-gpt-5.5" / "regulations/9-ccr-2503-6/3.606.3.yaml"
+    source_metadata["source_attestation"]["requested_corpus_citation_path"] = (
+        "us-co/statute/1/mutated"
     )
-    rulespec_file.parent.mkdir(parents=True)
-    rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
 
-    assert _load_nearby_eval_source_metadata(rulespec_file) == colorado_metadata
-
-    federal_workspace = (
-        output_root
-        / "_eval_workspaces"
-        / "codex-gpt-5.5"
-        / "us-regulation-7-273-10"
-        / "workspace"
-    )
-    federal_workspace.mkdir(parents=True)
-    federal_metadata = {
-        "corpus_citation_path": "us/regulation/7/273/10",
-        "corpus_source": "supabase",
-        "requested_source": "us/regulation/7/273/10",
+    assert pipeline.source_metadata == {
+        "source_attestation": {
+            "requested_corpus_citation_path": "us-co/statute/1/explicit"
+        }
     }
-    (federal_workspace / "context-manifest.json").write_text(
-        json.dumps(
-            {
-                "citation": "7 CFR 273.10",
-                "source_metadata": federal_metadata,
-            }
+
+
+@pytest.mark.parametrize(
+    "source_citation_path",
+    (
+        " us-co/statute/1/explicit",
+        "us-co/statute/1/explicit/",
+        "us-co:statutes/1/explicit",
+    ),
+)
+def test_validator_pipeline_rejects_noncanonical_trusted_source_identity(
+    tmp_path,
+    source_citation_path,
+):
+    with pytest.raises(validator_pipeline.InvalidCorpusCitationError):
+        ValidatorPipeline(
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-co"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+            source_citation_path=source_citation_path,
         )
-    )
-    federal_rulespec_file = (
-        output_root / "codex-gpt-5.5" / "regulations/7-cfr/273/10.yaml"
-    )
-    federal_rulespec_file.parent.mkdir(parents=True)
-    federal_rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
 
-    assert _load_nearby_eval_source_metadata(federal_rulespec_file) == federal_metadata
 
-    california_workspace = (
-        output_root
-        / "_eval_workspaces"
-        / "codex-gpt-5.5"
-        / "us-ca-regulation-mpp-63-503.132"
-        / "workspace"
-    )
-    california_workspace.mkdir(parents=True)
-    california_metadata = {
-        "corpus_citation_path": "us-ca/regulation/mpp/63-503.132",
-        "corpus_source": "supabase",
-        "requested_source": "us-ca/regulation/mpp/63-503.132",
-    }
-    (california_workspace / "context-manifest.json").write_text(
-        json.dumps(
-            {
-                "citation": "MPP 63-503.132",
-                "source_metadata": california_metadata,
-            }
+def test_validator_pipeline_rejects_source_attestation_identity_mismatch(tmp_path):
+    with pytest.raises(
+        validator_pipeline.CorpusResolutionError,
+        match="does not match",
+    ):
+        ValidatorPipeline(
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-co"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            enable_oracles=False,
+            source_metadata={
+                "source_attestation": {
+                    "requested_corpus_citation_path": "us-co/statute/1/attested"
+                }
+            },
+            source_citation_path="us-co/statute/1/explicit",
         )
-    )
-    california_rulespec_file = (
-        output_root / "codex-gpt-5.5" / "regulations/mpp/63-503/132.yaml"
-    )
-    california_rulespec_file.parent.mkdir(parents=True)
-    california_rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
-
-    assert (
-        _load_nearby_eval_source_metadata(california_rulespec_file)
-        == california_metadata
-    )
 
 
 def test_source_subparagraph_coverage_without_requested_source_keeps_strict_scope():
@@ -22435,31 +22424,6 @@ rules: []
 """
 
     assert find_source_subparagraph_coverage_issues(content) == []
-
-
-def test_source_subparagraph_coverage_skips_multiple_source_verification_paths():
-    source_text = """Definitions
-(m) Household means an individual who lives alone.
-"""
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_paths:
-      - us/statute/7/2012
-      - us/statute/7/2014
-rules: []
-"""
-
-    assert (
-        find_source_subparagraph_coverage_issues(
-            content,
-            source_texts={
-                "us/statute/7/2012": source_text,
-                "us/statute/7/2014": source_text,
-            },
-        )
-        == []
-    )
 
 
 def test_source_subparagraph_coverage_skips_missing_source_text(monkeypatch):
@@ -23670,7 +23634,7 @@ rules:
 
 
 def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
     imported.parent.mkdir(parents=True)
     imported.write_text(
@@ -23728,120 +23692,6 @@ rules:
 
     assert any("Current-year final amount table ignored" in issue for issue in issues)
     assert any("eitc_maximum_credit_amounts" in issue for issue in issues)
-
-
-def test_repair_current_year_final_amount_tables_uses_imported_table(tmp_path):
-    repo = tmp_path / "rulespec-us"
-    imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
-    imported.parent.mkdir(parents=True)
-    imported.write_text(
-        """format: rulespec/v1
-rules:
-  - name: eitc_maximum_credit_amounts
-    kind: parameter
-    dtype: Money
-    indexed_by: qualifying_child_count
-    versions:
-      - effective_from: '2026-01-01'
-        values:
-          0: 664
-          1: 4427
-"""
-    )
-    rules_file = repo / "statutes/26/32.yaml"
-    rules_file.parent.mkdir(parents=True)
-    content = """format: rulespec/v1
-imports:
-  - us:policies/irs/rev-proc-2025-32/earned-income-credit
-rules:
-  - name: eitc_capped_child_count
-    kind: derived
-    entity: TaxUnit
-    dtype: Integer
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: min(eitc_child_count, 3)
-  - name: eitc_maximum
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/32
-              text: "credit percentage of the earned income amount"
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          eitc_phase_in_rate * eitc_earned_income_amount
-"""
-
-    repaired, rules = repair_current_year_final_amount_tables(
-        content,
-        rules_file=rules_file,
-        policy_repo_path=repo,
-    )
-
-    assert rules == ["eitc_maximum"]
-    assert "match eitc_capped_child_count:" in repaired
-    assert "0 => eitc_maximum_credit_amounts[0]" in repaired
-    assert "1 => eitc_maximum_credit_amounts[1]" in repaired
-    assert (
-        "target: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_maximum_credit_amounts"
-        in repaired
-    )
-    assert (
-        find_current_year_final_amount_table_issues(
-            repaired,
-            rules_file=rules_file,
-            policy_repo_path=repo,
-        )
-        == []
-    )
-
-
-def test_repair_current_year_final_amount_tables_caps_phased_in_by_maximum(tmp_path):
-    repo = tmp_path / "rulespec-us"
-    rules_file = repo / "statutes/26/32.yaml"
-    rules_file.parent.mkdir(parents=True)
-    content = """format: rulespec/v1
-rules:
-  - name: eitc_maximum
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '4427'
-  - name: eitc_phased_in
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)
-"""
-
-    repaired, rules = repair_current_year_final_amount_tables(
-        content,
-        rules_file=rules_file,
-        policy_repo_path=repo,
-    )
-
-    assert rules == ["eitc_phased_in"]
-    assert (
-        "if earned_income >= eitc_earned_income_amount: eitc_maximum else: "
-        "eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)"
-        in repaired
-    )
 
 
 def test_repair_nonnegative_amount_reductions_floors_conditional_rounding_branches():
@@ -24027,9 +23877,7 @@ def test_source_condition_coverage_rejects_cost_availability_as_only_exclusions(
     content = """format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_paths:
-      - us-ny/regulation/18-nycrr/387/12/f/3/v
-      - us-ny/regulation/18-nycrr/387/12/f/3/v/c
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/12/f/3/v
 rules:
   - name: snap_telephone_allowance_eligible
     kind: derived
@@ -24049,9 +23897,7 @@ rules:
             "us-ny/regulation/18-nycrr/387/12/f/3/v": (
                 "Standard allowances are available to households billed separately "
                 "and on a recurring basis for heating/cooling costs, other utility "
-                "costs and/or telephone costs."
-            ),
-            "us-ny/regulation/18-nycrr/387/12/f/3/v/c": (
+                "costs and/or telephone costs. "
                 "The standard allowance for telephone is $32 per month for households "
                 "that do not qualify for the heating/cooling or utilities allowances."
             ),
@@ -24066,9 +23912,7 @@ def test_source_condition_coverage_accepts_positive_cost_fact_predicate():
     content = """format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_paths:
-      - us-ny/regulation/18-nycrr/387/12/f/3/v
-      - us-ny/regulation/18-nycrr/387/12/f/3/v/c
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/12/f/3/v
 rules:
   - name: snap_telephone_allowance_eligible
     kind: derived
@@ -24090,9 +23934,7 @@ rules:
             "us-ny/regulation/18-nycrr/387/12/f/3/v": (
                 "Standard allowances are available to households billed separately "
                 "and on a recurring basis for heating/cooling costs, other utility "
-                "costs and/or telephone costs."
-            ),
-            "us-ny/regulation/18-nycrr/387/12/f/3/v/c": (
+                "costs and/or telephone costs. "
                 "The standard allowance for telephone is $32 per month for households "
                 "that do not qualify for the heating/cooling or utilities allowances."
             ),
@@ -25917,47 +25759,62 @@ rules:
     assert issues == []
 
 
-def test_source_verification_accepts_multiple_corpus_source_paths():
+@pytest.mark.parametrize(
+    "citation_paths",
+    [
+        ["us/guidance/example/page-1"],
+        ["us/guidance/example/page-1", "us/guidance/example/page-2"],
+    ],
+)
+def test_source_verification_rejects_plural_corpus_source_paths(citation_paths):
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {
+                "source_verification": {"corpus_citation_paths": citation_paths}
+            },
+            "rules": [],
+        },
+        sort_keys=False,
+    )
+
+    issues = find_source_verification_issues(content)
+
+    assert len(issues) == 1
+    assert "Plural corpus source paths are not supported" in issues[0]
+
+
+def test_source_verification_rejects_plural_proof_atom_source_paths():
     content = """format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_paths:
-      - us/guidance/example/page-1
-      - us/guidance/example/page-2
-    values:
-      page_one_amount: 100
-      page_two_amount: 200
+    corpus_citation_path: us/guidance/example/page-1
 rules:
-  - name: page_one_amount
+  - name: example_amount
     kind: parameter
     dtype: Money
     unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_paths:
+                - us/guidance/example/page-1
     versions:
       - effective_from: '2026-01-01'
         formula: '100'
-  - name: page_two_amount
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '200'
 """
 
-    issues = find_source_verification_issues(
-        content,
-        source_texts={
-            "us/guidance/example/page-1": "Page 1 source states $100.",
-            "us/guidance/example/page-2": "Page 2 source states $200.",
-        },
-    )
+    issues = find_source_verification_issues(content)
 
-    assert issues == []
+    assert len(issues) == 1
+    assert "Plural corpus source paths are not supported" in issues[0]
+    assert "rules[0].metadata.proof.atoms[0].source" in issues[0]
 
 
-def test_validator_reloads_local_corpus_when_current_release_changes(
-    monkeypatch, tmp_path: Path
-):
+def test_validator_binds_named_release_until_explicitly_rebound(tmp_path: Path):
     citation_path = "uk/regulation/uksi/2013/376/22"
     provisions = tmp_path / "data" / "corpus" / "provisions" / "uk" / "regulation"
     provisions.mkdir(parents=True)
@@ -25991,24 +25848,10 @@ def test_validator_reloads_local_corpus_when_current_release_changes(
     (provisions / "2026-06-03-uk-universal-credit.jsonl").write_text(
         json.dumps(newer) + "\n"
     )
-    selector = tmp_path / "manifests" / "releases" / "current.json"
-    selector.parent.mkdir(parents=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "uk",
-                        "document_class": "regulation",
-                        "version": "2026-06-01-uk-frs-microsim",
-                    }
-                ],
-            }
-        )
+    older_release = _test_corpus_release(
+        tmp_path,
+        ("uk", "regulation", "2026-06-01-uk-frs-microsim"),
     )
-
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
 
     def rulespec_content(amount: int) -> str:
         return f"""format: rulespec/v1
@@ -26027,34 +25870,28 @@ rules:
         formula: '{amount}'
 """
 
-    assert find_source_verification_issues(rulespec_content(684)) == []
+    with validator_pipeline._authoritative_corpus_scope(older_release):
+        assert find_source_verification_issues(rulespec_content(684)) == []
 
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "uk",
-                        "document_class": "regulation",
-                        "version": "2026-06-03-uk-universal-credit",
-                    }
-                ],
-            }
+    with validator_pipeline._authoritative_corpus_scope(older_release):
+        assert find_source_verification_issues(rulespec_content(684)) == []
+
+    newer_release = _test_corpus_release(
+        tmp_path,
+        ("uk", "regulation", "2026-06-03-uk-universal-credit"),
+    )
+    with validator_pipeline._authoritative_corpus_scope(newer_release):
+        assert find_source_verification_issues(rulespec_content(710)) == []
+        assert any(
+            "does not contain `official_amount` = 684" in issue
+            for issue in find_source_verification_issues(rulespec_content(684))
         )
-    )
-
-    assert find_source_verification_issues(rulespec_content(710)) == []
-    assert any(
-        "does not contain `official_amount` = 684" in issue
-        for issue in find_source_verification_issues(rulespec_content(684))
-    )
 
 
 def test_local_corpus_source_text_rejects_ambiguous_active_duplicates(
-    monkeypatch, tmp_path: Path
+    tmp_path: Path,
 ):
-    provisions = tmp_path / "provisions" / "uk" / "regulation"
+    provisions = tmp_path / "data" / "corpus" / "provisions" / "uk" / "regulation"
     provisions.mkdir(parents=True)
     citation_path = "uk/regulation/uksi/2013/376/22"
     for version, body in (("release-a", "active A"), ("release-b", "active B")):
@@ -26074,87 +25911,15 @@ def test_local_corpus_source_text_rejects_ambiguous_active_duplicates(
             )
             + "\n"
         )
-    selector = tmp_path / "manifests" / "releases" / "current.json"
-    selector.parent.mkdir(parents=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": "uk",
-                        "document_class": "regulation",
-                        "version": version,
-                    }
-                    for version in ("release-a", "release-b")
-                ],
-            }
-        )
-    )
-    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
-
-    with pytest.raises(AmbiguousCorpusSourceError):
-        validator_pipeline._fetch_local_corpus_source_text(citation_path)
-
-
-def test_supabase_source_text_wrapper_delegates_to_shared_resolver(monkeypatch):
-    citation_path = "us/statute/26/24"
-    observed: dict[str, object] = {}
-
-    class Resolved:
-        body = "Shared resolver body"
-
-    def fake_resolver(identifier, **kwargs):
-        observed["identifier"] = identifier
-        observed.update(kwargs)
-        return Resolved()
-
-    monkeypatch.setattr(
-        validator_pipeline,
-        "resolve_supabase_corpus_source",
-        fake_resolver,
+    release = _test_corpus_release(
+        tmp_path,
+        ("uk", "regulation", "release-a"),
+        ("uk", "regulation", "release-b"),
     )
 
-    assert (
-        validator_pipeline._fetch_supabase_corpus_source_text(citation_path)
-        == "Shared resolver body"
-    )
-    assert observed["identifier"] == citation_path
-    assert observed["supabase_url"] == validator_pipeline.DEFAULT_AXIOM_SUPABASE_URL
-    assert observed["anon_key"] == validator_pipeline.DEFAULT_AXIOM_SUPABASE_ANON_KEY
-
-
-def test_corpus_source_text_reresolves_supabase_on_every_lookup(monkeypatch):
-    citation_path = "us/statute/26/24"
-    bodies = iter(("Old remote body", "New remote body"))
-    resolved_identifiers: list[str] = []
-
-    class Resolved:
-        def __init__(self, body: str):
-            self.body = body
-
-    def fake_resolver(identifier, **_kwargs):
-        resolved_identifiers.append(identifier)
-        return Resolved(next(bodies))
-
-    monkeypatch.setattr(
-        validator_pipeline,
-        "_fetch_local_corpus_source_text",
-        lambda _citation_path: None,
-    )
-    monkeypatch.setattr(
-        validator_pipeline,
-        "resolve_supabase_corpus_source",
-        fake_resolver,
-    )
-
-    assert validator_pipeline._fetch_corpus_source_text(citation_path) == (
-        "Old remote body"
-    )
-    assert validator_pipeline._fetch_corpus_source_text(citation_path) == (
-        "New remote body"
-    )
-    assert resolved_identifiers == [citation_path, citation_path]
+    with validator_pipeline._authoritative_corpus_scope(release):
+        with pytest.raises(AmbiguousCorpusSourceError):
+            validator_pipeline._fetch_local_corpus_source_text(citation_path)
 
 
 def test_source_verification_rejects_source_value_mismatch():
@@ -26231,7 +25996,7 @@ def test_rulespec_ci_accepts_source_relation_without_tests(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 rules:
@@ -26246,9 +26011,10 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -26258,7 +26024,7 @@ def test_rulespec_ci_verifies_source_relation_values_against_target(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    us_root = tmp_path / "rulespec-us"
+    us_root = _canonical_rulespec_content_root(tmp_path, "us")
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
     target_file.write_text(
@@ -26293,7 +26059,7 @@ rules:
 """
     )
 
-    co_root = tmp_path / "rulespec-us-co"
+    co_root = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = co_root / "regulations/10-ccr-2506-1/4.207.3.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -26318,6 +26084,7 @@ rules:
         policy_repo_path=co_root,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        rulespec_dependency_roots=(us_root.parent,),
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -26327,7 +26094,7 @@ def test_rulespec_ci_verifies_source_relation_values_from_target_imports(tmp_pat
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    us_root = tmp_path / "rulespec-us"
+    us_root = _canonical_rulespec_content_root(tmp_path, "us")
     child_file = us_root / "statutes/7/2014/e/2/B.yaml"
     child_file.parent.mkdir(parents=True)
     child_file.write_text(
@@ -26359,7 +26126,7 @@ rules:
 """
     )
 
-    co_root = tmp_path / "rulespec-us-co"
+    co_root = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = co_root / "regulations/10-ccr-2506-1/4.407.2.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -26381,6 +26148,7 @@ rules:
         policy_repo_path=co_root,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        rulespec_dependency_roots=(us_root.parent,),
     )
 
     assert pipeline._run_ci(rules_file).passed is True
@@ -26390,7 +26158,7 @@ def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    us_root = tmp_path / "rulespec-us"
+    us_root = _canonical_rulespec_content_root(tmp_path, "us")
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
     target_file.write_text(
@@ -26418,7 +26186,7 @@ rules:
 """
     )
 
-    co_root = tmp_path / "rulespec-us-co"
+    co_root = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = co_root / "regulations/10-ccr-2506-1/4.207.3.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -26442,6 +26210,7 @@ rules:
         policy_repo_path=co_root,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        rulespec_dependency_roots=(us_root.parent,),
     )
     result = pipeline._run_ci(rules_file)
 
@@ -26457,7 +26226,7 @@ def test_rulespec_ci_rejects_source_relation_without_target(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 rules:
@@ -26471,7 +26240,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -26524,6 +26293,7 @@ def test_delegated_policy_setting_requires_snap_utility_sets_relation(tmp_path):
         / "10-ccr-2506-1"
         / "4.407.31.yaml"
     )
+    rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
 module:
   summary: Colorado SNAP rules set the standard utility allowance.
@@ -26561,6 +26331,7 @@ def test_delegated_policy_setting_rejects_wrong_snap_utility_sets_target(tmp_pat
         / "27"
         / "block-1.yaml"
     )
+    rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
 module:
   summary: Tennessee SNAP rules set the standard utility allowance.
@@ -26627,7 +26398,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=repo_root,
+        policy_repo_path=repo_root / "us-co",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -26702,7 +26473,7 @@ def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26731,15 +26502,16 @@ rules:
   period: 2024-01
   input: {}
   output:
-    code_text: 1
-    count: 1
+    us:policies/example/rules#code_text: 1
+    us:policies/example/rules#count: 1
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
     result = pipeline._run_ci(rules_file)
 
@@ -26754,8 +26526,8 @@ rules:
   period: 2024-01
   input: {}
   output:
-    code_text: "1"
-    count: "one"
+    us:policies/example/rules#code_text: "1"
+    us:policies/example/rules#count: "one"
 """
     )
 
@@ -26772,7 +26544,7 @@ def test_rulespec_ci_accepts_holds_for_boolean_scalar_outputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26795,14 +26567,15 @@ rules:
     end: '2026-12-31'
   input: {}
   output:
-    formula_applies: holds
+    us:policies/example/rules#formula_applies: holds
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
     result = pipeline._run_ci(rules_file)
 
@@ -26813,7 +26586,7 @@ def test_rulespec_ci_rejects_malformed_period_mapping(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26835,14 +26608,15 @@ rules:
     period_kind: month
   input: {}
   output:
-    flag: true
+    us:policies/example/rules#flag: true
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
     result = pipeline._run_ci(rules_file)
 
@@ -26856,7 +26630,7 @@ def test_rulespec_ci_rejects_bare_year_periods(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26877,14 +26651,15 @@ rules:
   period: 2024
   input: {}
   output:
-    flag: true
+    us:policies/example/rules#flag: true
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
     result = pipeline._run_ci(rules_file)
 
@@ -26903,7 +26678,7 @@ def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
         "The official source states the standard utility allowance is $451.",
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26911,14 +26686,6 @@ module:
     The standard utility allowance is $451.
   source_verification:
     corpus_citation_path: us/guidance/example/sua
-    upstream_source_check:
-      status: official_parameter_source
-      checked_paths:
-        - us/statute/example/authority
-      rationale: |-
-        This fixture intentionally models a lower-authority source in CI after
-        checking a dummy statute path, so the test can focus on numeric
-        grounding behavior rather than source hierarchy validation.
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter
@@ -26940,7 +26707,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -26964,7 +26731,7 @@ def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(tmp_path, monkeypa
         "the highest ordinary payment amount.",
     )
 
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -26986,14 +26753,15 @@ rules:
   period: 2024-01
   input: {}
   output:
-    applicable_income_limitation_rate: 1.333333
+    us:policies/example/rules#applicable_income_limitation_rate: 1.333333
 """
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -27002,7 +26770,12 @@ rules:
 
 
 def test_rulespec_ci_rejects_embedded_formula_numeric_concepts(tmp_path, monkeypatch):
-    rules_file = tmp_path / "rules.yaml"
+    release = _write_local_corpus_provision(
+        tmp_path,
+        "us/statute/example/income-limit",
+        "The income limit is $15,000.",
+    )
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -27022,9 +26795,10 @@ rules:
 """
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        local_corpus_release=release,
     )
 
     def fake_compile(rules_file, output_path):
@@ -27035,7 +26809,7 @@ rules:
 
     monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", fake_compile)
 
-    result = pipeline._run_rulespec_ci(rules_file)
+    result = pipeline._run_ci(rules_file)
 
     assert result.passed is False
     assert any(
@@ -27235,7 +27009,7 @@ def test_embedded_formula_numeric_guard_rejects_unextracted_scalar_equality(
     tmp_path,
 ):
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -27267,8 +27041,9 @@ rules:
 def test_embedded_formula_numeric_guard_allows_imported_parameter_scalar_equality(
     tmp_path,
 ):
-    imported_file = (
-        tmp_path / "policies/dhhs/fns/fns-227-non-citizen-requirements/page-1.yaml"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    imported_file = policy_repo / (
+        "policies/dhhs/fns/fns-227-non-citizen-requirements/page-1.yaml"
     )
     imported_file.parent.mkdir(parents=True)
     imported_file.write_text(
@@ -27291,8 +27066,8 @@ rules:
           5
 """,
     )
-    rules_file = (
-        tmp_path / "policies/dhhs/fns/fns-227-non-citizen-requirements/page-12.yaml"
+    rules_file = policy_repo / (
+        "policies/dhhs/fns/fns-227-non-citizen-requirements/page-12.yaml"
     )
     rules_file.write_text(
         """format: rulespec/v1
@@ -27326,7 +27101,7 @@ imports:
 """,
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -27335,7 +27110,7 @@ imports:
 
 
 def test_embedded_formula_numeric_guard_allows_map_arm_keys(tmp_path):
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 rules:
@@ -27366,7 +27141,7 @@ rules:
 """
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -27375,7 +27150,7 @@ rules:
 
 
 def test_embedded_formula_numeric_guard_allows_table_index_clamps(tmp_path):
-    rules_file = tmp_path / "rules.yaml"
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
 rules:
@@ -27400,7 +27175,7 @@ rules:
 """
     )
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path,
+        policy_repo_path=policy_repo,
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -27997,7 +27772,7 @@ rules:
 
 
 def test_imported_deferred_branch_composition_rejects_generic_output(tmp_path):
-    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     child = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
     child.parent.mkdir(parents=True)
     child.write_text(
@@ -28041,7 +27816,7 @@ rules:
 
 
 def test_imported_deferred_branch_composition_allows_branch_specific_output(tmp_path):
-    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     child = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
     child.parent.mkdir(parents=True)
     child.write_text(
@@ -28083,8 +27858,8 @@ rules:
 
 
 def test_imported_deferred_branch_composition_allows_rate_modifier_import(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
-    child = policy_repo / "us/statutes/7/2014/e/2/B.yaml"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    child = policy_repo / "statutes/7/2014/e/2/B.yaml"
     child.parent.mkdir(parents=True)
     child.write_text(
         """format: rulespec/v1
@@ -28101,7 +27876,7 @@ rules:
         formula: 0.20
 """
     )
-    rules_file = policy_repo / "us/statutes/7/2014/e/2.yaml"
+    rules_file = policy_repo / "statutes/7/2014/e/2.yaml"
     content = """format: rulespec/v1
 imports:
   - us:statutes/7/2014/e/2/B#snap_earned_income_deduction_rate
@@ -28148,7 +27923,7 @@ def test_numeric_extraction_keeps_currency_code_denominated_amounts():
 
 @pytest.mark.parametrize("indirection", ["file_symlink", "directory_symlink"])
 def test_rulespec_import_resolver_rejects_symlink_indirection(tmp_path, indirection):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "7" / "rules.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("format: rulespec/v1\n")
@@ -28157,13 +27932,13 @@ def test_rulespec_import_resolver_rejects_symlink_indirection(tmp_path, indirect
     (outside / "sentinel.yaml").write_text("secret: do-not-read\n")
 
     if indirection == "file_symlink":
-        link = policy_repo / "imports" / "sentinel.yaml"
+        link = policy_repo / "policies" / "sentinel.yaml"
         link.parent.mkdir()
         link.symlink_to(outside / "sentinel.yaml")
-        import_path = "imports/sentinel"
+        import_path = "policies/sentinel"
     else:
-        (policy_repo / "imports").symlink_to(outside, target_is_directory=True)
-        import_path = "imports/sentinel"
+        (policy_repo / "policies").symlink_to(outside, target_is_directory=True)
+        import_path = "policies/sentinel"
 
     with pytest.raises(
         validator_pipeline.UnsafeRulespecContextPath,
@@ -28177,11 +27952,11 @@ def test_rulespec_import_resolver_rejects_symlink_indirection(tmp_path, indirect
 
 
 def test_rulespec_import_resolver_rejects_parent_traversal(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "7" / "rules.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("format: rulespec/v1\n")
-    (tmp_path / "sentinel.yaml").write_text("secret: do-not-read\n")
+    (policy_repo.parent / "sentinel.yaml").write_text("secret: do-not-read\n")
 
     with pytest.raises(
         validator_pipeline.UnsafeRulespecContextPath,
@@ -28194,12 +27969,42 @@ def test_rulespec_import_resolver_rejects_parent_traversal(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    "import_target",
+    [
+        "programs/snap/fy-2026",
+        "us:programs/snap/fy-2026",
+    ],
+)
+def test_rulespec_import_resolver_rejects_composition_specs(
+    tmp_path,
+    import_target,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes" / "7" / "rules.yaml"
+    program_spec = policy_repo / "programs" / "snap" / "fy-2026.yaml"
+    rules_file.parent.mkdir(parents=True)
+    program_spec.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    program_spec.write_text("format: axiom-compose/program/v1\nsteps: []\n")
+
+    assert (
+        validator_pipeline._resolve_rulespec_import_file_static(
+            import_target,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo,
+        )
+        is None
+    )
+
+
 def test_rulespec_import_resolver_allows_recognized_cross_repo_import(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "7" / "rules.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("format: rulespec/v1\n")
-    sibling = tmp_path / "rulespec-uk" / "statutes" / "1" / "child.yaml"
+    dependency_root = _canonical_rulespec_content_root(tmp_path, "uk")
+    sibling = dependency_root / "statutes" / "1" / "child.yaml"
     sibling.parent.mkdir(parents=True)
     sibling.write_text("format: rulespec/v1\n")
 
@@ -28208,6 +28013,7 @@ def test_rulespec_import_resolver_allows_recognized_cross_repo_import(tmp_path):
             "uk:statutes/1/child",
             rules_file=rules_file,
             policy_repo_path=policy_repo,
+            rulespec_dependency_roots=(dependency_root.parent,),
         )
         == sibling.resolve()
     )
@@ -28216,10 +28022,11 @@ def test_rulespec_import_resolver_allows_recognized_cross_repo_import(tmp_path):
 def test_rulespec_import_resolver_prefers_declared_authority_over_local_shadow(
     tmp_path,
 ):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "1" / "rules.yaml"
     shadow = policy_repo / "statutes" / "1" / "child.yaml"
-    target = tmp_path / "rulespec-uk" / "statutes" / "1" / "child.yaml"
+    dependency_root = _canonical_rulespec_content_root(tmp_path, "uk")
+    target = dependency_root / "statutes" / "1" / "child.yaml"
     for path, marker in ((rules_file, "rules"), (shadow, "shadow"), (target, "uk")):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"format: rulespec/v1\nmarker: {marker}\n")
@@ -28229,6 +28036,7 @@ def test_rulespec_import_resolver_prefers_declared_authority_over_local_shadow(
             "uk:statutes/1/child",
             rules_file=rules_file,
             policy_repo_path=policy_repo,
+            rulespec_dependency_roots=(dependency_root.parent,),
         )
         == target.resolve()
     )
@@ -28269,16 +28077,17 @@ def test_rulespec_import_resolver_supports_cross_country_monorepo(tmp_path):
             "uk:statutes/1/child",
             rules_file=rules_file,
             policy_repo_path=policy_repo,
+            rulespec_dependency_roots=(tmp_path / "rulespec-uk",),
         )
         == target.resolve()
     )
 
 
 def test_rulespec_import_resolver_rejects_nested_checkout_shadow(tmp_path):
-    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     rules_file = policy_repo / "statutes" / "1" / "rules.yaml"
     nested_shadow = policy_repo / "rulespec-us" / "us" / "statutes" / "26" / "152.yaml"
-    target = tmp_path / "rulespec-us" / "statutes" / "26" / "152.yaml"
+    target = policy_repo.parent / "us" / "statutes" / "26" / "152.yaml"
     for path, marker in (
         (rules_file, "rules"),
         (nested_shadow, "shadow"),
@@ -28324,10 +28133,11 @@ def test_import_closure_does_not_flatten_prefixed_external_target(tmp_path):
 
 
 def test_imported_parameter_values_use_declared_authority(tmp_path):
-    policy_repo = tmp_path / "rulespec-us"
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
     rules_file = policy_repo / "statutes" / "1" / "rules.yaml"
     shadow = policy_repo / "statutes" / "1" / "rate.yaml"
-    target = tmp_path / "rulespec-uk" / "statutes" / "1" / "rate.yaml"
+    dependency_root = _canonical_rulespec_content_root(tmp_path, "uk")
+    target = dependency_root / "statutes" / "1" / "rate.yaml"
     rules_file.parent.mkdir(parents=True)
     content = (
         "format: rulespec/v1\n"
@@ -28360,6 +28170,7 @@ rules:
         policy_repo_path=policy_repo,
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
+        rulespec_dependency_roots=(dependency_root.parent,),
     )
 
     assert pipeline._imported_source_backed_parameter_scalar_values(
@@ -28369,11 +28180,10 @@ rules:
 
 
 def test_canonical_target_resolver_rejects_cross_repo_symlink(tmp_path):
-    policy_repo = tmp_path / "rulespec-us-co"
-    policy_repo.mkdir()
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
     outside = tmp_path / "sentinel.yaml"
     outside.write_text("secret: do-not-read\n")
-    target = tmp_path / "rulespec-us" / "statutes" / "26" / "152.yaml"
+    target = policy_repo.parent / "us" / "statutes" / "26" / "152.yaml"
     target.parent.mkdir(parents=True)
     target.symlink_to(outside)
     target_ref = validator_pipeline._parse_rulespec_target("us:statutes/26/152")

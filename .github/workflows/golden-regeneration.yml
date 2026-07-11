@@ -97,6 +97,7 @@ jobs:
         if: ${{ inputs.dry_run }}
         working-directory: axiom-encode
         env:
+          AXIOM_CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
           AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
           DRIFT_SAMPLE_SIZE: ${{ inputs.k || '5' }}
@@ -114,8 +115,10 @@ jobs:
         working-directory: axiom-encode
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AXIOM_CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           AXIOM_CORPUS_ROOT: ${{ github.workspace }}/axiom-corpus
           AXIOM_DRIFT_ROOT: ${{ github.workspace }}/rulespec-us
+          AXIOM_RULES_ENGINE_ROOT: ${{ github.workspace }}/axiom-rules-engine
           DRIFT_REPORT: ${{ runner.temp }}/golden-drift-report.json
           DRIFT_SAMPLE_SIZE: ${{ inputs.k || '5' }}
         run: |
@@ -126,6 +129,7 @@ jobs:
           set +e
           .venv/bin/axiom-encode drift-check \
             --root "$AXIOM_DRIFT_ROOT" --corpus-path "$AXIOM_CORPUS_ROOT" \
+            --axiom-rules-engine-path "$AXIOM_RULES_ENGINE_ROOT" \
             --k "$DRIFT_SAMPLE_SIZE" \
             --regenerate --regenerate-backend openai \
             --report-file "$DRIFT_REPORT" --json

@@ -23,7 +23,6 @@ Three producers, one schema:
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +30,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 
+from .repo_routing import is_policy_repo_root
 from .run_log import (
     FUNNEL_STEPS,
     SCHEMA_VERSION,
@@ -73,10 +73,6 @@ COVERAGE_FIELDS = (
     "merge",
     "oracle_at_merge",
 )
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _severity_for(kind: str) -> Severity:
@@ -178,7 +174,7 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
             }
         )
 
-    for oracle in ("policyengine", "taxsim"):
+    for oracle in ("policyengine",):
         passed = getattr(metrics, f"{oracle}_pass", None)
         if passed is None:
             continue
@@ -283,39 +279,61 @@ def emit_live_encode_events(
 def build_manifest_index(repo_paths: Iterable[Path]) -> dict[str, dict[str, Any]]:
     """Index signed apply-manifests by ``run_id`` across rulespec repo checkouts."""
     index: dict[str, dict[str, Any]] = {}
-    for repo_path in repo_paths:
-        root = Path(repo_path) / APPLY_MANIFEST_GLOB
+    invalid: list[str] = []
+    seen_repos: set[Path] = set()
+    for raw_repo_path in repo_paths:
+        raw_repo_path = Path(raw_repo_path).expanduser()
+        if not is_policy_repo_root(raw_repo_path):
+            raise ValueError(
+                "Run-log manifest indexing requires an explicit exact canonical "
+                f"rulespec-<country> checkout: {raw_repo_path}"
+            )
+        repo_path = raw_repo_path.resolve(strict=True)
+        if repo_path in seen_repos:
+            raise ValueError(f"Duplicate RuleSpec checkout: {repo_path}")
+        seen_repos.add(repo_path)
+        root = repo_path / APPLY_MANIFEST_GLOB
         if not root.is_dir():
             continue
         for manifest_path in root.rglob("*.json"):
-            try:
-                text = manifest_path.read_text()
-                payload = json.loads(text)
-            except (OSError, json.JSONDecodeError):
+            from .cli import _load_verified_applied_encoding_manifest_payload
+
+            payload, _root_prefix, manifest_sha256, issues = (
+                _load_verified_applied_encoding_manifest_payload(
+                    repo_path,
+                    manifest_path.relative_to(repo_path).as_posix(),
+                )
+            )
+            if issues or payload is None:
+                invalid.append(
+                    f"{manifest_path}: "
+                    + ("; ".join(issues) or "manifest is not canonical")
+                )
                 continue
-            # A *.json under encoding-manifests need not be an object (could be a
-            # top-level list or scalar); skip anything that isn't a manifest dict.
-            if not isinstance(payload, dict):
-                continue
+            payload = dict(payload)
             run_id = payload.get("run_id")
             if isinstance(run_id, str) and run_id:
+                if run_id in index:
+                    raise ValueError(
+                        f"Duplicate apply-manifest run_id {run_id!r}: "
+                        f"{index[run_id]['_manifest_path']} and {manifest_path}"
+                    )
+                assert manifest_sha256 is not None
+                payload["_manifest_sha256"] = manifest_sha256
                 payload["_manifest_path"] = str(manifest_path)
-                payload["_manifest_sha256"] = _sha256_text(text)
                 index[run_id] = payload
+            else:
+                invalid.append(f"{manifest_path}: manifest has no run_id")
+    if invalid:
+        raise ValueError("Invalid apply manifests:\n" + "\n".join(invalid))
     return index
 
 
 def _manifest_sha_chain(payload: Optional[dict[str, Any]]) -> Optional[list[str]]:
     if not payload:
         return None
-    chain = [payload.get("_manifest_sha256") or ""]
-    node = payload.get("supersedes")
-    depth = 0
-    while isinstance(node, dict) and depth < 32:
-        chain.append(node.get("generated_output_sha256") or node.get("sha256") or "")
-        node = node.get("supersedes")
-        depth += 1
-    return [c for c in chain if c]
+    manifest_sha256 = payload.get("_manifest_sha256") or ""
+    return [manifest_sha256] if manifest_sha256 else None
 
 
 def synthesize_backfill_events(
@@ -413,7 +431,6 @@ def synthesize_backfill_events(
         # reviewers). Exact-match convention; raw score preserved in attrs.
         for oracle, score in (
             ("policyengine", getattr(review_results, "policyengine_match", None)),
-            ("taxsim", getattr(review_results, "taxsim_match", None)),
         ):
             if score is None:
                 continue
@@ -461,8 +478,7 @@ def synthesize_backfill_events(
 def _parse_review_results(review_results_json: Optional[str]) -> Any:
     """Defensively parse ``review_results_json`` into a ReviewResults-shaped object.
 
-    Reuses the encoding_db dataclasses but tolerates malformed legacy rows (some
-    historical rows have string-typed fields where lists are expected).
+    Old or malformed result shapes are rejected rather than translated.
     """
     if not review_results_json:
         return None
@@ -473,6 +489,9 @@ def _parse_review_results(review_results_json: Optional[str]) -> Any:
     except (TypeError, json.JSONDecodeError):
         return None
     if not isinstance(data, dict):
+        return None
+    allowed_fields = {"reviews", "policyengine_match", "oracle_context", "lessons"}
+    if set(data) - allowed_fields:
         return None
 
     def _as_list(value: Any) -> list[str]:
@@ -498,7 +517,6 @@ def _parse_review_results(review_results_json: Optional[str]) -> Any:
     return ReviewResults(
         reviews=reviews,
         policyengine_match=data.get("policyengine_match"),
-        taxsim_match=data.get("taxsim_match"),
     )
 
 

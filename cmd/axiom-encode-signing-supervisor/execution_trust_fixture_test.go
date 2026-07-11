@@ -1,0 +1,147 @@
+//go:build (darwin || linux) && signing_supervisor_test_fixture
+
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestFixturePolicyValidatesHermeticPythonChain(t *testing.T) {
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := filepath.Join(temporary, "runtime")
+	interpreterDirectory := filepath.Join(runtimeRoot, "bin")
+	packageRoot := filepath.Join(runtimeRoot, "lib", "python3.13", "site-packages", "axiom_encode")
+	if err := os.MkdirAll(interpreterDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(packageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	interpreter := filepath.Join(interpreterDirectory, "python3.13")
+	if err := os.WriteFile(interpreter, []byte{0x7f, 'E', 'L', 'F'}, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "__init__.py"), []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "_trusted_signing_bootstrap.py"), []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(runtimeRoot, "axiom-encode")
+	launcher := []byte("#!" + interpreter + " -I\n")
+	if err := os.WriteFile(executable, launcher, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	chain, err := validateTrustedExecutionChain(
+		executable,
+		[]string{runtimeRoot},
+		[]string{filepath.Dir(packageRoot)},
+		packageRoot,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chain.Executable != interpreter || chain.PythonInterpreter != interpreter {
+		t.Fatalf("unexpected trusted chain: %#v", chain)
+	}
+	if chain.PythonPackageRoot != packageRoot || len(chain.PythonRuntimeRoots) != 1 {
+		t.Fatalf("unexpected Python trust roots: %#v", chain)
+	}
+}
+
+func TestFixturePolicyRejectsSymlinkInPackageTree(t *testing.T) {
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageRoot := filepath.Join(temporary, "axiom_encode")
+	if err := os.Mkdir(packageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "__init__.py"), []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("__init__.py", filepath.Join(packageRoot, "alias.py")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateTrustedTree(packageRoot); err == nil {
+		t.Fatal("expected package-tree symlink rejection")
+	}
+}
+
+func TestFixturePolicyRejectsNestedShebangInterpreter(t *testing.T) {
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := filepath.Join(temporary, "runtime")
+	packageRoot := filepath.Join(runtimeRoot, "axiom_encode")
+	if err := os.MkdirAll(packageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "__init__.py"), []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	terminal := filepath.Join(runtimeRoot, "python3.13")
+	if err := os.WriteFile(terminal, []byte{0x7f, 'E', 'L', 'F'}, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(runtimeRoot, "python-wrapper")
+	if err := os.WriteFile(wrapper, []byte("#!"+terminal+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(runtimeRoot, "axiom-encode")
+	if err := os.WriteFile(executable, []byte("#!"+wrapper+" -I\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := validateTrustedExecutionChain(
+		executable,
+		[]string{runtimeRoot},
+		[]string{filepath.Dir(packageRoot)},
+		packageRoot,
+	); err == nil {
+		t.Fatal("expected nested shebang interpreter rejection")
+	}
+}
+
+func TestFixturePolicyRejectsPackageOutsideDeclaredRuntime(t *testing.T) {
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := filepath.Join(temporary, "runtime")
+	packageRoot := filepath.Join(temporary, "packages", "axiom_encode")
+	if err := os.MkdirAll(filepath.Join(runtimeRoot, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(packageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "__init__.py"), []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	interpreter := filepath.Join(runtimeRoot, "bin", "python3.13")
+	if err := os.WriteFile(interpreter, []byte{0x7f, 'E', 'L', 'F'}, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(runtimeRoot, "axiom-encode")
+	if err := os.WriteFile(executable, []byte("#!"+interpreter+" -I\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := validateTrustedExecutionChain(
+		executable,
+		[]string{runtimeRoot},
+		[]string{filepath.Dir(packageRoot)},
+		packageRoot,
+	); err == nil {
+		t.Fatal("expected package outside declared runtime rejection")
+	}
+}

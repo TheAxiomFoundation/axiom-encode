@@ -8,33 +8,45 @@ All external dependencies are mocked.
 import hashlib
 import json
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import tomllib
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import yaml
+from axiom_oracles.bridges.snap_populace import (
+    JURISDICTION_CONFIGS,
+    project_income_resource_inputs,
+    project_jurisdiction_household_inputs,
+)
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
-    APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
+    _APPLY_TRANSACTION_SCHEMA,
+    _APPLY_VALIDATION_SNAPSHOT_ATTR,
     APPLIED_ENCODING_MANIFEST_SCHEMA,
-    APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD,
-    APPLIED_ENCODING_SIGNING_KEY_ENV,
+    APPLIED_ENCODING_MODEL_TOOL,
+    APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+    APPLIED_ENCODING_RETIRE_TOOL,
+    APPLIED_ENCODING_SIGNATURE_ALGORITHM,
     _append_exception_positive_companion_tests_if_missing,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
     _append_generated_zero_branch_tests_if_missing,
+    _applied_encoding_manifest_path,
     _applied_encoding_manifest_signature_issue,
+    _applied_encoding_manifest_verifier,
     _applied_manifest_source_attestation_issues,
     _apply_generated_encoding_result,
-    _california_snap_repair_guard_manifest_groups,
+    _build_eval_suite_payload,
+    _build_eval_suite_report,
     _changed_manifest_group_files,
-    _cms_chip_fcep_sources_from_active_corpus_artifact,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -43,20 +55,25 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
-    _ensure_generated_dependency_files_safe,
-    _ensure_no_california_snap_sua_layout_collision,
-    _ensure_no_unmanifested_preexisting_rulespec_changes,
     _ensure_rulespec_import,
+    _eval_suite_json_sha256,
+    _eval_suite_summary_payload,
+    _exclusive_apply_transaction_lock,
+    _execute_rulespec_test_file,
     _expected_proof_import_hash,
     _find_rulespec_dependents,
+    _generated_result_source_metadata,
+    _git_changed_files,
     _has_zero_output_test,
     _hoist_nested_test_tables,
     _import_base_to_repo_file,
     _infer_missing_input_default,
     _inline_medicaid_magi_income_helpers,
     _insert_false_input_default,
+    _install_apply_transaction,
+    _install_eval_suite_revalidation_transaction,
+    _load_verified_applied_encoding_manifest_payload,
     _local_factual_input_names_from_rules_content,
-    _local_source_text_for_corpus_path,
     _looks_like_absolute_rulespec_output_target,
     _medicaid_magi_income_helper_issue_names,
     _normalize_top_level_parameter_values_to_versions,
@@ -65,14 +82,14 @@ from axiom_encode.cli import (
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
+    _record_successful_apply_validation,
+    _recover_apply_transaction,
+    _relative_generated_output_path,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _remove_unknown_dependent_test_outputs,
-    _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
     _repair_bare_indexed_parameter_references,
-    _repair_california_snap_policy_composition,
-    _repair_california_snap_program_tests,
     _repair_child_fragment_reencoding_aliases,
     _repair_child_numeric_reencoding_parent_aliases,
     _repair_colorado_snap_401,
@@ -85,7 +102,6 @@ from axiom_encode.cli import (
     _repair_colorado_snap_program_tests,
     _repair_colorado_tax_subsection_2_import,
     _repair_colorado_tax_subsection_2_test_inputs,
-    _repair_embedded_scalar_literals,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
@@ -100,7 +116,6 @@ from axiom_encode.cli import (
     _repair_medicaid_optional_senior_composition_tests,
     _repair_medicaid_primary_category_composition_rules,
     _repair_medicaid_primary_category_composition_tests,
-    _repair_minnesota_mfip_upstream_source_check_file,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
@@ -112,29 +127,26 @@ from axiom_encode.cli import (
     _repair_person_scoped_definition_entities,
     _repair_predecessor_scalar_limits,
     _repair_scalar_relation_rows,
-    _repair_section_151_imports,
-    _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
     _repair_snap_2014c_income_standard_test_inputs,
     _repair_snap_2739_income_test_inputs,
     _repair_tax_filing_status_branches,
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
-    _repository_structure_allows_json_manifest,
     _require_axiom_encode_version_provenance,
     _resolve_applied_manifest_placement,
-    _resolve_policy_repo_for_corpus_source,
+    _resolve_explicit_policy_repo_for_corpus_source,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
     _rewrite_judgment_numeric_comparisons,
-    _rewrite_stale_imported_test_input_refs,
     _rulespec_anchor_base_for_output,
     _rulespec_apply_content_root,
     _rulespec_base_for_file,
     _rulespec_checkout_root,
+    _rulespec_file_for_absolute_module_ref,
+    _rulespec_module_source_path,
     _rulespec_scalar_matches,
-    _scoped_source_text_for_encode_source_id,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -143,6 +155,8 @@ from axiom_encode.cli import (
     _split_colorado_snap_program_utility_outputs,
     _split_table_row_relation_test_cases,
     _stage_apply_overlay_dependency_root,
+    _stage_apply_overlay_dependency_roots,
+    _stamp_generated_source_attestation_for_apply,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
@@ -168,7 +182,6 @@ from axiom_encode.cli import (
     _try_repair_generated_negated_sum_where_predicates_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
-    _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_scalar_relation_rows_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_child_corpus_paths_for_apply,
@@ -184,17 +197,16 @@ from axiom_encode.cli import (
     _unit_scoped_person_definition_issue_names,
     _unit_scoped_person_definition_issue_units,
     _validate_generated_encoding_in_policy_overlay,
+    _validated_eval_suite_report_payload,
     _write_applied_encoding_manifest,
-    _write_overlay_eval_source_metadata_for_generated_output,
     cmd_calibration,
+    cmd_cloud_queue,
     cmd_compile,
     cmd_encode,
     cmd_eval_suite,
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
-    cmd_generate_cms_chip_eligibility_composition,
-    cmd_generate_cms_medicaid_chip_eligibility_levels,
     cmd_guard_generated,
     cmd_interval_table_audit,
     cmd_inventory,
@@ -203,39 +215,6 @@ from axiom_encode.cli import (
     cmd_manifest_census,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
-    cmd_repair_arizona_snap_composition,
-    cmd_repair_bare_snapunit_entities,
-    cmd_repair_cms_effective_magi_limits,
-    cmd_repair_colorado_tax_validation,
-    cmd_repair_companion_test_references,
-    cmd_repair_current_year_final_amounts,
-    cmd_repair_delegated_policy_settings,
-    cmd_repair_embedded_scalar_literals,
-    cmd_repair_georgia_cms_effective_magi_limits,
-    cmd_repair_georgia_cms_medicaid_availability,
-    cmd_repair_imported_test_inputs,
-    cmd_repair_invalid_test_inputs,
-    cmd_repair_judgment_positive_tests,
-    cmd_repair_medicaid_primary_category_composition,
-    cmd_repair_minnesota_mfip_upstream_source_check,
-    cmd_repair_missing_deferred_outputs,
-    cmd_repair_missing_source_proofs,
-    cmd_repair_mixed_derived_entity_output_tests,
-    cmd_repair_nonnegative_floors,
-    cmd_repair_oracle_parameter_tests,
-    cmd_repair_proof_import_hashes,
-    cmd_repair_same_section_subsection_imports,
-    cmd_repair_section_63_f_stale_test_inputs,
-    cmd_repair_section_85_unemployment,
-    cmd_repair_section_172_c_capacity,
-    cmd_repair_section_911_a_1_exclusion,
-    cmd_repair_snap_273_9_income_eligibility,
-    cmd_repair_snap_273_10_allotment,
-    cmd_repair_tax_filing_status_branches,
-    cmd_repair_tax_status_components,
-    cmd_repair_test_input_assignments,
-    cmd_repair_unreferenced_proof_imports,
-    cmd_repair_zero_branch_tests,
     cmd_retire,
     cmd_runs,
     cmd_session_end,
@@ -243,7 +222,6 @@ from axiom_encode.cli import (
     cmd_session_start,
     cmd_session_stats,
     cmd_sessions,
-    cmd_sign_applied_files,
     cmd_stats,
     cmd_sync_agent_sessions,
     cmd_sync_transcripts,
@@ -253,6 +231,18 @@ from axiom_encode.cli import (
     guard_generated_change_issues,
     main,
 )
+from axiom_encode.constants import (
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_FILESYSTEM_ROOTS,
+)
+from axiom_encode.corpus_resolver import (
+    LocalCorpusRelease,
+    UnsafeCorpusPathError,
+    normalize_corpus_identifier,
+)
+from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.encoding_db import (
     EncodingDB,
     EncodingRun,
@@ -261,82 +251,431 @@ from axiom_encode.harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
-from axiom_encode.harness.evals import CorpusSourceUnit, EvalArtifactMetrics
-from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
-from axiom_encode.oracles.policyengine.ecps_snap import (
-    JURISDICTION_CONFIGS,
-    project_income_resource_inputs,
-    project_jurisdiction_household_inputs,
+from axiom_encode.harness.eval_evidence import EVAL_EVIDENCE_PRIVATE_KEY_ENV
+from axiom_encode.harness.evals import (
+    CorpusSourceUnit,
+    EvalArtifactMetrics,
+    _bind_eval_result_payload,
+    _build_eval_suite_manifest_identity,
+    _eval_result_from_payload,
+    _signed_eval_result_verdict_evidence_payload,
+    load_eval_suite_manifest,
+    resolve_corpus_source_unit,
+    summarize_readiness,
 )
+from axiom_encode.harness.policyengine_runtime import PolicyEngineRuntimeError
+from axiom_encode.harness.validator_pipeline import (
+    _authoritative_rulespec_dependency_scope,
+)
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    monorepo_checkout_name,
+)
+from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
+from tests.eval_evidence_fixtures import (
+    TEST_APPLY_PRIVATE_KEY_B64,
+    TEST_APPLY_PUBLIC_KEY_B64,
+    install_test_eval_evidence_keys,
+)
+from tests.release_object_fixtures import (
+    TEST_RELEASE_PUBLIC_KEY,
+    bind_test_corpus_release,
+)
+from tests.signing_broker_fixtures import SigningBrokerFixture
 
-TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
+APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
+
+TEST_PINNED_ENCODER_IDENTITY = {
+    "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+    "commit": "a" * 40,
+    "version": AXIOM_ENCODE_TEST_VERSION,
+}
+TEST_POLICYENGINE_RUNTIME_IDENTITY = {
+    "schema": "axiom-policyengine-runtime/v2",
+    "country": "us",
+    "repository_root": "/tmp/policyengine-us",
+    "git_head": "9" * 40,
+}
+TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256 = hashlib.sha256(
+    json.dumps(
+        TEST_POLICYENGINE_RUNTIME_IDENTITY,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+).hexdigest()
+TEST_APPLY_SIGNING_BROKER = SigningBrokerFixture(
+    apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
+    apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
+)
+TEST_APPLY_SIGNING_ENV = {
+    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64,
+}
+REMOVED_PARTIAL_REPAIR_COMMANDS = frozenset(
+    {
+        "repair-arizona-snap-composition",
+        "repair-bare-snapunit-entities",
+        "repair-cms-effective-magi-limits",
+        "repair-child-fragment-reencoding",
+        "repair-colorado-snap-federal-refs",
+        "repair-colorado-tax-validation",
+        "repair-companion-test-references",
+        "repair-current-year-final-amounts",
+        "repair-delegated-policy-settings",
+        "repair-embedded-scalar-literals",
+        "repair-georgia-cms-effective-magi-limits",
+        "repair-georgia-cms-medicaid-availability",
+        "repair-imported-test-inputs",
+        "repair-invalid-test-inputs",
+        "repair-judgment-positive-tests",
+        "repair-medicaid-community-engagement-effective-date",
+        "repair-medicaid-optional-senior-composition",
+        "repair-medicaid-primary-category-composition",
+        "repair-minnesota-mfip-upstream-source-check",
+        "repair-missing-source-proofs",
+        "repair-missing-deferred-outputs",
+        "repair-mixed-derived-entity-output-tests",
+        "repair-new-york-snap-benefit-tests",
+        "repair-new-york-snap-categorical-eligibility",
+        "repair-nonnegative-floors",
+        "repair-oracle-parameter-tests",
+        "repair-proof-import-hashes",
+        "repair-section-172-c-capacity",
+        "repair-section-63-f-stale-test-inputs",
+        "repair-section-85-unemployment",
+        "repair-section-911-a-1-exclusion",
+        "repair-ssa-poms-optional-supplement-common",
+        "repair-same-section-subsection-imports",
+        "repair-snap-273-10-allotment",
+        "repair-snap-273-9-income-eligibility",
+        "repair-source-child-corpus-paths",
+        "repair-tax-filing-status-branches",
+        "repair-tax-status-components",
+        "repair-test-input-assignments",
+        "repair-unreferenced-proof-imports",
+        "repair-unused-imports",
+        "repair-upstream-placement-duplicates",
+        "repair-zero-branch-tests",
+        "repair-california-snap-shelter-surface",
+        "generate-cms-medicaid-chip-eligibility-levels",
+        "generate-cms-chip-eligibility-composition",
+        "sign-applied-files",
+    }
+)
+REMOVED_COMPATIBILITY_COMMANDS = frozenset(
+    {
+        "snap-ecps-compare",
+        "tax-ecps-compare",
+        "uk-efrs-compare",
+        "uk-efrs-coverage",
+        "uk-efrs-hbai-coverage",
+    }
+)
 
 
-def test_resolve_policy_repo_for_state_corpus_source_uses_state_monorepo_root(
-    tmp_path,
-):
-    repo = tmp_path / "rulespec-us"
-    state_root = repo / "us-ia"
-    state_root.mkdir(parents=True)
-
-    resolved = _resolve_policy_repo_for_corpus_source(
-        "us-ia/regulation/iac/441/41/41.28",
-        repo,
-        create_missing_monorepo_content_root=True,
+@pytest.fixture(autouse=True)
+def _pin_test_encoder_execution_identity(monkeypatch):
+    monkeypatch.setattr(
+        "axiom_encode.cli._current_guard_encoder_execution_identity",
+        lambda: dict(TEST_PINNED_ENCODER_IDENTITY),
     )
 
-    assert resolved == state_root.resolve()
 
-
-def test_resolve_policy_repo_for_state_corpus_source_creates_state_monorepo_root(
-    tmp_path,
-):
-    repo = tmp_path / "rulespec-us"
-    repo.mkdir()
-
-    resolved = _resolve_policy_repo_for_corpus_source(
-        "us-ia/regulation/iac/441/41/41.28",
-        repo,
-        create_missing_monorepo_content_root=True,
+@pytest.fixture(autouse=True)
+def _test_eval_evidence_keys(monkeypatch):
+    install_test_eval_evidence_keys(
+        monkeypatch,
+        apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
+        apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
     )
 
-    assert resolved == (repo / "us-ia").resolve()
-    assert (repo / "us-ia").is_dir()
+
+def _test_eval_runner_identity(spec: str) -> dict[str, str]:
+    alias, target = spec.split("=", 1) if "=" in spec else ("", spec)
+    backend, model = target.split(":", 1)
+    name = alias or f"{backend}-{model}"
+    return {"name": name, "backend": backend, "model": model}
 
 
-def test_resolve_policy_repo_for_state_corpus_source_uses_sibling_for_country_content_override(
+def _write_test_eval_artifacts(root: Path, name: str) -> dict[str, str]:
+    artifact_root = root / "test-eval-artifacts" / name
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    output_file = artifact_root / "generated.yaml"
+    trace_file = artifact_root / "trace.json"
+    context_manifest_file = artifact_root / "context-manifest.json"
+    output_file.write_text("format: rulespec/v1\nrules: []\n")
+    trace_file.write_text("{}\n")
+    context_manifest_file.write_text("{}\n")
+    return {
+        "output_file": str(output_file),
+        "trace_file": str(trace_file),
+        "context_manifest_file": str(context_manifest_file),
+        "generated_output_sha256": hashlib.sha256(output_file.read_bytes()).hexdigest(),
+        "trace_sha256": hashlib.sha256(trace_file.read_bytes()).hexdigest(),
+        "context_manifest_sha256": hashlib.sha256(
+            context_manifest_file.read_bytes()
+        ).hexdigest(),
+    }
+
+
+def _bind_test_eval_verdict(result: dict, root: Path, name: str) -> dict:
+    """Add the independent validator-verdict artifact required by suite admission."""
+
+    result.setdefault("admission", {})
+    payload = _bind_eval_result_payload(result)
+    rehydrated = _eval_result_from_payload(payload)
+    verdict_path = root / "test-eval-verdicts" / f"{name}.json"
+    verdict_path.parent.mkdir(parents=True, exist_ok=True)
+    verdict_raw = (
+        json.dumps(
+            _signed_eval_result_verdict_evidence_payload(
+                rehydrated,
+                rehydrated.admission or {},
+                get_signing_broker(capability="eval_ed25519"),
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
+    verdict_path.write_bytes(verdict_raw)
+    payload["verdict_file"] = str(verdict_path)
+    payload["verdict_sha256"] = hashlib.sha256(verdict_raw).hexdigest()
+    return _bind_eval_result_payload(payload)
+
+
+def _fake_verified_eval_suite_artifacts(
+    *,
+    manifest,
+    effective_runners: list[str],
+    results: list,
+    completed_case_indexes: set[int] | None = None,
+    status: str = "completed",
+) -> dict[str, object]:
+    """Build already-verified harness output for CLI-only unit tests."""
+
+    if completed_case_indexes is None:
+        completed_case_indexes = set(range(1, len(manifest.cases) + 1))
+    runner_identities = [_test_eval_runner_identity(spec) for spec in effective_runners]
+    try:
+        manifest_identity = _build_eval_suite_manifest_identity(manifest)
+        case_identities = list(manifest_identity["case_identities"])
+        manifest_content_sha256 = manifest_identity["content_sha256"]
+    except (AttributeError, TypeError, ValueError):
+        case_identities = [
+            {
+                "index": index,
+                "name": case.name,
+                "kind": case.kind,
+                "corpus_citation_path": case.corpus_citation_path,
+                "sha256": hashlib.sha256(
+                    f"{index}:{case.name}:{case.kind}".encode()
+                ).hexdigest(),
+            }
+            for index, case in enumerate(manifest.cases, start=1)
+        ]
+        manifest_content_sha256 = "3" * 64
+    policy_root = "/tmp/test-rulespec/us"
+    rulespec_identity = {
+        "path": policy_root,
+        "content_sha256": "6" * 64,
+        "toolchain_contract_sha256": "7" * 64,
+        "validation_waiver_set_sha256": "8" * 64,
+    }
+    execution_identity = {
+        "schema": "axiom-encode/eval-execution-identity/v2",
+        "axiom_encode": {
+            "kind": "tree",
+            "tree_sha256": "1" * 64,
+            "version": AXIOM_ENCODE_TEST_VERSION,
+        },
+        "axiom_rules_engine": {"kind": "tree", "tree_sha256": "2" * 64},
+        "rulespec_roots": [rulespec_identity],
+        "policyengine_runtime": (
+            {
+                "identity": TEST_POLICYENGINE_RUNTIME_IDENTITY,
+                "sha256": TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256,
+            }
+            if any(
+                getattr(case, "oracle", "none") == "policyengine"
+                for case in manifest.cases
+            )
+            else None
+        ),
+    }
+    execution_identity_sha256 = hashlib.sha256(
+        json.dumps(
+            execution_identity,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    run_state = {
+        "manifest": {
+            "name": manifest.name,
+            "path": str(manifest.path),
+            "runners": list(manifest.runners),
+            "effective_runners": list(effective_runners),
+            "effective_runner_identities": runner_identities,
+            "content_sha256": manifest_content_sha256,
+            "case_identities": case_identities,
+        },
+        "status": status,
+        "corpus_release": TEST_CORPUS_RELEASE_NAME,
+        "corpus_release_content_sha256": "5" * 64,
+        "corpus_release_selector_sha256": "4" * 64,
+        "rulespec_roots": [policy_root],
+        "execution_identity": execution_identity,
+        "execution_identity_sha256": execution_identity_sha256,
+        "validation_waiver_sets": [
+            {
+                "rulespec_root": policy_root,
+                "validation_waiver_set_sha256": "8" * 64,
+            }
+        ],
+        "run_id": "12345678-1234-4234-8234-123456789abc",
+        "started_at": "2026-04-10T12:00:00+00:00",
+        "total_cases": len(manifest.cases),
+        "completed_cases": len(completed_case_indexes),
+        "result_count": len(results),
+    }
+    ledger_entries = []
+    result_index = 0
+    for case_index in sorted(completed_case_indexes):
+        case = manifest.cases[case_index - 1]
+        for _runner in runner_identities:
+            result = results[result_index]
+            result_index += 1
+            admission = {
+                "schema": "axiom-encode/eval-result-admission/v2",
+                "run": {
+                    "id": run_state["run_id"],
+                    "started_at": run_state["started_at"],
+                },
+                "suite": {
+                    "name": manifest.name,
+                    "manifest_path": str(manifest.path),
+                    "manifest_content_sha256": manifest_content_sha256,
+                    "manifest_case_identities": case_identities,
+                    "effective_runner_identities": runner_identities,
+                },
+                "case": case_identities[case_index - 1],
+                "corpus": {
+                    "corpus_release": TEST_CORPUS_RELEASE_NAME,
+                    "corpus_release_content_sha256": "5" * 64,
+                    "corpus_release_selector_sha256": "4" * 64,
+                },
+                "execution": {
+                    "identity": execution_identity,
+                    "sha256": execution_identity_sha256,
+                },
+                "rulespec": {
+                    "policy_repo_root": policy_root,
+                    "root_content_sha256": "6" * 64,
+                    "toolchain_contract_sha256": "7" * 64,
+                    "validation_waiver_set_sha256": "8" * 64,
+                },
+            }
+            if isinstance(result, dict):
+                result["admission"] = admission
+                result_payload = _bind_eval_result_payload(result)
+            else:
+                result.admission = admission
+                result_payload = result.to_dict()
+                if isinstance(result, MagicMock):
+                    result.to_dict.return_value = result_payload
+            verdict_file = result_payload.get("verdict_file")
+            if isinstance(verdict_file, str) and verdict_file:
+                rehydrated = _eval_result_from_payload(result_payload)
+                verdict_raw = (
+                    json.dumps(
+                        _signed_eval_result_verdict_evidence_payload(
+                            rehydrated,
+                            admission,
+                            get_signing_broker(capability="eval_ed25519"),
+                        ),
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                ).encode()
+                Path(verdict_file).write_bytes(verdict_raw)
+                result_payload["verdict_sha256"] = hashlib.sha256(
+                    verdict_raw
+                ).hexdigest()
+                result_payload = _bind_eval_result_payload(result_payload)
+                if isinstance(result, dict):
+                    result.clear()
+                    result.update(result_payload)
+                else:
+                    result.verdict_sha256 = result_payload["verdict_sha256"]
+                    if isinstance(result, MagicMock):
+                        result.to_dict.return_value = result_payload
+            ledger_entries.append(
+                {
+                    "case_index": case_index,
+                    "case_name": case.name,
+                    "case_kind": case.kind,
+                    "result": result_payload,
+                }
+            )
+    return {
+        "run_state": run_state,
+        "ledger_entries": ledger_entries,
+        "results": results,
+        "completed_case_indexes": completed_case_indexes,
+        "manifest_identity": {
+            "content_sha256": manifest_content_sha256,
+            "case_identities": case_identities,
+        },
+        "execution_identity": execution_identity,
+        "parsed_runners": [],
+        "complete": completed_case_indexes == set(range(1, len(manifest.cases) + 1)),
+    }
+
+
+TEST_CORPUS_RELEASE_NAME = "rulespec-test-release"
+TEST_CORPUS_VERSION = "2026-rulespec-test"
+TEST_VALIDATION_WAIVER_TEXT = "validate_failures: {}\n"
+TEST_VALIDATION_WAIVER_SHA256 = hashlib.sha256(
+    TEST_VALIDATION_WAIVER_TEXT.encode()
+).hexdigest()
+
+
+def test_explicit_policy_repo_routing_requires_existing_canonical_content_root(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us"
-    country_root = repo / "us"
-    country_root.mkdir(parents=True)
+    checkout = tmp_path / "rulespec-us"
+    checkout.mkdir()
 
-    resolved = _resolve_policy_repo_for_corpus_source(
+    with pytest.raises(ValueError, match="does not contain the canonical"):
+        _resolve_explicit_policy_repo_for_corpus_source(
+            "us-ia/regulation/iac/441/41/41.28",
+            checkout,
+        )
+
+    assert not (checkout / "us-ia").exists()
+    (checkout / "us-ia").mkdir()
+    resolved = _resolve_explicit_policy_repo_for_corpus_source(
         "us-ia/regulation/iac/441/41/41.28",
-        country_root,
-        create_missing_monorepo_content_root=True,
+        checkout,
     )
 
-    assert resolved == (repo / "us-ia").resolve()
-    assert (repo / "us-ia").is_dir()
-    assert not (country_root / "us-ia").exists()
+    assert resolved == (checkout / "us-ia").resolve()
 
 
-def test_resolve_policy_repo_for_state_corpus_source_preserves_legacy_override(
+def test_explicit_policy_repo_routing_rejects_legacy_jurisdiction_checkout(
     tmp_path,
 ):
-    repo = tmp_path / "rulespec-us-ia"
-    repo.mkdir()
+    checkout = tmp_path / "rulespec-us-ia"
+    checkout.mkdir()
 
-    resolved = _resolve_policy_repo_for_corpus_source(
-        "us-ia/regulation/iac/441/41/41.28",
-        repo,
-        create_missing_monorepo_content_root=True,
-    )
-
-    assert resolved == repo.resolve()
-    assert not (repo / "us-ia").exists()
+    with pytest.raises(ValueError, match="canonical country checkout"):
+        _resolve_explicit_policy_repo_for_corpus_source(
+            "us-ia/regulation/iac/441/41/41.28",
+            checkout,
+        )
 
 
 def test_package_version_metadata_matches_pyproject():
@@ -393,32 +732,6 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
 
 
-def test_source_id_encode_scopes_cfr_section_text_to_target_leaf(tmp_path):
-    source = "\n\n".join(
-        [
-            "(b) State agency error rates.",
-            "(2) Determination of payment error rates.",
-            "(i) FNS shall calculate regressed error rates.",
-            "(A) y1' = y1 + b1 (X1 - x1).",
-            "(B) y2' = y2 + b2 (X2 - x2).",
-            "(C) The regressed error rates are r1' = y1'/u and r2' = y2'/u.",
-            "(D) The adjusted regressed payment error rate is r1'' + r2''.",
-            "(d) State agencies' liabilities for payment error rates.",
-        ]
-    )
-
-    scoped = _scoped_source_text_for_encode_source_id(
-        source,
-        source_id="us/regulation/7/275/23/b/2/i/C",
-        policy_repo_path=tmp_path,
-    )
-
-    assert scoped.lstrip().startswith("(C) The regressed error rates")
-    assert "r1' = y1'/u" in scoped
-    assert "adjusted regressed payment error rate" not in scoped
-    assert "liabilities for payment error rates" not in scoped
-
-
 def test_colorado_snap_ecps_uses_absolute_member_relation_only():
     config = JURISDICTION_CONFIGS["us-co"]
 
@@ -463,8 +776,144 @@ def test_arizona_snap_ecps_projects_boundary_inputs():
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
-    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_KEY)
+    payload.setdefault(
+        "validation_waiver_set_sha256",
+        TEST_VALIDATION_WAIVER_SHA256,
+    )
+    backend = payload.get("backend")
+    if payload.get(
+        "schema_version"
+    ) == APPLIED_ENCODING_MANIFEST_SCHEMA and backend in {
+        "codex",
+        "openai",
+        "claude",
+    }:
+        payload.setdefault("generated_at", "2026-07-11T00:00:00+00:00")
+        payload.setdefault("tool", APPLIED_ENCODING_MODEL_TOOL)
+        payload.setdefault("axiom_encode_version", AXIOM_ENCODE_TEST_VERSION)
+        payload.setdefault(
+            "axiom_encode_git",
+            {
+                "root": "/repo/axiom-encode",
+                "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                "dirty_tracked": False,
+                "version": AXIOM_ENCODE_TEST_VERSION,
+                "version_commit": "b" * 40,
+            },
+        )
+        payload.setdefault("generation_prompt_sha256", None)
+        payload.setdefault("run_id", None)
+        payload.setdefault("citation", "")
+        payload.setdefault("runner", backend)
+        payload.setdefault("model", "manifest-fixture")
+        payload.setdefault("generated_output_root", "/tmp/axiom-generated")
+        payload.setdefault("generated_output_file", None)
+        payload.setdefault("generated_output_sha256", None)
+        payload.setdefault("trace_file", None)
+        payload.setdefault("trace_sha256", None)
+        payload.setdefault("context_manifest_file", None)
+        payload.setdefault("context_manifest_sha256", None)
+        attestation = payload.get("source_attestation")
+        rulespec_root = (
+            attestation.get("rulespec_root")
+            if isinstance(attestation, dict)
+            else "rulespec-us/us"
+        )
+        encoder_git = payload.get("axiom_encode_git")
+        encoder_commit = (
+            encoder_git.get("commit")
+            if isinstance(encoder_git, dict)
+            else TEST_PINNED_ENCODER_IDENTITY["commit"]
+        )
+        payload.setdefault(
+            "validation_execution",
+            {
+                "schema": "axiom-encode/apply-validation-execution/v1",
+                "axiom_encode": {
+                    "repository": "github.com/TheAxiomFoundation/axiom-encode",
+                    "commit": encoder_commit,
+                    "version": payload.get(
+                        "axiom_encode_version", AXIOM_ENCODE_TEST_VERSION
+                    ),
+                },
+                "axiom_rules_engine": {
+                    "repository": ("github.com/TheAxiomFoundation/axiom-rules-engine"),
+                    "commit": "e" * 40,
+                },
+                "policy_pre_apply": {
+                    "rulespec_root": rulespec_root,
+                    "pre_apply_content_sha256": "e" * 64,
+                    "pre_apply_file_count": 1,
+                    "toolchain_contract_sha256": "d" * 64,
+                    "validation_waiver_set_sha256": payload[
+                        "validation_waiver_set_sha256"
+                    ],
+                },
+                "rulespec_dependencies": [],
+            },
+        )
+    elif payload.get("schema_version") == APPLIED_ENCODING_MANIFEST_SCHEMA:
+        applied_files = payload.get("applied_files")
+        if isinstance(applied_files, list) and all(
+            isinstance(item, dict) and item.get("deleted") is True
+            for item in applied_files
+        ):
+            payload.setdefault("generated_at", "2026-07-11T00:00:00+00:00")
+            payload.setdefault("tool", APPLIED_ENCODING_RETIRE_TOOL)
+            payload.setdefault("reason", "test retirement")
+            payload.setdefault("axiom_encode_version", AXIOM_ENCODE_TEST_VERSION)
+            payload.setdefault(
+                "axiom_encode_git",
+                {
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "b" * 40,
+                },
+            )
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
     return payload
+
+
+def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(
+    monkeypatch,
+):
+    payload = {"schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA, "value": 1}
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+    monkeypatch.setattr("axiom_encode.signing_broker._active_broker", None)
+    monkeypatch.setenv(
+        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV,
+        TEST_APPLY_PUBLIC_KEY_B64,
+    )
+
+    verifier = _applied_encoding_manifest_verifier()
+    assert verifier is None
+    assert (
+        _applied_encoding_manifest_signature_issue(payload, TEST_APPLY_SIGNING_BROKER)
+        is None
+    )
+
+    payload["signature"] = {
+        "algorithm": "hmac-sha256",
+        "key_id": "sha256:" + "0" * 64,
+        "value": "0" * 64,
+    }
+    assert (
+        _applied_encoding_manifest_signature_issue(
+            payload,
+            TEST_APPLY_SIGNING_BROKER,
+        )
+        == "uses an unsupported encoder apply manifest signature algorithm"
+    )
+    payload["signature"]["algorithm"] = "ed25519"
+    assert (
+        _applied_encoding_manifest_signature_issue(
+            payload,
+            TEST_APPLY_SIGNING_BROKER,
+        )
+        == "uses an unsupported encoder apply manifest signature algorithm"
+    )
 
 
 def _complete_source_attestation(
@@ -472,12 +921,13 @@ def _complete_source_attestation(
     *,
     source_sha256: str = "a" * 64,
 ) -> dict[str, object]:
-    provision_file = "corpus/provisions/us/statute/2026.jsonl"
+    provision_file = "data/corpus/provisions/us/statute/2026.jsonl"
     return {
         "requested_corpus_citation_path": citation_path,
         "resolved_corpus_citation_path": citation_path,
         "corpus_source": "local",
-        "corpus_release": "current",
+        "corpus_release": TEST_CORPUS_RELEASE_NAME,
+        "corpus_release_content_sha256": "e" * 64,
         "corpus_release_selector_sha256": "b" * 64,
         "provision_file": provision_file,
         "provision_file_sha256": "c" * 64,
@@ -504,13 +954,13 @@ def _complete_source_attestation(
     }
 
 
-def _write_legacy_model_manifest(
+def _write_v4_model_manifest(
     repo: Path,
     *,
-    rule_rel: str = "statutes/26/1.yaml",
+    rule_rel: str = "us/statutes/26/1.yaml",
     backend: str = "codex",
 ) -> tuple[Path, Path]:
-    """Write the signed pre-attestation v1 shape used by compatibility tests."""
+    """Write a signed pre-hard-cut v4 manifest to exercise rejection."""
 
     rule = repo / rule_rel
     rule.parent.mkdir(parents=True, exist_ok=True)
@@ -528,7 +978,7 @@ rules: []
         json.dumps(
             _signed_manifest_payload(
                 {
-                    "schema_version": APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
+                    "schema_version": "axiom-encode/applied-rulespec/v4",
                     "generated_at": "2026-07-01T00:00:00+00:00",
                     "axiom_encode_version": "0.2.1190",
                     "backend": backend,
@@ -542,7 +992,7 @@ rules: []
     return rule, manifest
 
 
-def test_source_attestation_requires_concrete_remote_artifact_identity():
+def test_source_attestation_rejects_remote_source_identity():
     attestation = _complete_source_attestation()
     attestation["corpus_source"] = "supabase"
     attestation["provision_file_sha256"] = None
@@ -553,8 +1003,93 @@ def test_source_attestation_requires_concrete_remote_artifact_identity():
 
     issues = _source_attestation_structure_issues(attestation)
 
+    assert "source_attestation.corpus_source must be local" in issues
     assert any("provision_file_sha256" in issue for issue in issues)
     assert any("line_number must be a positive integer" in issue for issue in issues)
+
+
+def test_source_attestation_rejects_unknown_top_level_fields():
+    attestation = _complete_source_attestation()
+    attestation["legacy_selector"] = "mutable-latest"
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert issues == ["source_attestation has noncanonical fields: legacy_selector"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["requested_corpus_citation_path", "resolved_corpus_citation_path"],
+)
+@pytest.mark.parametrize(
+    "alias",
+    [" us/statute/26/1", "us/statute/26/1/", "us:statutes/26/1"],
+)
+def test_source_attestation_rejects_noncanonical_citation_identity(field, alias):
+    attestation = _complete_source_attestation()
+    attestation[field] = alias
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any(
+        f"source_attestation.{field} must be an exact canonical" in issue
+        for issue in issues
+    )
+
+
+def test_source_attestation_rejects_noncanonical_row_and_component_citations():
+    attestation = _complete_source_attestation()
+    row = attestation["row"]
+    assert isinstance(row, dict)
+    row["citation_path"] = "us/statute/26/1/"
+    attestation["component_rows"] = [
+        {
+            **row,
+            "citation_path": "us:statutes/26/1/a",
+            "record_id": "component-a",
+        }
+    ]
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any(
+        "row.citation_path must be an exact canonical" in issue for issue in issues
+    )
+    assert any(
+        "component_rows[0].citation_path must be an exact canonical" in issue
+        for issue in issues
+    )
+
+
+def test_rulespec_module_source_path_rejects_top_level_legacy_block():
+    assert (
+        _rulespec_module_source_path(
+            {"source_verification": {"corpus_citation_path": "us/statute/26/1"}}
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("release_name", ["current", "UPPER CASE", "../escape"])
+def test_source_attestation_rejects_mutable_or_invalid_release_names(release_name):
+    attestation = _complete_source_attestation()
+    attestation["corpus_release"] = release_name
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any("corpus_release is invalid" in issue for issue in issues)
+
+
+def test_source_attestation_requires_canonical_provision_path():
+    attestation = _complete_source_attestation()
+    attestation["provision_file"] = "legacy/provisions/2026.jsonl"
+    row = attestation["row"]
+    assert isinstance(row, dict)
+    row["provision_file"] = "legacy/provisions/2026.jsonl"
+
+    issues = _source_attestation_structure_issues(attestation)
+
+    assert any("canonical data/corpus/provisions path" in issue for issue in issues)
 
 
 def test_composed_source_attestation_requires_component_artifact_identity():
@@ -598,22 +1133,25 @@ def _write_active_corpus_row(
     citation_path: str,
     body: str,
     *,
-    filename: str = "test.jsonl",
-    version: str = "test-release",
-) -> Path:
+    version: str = TEST_CORPUS_VERSION,
+) -> LocalCorpusRelease:
     jurisdiction, document_class, *_rest = citation_path.split("/")
     provision_file = (
         corpus_root
         / "data/corpus/provisions"
         / jurisdiction
         / document_class
-        / filename
+        / f"{version}.jsonl"
     )
     provision_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = (
+        provision_file.read_text(encoding="utf-8") if provision_file.exists() else ""
+    )
     provision_file.write_text(
-        json.dumps(
+        existing
+        + json.dumps(
             {
-                "id": f"test:{citation_path}",
+                "id": f"test:{version}:{citation_path}",
                 "citation_path": citation_path,
                 "body": body,
                 "jurisdiction": jurisdiction,
@@ -627,25 +1165,169 @@ def _write_active_corpus_row(
         + "\n",
         encoding="utf-8",
     )
-    selector = corpus_root / "manifests/releases/current.json"
-    selector.parent.mkdir(parents=True, exist_ok=True)
-    selector.write_text(
-        json.dumps(
-            {
-                "name": "current",
-                "scopes": [
-                    {
-                        "jurisdiction": jurisdiction,
-                        "document_class": document_class,
-                        "version": version,
-                    }
-                ],
-            }
-        )
-        + "\n",
+    return bind_test_corpus_release(
+        corpus_root,
+        TEST_CORPUS_RELEASE_NAME,
+        [(jurisdiction, document_class, version)],
+    )
+
+
+def _canonical_rulespec_content_root(
+    tmp_path: Path,
+    jurisdiction: str = "us",
+) -> Path:
+    """Create and return one canonical country-checkout jurisdiction root."""
+
+    root = tmp_path / monorepo_checkout_name(jurisdiction) / jurisdiction
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _write_test_rulespec_toolchain(
+    rulespec_root: Path,
+    *,
+    release_content_sha256: str = "0" * 64,
+) -> Path:
+    rulespec_root = rulespec_root.resolve()
+    if canonical_rulespec_root_identity(rulespec_root) is not None:
+        rulespec_root = _rulespec_checkout_root(rulespec_root)
+    elif re.fullmatch(
+        r"[a-z]{2}(?:-[a-z0-9_]+)*", rulespec_root.name
+    ) and rulespec_root.parent.name == monorepo_checkout_name(rulespec_root.name):
+        rulespec_root = rulespec_root.parent
+    waiver = rulespec_root / "known-validation-gaps.yaml"
+    if not waiver.exists():
+        waiver.parent.mkdir(parents=True, exist_ok=True)
+        waiver.write_text(TEST_VALIDATION_WAIVER_TEXT, encoding="utf-8")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = rulespec_root / ".axiom" / "toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{TEST_CORPUS_RELEASE_NAME}"\n'
+        f'axiom_corpus_release_content_sha256 = "{release_content_sha256}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n',
         encoding="utf-8",
     )
-    return provision_file
+    return toolchain
+
+
+def _bind_test_corpus_release(
+    rulespec_root: Path,
+    corpus_root: Path,
+    *,
+    citation_path: str = "us/statute/26/1",
+    body: str = "authoritative test source",
+) -> LocalCorpusRelease:
+    release = _write_active_corpus_row(corpus_root, citation_path, body)
+    _write_test_rulespec_toolchain(
+        rulespec_root,
+        release_content_sha256=release.content_sha256,
+    )
+    return release
+
+
+def _bind_test_repair_corpus(
+    rulespec_root: Path,
+    tmp_path: Path,
+    *,
+    citation_path: str = "us/statute/26/1",
+) -> Path:
+    """Return an explicit corpus root bound to a repair command's checkout."""
+
+    rulespec_root = rulespec_root.resolve()
+    if canonical_rulespec_root_identity(rulespec_root) is not None:
+        rulespec_root = _rulespec_checkout_root(rulespec_root)
+    elif re.fullmatch(r"rulespec-[a-z]{2}", rulespec_root.name):
+        country = rulespec_root.name.removeprefix("rulespec-")
+        (rulespec_root / country).mkdir(parents=True, exist_ok=True)
+    else:
+        raise ValueError(
+            "Repair fixture requires a canonical rulespec-<country> checkout "
+            "or its direct jurisdiction content root"
+        )
+    (tmp_path / "axiom-rules-engine").mkdir(exist_ok=True)
+    corpus_root = tmp_path / "axiom-corpus"
+    release_objects = sorted(
+        (corpus_root / "releases" / TEST_CORPUS_RELEASE_NAME).glob("*.json")
+    )
+    if len(release_objects) == 1:
+        release = LocalCorpusRelease(
+            corpus_root,
+            TEST_CORPUS_RELEASE_NAME,
+            release_objects[0].stem,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
+        _write_test_rulespec_toolchain(
+            rulespec_root,
+            release_content_sha256=release.content_sha256,
+        )
+        return release.root
+    return _bind_test_corpus_release(
+        rulespec_root,
+        corpus_root,
+        citation_path=citation_path,
+    ).root
+
+
+def _bind_test_repair_corpus_sources(
+    rulespec_root: Path,
+    tmp_path: Path,
+    *,
+    citation_paths: tuple[str, ...],
+) -> Path:
+    """Bind one repair fixture release containing each explicit source row."""
+
+    if not citation_paths:
+        raise ValueError("Repair fixture requires at least one corpus citation")
+    rulespec_root = rulespec_root.resolve()
+    if canonical_rulespec_root_identity(rulespec_root) is not None:
+        rulespec_root = _rulespec_checkout_root(rulespec_root)
+    elif re.fullmatch(r"rulespec-[a-z]{2}", rulespec_root.name):
+        country = rulespec_root.name.removeprefix("rulespec-")
+        (rulespec_root / country).mkdir(parents=True, exist_ok=True)
+    else:
+        raise ValueError(
+            "Repair fixture requires a canonical rulespec-<country> checkout "
+            "or its direct jurisdiction content root"
+        )
+    (tmp_path / "axiom-rules-engine").mkdir(exist_ok=True)
+    corpus_root = tmp_path / "axiom-corpus"
+    release: LocalCorpusRelease | None = None
+    for citation_path in citation_paths:
+        release = _write_active_corpus_row(
+            corpus_root,
+            citation_path,
+            "authoritative test source",
+        )
+    assert release is not None
+    _write_test_rulespec_toolchain(
+        rulespec_root,
+        release_content_sha256=release.content_sha256,
+    )
+    return release.root
+
+
+def _stamp_test_rulespec_source_verification(
+    *paths: Path,
+    citation_path: str = "us/statute/26/1",
+) -> None:
+    """Give generated-manifest fixtures one explicit resolver source binding."""
+
+    block = f"  source_verification:\n    corpus_citation_path: {citation_path}\n"
+    for path in paths:
+        content = path.read_text()
+        if "\n  source_verification:\n" in content:
+            continue
+        if "\nmodule:\n" in content:
+            content = content.replace("\nmodule:\n", "\nmodule:\n" + block, 1)
+        else:
+            content = content.replace(
+                "format: rulespec/v1\n",
+                "format: rulespec/v1\nmodule:\n" + block,
+                1,
+            )
+        path.write_text(content)
 
 
 def _write_test_encoder_version(repo: Path, version: str) -> None:
@@ -730,13 +1412,155 @@ class TestMain:
                 main()
             assert exc_info.value.code == 1
 
+    def test_removed_repair_commands_are_absent_from_cli(self, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", "--help"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 0
+        help_text = capsys.readouterr().out
+        assert all(
+            command not in help_text
+            for command in (
+                REMOVED_PARTIAL_REPAIR_COMMANDS | REMOVED_COMPATIBILITY_COMMANDS
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            [
+                "axiom_encode",
+                "cloud-queue",
+                "--root",
+                "/tmp/rulespec-us",
+                "--include-deferred-jurisdictions",
+            ],
+            [
+                "axiom_encode",
+                "cloud-queue",
+                "--root",
+                "/tmp/rulespec-us",
+                "--country",
+                "us",
+            ],
+            [
+                "axiom_encode",
+                "compile",
+                "example.yaml",
+                "--axiom-rules-engine-path",
+                "/tmp",
+                "--execute",
+            ],
+            [
+                "axiom_encode",
+                "manifest-census",
+                "--repo",
+                "/tmp/rulespec-us",
+                "--roots",
+                "statutes",
+            ],
+        ],
+    )
+    def test_removed_noop_and_narrowing_flags_are_rejected(self, argv, capsys):
+        with patch("sys.argv", argv), pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+        assert "unrecognized arguments" in capsys.readouterr().err
+
     def test_validate_command_dispatches(self):
         """main() with 'validate' should call cmd_validate."""
         with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
-            with patch("sys.argv", ["axiom_encode", "validate", f.name]):
+            with patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "validate",
+                    f.name,
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                ],
+            ):
                 with patch("axiom_encode.cli.cmd_validate") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
+
+    @pytest.mark.parametrize("removed_oracle", ["taxsim", "all"])
+    def test_validate_parser_rejects_removed_oracles(self, removed_oracle, capsys):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "validate",
+                    "fixture.yaml",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--oracle",
+                    removed_oracle,
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "invalid choice" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "command_args",
+        [
+            ["validate", "fixture.yaml"],
+            ["encode", "26 USC 1"],
+            ["eval", "26 USC 1"],
+            ["eval-source", "us/statute/26/1"],
+            ["eval-suite", "fixture.yaml"],
+            ["proof-validate", "fixture.yaml"],
+            [
+                "retire",
+                "us/statutes/26/1.yaml",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
+                "--reason",
+                "superseded",
+            ],
+        ],
+    )
+    def test_corpus_backed_commands_require_corpus_path(self, command_args, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", *command_args]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "--corpus-path" in capsys.readouterr().err
+
+    def test_proof_validate_command_dispatches(self):
+        with tempfile.NamedTemporaryFile(suffix=".yaml") as file:
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "axiom_encode",
+                        "proof-validate",
+                        file.name,
+                        "--corpus-path",
+                        "/tmp/axiom-corpus",
+                    ],
+                ),
+                patch("axiom_encode.cli.cmd_proof_validate") as mock_cmd,
+            ):
+                main()
+
+        mock_cmd.assert_called_once()
 
     def test_log_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
@@ -762,28 +1586,84 @@ class TestMain:
                 mock_cmd.assert_called_once()
 
     def test_inventory_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "inventory"]):
+        with patch(
+            "sys.argv",
+            ["axiom_encode", "inventory", "--root", "/tmp/rulespec-us"],
+        ):
             with patch("axiom_encode.cli.cmd_inventory") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
     def test_interval_table_audit_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "interval-table-audit"]):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "interval-table-audit",
+                "--root",
+                "/tmp/rulespec-us",
+            ],
+        ):
             with patch("axiom_encode.cli.cmd_interval_table_audit") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
     def test_oracle_coverage_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "oracle-coverage"]):
+        with patch(
+            "sys.argv",
+            ["axiom_encode", "oracle-coverage", "--root", "/tmp/rulespec-us"],
+        ):
             with patch("axiom_encode.cli.cmd_oracle_coverage") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
     def test_oracle_candidates_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "oracle-candidates"]):
+        with patch(
+            "sys.argv",
+            ["axiom_encode", "oracle-candidates", "--root", "/tmp/rulespec-us"],
+        ):
             with patch("axiom_encode.cli.cmd_oracle_candidates") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["inventory"],
+            ["interval-table-audit"],
+            ["oracle-coverage"],
+            ["oracle-candidates"],
+            ["cloud-queue"],
+            ["oracle-coverage-pending", "check"],
+            ["manifest-census"],
+        ],
+    )
+    def test_rulespec_reporting_commands_require_explicit_checkout(
+        self,
+        argv,
+        capsys,
+    ):
+        with (
+            patch("sys.argv", ["axiom_encode", *argv]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "required" in capsys.readouterr().err
+
+    def test_run_log_export_requires_all_explicit_paths(self, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", "run-log-export"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        error = capsys.readouterr().err
+        assert "--db" in error
+        assert "--log-dir" in error
+        assert "--repos" in error
 
     def test_uk_populace_coverage_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "uk-populace-coverage"]):
@@ -808,7 +1688,20 @@ class TestMain:
                 mock_cmd.assert_called_once()
 
     def test_encode_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "encode", "26 USC 1"]):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "encode",
+                "26 USC 1",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
+            ],
+        ):
             with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
@@ -822,6 +1715,12 @@ class TestMain:
                 "us/statute/42/1396a/a/10",
                 "--policyengine-rule-hint",
                 "is_medicaid_eligible",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
             ],
         ):
             with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
@@ -829,7 +1728,20 @@ class TestMain:
                 mock_cmd.assert_called_once()
 
     def test_eval_command_dispatches(self):
-        with patch("sys.argv", ["axiom_encode", "eval", "26 USC 24(a)"]):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "eval",
+                "26 USC 24(a)",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
+            ],
+        ):
             with patch("axiom_encode.cli.cmd_eval") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
@@ -837,7 +1749,17 @@ class TestMain:
     def test_eval_source_command_dispatches(self):
         with patch(
             "sys.argv",
-            ["axiom_encode", "eval-source", "us-co/regulation/9-ccr-2503-6/3.606.1/F"],
+            [
+                "axiom_encode",
+                "eval-source",
+                "us-co/regulation/9-ccr-2503-6/3.606.1/F",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
+            ],
         ):
             with patch("axiom_encode.cli.cmd_eval_source") as mock_cmd:
                 main()
@@ -852,39 +1774,202 @@ class TestMain:
                 "us/statute/7/2014/e/2/B",
                 "--policyengine-rule-hint",
                 "snap_earned_income_deduction",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
             ],
         ):
             with patch("axiom_encode.cli.cmd_eval_source") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
+    def test_eval_source_rejects_removed_source_id_option(self, capsys):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "eval-source",
+                    "us/statute/7/2014/e/2/B",
+                    "--source-id",
+                    "legacy-alias",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "unrecognized arguments: --source-id" in capsys.readouterr().err
+
+    def test_encode_rejects_removed_source_id_option(self, capsys):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "encode",
+                    "us/statute/7/2014/e/2/B",
+                    "--source-id",
+                    "us/policies/fns/snap/earned-income-deduction",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "unrecognized arguments: --source-id" in capsys.readouterr().err
+
     def test_eval_suite_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
-            with patch("sys.argv", ["axiom_encode", "eval-suite", f.name]):
+            with patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "eval-suite",
+                    f.name,
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                ],
+            ):
                 with patch("axiom_encode.cli.cmd_eval_suite") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "override_args",
+        [
+            ["--runner", "codex:gpt-5.4"],
+            ["--gpt-backend", "codex"],
+        ],
+    )
+    def test_eval_suite_rejects_runner_overrides(self, capsys, override_args):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "eval-suite",
+                    "fixture.yaml",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                    *override_args,
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 2
+        assert "unrecognized arguments" in capsys.readouterr().err
+
     def test_eval_suite_report_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".json") as f:
-            with patch("sys.argv", ["axiom_encode", "eval-suite-report", f.name]):
+            with patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "eval-suite-report",
+                    f.name,
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                ],
+            ):
                 with patch("axiom_encode.cli.cmd_eval_suite_report") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
 
     def test_eval_suite_archive_command_dispatches(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("sys.argv", ["axiom_encode", "eval-suite-archive", tmpdir]):
+            with patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "eval-suite-archive",
+                    tmpdir,
+                    "--corpus-path",
+                    tmpdir,
+                    "--axiom-rules-engine-path",
+                    tmpdir,
+                    "--policy-repo-path",
+                    tmpdir,
+                ],
+            ):
                 with patch("axiom_encode.cli.cmd_eval_suite_archive") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
 
     def test_compile_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
-            with patch("sys.argv", ["axiom_encode", "compile", f.name]):
+            with patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "compile",
+                    f.name,
+                    "--axiom-rules-engine-path",
+                    str(Path(f.name).parent),
+                ],
+            ):
                 with patch("axiom_encode.cli.cmd_compile") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
+
+    def test_snap_readiness_requires_explicit_workspace_and_corpus(self, tmp_path):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "snap-readiness",
+                "--root",
+                str(tmp_path),
+                "--corpus-path",
+                str(tmp_path / "axiom-corpus"),
+            ],
+        ):
+            with patch("axiom_encode.cli.cmd_snap_readiness") as mock_cmd:
+                main()
+
+        args = mock_cmd.call_args.args[0]
+        assert args.root == tmp_path
+        assert args.corpus_path == tmp_path / "axiom-corpus"
+
+        with (
+            patch(
+                "sys.argv", ["axiom_encode", "snap-readiness", "--root", str(tmp_path)]
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
 
     def test_session_start_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "session-start"]):
@@ -938,11 +2023,51 @@ class TestMain:
                 mock_cmd.assert_called_once()
 
 
+def test_eval_citations_require_one_canonical_policy_content_root(tmp_path):
+    import axiom_encode.cli as cli_module
+
+    authorized_root = tmp_path / "rulespec-us"
+    federal = authorized_root / "us"
+    california = authorized_root / "us-ca"
+    federal.mkdir(parents=True)
+    california.mkdir()
+
+    assert (
+        cli_module._eval_policy_repo_for_citations(
+            ["us/statute/7/2014", "us/statute/7/2017"],
+            authorized_root,
+        )
+        == federal
+    )
+    with pytest.raises(ValueError, match="cannot span multiple RuleSpec content roots"):
+        cli_module._eval_policy_repo_for_citations(
+            ["us/statute/7/2014", "us-ca/regulation/example"],
+            authorized_root,
+        )
+
+
 class TestCmdEvalSuite:
+    @pytest.fixture(autouse=True)
+    def _bind_named_corpus_release(self, tmp_path, monkeypatch):
+        corpus_root = tmp_path / "axiom-corpus"
+        corpus_root.mkdir()
+        self.policy_repo_path = tmp_path / "rulespec-us"
+        (self.policy_repo_path / "us").mkdir(parents=True)
+        fake_release = SimpleNamespace(
+            name=TEST_CORPUS_RELEASE_NAME,
+            selector=SimpleNamespace(name=TEST_CORPUS_RELEASE_NAME, sha256="4" * 64),
+            content_sha256="5" * 64,
+            selector_sha256="4" * 64,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._eval_suite_corpus_release",
+            lambda *_args, **_kwargs: fake_release,
+        )
+
     def test_exits_nonzero_when_runner_is_not_ready(self, tmp_path, capsys):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
-            "name: readiness\ncases:\n  - kind: source\n    source_id: x\n    corpus_citation_path: us/statute/7/2017\n"
+            "name: readiness\ncases:\n  - kind: source\n    corpus_citation_path: us/statute/7/2017\n"
         )
         args = SimpleNamespace(
             manifest=manifest_file,
@@ -950,6 +2075,7 @@ class TestCmdEvalSuite:
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=self.policy_repo_path,
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -957,10 +2083,12 @@ class TestCmdEvalSuite:
             auto_resume_delay_seconds=0,
         )
         args.axiom_rules_path.mkdir()
-        args.corpus_path.mkdir()
+        args.corpus_path.mkdir(exist_ok=True)
 
         fake_result = MagicMock()
         fake_result.runner = "codex-gpt-5.4"
+        fake_result.backend = "codex"
+        fake_result.model = "gpt-5.4"
         fake_result.success = True
         fake_result.error = None
         fake_result.metrics = MagicMock(
@@ -969,10 +2097,13 @@ class TestCmdEvalSuite:
             ungrounded_numeric_count=0,
         )
         fake_result.to_dict.return_value = {
-            "citation": "case-a",
+            "citation": "us/statute/7/2017",
             "runner": "codex-gpt-5.4",
+            "backend": "codex",
+            "model": "gpt-5.4",
             "success": True,
             "error": None,
+            **_write_test_eval_artifacts(tmp_path / "out", "not-ready"),
             "metrics": {
                 "compile_pass": True,
                 "ci_pass": True,
@@ -1001,12 +2132,27 @@ class TestCmdEvalSuite:
             patch(
                 "axiom_encode.cli.run_eval_suite", return_value=[fake_result]
             ) as mock_run,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=lambda **kwargs: _fake_verified_eval_suite_artifacts(
+                    manifest=kwargs["manifest"],
+                    effective_runners=kwargs["effective_runners"],
+                    results=[fake_result],
+                ),
+            ),
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
         ):
             mock_load.return_value.name = "Readiness"
             mock_load.return_value.path = manifest_file
-            mock_load.return_value.runners = ["openai:gpt-5.4"]
-            mock_load.return_value.cases = [MagicMock(kind="source")]
+            mock_load.return_value.runners = ["codex:gpt-5.4"]
+            mock_load.return_value.cases = [
+                SimpleNamespace(
+                    kind="source",
+                    name="case-a",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                )
+            ]
             mock_load.return_value.gates = MagicMock()
 
             with pytest.raises(SystemExit) as exc_info:
@@ -1014,7 +2160,10 @@ class TestCmdEvalSuite:
 
         assert exc_info.value.code == 1
         assert mock_run.called
-        assert mock_run.call_args.kwargs["runner_specs"] == ["codex:gpt-5.4"]
+        assert "runner_specs" not in mock_run.call_args.kwargs
+        assert (
+            mock_run.call_args.kwargs["corpus_release"].name == TEST_CORPUS_RELEASE_NAME
+        )
         captured = capsys.readouterr()
         assert "NOT READY" in captured.out
         assert (args.output / "results.json").exists()
@@ -1023,7 +2172,7 @@ class TestCmdEvalSuite:
     def test_passes_resume_flag_to_run_eval_suite(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
-            "name: readiness\ncases:\n  - kind: source\n    source_id: x\n    corpus_citation_path: us/statute/7/2017\n"
+            "name: readiness\ncases:\n  - kind: source\n    corpus_citation_path: us/statute/7/2017\n"
         )
         args = SimpleNamespace(
             manifest=manifest_file,
@@ -1031,6 +2180,7 @@ class TestCmdEvalSuite:
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=self.policy_repo_path,
             json=False,
             gpt_backend="codex",
             resume=True,
@@ -1038,10 +2188,12 @@ class TestCmdEvalSuite:
             auto_resume_delay_seconds=0,
         )
         args.axiom_rules_path.mkdir()
-        args.corpus_path.mkdir()
+        args.corpus_path.mkdir(exist_ok=True)
 
         fake_result = MagicMock()
         fake_result.runner = "codex-gpt-5.4"
+        fake_result.backend = "codex"
+        fake_result.model = "gpt-5.4"
         fake_result.success = True
         fake_result.error = None
         fake_result.metrics = MagicMock(
@@ -1050,10 +2202,13 @@ class TestCmdEvalSuite:
             ungrounded_numeric_count=0,
         )
         fake_result.to_dict.return_value = {
-            "citation": "case-a",
+            "citation": "us/statute/7/2017",
             "runner": "codex-gpt-5.4",
+            "backend": "codex",
+            "model": "gpt-5.4",
             "success": True,
             "error": None,
+            **_write_test_eval_artifacts(tmp_path / "out", "resume"),
             "metrics": {
                 "compile_pass": True,
                 "ci_pass": True,
@@ -1082,12 +2237,27 @@ class TestCmdEvalSuite:
             patch(
                 "axiom_encode.cli.run_eval_suite", return_value=[fake_result]
             ) as mock_run,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=lambda **kwargs: _fake_verified_eval_suite_artifacts(
+                    manifest=kwargs["manifest"],
+                    effective_runners=kwargs["effective_runners"],
+                    results=[fake_result],
+                ),
+            ),
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
         ):
             mock_load.return_value.name = "Readiness"
             mock_load.return_value.path = manifest_file
-            mock_load.return_value.runners = ["openai:gpt-5.4"]
-            mock_load.return_value.cases = [MagicMock(kind="source")]
+            mock_load.return_value.runners = ["codex:gpt-5.4"]
+            mock_load.return_value.cases = [
+                SimpleNamespace(
+                    kind="source",
+                    name="case-a",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                )
+            ]
             mock_load.return_value.gates = MagicMock()
             with pytest.raises(SystemExit) as exc_info:
                 cmd_eval_suite(args)
@@ -1098,7 +2268,7 @@ class TestCmdEvalSuite:
     def test_auto_resumes_after_unexpected_suite_exception(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
-            "name: readiness\ncases:\n  - kind: source\n    source_id: x\n    corpus_citation_path: us/statute/7/2017\n"
+            "name: readiness\ncases:\n  - kind: source\n    corpus_citation_path: us/statute/7/2017\n"
         )
         args = SimpleNamespace(
             manifest=manifest_file,
@@ -1106,6 +2276,7 @@ class TestCmdEvalSuite:
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=self.policy_repo_path,
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -1113,10 +2284,12 @@ class TestCmdEvalSuite:
             auto_resume_delay_seconds=0,
         )
         args.axiom_rules_path.mkdir()
-        args.corpus_path.mkdir()
+        args.corpus_path.mkdir(exist_ok=True)
 
         fake_result = MagicMock()
         fake_result.runner = "codex-gpt-5.4"
+        fake_result.backend = "codex"
+        fake_result.model = "gpt-5.4"
         fake_result.success = True
         fake_result.error = None
         fake_result.metrics = MagicMock(
@@ -1125,10 +2298,13 @@ class TestCmdEvalSuite:
             ungrounded_numeric_count=0,
         )
         fake_result.to_dict.return_value = {
-            "citation": "case-a",
+            "citation": "us/statute/7/2017",
             "runner": "codex-gpt-5.4",
+            "backend": "codex",
+            "model": "gpt-5.4",
             "success": True,
             "error": None,
+            **_write_test_eval_artifacts(tmp_path / "out", "auto-resume"),
             "metrics": {
                 "compile_pass": True,
                 "ci_pass": True,
@@ -1158,13 +2334,28 @@ class TestCmdEvalSuite:
                 "axiom_encode.cli.run_eval_suite",
                 side_effect=[RuntimeError("boom"), [fake_result]],
             ) as mock_run,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=lambda **kwargs: _fake_verified_eval_suite_artifacts(
+                    manifest=kwargs["manifest"],
+                    effective_runners=kwargs["effective_runners"],
+                    results=[fake_result],
+                ),
+            ),
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
             patch("axiom_encode.cli.time.sleep") as mock_sleep,
         ):
             mock_load.return_value.name = "Readiness"
             mock_load.return_value.path = manifest_file
-            mock_load.return_value.runners = ["openai:gpt-5.4"]
-            mock_load.return_value.cases = [MagicMock(kind="source")]
+            mock_load.return_value.runners = ["codex:gpt-5.4"]
+            mock_load.return_value.cases = [
+                SimpleNamespace(
+                    kind="source",
+                    name="case-a",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                )
+            ]
             mock_load.return_value.gates = MagicMock()
 
             with pytest.raises(SystemExit) as exc_info:
@@ -1179,7 +2370,7 @@ class TestCmdEvalSuite:
     def test_usage_limit_failure_does_not_trigger_auto_resume(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
-            "name: readiness\ncases:\n  - kind: source\n    source_id: x\n    corpus_citation_path: us/statute/7/2017\n"
+            "name: readiness\ncases:\n  - kind: source\n    corpus_citation_path: us/statute/7/2017\n"
         )
         args = SimpleNamespace(
             manifest=manifest_file,
@@ -1187,6 +2378,7 @@ class TestCmdEvalSuite:
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=self.policy_repo_path,
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -1194,10 +2386,12 @@ class TestCmdEvalSuite:
             auto_resume_delay_seconds=0,
         )
         args.axiom_rules_path.mkdir()
-        args.corpus_path.mkdir()
+        args.corpus_path.mkdir(exist_ok=True)
 
         fake_result = MagicMock()
         fake_result.runner = "codex-gpt-5.4"
+        fake_result.backend = "codex"
+        fake_result.model = "gpt-5.4"
         fake_result.success = False
         fake_result.error = "You've hit your usage limit."
         fake_result.metrics = MagicMock(
@@ -1206,10 +2400,13 @@ class TestCmdEvalSuite:
             ungrounded_numeric_count=0,
         )
         fake_result.to_dict.return_value = {
-            "citation": "case-a",
+            "citation": "us/statute/7/2017",
             "runner": "codex-gpt-5.4",
+            "backend": "codex",
+            "model": "gpt-5.4",
             "success": False,
             "error": "You've hit your usage limit.",
+            **_write_test_eval_artifacts(tmp_path / "out", "usage-limit"),
             "metrics": {
                 "compile_pass": False,
                 "ci_pass": False,
@@ -1241,7 +2438,7 @@ class TestCmdEvalSuite:
                         "manifest": {
                             "name": "Readiness",
                             "path": str(manifest_file),
-                            "runners": ["openai:gpt-5.4"],
+                            "runners": ["codex:gpt-5.4"],
                             "effective_runners": ["codex:gpt-5.4"],
                         },
                         "status": "failed",
@@ -1264,15 +2461,35 @@ class TestCmdEvalSuite:
                 "axiom_encode.cli.run_eval_suite",
                 side_effect=fake_run_eval_suite,
             ) as mock_run,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=lambda **kwargs: _fake_verified_eval_suite_artifacts(
+                    manifest=kwargs["manifest"],
+                    effective_runners=kwargs["effective_runners"],
+                    results=[fake_result],
+                    completed_case_indexes={1},
+                    status="failed",
+                ),
+            ),
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
             patch("axiom_encode.cli.time.sleep") as mock_sleep,
         ):
             mock_load.return_value.name = "Readiness"
             mock_load.return_value.path = manifest_file
-            mock_load.return_value.runners = ["openai:gpt-5.4"]
+            mock_load.return_value.runners = ["codex:gpt-5.4"]
             mock_load.return_value.cases = [
-                MagicMock(kind="source"),
-                MagicMock(kind="source"),
+                SimpleNamespace(
+                    kind="source",
+                    name="case-a",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                ),
+                SimpleNamespace(
+                    kind="source",
+                    name="case-b",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                ),
             ]
             mock_load.return_value.gates = MagicMock()
 
@@ -1283,87 +2500,311 @@ class TestCmdEvalSuite:
         assert mock_run.call_count == 1
         mock_sleep.assert_not_called()
 
+    def test_incomplete_empty_suite_cannot_pass_vacuously(self):
+        manifest = SimpleNamespace(
+            name="incomplete",
+            path=Path("/tmp/incomplete.yaml"),
+            runners=["codex:gpt-5.4"],
+            cases=[
+                SimpleNamespace(
+                    name="case-a",
+                    kind="source",
+                    corpus_citation_path="us/statute/7/2017",
+                )
+            ],
+        )
+        verified = _fake_verified_eval_suite_artifacts(
+            manifest=manifest,
+            effective_runners=["codex:gpt-5.4"],
+            results=[],
+            completed_case_indexes=set(),
+            status="failed",
+        )
+
+        payload = _build_eval_suite_payload(
+            manifest=manifest,
+            effective_runners=["codex:gpt-5.4"],
+            results=[],
+            readiness={},
+            run_state=verified["run_state"],
+            completed_case_indexes=set(),
+        )
+        assert payload["schema"] == "axiom-encode/eval-suite-results/v5"
+        assert payload["evidence"]["schema"] == ("axiom-encode/eval-suite-evidence/v5")
+        assert _eval_suite_summary_payload(payload)["schema"] == (
+            "axiom-encode/eval-suite-summary/v5"
+        )
+
+        assert payload["coverage"]["complete"] is False
+        assert payload["coverage"]["actual_result_count"] == 0
+        assert payload["all_ready"] is False
+
 
 class TestCmdEvalSuiteReport:
+    def test_groups_duplicate_paths_by_case_index(self):
+        results = []
+        for case_index, case_name in ((1, "first"), (2, "second")):
+            for runner in ("left", "right"):
+                results.append(
+                    {
+                        "citation": "us/statute/7/2017",
+                        "runner": runner,
+                        "eval_case": {
+                            "index": case_index,
+                            "name": case_name,
+                            "kind": "source",
+                            "corpus_citation_path": "us/statute/7/2017",
+                            "sha256": "a" * 64,
+                        },
+                        "metrics": {},
+                    }
+                )
+
+        report = _build_eval_suite_report(
+            {"results": results, "readiness": {}, "evidence": {}, "coverage": {}},
+            "left",
+            "right",
+        )
+
+        assert [row["case_index"] for row in report["case_rows"]] == [1, 2]
+        assert [row["case"] for row in report["case_rows"]] == ["first", "second"]
+
     def test_renders_markdown_and_writes_csv(self, tmp_path, capsys):
-        payload = {
-            "manifest": {"name": "UK paper", "path": "/tmp/suite.yaml"},
-            "results": [
-                {
-                    "citation": "case-a",
-                    "runner": "gpt-5.4",
-                    "success": True,
-                    "duration_ms": 1000,
-                    "estimated_cost_usd": 0.1,
-                    "output_file": "/tmp/gpt.yaml",
-                    "metrics": {
-                        "compile_pass": True,
-                        "ci_pass": True,
-                        "ungrounded_numeric_count": 0,
-                        "policyengine_score": 1.0,
-                    },
-                },
-                {
-                    "citation": "case-a",
-                    "runner": "claude-opus",
-                    "success": True,
-                    "duration_ms": 2000,
-                    "estimated_cost_usd": 0.2,
-                    "output_file": "/tmp/claude.yaml",
-                    "metrics": {
-                        "compile_pass": True,
-                        "ci_pass": True,
-                        "ungrounded_numeric_count": 0,
-                        "policyengine_score": 0.5,
-                    },
-                },
-            ],
-            "readiness": {
-                "gpt-5.4": {
-                    "total_cases": 1,
-                    "success_rate": 1.0,
-                    "compile_pass_rate": 1.0,
-                    "ci_pass_rate": 1.0,
-                    "zero_ungrounded_rate": 1.0,
-                    "policyengine_pass_rate": 1.0,
-                    "mean_policyengine_score": 1.0,
-                    "mean_estimated_cost_usd": 0.1,
-                    "mean_duration_ms": 1000,
-                },
-                "claude-opus": {
-                    "total_cases": 1,
-                    "success_rate": 1.0,
-                    "compile_pass_rate": 1.0,
-                    "ci_pass_rate": 1.0,
-                    "zero_ungrounded_rate": 1.0,
-                    "policyengine_pass_rate": 1.0,
-                    "mean_policyengine_score": 0.5,
-                    "mean_estimated_cost_usd": 0.2,
-                    "mean_duration_ms": 2000,
+        manifest_path = tmp_path / "suite.yaml"
+        manifest_path.write_text(
+            "name: UK paper\n"
+            "runners:\n"
+            "  - gpt-5.4=openai:gpt-5.4\n"
+            "  - claude-opus=claude:opus\n"
+            "gates:\n"
+            "  min_cases: 1\n"
+            "  min_success_rate: 1.0\n"
+            "  min_compile_pass_rate: 1.0\n"
+            "  min_ci_pass_rate: 1.0\n"
+            "  min_zero_ungrounded_rate: 1.0\n"
+            "  min_generalist_review_pass_rate: 1.0\n"
+            "cases:\n"
+            "  - kind: source\n"
+            "    name: case-a\n"
+            "    corpus_citation_path: us/statute/7/2017\n"
+        )
+        manifest = load_eval_suite_manifest(manifest_path)
+        effective_runners = ["gpt-5.4=openai:gpt-5.4", "claude-opus=claude:opus"]
+        results = [
+            {
+                "citation": "us/statute/7/2017",
+                "runner": "gpt-5.4",
+                "backend": "openai",
+                "model": "gpt-5.4",
+                "mode": manifest.mode,
+                "success": True,
+                "duration_ms": 1000,
+                "estimated_cost_usd": 0.1,
+                **_write_test_eval_artifacts(tmp_path, "gpt"),
+                "metrics": {
+                    "compile_pass": True,
+                    "ci_pass": True,
+                    "ungrounded_numeric_count": 0,
+                    "generalist_review_pass": True,
+                    "generalist_review_score": 9.0,
                 },
             },
+            {
+                "citation": "us/statute/7/2017",
+                "runner": "claude-opus",
+                "backend": "claude",
+                "model": "opus",
+                "mode": manifest.mode,
+                "success": True,
+                "duration_ms": 2000,
+                "estimated_cost_usd": 0.2,
+                **_write_test_eval_artifacts(tmp_path, "claude"),
+                "metrics": {
+                    "compile_pass": True,
+                    "ci_pass": True,
+                    "ungrounded_numeric_count": 0,
+                    "generalist_review_pass": True,
+                    "generalist_review_score": 9.0,
+                },
+            },
+        ]
+        results = [
+            _bind_test_eval_verdict(result, tmp_path, f"report-{index}")
+            for index, result in enumerate(results, start=1)
+        ]
+        verified = _fake_verified_eval_suite_artifacts(
+            manifest=manifest,
+            effective_runners=effective_runners,
+            results=results,
+        )
+        verified["run_state"]["manifest"].update(
+            _build_eval_suite_manifest_identity(manifest)
+        )
+        verified_results = [
+            _eval_result_from_payload(_bind_eval_result_payload(result))
+            for result in results
+        ]
+        grouped_results = {
+            runner: [result for result in verified_results if result.runner == runner]
+            for runner in ("gpt-5.4", "claude-opus")
         }
+        payload = _build_eval_suite_payload(
+            manifest=manifest,
+            effective_runners=effective_runners,
+            results=results,
+            readiness={
+                runner: summarize_readiness(runner_results, manifest.gates)
+                for runner, runner_results in grouped_results.items()
+            },
+            run_state=verified["run_state"],
+            completed_case_indexes={1},
+        )
         result_json = tmp_path / "results.json"
         result_json.write_text(json.dumps(payload))
         csv_out = tmp_path / "cases.csv"
         md_out = tmp_path / "report.md"
         args = SimpleNamespace(
             result_json=result_json,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=tmp_path / "rulespec-us",
+            corpus_path=tmp_path / "axiom-corpus",
             left_runner=None,
             right_runner=None,
             markdown_out=md_out,
             csv_out=csv_out,
             json=False,
         )
+        args.axiom_rules_path.mkdir()
+        args.policy_repo_path.mkdir()
+        args.corpus_path.mkdir()
 
-        cmd_eval_suite_report(args)
+        with patch(
+            "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+            side_effect=lambda source_output, **_kwargs: (
+                _validated_eval_suite_report_payload(
+                    json.loads((source_output / "results.json").read_text()),
+                    artifact_root=source_output,
+                )
+            ),
+        ):
+            cmd_eval_suite_report(args)
 
         captured = capsys.readouterr()
         assert "# UK paper model comparison" in captured.out
+        assert "Evidence SHA-256" in captured.out
         assert "gpt-5.4" in captured.out
         assert csv_out.exists()
         assert md_out.exists()
         assert "case-a" in csv_out.read_text()
+        assert "us/statute/7/2017" in csv_out.read_text()
+
+        generated_path = Path(payload["results"][0]["output_file"])
+        original_generated_bytes = generated_path.read_bytes()
+        generated_path.write_bytes(original_generated_bytes + b"\nmutated\n")
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                side_effect=lambda source_output, **_kwargs: (
+                    _validated_eval_suite_report_payload(
+                        json.loads((source_output / "results.json").read_text()),
+                        artifact_root=source_output,
+                    )
+                ),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_report(args)
+        assert exc_info.value.code == 1
+        assert "bytes do not match" in capsys.readouterr().out
+        generated_path.write_bytes(original_generated_bytes)
+
+        tampered_runner_evidence = json.loads(json.dumps(payload))
+        tampered_runner_evidence["evidence"]["effective_runner_identities"][0][
+            "model"
+        ] = "gpt-5.3"
+        unsigned_evidence = dict(tampered_runner_evidence["evidence"])
+        unsigned_evidence.pop("sha256")
+        tampered_runner_evidence["evidence"]["sha256"] = _eval_suite_json_sha256(
+            unsigned_evidence
+        )
+        result_json.write_text(json.dumps(tampered_runner_evidence))
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                side_effect=lambda source_output, **_kwargs: (
+                    _validated_eval_suite_report_payload(
+                        json.loads((source_output / "results.json").read_text()),
+                        artifact_root=source_output,
+                    )
+                ),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_report(args)
+        assert exc_info.value.code == 1
+        assert (
+            "runner evidence differs from the signed manifest declaration"
+            in capsys.readouterr().out
+        )
+
+        payload["results"].pop()
+        result_json.write_text(json.dumps(payload))
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                side_effect=lambda source_output, **_kwargs: (
+                    _validated_eval_suite_report_payload(
+                        json.loads((source_output / "results.json").read_text()),
+                        artifact_root=source_output,
+                    )
+                ),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_report(args)
+        assert exc_info.value.code == 1
+        assert "coverage is incomplete" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            "axiom-encode/eval-suite-results/v1",
+            "axiom-encode/eval-suite-results/v2",
+            "axiom-encode/eval-suite-results/v3",
+        ],
+    )
+    def test_rejects_legacy_result_payload_without_translation(
+        self,
+        tmp_path,
+        capsys,
+        schema,
+    ):
+        result_json = tmp_path / "results.json"
+        result_json.write_text(
+            json.dumps(
+                {
+                    "schema": schema,
+                    "manifest": {"name": "legacy"},
+                    "results": [],
+                    "readiness": {},
+                    "all_ready": True,
+                }
+            )
+        )
+        args = SimpleNamespace(
+            result_json=result_json,
+            left_runner=None,
+            right_runner=None,
+            markdown_out=None,
+            csv_out=None,
+            json=False,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_eval_suite_report(args)
+
+        assert exc_info.value.code == 1
+        assert "unsupported schema" in capsys.readouterr().out
 
     def test_sync_agent_sessions_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "sync-agent-sessions"]):
@@ -1373,7 +2814,102 @@ class TestCmdEvalSuiteReport:
 
 
 class TestCmdEvalSuiteRevalidate:
-    def test_revalidates_existing_suite_outputs_in_place(self, tmp_path):
+    @pytest.mark.parametrize("persisted_identity", [None, "wrong-release"])
+    def test_revalidation_rejects_missing_or_changed_release_identity(
+        self,
+        tmp_path,
+        capsys,
+        persisted_identity,
+    ):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            "name: bound suite\n"
+            "runners:\n"
+            "  - codex:gpt-5.4\n"
+            "gates:\n"
+            "  min_cases: 1\n"
+            "  min_success_rate: 1.0\n"
+            "  min_compile_pass_rate: 1.0\n"
+            "  min_ci_pass_rate: 1.0\n"
+            "  min_zero_ungrounded_rate: 1.0\n"
+            "  min_generalist_review_pass_rate: 1.0\n"
+            "cases:\n"
+            "  - kind: source\n"
+            "    name: case-a\n"
+            "    corpus_citation_path: us/statute/7/2014\n"
+        )
+        source_output = tmp_path / "out"
+        source_output.mkdir()
+        state = {
+            "manifest": {
+                "path": str(manifest_file),
+                "effective_runners": ["codex:gpt-5.4"],
+            },
+            "status": "completed",
+        }
+        policy_repo = tmp_path / "rulespec-us"
+        (policy_repo / "us").mkdir(parents=True)
+        corpus_path = tmp_path / "axiom-corpus"
+        corpus_path.mkdir()
+        release = SimpleNamespace(
+            name=TEST_CORPUS_RELEASE_NAME,
+            content_sha256="5" * 64,
+            selector_sha256="4" * 64,
+            selector=SimpleNamespace(sha256="4" * 64),
+        )
+        if persisted_identity is not None:
+            state.update(
+                corpus_release=persisted_identity,
+                corpus_release_content_sha256=release.content_sha256,
+                corpus_release_selector_sha256=release.selector_sha256,
+            )
+        (source_output / "suite-run.json").write_text(json.dumps(state) + "\n")
+        engine = tmp_path / "axiom-rules-engine"
+        engine.mkdir()
+        args = SimpleNamespace(
+            source_output=source_output,
+            manifest=None,
+            axiom_rules_path=engine,
+            policy_repo_path=policy_repo,
+            corpus_path=corpus_path,
+            json=False,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._eval_suite_corpus_release",
+                return_value=release,
+            ),
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=ValueError(
+                    "Cannot resume eval suite: corpus release identity differs"
+                ),
+            ) as mock_verify,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_eval_suite_revalidate(args)
+
+        assert exc_info.value.code == 1
+        assert "corpus release identity" in capsys.readouterr().out
+        assert mock_verify.call_args.kwargs["require_complete"] is True
+
+    @pytest.mark.parametrize(
+        ("compile_pass", "ci_pass", "expected_exit_code", "expected_error"),
+        [
+            (True, True, 0, None),
+            (False, True, 1, "Generated RuleSpec failed compile validation"),
+            (True, False, 1, "Generated RuleSpec failed CI validation"),
+        ],
+    )
+    def test_revalidates_existing_suite_outputs_in_place(
+        self,
+        tmp_path,
+        compile_pass,
+        ci_pass,
+        expected_exit_code,
+        expected_error,
+    ):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
             "\n".join(
@@ -1381,13 +2917,21 @@ class TestCmdEvalSuiteRevalidate:
                     "name: SNAP repair",
                     "runners:",
                     "  - openai:gpt-5.4",
+                    "rulespec_dependency_roots:",
+                    "  - rulespec-uk",
+                    "gates:",
+                    "  min_cases: 1",
+                    "  min_success_rate: 1.0",
+                    "  min_compile_pass_rate: 1.0",
+                    "  min_ci_pass_rate: 1.0",
+                    "  min_zero_ungrounded_rate: 1.0",
+                    "  min_generalist_review_pass_rate: 1.0",
+                    "  min_policyengine_pass_rate: 1.0",
                     "cases:",
                     "  - kind: source",
                     "    name: case-a",
-                    "    source_id: case-a",
                     "    corpus_citation_path: us/statute/7/2014/e/6/A",
                     "    oracle: policyengine",
-                    "    policyengine_country: us",
                     "    policyengine_rule_hint: snap_net_income_pre_shelter",
                 ]
             )
@@ -1413,6 +2957,10 @@ class TestCmdEvalSuiteRevalidate:
             "      - effective_from: '2024-01-01'\n"
             "        formula: 1\n"
         )
+        trace_file = source_output / "trace.json"
+        context_manifest_file = source_output / "context.json"
+        trace_file.write_text("{}\n")
+        context_manifest_file.write_text("{}\n")
         (source_output / "suite-run.json").write_text(
             json.dumps(
                 {
@@ -1433,17 +2981,24 @@ class TestCmdEvalSuiteRevalidate:
             + "\n"
         )
         stale_result = {
-            "citation": "case-a",
+            "citation": "us/statute/7/2014/e/6/A",
             "runner": "openai-gpt-5.4",
             "backend": "openai",
             "model": "gpt-5.4",
             "mode": "repo-augmented",
             "output_file": str(rulespec_file),
-            "trace_file": str(source_output / "trace.json"),
-            "context_manifest_file": str(source_output / "context.json"),
+            "trace_file": str(trace_file),
+            "context_manifest_file": str(context_manifest_file),
+            "generated_output_sha256": hashlib.sha256(
+                rulespec_file.read_bytes()
+            ).hexdigest(),
+            "trace_sha256": hashlib.sha256(trace_file.read_bytes()).hexdigest(),
+            "context_manifest_sha256": hashlib.sha256(
+                context_manifest_file.read_bytes()
+            ).hexdigest(),
             "duration_ms": 1,
-            "success": True,
-            "error": None,
+            "success": False,
+            "error": "old validation failure",
             "generation_prompt_sha256": "generation-digest",
             "input_tokens": 1,
             "output_tokens": 1,
@@ -1474,9 +3029,10 @@ class TestCmdEvalSuiteRevalidate:
                 "policyengine_pass": False,
                 "policyengine_score": 0.0,
                 "policyengine_issues": ["old"],
-                "taxsim_pass": None,
-                "taxsim_score": None,
-                "taxsim_issues": [],
+                "policyengine_runtime_identity": TEST_POLICYENGINE_RUNTIME_IDENTITY,
+                "policyengine_runtime_identity_sha256": (
+                    TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256
+                ),
             },
         }
         (source_output / "suite-results.jsonl").write_text(
@@ -1492,10 +3048,10 @@ class TestCmdEvalSuiteRevalidate:
         )
 
         fresh_metrics = EvalArtifactMetrics(
-            compile_pass=True,
-            compile_issues=[],
-            ci_pass=True,
-            ci_issues=[],
+            compile_pass=compile_pass,
+            compile_issues=[] if compile_pass else ["fresh compile failure"],
+            ci_pass=ci_pass,
+            ci_issues=[] if ci_pass else ["fresh CI failure"],
             embedded_source_present=True,
             grounded_numeric_count=1,
             ungrounded_numeric_count=0,
@@ -1511,16 +3067,18 @@ class TestCmdEvalSuiteRevalidate:
             policyengine_pass=True,
             policyengine_score=1.0,
             policyengine_issues=[],
-            taxsim_pass=None,
-            taxsim_score=None,
-            taxsim_issues=[],
+            policyengine_runtime_identity=TEST_POLICYENGINE_RUNTIME_IDENTITY,
+            policyengine_runtime_identity_sha256=(
+                TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256
+            ),
         )
+        fresh_success = compile_pass and ci_pass
         summary = MagicMock(
-            ready=True,
+            ready=fresh_success,
             total_cases=1,
-            success_rate=1.0,
-            compile_pass_rate=1.0,
-            ci_pass_rate=1.0,
+            success_rate=float(fresh_success),
+            compile_pass_rate=float(compile_pass),
+            ci_pass_rate=float(ci_pass),
             zero_ungrounded_rate=1.0,
             generalist_review_pass_rate=1.0,
             mean_generalist_review_score=9.0,
@@ -1534,19 +3092,84 @@ class TestCmdEvalSuiteRevalidate:
             source_output=source_output,
             manifest=None,
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=tmp_path / "rulespec-us",
             corpus_path=tmp_path / "axiom-corpus",
             json=True,
         )
         args.axiom_rules_path.mkdir()
+        policy_repo = tmp_path / "rulespec-us"
+        dependency_root = tmp_path / "rulespec-uk"
+        (dependency_root / "uk").mkdir(parents=True)
         args.corpus_path.mkdir()
+        corpus_release = SimpleNamespace(
+            name=TEST_CORPUS_RELEASE_NAME,
+            content_sha256="5" * 64,
+            selector_sha256="4" * 64,
+            selector=SimpleNamespace(sha256="4" * 64),
+        )
+        policy_content_root = policy_repo / "us"
+        policy_content_root.mkdir(parents=True)
+        _write_test_rulespec_toolchain(
+            policy_repo,
+            release_content_sha256=corpus_release.content_sha256,
+        )
+        _write_test_rulespec_toolchain(
+            dependency_root,
+            release_content_sha256=corpus_release.content_sha256,
+        )
+        release_identity = {
+            "corpus_release": corpus_release.name,
+            "corpus_release_content_sha256": corpus_release.content_sha256,
+            "corpus_release_selector_sha256": corpus_release.selector_sha256,
+        }
+        run_state_payload = json.loads((source_output / "suite-run.json").read_text())
+        run_state_payload.update(release_identity)
+        (source_output / "suite-run.json").write_text(
+            json.dumps(run_state_payload) + "\n"
+        )
+        ledger_payload = json.loads((source_output / "suite-results.jsonl").read_text())
+        ledger_payload.update(
+            release_identity,
+            policy_repo_root=str(policy_content_root.resolve()),
+        )
+        (source_output / "suite-results.jsonl").write_text(
+            json.dumps(ledger_payload) + "\n"
+        )
 
         with (
+            patch(
+                "axiom_encode.cli._eval_suite_corpus_release",
+                return_value=corpus_release,
+            ),
+            patch(
+                "axiom_encode.cli._eval_suite_policyengine_runtime",
+                return_value=SimpleNamespace(assert_unchanged=lambda: None),
+            ),
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                side_effect=lambda **kwargs: _fake_verified_eval_suite_artifacts(
+                    manifest=kwargs["manifest"],
+                    effective_runners=kwargs["effective_runners"],
+                    results=[
+                        _eval_result_from_payload(
+                            _bind_eval_result_payload(stale_result)
+                        )
+                    ],
+                ),
+            ) as mock_verify,
             patch(
                 "axiom_encode.cli.resolve_corpus_source_unit",
                 return_value=SimpleNamespace(
                     body="authoritative source text",
                     citation_path="us/statute/7/2014/e/6/A",
                     requested="us/statute/7/2014/e/6/A",
+                    source_attestation=_complete_source_attestation(
+                        "us/statute/7/2014/e/6/A"
+                    ),
+                    resolved_source=SimpleNamespace(
+                        citation_path="us/statute/7/2014/e/6/A",
+                        requested="us/statute/7/2014/e/6/A",
+                    ),
                 ),
             ),
             patch(
@@ -1557,23 +3180,524 @@ class TestCmdEvalSuiteRevalidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_eval_suite_revalidate(args)
 
-        assert exc_info.value.code == 0
+        assert exc_info.value.code == expected_exit_code
+        assert mock_verify.call_args.kwargs["require_complete"] is True
+        assert mock_verify.call_args.kwargs["revalidate_persisted_results"] is False
         mock_eval.assert_called_once()
-        assert mock_eval.call_args.kwargs["source_citation_paths"] == (
-            "us/statute/7/2014/e/6/A",
+        assert mock_eval.call_args.kwargs["local_corpus_release"] == corpus_release
+        assert mock_eval.call_args.kwargs["policy_repo_root"] == policy_content_root
+        assert (
+            mock_eval.call_args.kwargs["source_citation_path"]
+            == "us/statute/7/2014/e/6/A"
         )
-        ledger = (source_output / "suite-results.jsonl").read_text()
-        assert '"compile_pass": true' in ledger
-        assert '"policyengine_pass": true' in ledger
-        assert '"generation_prompt_sha256": "generation-digest"' in ledger
-        assert '"generalist_review_prompt_sha256": "fresh-review-digest"' in ledger
+        assert mock_eval.call_args.kwargs["source_metadata"]["source_attestation"][
+            "rulespec_root"
+        ] == str(policy_content_root.resolve())
+        assert mock_eval.call_args.kwargs["rulespec_dependency_roots"] == [
+            dependency_root
+        ]
+        ledger = json.loads((source_output / "suite-results.jsonl").read_text())
+        assert ledger["result"]["metrics"]["compile_pass"] is compile_pass
+        assert ledger["result"]["metrics"]["ci_pass"] is ci_pass
+        assert ledger["result"]["metrics"]["policyengine_pass"] is True
+        assert ledger["result"]["success"] is fresh_success
+        assert ledger["result"]["error"] == expected_error
+        assert ledger["result"]["generation_prompt_sha256"] == "generation-digest"
+        assert (
+            ledger["result"]["metrics"]["generalist_review_prompt_sha256"]
+            == "fresh-review-digest"
+        )
         summary_payload = json.loads((source_output / "summary.json").read_text())
-        assert summary_payload["all_ready"] is True
+        assert summary_payload["all_ready"] is fresh_success
+        assert summary_payload["coverage"]["complete"] is True
+        assert summary_payload["evidence"]["execution_identity_sha256"]
         run_state = json.loads((source_output / "suite-run.json").read_text())
         assert "revalidated_at" in run_state
+        assert run_state["revalidation_evidence_sha256"]
+        assert ledger["result"]["admission"]["run"] == {
+            "id": run_state["run_id"],
+            "started_at": run_state["started_at"],
+        }
+
+    def test_revalidation_transaction_rolls_back_the_complete_closure(self, tmp_path):
+        output = tmp_path / "suite"
+        verdict = output / "verdicts" / "0001-case" / "runner.json"
+        ledger = output / "suite-results.jsonl"
+        results = output / "results.json"
+        summary = output / "summary.json"
+        state = output / "suite-run.json"
+        verdict.parent.mkdir(parents=True)
+        originals = {
+            verdict: b"old verdict\n",
+            ledger: b"old ledger\n",
+            summary: b"old summary\n",
+            state: b"old state\n",
+        }
+        for path, raw in originals.items():
+            path.write_bytes(raw)
+        replacement = [
+            (verdict, b"new verdict\n"),
+            (ledger, b"new ledger\n"),
+            (results, b"new results\n"),
+            (summary, b"new summary\n"),
+            (state, b"new state\n"),
+        ]
+        real_replace = os.replace
+        injected = False
+
+        def fail_once_on_results(source, destination):
+            nonlocal injected
+            if Path(destination) == results and not injected:
+                injected = True
+                raise OSError("injected results install failure")
+            return real_replace(source, destination)
+
+        with (
+            patch(
+                "axiom_encode.cli.os.replace",
+                side_effect=fail_once_on_results,
+            ),
+            pytest.raises(OSError, match="injected results install failure"),
+        ):
+            _install_eval_suite_revalidation_transaction(output, replacement)
+
+        assert injected is True
+        for path, raw in originals.items():
+            assert path.read_bytes() == raw
+        assert not results.exists()
+        assert not (output / ".eval-suite-revalidation.json").exists()
+        assert not list(output.rglob("*.tmp"))
 
 
 class TestCmdEvalSuiteArchive:
+    @pytest.mark.parametrize("kind", ["file", "directory"])
+    def test_archive_rejects_unreferenced_symlink_descendants(
+        self,
+        tmp_path,
+        capsys,
+        kind,
+    ):
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        (source_output / "suite-run.json").write_text("{}\n")
+        if kind == "file":
+            external = tmp_path / "outside-secret.txt"
+            external.write_text("not archive content\n")
+        else:
+            external = tmp_path / "outside-directory"
+            external.mkdir()
+            (external / "secret.txt").write_text("not archive content\n")
+        (source_output / "unreferenced-leak").symlink_to(
+            external,
+            target_is_directory=kind == "directory",
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_eval_suite_archive(SimpleNamespace(source_output=source_output))
+
+        assert exc_info.value.code == 1
+        assert "indirect" in capsys.readouterr().out
+
+    def test_archive_snapshot_rejects_unreferenced_regular_file(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        for filename in (
+            "suite-run.json",
+            "suite-results.jsonl",
+            "results.json",
+            "summary.json",
+        ):
+            (source_output / filename).write_text("{}\n")
+        (source_output / "unreferenced-secret.txt").write_text("do not archive\n")
+
+        with pytest.raises(ValueError, match="unreferenced file"):
+            cli_module._snapshot_verified_eval_suite_archive_files(
+                source_output,
+                {"results": []},
+            )
+
+    @pytest.mark.parametrize("nesting", ["archive-in-source", "source-in-archive"])
+    def test_archive_rejects_nested_source_and_destination(
+        self,
+        tmp_path,
+        capsys,
+        nesting,
+    ):
+        if nesting == "archive-in-source":
+            source_output = tmp_path / "source"
+            archive_root = source_output / "archives"
+        else:
+            archive_root = tmp_path / "archives"
+            source_output = archive_root / "source"
+        source_output.mkdir(parents=True)
+        (source_output / "suite-run.json").write_text("{}\n")
+        args = SimpleNamespace(
+            source_output=source_output,
+            archive_root=archive_root,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload"
+            ) as mock_verify,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_archive(args)
+
+        assert exc_info.value.code == 1
+        assert "must not contain one another" in capsys.readouterr().out
+        mock_verify.assert_not_called()
+
+    def test_archive_admission_requires_complete_live_identity_verification(
+        self, tmp_path, monkeypatch
+    ):
+        import axiom_encode.cli as cli_module
+
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        manifest_path = tmp_path / "suite.yaml"
+        manifest_path.write_text(
+            "name: archive admission\n"
+            "runners:\n"
+            "  - codex:gpt-5.4\n"
+            "gates:\n"
+            "  min_cases: 1\n"
+            "  min_success_rate: 1.0\n"
+            "  min_compile_pass_rate: 1.0\n"
+            "  min_ci_pass_rate: 1.0\n"
+            "  min_zero_ungrounded_rate: 1.0\n"
+            "  min_generalist_review_pass_rate: 1.0\n"
+            "cases:\n"
+            "  - kind: source\n"
+            "    name: case-a\n"
+            "    corpus_citation_path: us/statute/7/2017\n"
+        )
+        manifest = load_eval_suite_manifest(manifest_path)
+        result = {
+            "citation": "us/statute/7/2017",
+            "runner": "codex-gpt-5.4",
+            "backend": "codex",
+            "model": "gpt-5.4",
+            "mode": manifest.mode,
+            "success": True,
+            **_write_test_eval_artifacts(source_output, "archive-admission"),
+            "metrics": {},
+        }
+        result = _bind_test_eval_verdict(
+            result,
+            source_output,
+            "archive-admission",
+        )
+        verified = _fake_verified_eval_suite_artifacts(
+            manifest=manifest,
+            effective_runners=["codex:gpt-5.4"],
+            results=[_eval_result_from_payload(result)],
+        )
+        verified["run_state"]["manifest"].update(
+            _build_eval_suite_manifest_identity(manifest)
+        )
+        result_object = verified["results"][0]
+        payload = _build_eval_suite_payload(
+            manifest=manifest,
+            effective_runners=["codex:gpt-5.4"],
+            results=[result_object],
+            readiness={
+                "codex-gpt-5.4": summarize_readiness(
+                    [result_object],
+                    manifest.gates,
+                )
+            },
+            run_state=verified["run_state"],
+            completed_case_indexes={1},
+        )
+        (source_output / "suite-run.json").write_text(
+            json.dumps(verified["run_state"]) + "\n"
+        )
+        (source_output / "results.json").write_text(json.dumps(payload) + "\n")
+        (source_output / "summary.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-summary/v5",
+                    "manifest": payload["manifest"],
+                    "evidence": payload["evidence"],
+                    "coverage": payload["coverage"],
+                    "readiness": payload["readiness"],
+                    "all_ready": payload["all_ready"],
+                }
+            )
+            + "\n"
+        )
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        (policy_repo_path / "us").mkdir(parents=True)
+        corpus_path.mkdir()
+        monkeypatch.delenv(EVAL_EVIDENCE_PRIVATE_KEY_ENV, raising=False)
+
+        with (
+            patch("axiom_encode.cli.load_eval_suite_manifest", return_value=manifest),
+            patch("axiom_encode.cli._eval_suite_corpus_release") as mock_release,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                return_value=verified,
+            ) as mock_verify,
+        ):
+            admitted = cli_module._load_verified_eval_suite_archive_payload(
+                source_output,
+                axiom_rules_path=axiom_rules_path,
+                policy_repo_path=policy_repo_path,
+                corpus_path=corpus_path,
+            )
+
+            tampered_metrics = json.loads(json.dumps(payload))
+            tampered_metrics["results"][0]["metrics"]["compile_pass"] = not (
+                tampered_metrics["results"][0]["metrics"]["compile_pass"]
+            )
+            tampered_metrics["results"][0] = _bind_eval_result_payload(
+                tampered_metrics["results"][0]
+            )
+            tampered_metrics["coverage"]["results_sha256"] = _eval_suite_json_sha256(
+                tampered_metrics["results"]
+            )
+            tampered_readiness = json.loads(json.dumps(payload))
+            tampered_readiness["readiness"]["codex-gpt-5.4"]["ready"] = not (
+                tampered_readiness["readiness"]["codex-gpt-5.4"]["ready"]
+            )
+            tampered_all_ready = json.loads(json.dumps(payload))
+            tampered_all_ready["all_ready"] = not tampered_all_ready["all_ready"]
+            for candidate, expected_error in (
+                (tampered_metrics, "authenticated generation and validation evidence"),
+                (tampered_readiness, "readiness does not match"),
+                (tampered_all_ready, "all_ready flag is inconsistent"),
+            ):
+                (source_output / "results.json").write_text(
+                    json.dumps(candidate) + "\n"
+                )
+                (source_output / "summary.json").write_text(
+                    json.dumps(_eval_suite_summary_payload(candidate)) + "\n"
+                )
+                with pytest.raises(ValueError, match=expected_error):
+                    cli_module._load_verified_eval_suite_archive_payload(
+                        source_output,
+                        axiom_rules_path=axiom_rules_path,
+                        policy_repo_path=policy_repo_path,
+                        corpus_path=corpus_path,
+                    )
+
+            (source_output / "results.json").write_text(json.dumps(payload) + "\n")
+            (source_output / "summary.json").write_text(
+                json.dumps(_eval_suite_summary_payload(payload)) + "\n"
+            )
+
+            Path(result["trace_file"]).unlink()
+            with pytest.raises(ValueError, match="could not safely load"):
+                cli_module._load_verified_eval_suite_archive_payload(
+                    source_output,
+                    axiom_rules_path=axiom_rules_path,
+                    policy_repo_path=policy_repo_path,
+                    corpus_path=corpus_path,
+                )
+
+        assert admitted == payload
+        assert mock_release.called
+        assert mock_verify.call_args.kwargs["require_complete"] is True
+
+    def test_rejects_unverified_suite_before_copy(self, tmp_path, capsys):
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        (source_output / "suite-run.json").write_text("{}\n")
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        policy_repo_path.mkdir()
+        corpus_path.mkdir()
+        archive_root = tmp_path / "archives"
+        args = SimpleNamespace(
+            source_output=source_output,
+            archive_root=archive_root,
+            name=None,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_path=corpus_path,
+            json=False,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                side_effect=ValueError("results ledger identity differs"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_archive(args)
+
+        assert exc_info.value.code == 1
+        assert "not eligible for archive" in capsys.readouterr().out
+        assert not archive_root.exists()
+
+    def test_rejects_mixed_snapshot_after_copy(self, tmp_path, capsys):
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        (source_output / "suite-run.json").write_text("{}\n")
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        policy_repo_path.mkdir()
+        corpus_path.mkdir()
+        archive_root = tmp_path / "archives"
+        args = SimpleNamespace(
+            source_output=source_output,
+            archive_root=archive_root,
+            name=None,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_path=corpus_path,
+            json=False,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                side_effect=[{}, ValueError("copied run identity differs")],
+            ) as mock_verify,
+            patch(
+                "axiom_encode.cli._rewrite_archived_eval_suite_json_files",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._snapshot_verified_eval_suite_archive_files",
+                return_value={Path("suite-run.json"): b"{}\n"},
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_archive(args)
+
+        assert exc_info.value.code == 1
+        assert mock_verify.call_count == 2
+        assert "failed archive admission" in capsys.readouterr().out
+        assert not (archive_root / "source").exists()
+        assert not (archive_root / "index.jsonl").exists()
+
+    def test_archive_index_symlink_cannot_modify_external_file(
+        self,
+        tmp_path,
+        capsys,
+    ):
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        (source_output / "suite-run.json").write_text("{}\n")
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        policy_repo_path.mkdir()
+        corpus_path.mkdir()
+        archive_root = tmp_path / "archives"
+        archive_root.mkdir()
+        sentinel = tmp_path / "external-index.jsonl"
+        sentinel.write_text('{"sentinel": true}\n')
+        (archive_root / "index.jsonl").symlink_to(sentinel)
+        args = SimpleNamespace(
+            source_output=source_output,
+            archive_root=archive_root,
+            name=None,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_path=corpus_path,
+            json=False,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                return_value={},
+            ),
+            patch(
+                "axiom_encode.cli._snapshot_verified_eval_suite_archive_files",
+                return_value={Path("suite-run.json"): b"{}\n"},
+            ),
+            patch(
+                "axiom_encode.cli._rewrite_archived_eval_suite_json_files",
+                return_value=[],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_archive(args)
+
+        assert exc_info.value.code == 1
+        assert "index cannot be opened safely" in capsys.readouterr().out
+        assert sentinel.read_text() == '{"sentinel": true}\n'
+        assert (archive_root / "index.jsonl").is_symlink()
+        assert not (archive_root / "source").exists()
+
+    def test_archive_publication_race_never_deletes_unowned_destination(
+        self,
+        tmp_path,
+        capsys,
+    ):
+        import axiom_encode.cli as cli_module
+
+        source_output = tmp_path / "source"
+        source_output.mkdir()
+        (source_output / "suite-run.json").write_text("{}\n")
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        policy_repo_path.mkdir()
+        corpus_path.mkdir()
+        archive_root = tmp_path / "archives"
+        args = SimpleNamespace(
+            source_output=source_output,
+            archive_root=archive_root,
+            name=None,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_path=corpus_path,
+            json=False,
+        )
+        real_fsync_tree = cli_module._fsync_eval_suite_archive_tree
+
+        def inject_destination(staging_dir):
+            real_fsync_tree(staging_dir)
+            raced_destination = archive_root / "source"
+            raced_destination.mkdir()
+            (raced_destination / "sentinel.txt").write_text("owned elsewhere\n")
+
+        with (
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+                return_value={},
+            ),
+            patch(
+                "axiom_encode.cli._snapshot_verified_eval_suite_archive_files",
+                return_value={Path("suite-run.json"): b"{}\n"},
+            ),
+            patch(
+                "axiom_encode.cli._rewrite_archived_eval_suite_json_files",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._fsync_eval_suite_archive_tree",
+                side_effect=inject_destination,
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_eval_suite_archive(args)
+
+        assert exc_info.value.code == 1
+        assert "appeared concurrently" in capsys.readouterr().out
+        assert (archive_root / "source" / "sentinel.txt").read_text() == (
+            "owned elsewhere\n"
+        )
+        assert not any(archive_root.glob(".archive-stage-*"))
+        assert not (archive_root / "index.jsonl").exists()
+
     def test_archives_suite_and_rewrites_result_paths(self, tmp_path, capsys):
         source_output = tmp_path / "wave21-rerun16"
         case_dir = source_output / "01-case-a" / "codex-gpt-5.4" / "source"
@@ -1591,14 +3715,21 @@ class TestCmdEvalSuiteArchive:
         context_manifest_file.write_text("{}\n")
 
         result_payload = {
-            "citation": "case-a",
-            "runner": "codex:gpt-5.4",
+            "citation": "us/statute/7/2017",
+            "runner": "codex-gpt-5.4",
             "backend": "codex",
             "model": "gpt-5.4",
             "mode": "repo-augmented",
             "output_file": str(output_file),
             "trace_file": str(trace_file),
             "context_manifest_file": str(context_manifest_file),
+            "generated_output_sha256": hashlib.sha256(
+                output_file.read_bytes()
+            ).hexdigest(),
+            "trace_sha256": hashlib.sha256(trace_file.read_bytes()).hexdigest(),
+            "context_manifest_sha256": hashlib.sha256(
+                context_manifest_file.read_bytes()
+            ).hexdigest(),
             "duration_ms": 1234,
             "success": True,
             "error": None,
@@ -1630,9 +3761,6 @@ class TestCmdEvalSuiteArchive:
                 "policyengine_pass": None,
                 "policyengine_score": None,
                 "policyengine_issues": [],
-                "taxsim_pass": None,
-                "taxsim_score": None,
-                "taxsim_issues": [],
             },
         }
 
@@ -1668,7 +3796,7 @@ class TestCmdEvalSuiteArchive:
                     },
                     "results": [result_payload],
                     "readiness": {
-                        "codex:gpt-5.4": {
+                        "codex-gpt-5.4": {
                             "total_cases": 1,
                             "success_rate": 1.0,
                             "compile_pass_rate": 1.0,
@@ -1716,17 +3844,119 @@ class TestCmdEvalSuiteArchive:
             + "\n"
         )
 
+        manifest_path = tmp_path / "uk_wave21.yaml"
+        manifest_path.write_text(
+            "name: UK wave 21\n"
+            "runners:\n"
+            "  - codex:gpt-5.4\n"
+            "gates:\n"
+            "  min_cases: 1\n"
+            "  min_success_rate: 1.0\n"
+            "  min_compile_pass_rate: 1.0\n"
+            "  min_ci_pass_rate: 1.0\n"
+            "  min_zero_ungrounded_rate: 1.0\n"
+            "  min_generalist_review_pass_rate: 1.0\n"
+            "cases:\n"
+            "  - kind: source\n"
+            "    name: case-a\n"
+            "    corpus_citation_path: us/statute/7/2017\n"
+        )
+        manifest = load_eval_suite_manifest(manifest_path)
+        result_payload = _bind_test_eval_verdict(
+            result_payload,
+            source_output,
+            "archive-rewrite",
+        )
+        effective_runners = ["codex:gpt-5.4"]
+        verified = _fake_verified_eval_suite_artifacts(
+            manifest=manifest,
+            effective_runners=effective_runners,
+            results=[result_payload],
+        )
+        original_admission = json.loads(json.dumps(result_payload["admission"]))
+        verified["run_state"]["manifest"].update(
+            _build_eval_suite_manifest_identity(manifest)
+        )
+        verified["run_state"].update(
+            started_at="2026-04-10T12:00:00+00:00",
+            finished_at="2026-04-10T12:30:00+00:00",
+            updated_at="2026-04-10T12:30:00+00:00",
+        )
+        current_payload = _build_eval_suite_payload(
+            manifest=manifest,
+            effective_runners=effective_runners,
+            results=[result_payload],
+            readiness={
+                "codex-gpt-5.4": summarize_readiness(
+                    [_eval_result_from_payload(result_payload)],
+                    manifest.gates,
+                )
+            },
+            run_state=verified["run_state"],
+            completed_case_indexes={1},
+        )
+        (source_output / "suite-run.json").write_text(
+            json.dumps(verified["run_state"], indent=2) + "\n"
+        )
+        (source_output / "results.json").write_text(
+            json.dumps(current_payload, indent=2) + "\n"
+        )
+        (source_output / "summary.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-summary/v5",
+                    "manifest": current_payload["manifest"],
+                    "evidence": current_payload["evidence"],
+                    "coverage": current_payload["coverage"],
+                    "readiness": current_payload["readiness"],
+                    "all_ready": current_payload["all_ready"],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        (source_output / "suite-results.jsonl").write_text(
+            json.dumps(verified["ledger_entries"][0], sort_keys=True) + "\n"
+        )
+
         archive_root = tmp_path / "archives"
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path.mkdir()
+        policy_repo_path.mkdir()
+        corpus_path.mkdir()
         args = SimpleNamespace(
             source_output=source_output,
             archive_root=archive_root,
             name="Wave21 Rerun16",
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_path=corpus_path,
             json=False,
         )
 
-        cmd_eval_suite_archive(args)
+        with patch(
+            "axiom_encode.cli._load_verified_eval_suite_archive_payload",
+            return_value=current_payload,
+        ) as mock_verify:
+            cmd_eval_suite_archive(args)
 
         archive_dir = archive_root / "wave21-rerun16"
+        assert mock_verify.call_args_list == [
+            call(
+                source_output.resolve(),
+                axiom_rules_path=axiom_rules_path,
+                policy_repo_path=policy_repo_path,
+                corpus_path=corpus_path,
+            ),
+            call(
+                archive_dir,
+                axiom_rules_path=axiom_rules_path,
+                policy_repo_path=policy_repo_path,
+                corpus_path=corpus_path,
+            ),
+        ]
         assert archive_dir.exists()
         archived_results = json.loads((archive_dir / "results.json").read_text())
         archived_result = archived_results["results"][0]
@@ -1734,15 +3964,45 @@ class TestCmdEvalSuiteArchive:
         assert archived_result["trace_file"].startswith(str(archive_dir))
         assert archived_result["context_manifest_file"].startswith(str(archive_dir))
         assert not archived_result["output_file"].startswith(str(source_output))
+        assert archived_result["admission"] == original_admission
+        assert (
+            archived_results["coverage"]["results_sha256"]
+            == hashlib.sha256(
+                json.dumps(
+                    archived_results["results"],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+        )
+        archived_evidence = dict(archived_results["evidence"])
+        archived_evidence_sha256 = archived_evidence.pop("sha256")
+        assert (
+            archived_evidence_sha256
+            == hashlib.sha256(
+                json.dumps(
+                    archived_evidence,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+        )
+        archived_summary = json.loads((archive_dir / "summary.json").read_text())
+        assert archived_summary["coverage"] == archived_results["coverage"]
+        assert archived_summary["evidence"] == archived_results["evidence"]
 
         archived_row = json.loads(
             (archive_dir / "suite-results.jsonl").read_text().strip()
         )
         assert archived_row["result"]["output_file"].startswith(str(archive_dir))
+        assert archived_row["result"]["admission"] == original_admission
 
         metadata = json.loads((archive_dir / "archive-metadata.json").read_text())
         assert metadata["source_output"] == str(source_output.resolve())
         assert metadata["archive_dir"] == str(archive_dir)
+        assert metadata["run_id"] == verified["run_state"]["run_id"]
         assert "results.json" in metadata["rewritten_files"]
         assert "suite-results.jsonl" in metadata["rewritten_files"]
 
@@ -1764,6 +4024,29 @@ class TestCmdEvalSuiteArchive:
 
 
 class TestCmdValidate:
+    @pytest.fixture(autouse=True)
+    def _bind_named_corpus_release(self, tmp_path, monkeypatch):
+        self.corpus_path = tmp_path / "axiom-corpus"
+        self.axiom_rules_path = tmp_path / "axiom-rules-engine"
+        self.axiom_rules_path.mkdir()
+        _bind_test_corpus_release(
+            tmp_path / "rulespec-us",
+            self.corpus_path,
+        )
+        import axiom_encode.cli as cli_module
+
+        self.strict_policyengine_runtime_loader = (
+            cli_module._load_policyengine_runtime_for_rulespec_roots
+        )
+        self.policyengine_runtime = SimpleNamespace(
+            canonical_identity=lambda: dict(TEST_POLICYENGINE_RUNTIME_IDENTITY),
+            identity_sha256=TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._load_policyengine_runtime_for_rulespec_roots",
+            lambda _runtime_root, _policy_roots: self.policyengine_runtime,
+        )
+
     @staticmethod
     def _module(tmp_path: Path, name: str) -> Path:
         module = tmp_path / "rulespec-us" / "us" / "statutes" / name
@@ -1784,6 +4067,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = False
         args.oracle = None
@@ -1799,7 +4084,6 @@ class TestCmdValidate:
             parameter_reviewer=8.5,
             integration_reviewer=8.0,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -1808,14 +4092,100 @@ class TestCmdValidate:
                 cmd_validate(args)
             assert exc_info.value.code == 0
             assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
+            assert (
+                mock_pipeline_cls.call_args.kwargs["local_corpus_release"].name
+                == TEST_CORPUS_RELEASE_NAME
+            )
         captured = capsys.readouterr()
         assert "PASSED" in captured.out
+
+    def test_validate_real_pipeline_compiles_from_exact_content_root(
+        self, capsys, tmp_path
+    ):
+        from axiom_encode.harness.validator_pipeline import (
+            ValidationResult,
+            ValidatorPipeline,
+        )
+
+        rulespec_file = self._module(tmp_path, "real-root.yaml")
+        rulespec_file.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        binary = self.axiom_rules_path / "axiom-rules-engine"
+        binary.write_text(
+            "#!/bin/sh\n"
+            'while [ "$#" -gt 0 ]; do\n'
+            '  if [ "$1" = "--output" ]; then\n'
+            "    shift\n"
+            "    printf '%s\\n' '{\"program\": {}}' > \"$1\"\n"
+            "    exit 0\n"
+            "  fi\n"
+            "  shift\n"
+            "done\n"
+            "exit 2\n"
+        )
+        binary.chmod(0o755)
+        args = SimpleNamespace(
+            files=[rulespec_file],
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=False,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+
+        with patch.object(
+            ValidatorPipeline,
+            "_run_ci",
+            return_value=ValidationResult(validator_name="ci", passed=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+
+        assert exc_info.value.code == 0
+        assert "Result: ✓ PASSED" in capsys.readouterr().out
+
+    def test_policyengine_oracle_requires_explicit_runtime_root(
+        self, tmp_path, monkeypatch
+    ):
+        rulespec_file = self._module(tmp_path, "runtime-required.yaml")
+        rulespec_file.write_text("# test")
+        args = SimpleNamespace(
+            files=[rulespec_file],
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=False,
+            skip_reviewers=True,
+            oracle="policyengine",
+            policyengine_runtime_root=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._load_policyengine_runtime_for_rulespec_roots",
+            self.strict_policyengine_runtime_loader,
+        )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline") as pipeline,
+            pytest.raises(
+                PolicyEngineRuntimeError,
+                match="requires --policyengine-runtime-root",
+            ),
+        ):
+            cmd_validate(args)
+
+        pipeline.assert_not_called()
 
     def test_validate_fail_json_output(self, capsys, tmp_path):
         rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = True
         args.skip_reviewers = False
         args.oracle = None
@@ -1833,7 +4203,6 @@ class TestCmdValidate:
             parameter_reviewer=5.0,
             integration_reviewer=5.0,
             policyengine_match=None,
-            taxsim_match=None,
         )
         mock_result.total_duration_ms = 100
 
@@ -1846,6 +4215,7 @@ class TestCmdValidate:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["all_passed"] is False
+        assert output["oracle_runtime"] is None
 
     def test_validate_multiple_files_reuses_pipeline(self, capsys, tmp_path):
         first = self._module(tmp_path, "first.yaml")
@@ -1854,6 +4224,8 @@ class TestCmdValidate:
         second.write_text("# test")
         args = MagicMock()
         args.files = [first, second]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = True
         args.skip_reviewers = True
         args.oracle = None
@@ -1884,6 +4256,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -1901,7 +4275,6 @@ class TestCmdValidate:
             parameter_reviewer=8.5,
             integration_reviewer=8.0,
             policyengine_match=0.98,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -1912,12 +4285,32 @@ class TestCmdValidate:
             assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] == (
                 "policyengine",
             )
+            assert (
+                mock_pipeline_cls.call_args.kwargs["policyengine_runtime"]
+                is self.policyengine_runtime
+            )
+
+        output = capsys.readouterr().out
+        assert (
+            "PolicyEngine runtime identity SHA-256: "
+            f"{TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256}"
+        ) in output
+        assert (
+            json.dumps(
+                TEST_POLICYENGINE_RUNTIME_IDENTITY,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            in output
+        )
 
     def test_validate_with_oracle_policyengine_fail(self, capsys, tmp_path):
         rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -1935,7 +4328,6 @@ class TestCmdValidate:
             parameter_reviewer=8.5,
             integration_reviewer=8.0,
             policyengine_match=0.80,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -1954,6 +4346,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = True
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -1981,7 +4375,6 @@ class TestCmdValidate:
         mock_result.to_review_results.return_value = ReviewResults(
             reviews=[],
             policyengine_match=1.0,
-            taxsim_match=None,
         )
         mock_result.total_duration_ms = 100
 
@@ -1993,6 +4386,12 @@ class TestCmdValidate:
 
         output = json.loads(capsys.readouterr().out)
         assert output["oracle_passed"] is False
+        assert output["oracle_runtime"] == {
+            "policyengine": {
+                "identity": TEST_POLICYENGINE_RUNTIME_IDENTITY,
+                "identity_sha256": TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256,
+            }
+        }
         assert "policyengine: 2 unclassified oracle output(s)" in output["errors"]
 
     def test_validate_with_oracle_classification_required_allows_classified(
@@ -2002,6 +4401,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -2029,7 +4430,6 @@ class TestCmdValidate:
         mock_result.to_review_results.return_value = ReviewResults(
             reviews=[],
             policyengine_match=1.0,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -2041,8 +4441,10 @@ class TestCmdValidate:
         assert "unmapped=0 unsupported=2" in capsys.readouterr().out
 
     def test_oracle_coverage_fail_on_unmapped_exits_nonzero(self, capsys, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = None
         args.limit = 25
@@ -2054,7 +4456,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_coverage_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "total_outputs": 1,
                 "status_counts": {"unmapped": 1},
                 "untested_comparable": 0,
@@ -2075,11 +4477,59 @@ class TestCmdValidate:
         output = json.loads(capsys.readouterr().out)
         assert output["status_counts"]["unmapped"] == 1
 
+    def test_oracle_coverage_fail_on_pending_rejects_declared_unmapped(
+        self, capsys, tmp_path
+    ):
+        legal_id = "uk:legislation/ukpga/9999/1/1#pending_output"
+        checkout = tmp_path / "rulespec-uk"
+        pending_file = checkout / "oracle-coverage-pending.yaml"
+        pending_file.parent.mkdir()
+        pending_file.write_text(
+            "version: 1\n"
+            "entries:\n"
+            f"  - legal_id: {legal_id}\n"
+            "    source: manual\n"
+            "    since: 2026-07-10\n"
+            "    note: attempted release bypass\n"
+        )
+        args = MagicMock()
+        args.root = checkout
+        args.oracle = "policyengine"
+        args.program = None
+        args.limit = 25
+        args.fail_on_unmapped = True
+        args.fail_on_pending = True
+        args.fail_on_untested_comparable = False
+        args.json = True
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_coverage_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(checkout),
+                "total_outputs": 1,
+                "status_counts": {"unmapped": 1},
+                "untested_comparable": 0,
+                "program_counts": {"tax": 1},
+                "repos": [],
+                "items": [{"legal_id": legal_id, "status": "unmapped"}],
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_coverage(args)
+
+        assert exc_info.value.code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["status_counts"] == {"pending_classification": 1}
+        assert output["pending"]["applied"] == [legal_id]
+
     def test_oracle_coverage_fail_on_untested_comparable_exits_nonzero(
         self, capsys, tmp_path
     ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = None
         args.limit = 25
@@ -2091,7 +4541,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_coverage_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "total_outputs": 1,
                 "status_counts": {"comparable": 1},
                 "untested_comparable": 1,
@@ -2117,8 +4567,10 @@ class TestCmdValidate:
     def test_oracle_coverage_fail_on_pending_program_surfaces_exits_nonzero(
         self, capsys, tmp_path
     ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = None
         args.limit = 25
@@ -2132,7 +4584,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_coverage_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "total_outputs": 0,
                 "status_counts": {},
                 "untested_comparable": 0,
@@ -2167,8 +4619,10 @@ class TestCmdValidate:
     def test_oracle_coverage_fail_on_unvalidated_populace_surfaces_exits_nonzero(
         self, capsys, tmp_path
     ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = None
         args.limit = 25
@@ -2183,7 +4637,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_coverage_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "total_outputs": 0,
                 "status_counts": {},
                 "untested_comparable": 0,
@@ -2224,8 +4678,10 @@ class TestCmdValidate:
     def test_oracle_coverage_fail_on_incomplete_comparable_exits_nonzero(
         self, capsys, tmp_path
     ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = None
         args.limit = 25
@@ -2241,7 +4697,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_coverage_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "total_outputs": 1,
                 "status_counts": {"incomplete_comparable": 1},
                 "untested_comparable": 0,
@@ -2267,8 +4723,10 @@ class TestCmdValidate:
         assert "us:statutes/42/1396a/a/10#is_medicaid_eligible" in output
 
     def test_oracle_candidates_prints_priority_queue(self, capsys, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir(exist_ok=True)
         args = MagicMock()
-        args.root = tmp_path
+        args.root = checkout
         args.oracle = "policyengine"
         args.program = "snap"
         args.limit = 1
@@ -2278,7 +4736,7 @@ class TestCmdValidate:
             "axiom_encode.cli.build_policyengine_candidate_report",
             return_value={
                 "oracle": "policyengine",
-                "root": str(tmp_path),
+                "root": str(checkout),
                 "program": "snap",
                 "policyengine_variables_available": True,
                 "total_candidates": 1,
@@ -2306,76 +4764,64 @@ class TestCmdValidate:
         assert "[P1] exact_variable_unmapped" in output
         assert "snap_new_exact_variable" in output
 
-    def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
+    @pytest.mark.parametrize("country", ["us", "uk"])
+    def test_cloud_queue_derives_country_from_canonical_checkout(
+        self, tmp_path, country
+    ):
+        checkout = tmp_path / f"rulespec-{country}"
+        checkout.mkdir(exist_ok=True)
+        args = MagicMock(
+            root=checkout,
+            oracle="policyengine",
+            program=None,
+            exclude_deferred_jurisdictions=False,
+            json=True,
+        )
+        report = {
+            "schema": "axiom-encode/policyengine-cloud-queue/v1",
+            "root": str(checkout),
+            "country": country,
+            "total_items": 0,
+            "action_counts": {},
+            "priority_counts": {},
+            "items": [],
+        }
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_canonical_rulespec_checkout",
+                return_value=checkout,
+            ),
+            patch(
+                "axiom_encode.cli.build_policyengine_cloud_queue_report",
+                return_value=report,
+            ) as build_report,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_cloud_queue(args)
+
+        assert exc_info.value.code == 0
+        assert build_report.call_args.kwargs["country"] == country
+
+    @pytest.mark.parametrize("oracle", ["taxsim", "all"])
+    def test_validate_rejects_removed_oracles(self, tmp_path, oracle):
         rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
-        args.json = True
-        args.skip_reviewers = False
-        args.oracle = "taxsim"
-        args.min_match = 0.95
-
-        mock_result = MagicMock()
-        mock_result.all_passed = True
-        mock_result.ci_pass = True
-        mock_result.results = {
-            "taxsim": MagicMock(score=0.50, error=None),
-        }
-        mock_result.to_review_results.return_value = MagicMock(
-            rulespec_reviewer=8.0,
-            formula_reviewer=7.5,
-            parameter_reviewer=8.5,
-            integration_reviewer=8.0,
-            policyengine_match=None,
-            taxsim_match=0.50,
-        )
-        mock_result.total_duration_ms = 100
-
+        args.oracle = oracle
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
-            mock_pipeline_cls.return_value.validate.return_value = mock_result
-            with pytest.raises(SystemExit) as exc_info:
+            with pytest.raises(ValueError, match="Unsupported validate oracle"):
                 cmd_validate(args)
-            assert exc_info.value.code == 1
-
-    def test_validate_with_oracle_all(self, capsys, tmp_path):
-        rulespec_file = self._module(tmp_path, "test.yaml")
-        rulespec_file.write_text("# test")
-        args = MagicMock()
-        args.files = [rulespec_file]
-        args.json = False
-        args.skip_reviewers = False
-        args.oracle = "all"
-        args.min_match = 0.95
-
-        mock_result = MagicMock()
-        mock_result.all_passed = True
-        mock_result.ci_pass = True
-        mock_result.results = {
-            "policyengine": MagicMock(score=0.98, error=None),
-            "taxsim": MagicMock(score=0.96, error=None),
-        }
-        mock_result.to_review_results.return_value = MagicMock(
-            rulespec_reviewer=8.0,
-            formula_reviewer=7.5,
-            parameter_reviewer=8.5,
-            integration_reviewer=8.0,
-            policyengine_match=0.98,
-            taxsim_match=0.96,
-        )
-
-        with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
-            mock_pipeline_cls.return_value.validate.return_value = mock_result
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_validate(args)
-            assert exc_info.value.code == 0
-            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
+            mock_pipeline_cls.assert_not_called()
 
     def test_validate_json_output_with_reviewresults_object(self, capsys, tmp_path):
         rulespec_file = self._module(tmp_path, "test.yaml")
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = True
         args.skip_reviewers = False
         args.oracle = "policyengine"
@@ -2415,7 +4861,6 @@ class TestCmdValidate:
                 ),
             ],
             policyengine_match=1.0,
-            taxsim_match=None,
         )
         mock_result.total_duration_ms = 100
 
@@ -2435,6 +4880,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -2450,7 +4897,6 @@ class TestCmdValidate:
             parameter_reviewer=None,
             integration_reviewer=None,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -2470,6 +4916,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = True
         args.skip_reviewers = True
         args.oracle = "policyengine"
@@ -2482,7 +4930,6 @@ class TestCmdValidate:
         mock_result.to_review_results.return_value = ReviewResults(
             reviews=[],
             policyengine_match=1.0,
-            taxsim_match=None,
         )
         mock_result.total_duration_ms = 100
 
@@ -2502,6 +4949,8 @@ class TestCmdValidate:
         rulespec_file.write_text("# test")
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = self.corpus_path
+        args.axiom_rules_path = self.axiom_rules_path
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -2517,7 +4966,6 @@ class TestCmdValidate:
             parameter_reviewer=8.5,
             integration_reviewer=8.0,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -2534,16 +4982,34 @@ class TestCmdValidate:
 
 class TestCmdCompile:
     def _require_axiom_rules_path(self) -> Path:
-        axiom_rules_path = Path(
-            "/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
+        candidates = (
+            Path(
+                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
+                "axiom-rules-engine-canonical-loader-hard-cut"
+            ),
+            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
         )
-        binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-        if not binary.exists():
-            pytest.skip("local axiom-rules-engine binary is not built")
-        return axiom_rules_path
+        for axiom_rules_path in candidates:
+            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
+            probe = (
+                subprocess.run(
+                    [str(binary), "compile", "--help"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if binary.exists()
+                else None
+            )
+            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
+                return axiom_rules_path
+        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
 
     def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
-        rules_file = tmp_path / "test.yaml"
+        checkout = tmp_path / "rulespec-us"
+        rules_file = checkout / "us/statutes/1/test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(checkout)
         rules_file.write_text(
             content
             or """format: rulespec/v1
@@ -2561,14 +5027,13 @@ rules:
         )
         return rules_file
 
-    def _compile_args(self, rules_file: Path, *, json_output: bool, execute: bool):
+    def _compile_args(self, rules_file: Path, *, json_output: bool):
         args = MagicMock()
         args.file = rules_file
         args.json = json_output
         args.as_of = None
-        args.execute = execute
         args.axiom_rules_path = self._require_axiom_rules_path()
-        args.axiom_rules_path = None
+        args.rulespec_dependency_root = []
         return args
 
     def test_file_not_found(self, capsys):
@@ -2576,15 +5041,12 @@ rules:
         args.file = Path("/nonexistent/file.yaml")
         args.json = False
         args.as_of = None
-        args.execute = False
         with pytest.raises(SystemExit) as exc_info:
             cmd_compile(args)
         assert exc_info.value.code == 1
 
     def test_compile_success_text(self, capsys, tmp_path):
-        args = self._compile_args(
-            self._rulespec_file(tmp_path), json_output=False, execute=False
-        )
+        args = self._compile_args(self._rulespec_file(tmp_path), json_output=False)
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_compile(args)
@@ -2594,9 +5056,7 @@ rules:
         assert "test_rule" in captured.out
 
     def test_compile_success_json(self, capsys, tmp_path):
-        args = self._compile_args(
-            self._rulespec_file(tmp_path), json_output=True, execute=False
-        )
+        args = self._compile_args(self._rulespec_file(tmp_path), json_output=True)
         args.as_of = "2024-01-01"
 
         with pytest.raises(SystemExit) as exc_info:
@@ -2608,35 +5068,10 @@ rules:
         assert output["rule_count"] == 1
         assert output["rules"] == ["test_rule"]
 
-    def test_compile_with_execute_text(self, capsys, tmp_path):
-        args = self._compile_args(
-            self._rulespec_file(tmp_path), json_output=False, execute=True
-        )
-
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_compile(args)
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "compiled successfully" in captured.out
-
-    def test_compile_with_execute_json(self, capsys, tmp_path):
-        args = self._compile_args(
-            self._rulespec_file(tmp_path), json_output=True, execute=True
-        )
-
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_compile(args)
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        output = json.loads(captured.out)
-        assert output["success"] is True
-        assert output["rules"] == ["test_rule"]
-
     def test_compile_failure_text(self, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=False,
-            execute=False,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -2649,7 +5084,6 @@ rules:
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=True,
-            execute=False,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -2659,6 +5093,24 @@ rules:
         output = json.loads(captured.out)
         assert output["success"] is False
 
+    def test_compile_rejects_legacy_flat_jurisdiction_checkout(self, capsys, tmp_path):
+        rules_file = tmp_path / "rulespec-us-tn" / "statutes" / "1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        args = SimpleNamespace(
+            file=rules_file,
+            json=False,
+            as_of=None,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            rulespec_dependency_root=[],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+
+        assert exc_info.value.code == 1
+        assert "canonical country checkout" in capsys.readouterr().out
+
 
 # =========================================================================
 # Test cmd_test
@@ -2667,13 +5119,28 @@ rules:
 
 class TestCmdTest:
     def _require_axiom_rules_path(self) -> Path:
-        axiom_rules_path = Path(
-            "/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
+        candidates = (
+            Path(
+                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
+                "axiom-rules-engine-canonical-loader-hard-cut"
+            ),
+            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
         )
-        binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-        if not binary.exists():
-            pytest.skip("local axiom-rules-engine binary is not built")
-        return axiom_rules_path
+        for axiom_rules_path in candidates:
+            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
+            probe = (
+                subprocess.run(
+                    [str(binary), "compile", "--help"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if binary.exists()
+                else None
+            )
+            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
+                return axiom_rules_path
+        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
 
     def _write_rulespec_with_test(
         self,
@@ -2720,11 +5187,13 @@ rules:
         return repo
 
     def _args(self, repo: Path, *, json_output: bool):
+        _write_test_rulespec_toolchain(repo)
         args = MagicMock()
-        args.root = repo
+        args.root = repo / "us"
         args.paths = []
         args.json = json_output
         args.axiom_rules_path = self._require_axiom_rules_path()
+        args.rulespec_dependency_root = []
         return args
 
     def test_scalar_match_tolerates_decimal_residue(self):
@@ -2741,8 +5210,111 @@ rules:
             20,
         )
 
+    def test_rejects_country_checkout_as_test_root(self, tmp_path):
+        checkout = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
+        args = MagicMock(
+            root=checkout,
+            paths=[],
+            json=True,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="exact RuleSpec jurisdiction content root",
+        ):
+            cmd_test(args)
+
+    def test_companion_compile_passes_explicit_rulespec_root(
+        self, monkeypatch, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        content_root = repo / "us"
+        program = content_root / "statutes/1/example.yaml"
+        program.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(repo)
+        program.write_text("format: rulespec/v1\nrules: []\n")
+        companion = program.with_name("example.test.yaml")
+        companion.write_text("[]\n")
+        compiled_dir = tmp_path / "compiled"
+        compiled_dir.mkdir()
+        commands: list[list[str]] = []
+
+        def fake_run(command, **_kwargs):
+            if command[0] == "git":
+                return subprocess.CompletedProcess(
+                    command, 2, stdout="", stderr="no origin"
+                )
+            commands.append(command)
+            output_path = Path(command[command.index("--output") + 1])
+            output_path.write_text('{"program": {}}')
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+
+        result = _execute_rulespec_test_file(
+            companion,
+            binary=tmp_path / "axiom-rules-engine",
+            axiom_rules_path=tmp_path,
+            env={},
+            rulespec_roots=(repo.resolve(),),
+            tmp_path=compiled_dir,
+            compiled_cache={},
+            policy_repo_path=content_root,
+        )
+
+        assert result == {"cases": 0, "compiled": 1, "failures": []}
+        assert commands[0][:6] == [
+            str(tmp_path / "axiom-rules-engine"),
+            "compile",
+            "--program",
+            str(program),
+            "--rulespec-root",
+            str(repo.resolve()),
+        ]
+        assert commands[0][6] == "--output"
+        assert Path(commands[0][7]).parent == compiled_dir
+
+    def test_absolute_module_ref_uses_only_explicit_dependency_roots(
+        self, monkeypatch, tmp_path
+    ):
+        active_checkout = tmp_path / "active" / "rulespec-us"
+        active_root = active_checkout / "us"
+        active_root.mkdir(parents=True)
+        _write_test_rulespec_toolchain(active_checkout)
+        ambient_root = tmp_path / "ambient" / "rulespec-uk"
+        ambient_file = ambient_root / "uk/statutes/1/target.yaml"
+        ambient_file.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(ambient_root)
+        ambient_file.write_text("format: rulespec/v1\nrules: []\n")
+        hidden_file = active_checkout / "_axiom/rulespec-uk/uk/statutes/1/target.yaml"
+        hidden_file.parent.mkdir(parents=True)
+        hidden_file.write_text("format: rulespec/v1\nrules: []\n")
+        declared_root = tmp_path / "declared" / "rulespec-uk"
+        declared_file = declared_root / "uk/statutes/1/target.yaml"
+        declared_file.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(declared_root)
+        declared_file.write_text("format: rulespec/v1\nrules: []\n")
+        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(ambient_root))
+
+        assert (
+            _rulespec_file_for_absolute_module_ref(
+                "uk:statutes/1/target#result",
+                policy_repo_path=active_root,
+            )
+            is None
+        )
+        assert (
+            _rulespec_file_for_absolute_module_ref(
+                "uk:statutes/1/target#result",
+                policy_repo_path=active_root,
+                rulespec_dependency_roots=(declared_root,),
+            )
+            == declared_file.resolve()
+        )
+
     def test_repairs_child_numeric_reencoding_parent_aliases(self, tmp_path):
         repo = tmp_path / "rulespec-us"
+        _write_test_rulespec_toolchain(repo)
         rules_file = tmp_path / "out" / "codex-test-model" / "statutes/26/36B.yaml"
         child_file = repo / "us/statutes/26/36B/b.yaml"
         child_file.parent.mkdir(parents=True)
@@ -2831,7 +5403,7 @@ rules:
 
         repaired = _repair_child_numeric_reencoding_parent_aliases(
             rules_file=rules_file,
-            policy_repo_path=repo,
+            policy_repo_path=repo / "us",
             relative_output=Path("statutes/26/36B.yaml"),
             parsed_issues=[parsed_issue],
         )
@@ -2864,6 +5436,7 @@ rules:
 
     def test_repairs_child_fragment_reencoding_parent_aliases(self, tmp_path):
         repo = tmp_path / "rulespec-us"
+        _write_test_rulespec_toolchain(repo)
         rules_file = tmp_path / "out" / "codex-test-model" / "statutes/42/426.yaml"
         child_a2 = repo / "us/statutes/42/426/a/2.yaml"
         child_d = repo / "us/statutes/42/426/d.yaml"
@@ -2942,7 +5515,7 @@ rules:
 
         repaired = _repair_child_fragment_reencoding_aliases(
             rules_file=rules_file,
-            policy_repo_path=repo,
+            policy_repo_path=repo / "us",
             relative_output=Path("statutes/42/426.yaml"),
             parsed_issues=[parsed_issue],
         )
@@ -3189,7 +5762,7 @@ rules:
         output = json.loads(capsys.readouterr().out)
         assert output["success"] is True
 
-    def test_executes_companion_tests_passes_rulespec_env_to_engine(
+    def test_executes_companion_tests_passes_root_as_argument_only(
         self, capsys, monkeypatch, tmp_path
     ):
         repo = tmp_path / "workspace" / "rulespec-us"
@@ -3223,8 +5796,10 @@ rules:
         monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
 
         engine_root = tmp_path / "axiom-rules-engine"
+        engine_root.mkdir()
         binary = engine_root / "target/debug/axiom-rules-engine"
         captured_envs: list[dict[str, str] | None] = []
+        captured_commands: list[list[str]] = []
 
         def fake_binary(self):
             return binary
@@ -3241,6 +5816,7 @@ rules:
                     stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
                     stderr="",
                 )
+            captured_commands.append(cmd)
             captured_envs.append(kwargs.get("env"))
             if "compile" in cmd:
                 output_path = Path(cmd[cmd.index("--output") + 1])
@@ -3283,10 +5859,12 @@ rules:
             raise AssertionError(f"unexpected command: {cmd}")
 
         args = MagicMock()
-        args.root = repo
+        _write_test_rulespec_toolchain(repo)
+        args.root = repo / "us"
         args.paths = []
         args.json = True
         args.axiom_rules_path = engine_root
+        args.rulespec_dependency_root = []
 
         monkeypatch.setattr(
             "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
@@ -3300,15 +5878,15 @@ rules:
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
         assert len(captured_envs) == 2
+        compile_command = next(cmd for cmd in captured_commands if "compile" in cmd)
+        assert compile_command[compile_command.index("--rulespec-root") + 1] == str(
+            repo.resolve()
+        )
         for env in captured_envs:
             assert env is not None
-            roots = env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
-            assert roots[0] == str(repo.resolve())
-            assert str(repo.resolve().parent) in roots
-            assert str(stale_repo) in roots
-            assert roots.index(str(stale_repo)) < roots.index(
-                str(repo.resolve().parent)
-            )
+            assert "AXIOM_RULESPEC_REPO_ROOTS" not in env
+            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in env
+            assert str(stale_repo) not in env.values()
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
@@ -3501,7 +6079,9 @@ class TestCmdStats:
 
 class TestCmdInventory:
     def test_inventory_counts_rulespec_files_and_kinds(self, capsys, tmp_path):
-        statute_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
+        statute_file = (
+            tmp_path / "rulespec-us" / "us" / "statutes" / "7" / "2017" / "a.yaml"
+        )
         statute_file.parent.mkdir(parents=True)
         statute_file.write_text(
             """
@@ -3523,7 +6103,8 @@ cases:
 
         composition_file = (
             tmp_path
-            / "rulespec-us-co"
+            / "rulespec-us"
+            / "us-co"
             / "policies"
             / "cdhs"
             / "snap"
@@ -3543,7 +6124,8 @@ rules:
 
         relation_file = (
             tmp_path
-            / "rulespec-us-co"
+            / "rulespec-us"
+            / "us-co"
             / "regulations"
             / "10-ccr-2506-1"
             / "4.407.1.yaml"
@@ -3557,8 +6139,15 @@ rules:
     kind: source_relation
 """
         )
+        program_spec = (
+            tmp_path / "rulespec-us" / "us-co" / "programs" / "snap" / "fy-2026.yaml"
+        )
+        program_spec.parent.mkdir(parents=True)
+        program_spec.write_text(
+            "program: us-co/snap\nperiod: '2026-01'\noutputs: [snap_benefit]\n"
+        )
 
-        args = SimpleNamespace(root=tmp_path, json=True)
+        args = SimpleNamespace(root=tmp_path / "rulespec-us", json=True)
 
         cmd_inventory(args)
 
@@ -3575,26 +6164,23 @@ rules:
         assert output["repos"] == [
             {
                 "repo": "rulespec-us",
-                "files": 1,
-                "source_provision_files": 1,
-                "composition_files": 0,
-                "rules": 2,
-                "roots": {"statutes": 1},
-                "kinds": {"derived": 1, "parameter": 1},
-            },
-            {
-                "repo": "rulespec-us-co",
-                "files": 2,
-                "source_provision_files": 1,
+                "files": 3,
+                "source_provision_files": 2,
                 "composition_files": 1,
-                "rules": 2,
-                "roots": {"policies": 1, "regulations": 1},
-                "kinds": {"derived": 1, "source_relation": 1},
+                "rules": 4,
+                "roots": {"policies": 1, "regulations": 1, "statutes": 1},
+                "kinds": {
+                    "derived": 2,
+                    "parameter": 1,
+                    "source_relation": 1,
+                },
             },
         ]
 
     def test_inventory_prints_human_summary(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "rulespec-us" / "policies" / "usda" / "cola.yaml"
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "us" / "policies" / "usda" / "cola.yaml"
+        )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """
@@ -3604,7 +6190,7 @@ rules:
     kind: parameter
 """
         )
-        args = SimpleNamespace(root=tmp_path, json=False)
+        args = SimpleNamespace(root=tmp_path / "rulespec-us", json=False)
 
         cmd_inventory(args)
 
@@ -3614,6 +6200,32 @@ rules:
         assert "Kinds: parameter=1" in output
         assert "rulespec-us: files=1" in output
 
+    def test_inventory_rejects_workspace_and_flat_layouts(self, tmp_path):
+        canonical = tmp_path / "rulespec-us/us/statutes/26/1.yaml"
+        legacy_checkout = tmp_path / "rulespec-us-co/regulations/example.yaml"
+        flat = tmp_path / "rulespec-us/statutes/26/2.yaml"
+        for path in (canonical, legacy_checkout, flat):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("format: rulespec/v1\nrules: []\n")
+
+        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+            cmd_inventory(SimpleNamespace(root=tmp_path, json=True))
+
+        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+            cmd_inventory(SimpleNamespace(root=tmp_path / "rulespec-us", json=True))
+
+    def test_inventory_rejects_repository_root_programs(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        atomic = checkout / "us/statutes/26/1.yaml"
+        atomic.parent.mkdir(parents=True)
+        atomic.write_text("format: rulespec/v1\nrules: []\n")
+        program = checkout / "programs/us/snap/fy-2026.yaml"
+        program.parent.mkdir(parents=True)
+        program.write_text("program: us/snap\nperiod: '2026-01'\noutputs: [benefit]\n")
+
+        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+            cmd_inventory(SimpleNamespace(root=checkout, json=True))
+
 
 class TestCmdIntervalTableAudit:
     def test_interval_table_audit_reports_reencoding_candidates(
@@ -3622,7 +6234,15 @@ class TestCmdIntervalTableAudit:
         tmp_path,
     ):
         rulespec_file = (
-            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+            tmp_path
+            / "rulespec-us"
+            / "us"
+            / "statutes"
+            / "26"
+            / "36B"
+            / "b"
+            / "3"
+            / "A.yaml"
         )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
@@ -3668,7 +6288,7 @@ rules:
 """
         )
         args = SimpleNamespace(
-            root=tmp_path,
+            root=tmp_path / "rulespec-us",
             include_selector_bounds=False,
             json=True,
             limit=50,
@@ -3682,13 +6302,21 @@ rules:
         assert output["issue_count"] == 1
         assert output["blocking_issue_count"] == 1
         assert output["issues"][0]["repo"] == "rulespec-us"
-        assert output["issues"][0]["path"] == "statutes/26/36B/b/3/A.yaml"
+        assert output["issues"][0]["path"] == "us/statutes/26/36B/b/3/A.yaml"
         assert output["issues"][0]["kind"] == "non_selector_interval_bound_literal"
         assert output["issues"][0]["literal"] == "133"
 
     def test_interval_table_audit_exits_nonzero_on_failure(self, tmp_path):
         rulespec_file = (
-            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+            tmp_path
+            / "rulespec-us"
+            / "us"
+            / "statutes"
+            / "26"
+            / "36B"
+            / "b"
+            / "3"
+            / "A.yaml"
         )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
@@ -3728,7 +6356,7 @@ rules:
 """
         )
         args = SimpleNamespace(
-            root=tmp_path,
+            root=tmp_path / "rulespec-us",
             include_selector_bounds=False,
             json=False,
             limit=50,
@@ -3746,7 +6374,15 @@ rules:
         tmp_path,
     ):
         rulespec_file = (
-            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+            tmp_path
+            / "rulespec-us"
+            / "us"
+            / "statutes"
+            / "26"
+            / "36B"
+            / "b"
+            / "3"
+            / "A.yaml"
         )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
@@ -3778,7 +6414,7 @@ rules:
 """
         )
         args = SimpleNamespace(
-            root=tmp_path,
+            root=tmp_path / "rulespec-us",
             include_selector_bounds=True,
             json=True,
             limit=50,
@@ -3797,7 +6433,9 @@ rules:
         capsys,
         tmp_path,
     ):
-        rulespec_file = tmp_path / "rulespec-us" / "policies" / "example" / "scale.yaml"
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "us" / "policies" / "example" / "scale.yaml"
+        )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """
@@ -3817,7 +6455,7 @@ rules:
 """
         )
         args = SimpleNamespace(
-            root=tmp_path,
+            root=tmp_path / "rulespec-us",
             include_selector_bounds=False,
             json=True,
             limit=50,
@@ -3837,7 +6475,9 @@ rules:
         capsys,
         tmp_path,
     ):
-        rulespec_file = tmp_path / "rulespec-us" / "policies" / "example" / "scale.yaml"
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "us" / "policies" / "example" / "scale.yaml"
+        )
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """
@@ -3854,7 +6494,7 @@ rules:
 """
         )
         args = SimpleNamespace(
-            root=tmp_path,
+            root=tmp_path / "rulespec-us",
             include_selector_bounds=False,
             json=True,
             limit=50,
@@ -3990,9 +6630,33 @@ class TestCmdRuns:
 
 
 class TestCmdEncode:
+    def test_binds_explicit_dependency_roots_for_entire_encode_command(self, tmp_path):
+        active_root = tmp_path / "rulespec-us"
+        active_content_root = active_root / "us"
+        active_content_root.mkdir(parents=True)
+        dependency_root = tmp_path / "rulespec-uk"
+        dependency_file = dependency_root / "uk/statutes/1/target.yaml"
+        dependency_file.parent.mkdir(parents=True)
+        dependency_file.write_text("format: rulespec/v1\nrules: []\n")
+        args = SimpleNamespace(rulespec_dependency_root=[dependency_root])
+
+        def command_body(_args):
+            return _rulespec_file_for_absolute_module_ref(
+                "uk:statutes/1/target#result",
+                policy_repo_path=active_content_root,
+            )
+
+        with patch(
+            "axiom_encode.cli._cmd_encode_with_authoritative_rulespec_roots",
+            side_effect=command_body,
+        ):
+            resolved = cmd_encode(args)
+
+        assert resolved == dependency_file.resolve()
+
     @pytest.fixture(autouse=True)
-    def _neutralize_codex_auth_preflight(self):
-        """Default the codex auth preflight to "authenticated" for this class.
+    def _neutralize_encode_preflights(self, tmp_path):
+        """Provide command-wide auth and release-verification prerequisites.
 
         `cmd_encode` now runs a Codex auth preflight when the backend is
         `codex` (the default in these tests). The dispatch/apply tests here
@@ -4002,33 +6666,122 @@ class TestCmdEncode:
         `with` block (the inner patch wins). The real helper logic is covered
         by tests/test_encoder_backend.py::TestCodexAuthPreflight.
         """
-        with patch("axiom_encode.cli.codex_auth_error", return_value=None):
-            yield
+        (tmp_path / "axiom-rules-engine").mkdir(exist_ok=True)
+        from axiom_encode.harness.evals import (
+            _git_checkout_execution_identity as real_git_checkout_identity,
+        )
+
+        encoder_root = Path(__file__).resolve().parents[1]
+
+        def test_git_checkout_identity(raw_checkout, *, pathspecs=()):
+            checkout = Path(raw_checkout).resolve()
+            if checkout == encoder_root:
+                return {
+                    "kind": "git",
+                    "path": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "origin_repository": ("github.com/TheAxiomFoundation/axiom-encode"),
+                    "dirty": False,
+                    "working_tree_sha256": "0" * 64,
+                    "pathspecs": list(pathspecs),
+                }
+            if checkout.name == "axiom-rules-engine":
+                tree_identity = real_git_checkout_identity(
+                    raw_checkout,
+                    pathspecs=pathspecs,
+                )
+                return {
+                    "kind": "git",
+                    "path": "/repo/axiom-rules-engine",
+                    "commit": "e" * 40,
+                    "origin_repository": (
+                        "github.com/TheAxiomFoundation/axiom-rules-engine"
+                    ),
+                    "dirty": False,
+                    "working_tree_sha256": tree_identity.get(
+                        "tree_sha256",
+                        tree_identity.get("working_tree_sha256"),
+                    ),
+                }
+            if checkout.name.startswith("rulespec-"):
+                tree_identity = real_git_checkout_identity(
+                    raw_checkout,
+                    pathspecs=pathspecs,
+                )
+                return {
+                    "kind": "git",
+                    "path": f"/repo/{checkout.name}",
+                    "commit": "d" * 40,
+                    "origin_repository": (
+                        f"github.com/TheAxiomFoundation/{checkout.name}"
+                    ),
+                    "dirty": False,
+                    "working_tree_sha256": tree_identity.get(
+                        "tree_sha256",
+                        tree_identity.get("working_tree_sha256"),
+                    ),
+                }
+            return real_git_checkout_identity(raw_checkout, pathspecs=pathspecs)
+
+        with (
+            patch("axiom_encode.cli.codex_auth_error", return_value=None),
+            patch(
+                "axiom_encode.cli._git_checkout_execution_identity",
+                side_effect=test_git_checkout_identity,
+            ),
+        ):
+            from axiom_encode.toolchain import (
+                load_rulespec_local_corpus_release as load_verified_release,
+            )
+
+            def load_test_release(*args, **kwargs):
+                with patch.dict(
+                    os.environ,
+                    {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                ):
+                    return load_verified_release(*args, **kwargs)
+
+            with patch(
+                "axiom_encode.cli.load_rulespec_local_corpus_release",
+                side_effect=load_test_release,
+            ):
+                yield
 
     def _make_args(self, tmp_path, **overrides):
         """Helper to create args with sensible defaults."""
-        corpus_path = tmp_path / "axiom-corpus"
+        citation = overrides.get("citation", "26 USC 1(j)(2)")
+        corpus_path = overrides.get("corpus_path", tmp_path / "axiom-corpus")
         axiom_rules_path = tmp_path / "axiom-rules-engine"
-        policy_repo_path = tmp_path / "rulespec-us"
+        policy_repo_path = overrides.get(
+            "policy_repo_path",
+            tmp_path / "rulespec-us",
+        )
         corpus_path.mkdir(exist_ok=True)
         axiom_rules_path.mkdir(exist_ok=True)
         policy_repo_path.mkdir(exist_ok=True)
+        jurisdiction = normalize_corpus_identifier(citation).split("/", 1)[0]
+        if overrides.get("create_content_root", True):
+            (policy_repo_path / jurisdiction).mkdir(exist_ok=True)
+        corpus_release = _bind_test_corpus_release(
+            policy_repo_path,
+            corpus_path,
+            citation_path=normalize_corpus_identifier(citation),
+        )
         args = MagicMock()
-        args.citation = overrides.get("citation", "26 USC 1(j)(2)")
-        args.source_id = overrides.get("source_id", None)
+        args.citation = citation
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.backend = overrides.get("backend", "codex")
-        args.corpus_path = overrides.get("corpus_path", corpus_path)
+        args.corpus_path = corpus_path
+        args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
-        args.policy_repo_path = overrides.get("policy_repo_path", policy_repo_path)
+        args.policy_repo_path = policy_repo_path
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
         args.policyengine_rule_hint = overrides.get("policyengine_rule_hint", None)
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
         args.skip_reviewers = overrides.get("skip_reviewers", False)
-        args.local_corpus_only = overrides.get("local_corpus_only", False)
         args.apply = overrides.get("apply", False)
         args.apply_target_only = overrides.get("apply_target_only", False)
         return args
@@ -4059,12 +6812,6 @@ class TestCmdEncode:
         self._write_result_context(result, context_root)
         return result
 
-    def _scoped_source(self, body: str):
-        scoped = MagicMock()
-        scoped.body = body
-        scoped.to_attestation.return_value = _complete_source_attestation()
-        return scoped
-
     def _write_result_context(self, result, tmp_path: Path) -> None:
         source = tmp_path / "source.txt"
         source.write_text("test source\n")
@@ -4075,11 +6822,89 @@ class TestCmdEncode:
             json.dumps({"source_text_file": source.name}) + "\n"
         )
 
+    def _bind_apply_source_release(
+        self,
+        checkout_root: Path,
+        tmp_path: Path,
+        *,
+        citation_path: str = "us/statute/26/1",
+        source_text: str = "test source\n",
+    ) -> tuple[Path, dict[str, object]]:
+        """Create the exact signed corpus fixture required by an apply test."""
+
+        jurisdiction = citation_path.split("/", 1)[0]
+        (checkout_root / jurisdiction).mkdir(parents=True, exist_ok=True)
+        corpus_path = tmp_path / "axiom-corpus"
+        release = _bind_test_corpus_release(
+            checkout_root,
+            corpus_path,
+            citation_path=citation_path,
+            body=source_text,
+        )
+        source_unit = resolve_corpus_source_unit(citation_path, release)
+        normalized = source_text.replace("\r\n", "\n").replace("\r", "\n")
+        attestation = {
+            **source_unit.source_attestation,
+            "generation_input_sha256": hashlib.sha256(
+                normalized.encode("utf-8")
+            ).hexdigest(),
+        }
+        return corpus_path, attestation
+
+    def _record_apply_validation(
+        self,
+        result,
+        *,
+        output_root: Path,
+        policy_repo_path: Path,
+        corpus_path: Path,
+        supplemental_files: dict[Path, str] | None = None,
+    ) -> None:
+        """Bind direct apply-unit fixtures to the same overlay snapshot contract."""
+
+        trace_path = Path(str(getattr(result, "trace_file", "") or ""))
+        if not trace_path.is_file():
+            trace_path = output_root / "test-trace.json"
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
+            trace_path.write_text("{}\n")
+            result.trace_file = str(trace_path)
+        _stamp_generated_source_attestation_for_apply(
+            result,
+            Path(result.output_file),
+        )
+        from axiom_encode.toolchain import load_rulespec_local_corpus_release
+
+        with patch.dict(
+            os.environ,
+            {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+        ):
+            release = load_rulespec_local_corpus_release(
+                policy_repo_path,
+                corpus_path,
+            )
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+        _record_successful_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo_path,
+            relative_output=relative_output,
+            supplemental_files=supplemental_files or {},
+            local_corpus_release=release,
+            axiom_rules_path=output_root.parent / "axiom-rules-engine",
+        )
+
     def _run_encode(self, args, result):
         with patch(
             "axiom_encode.cli.run_model_eval", return_value=[result]
         ) as mock_run:
-            with patch.dict(os.environ, {}, clear=True):
+            with patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ):
                 with pytest.raises(SystemExit) as exc_info:
                     cmd_encode(args)
             return mock_run, exc_info.value.code
@@ -4093,7 +6918,9 @@ class TestCmdEncode:
         assert mock_run.call_args.kwargs["include_tests"] is True
         assert mock_run.call_args.kwargs["skip_reviewers"] is False
         assert mock_run.call_args.kwargs["policyengine_rule_hint"] is None
-        assert mock_run.call_args.kwargs["policy_path"] == args.policy_repo_path
+        assert mock_run.call_args.kwargs["policy_path"] == (
+            args.policy_repo_path / "us"
+        )
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
@@ -4195,22 +7022,24 @@ class TestCmdEncode:
         assert exit_code == 0
         assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-co"
 
-    def test_encode_creates_state_monorepo_root_for_missing_state_dir(
-        self, capsys, tmp_path
-    ):
+    def test_encode_rejects_missing_state_monorepo_root(self, capsys, tmp_path):
         policy_repo_path = tmp_path / "rulespec-us"
         (policy_repo_path / "us").mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             citation="us-ks/manual/dcf/keesm/keesm7410",
             policy_repo_path=policy_repo_path,
+            create_content_root=False,
         )
 
-        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+        with (
+            patch("axiom_encode.cli.run_model_eval") as mock_run,
+            pytest.raises(ValueError, match="does not contain.*us-ks"),
+        ):
+            cmd_encode(args)
 
-        assert exit_code == 0
-        assert mock_run.call_args.kwargs["policy_path"] == policy_repo_path / "us-ks"
-        assert (policy_repo_path / "us-ks").is_dir()
+        mock_run.assert_not_called()
+        assert not (policy_repo_path / "us-ks").exists()
 
     def test_encode_passes_skip_reviewers_to_model_eval(self, capsys, tmp_path):
         args = self._make_args(tmp_path, skip_reviewers=True)
@@ -4218,178 +7047,18 @@ class TestCmdEncode:
 
         assert exit_code == 0
         assert mock_run.call_args.kwargs["skip_reviewers"] is True
+        assert mock_run.call_args.kwargs["corpus_release"] == args.corpus_release
         assert "Reviewers: skipped" in capsys.readouterr().out
 
-    def test_encode_with_source_id_uses_corpus_source_unit(self, capsys, tmp_path):
-        args = self._make_args(
-            tmp_path,
-            citation="us/guidance/irs/rev-proc-2025-32/page-18",
-            source_id="us/policies/irs/rev-proc-2025-32/standard-deduction",
-            sync=False,
-        )
-        result = self._make_eval_result(True)
-        result.citation = args.source_id
-
-        with (
-            patch(
-                "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=CorpusSourceUnit(
-                    body="standard deduction source text",
-                    citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
-                    source="local",
-                    requested="us/guidance/irs/rev-proc-2025-32/page-18",
-                ),
-            ) as mock_resolve,
-            patch(
-                "axiom_encode.cli.run_source_eval", return_value=[result]
-            ) as mock_run_source,
-            patch("axiom_encode.cli.run_model_eval") as mock_run_model,
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            cmd_encode(args)
-
-        assert exc_info.value.code == 1
-        mock_resolve.assert_called_once_with(args.citation, args.corpus_path)
-        mock_run_model.assert_not_called()
-        mock_run_source.assert_not_called()
-        output = capsys.readouterr().out
-        assert "missing resolver provenance" in output
-        assert args.citation in output
-
-    def test_encode_local_corpus_only_propagates_authoritative_root(
-        self, capsys, tmp_path
-    ):
-        args = self._make_args(
-            tmp_path,
-            citation="us/statute/1",
-            source_id="us:statutes/1",
-            local_corpus_only=True,
-            sync=False,
-        )
-        result = self._make_eval_result(True)
-        result.citation = args.source_id
-
-        with (
-            patch(
-                "axiom_encode.judges.regeneration.validate_corpus_path",
-                return_value=args.corpus_path.resolve(),
-            ) as mock_validate,
-            patch(
-                "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=CorpusSourceUnit(
-                    body="authoritative local source",
-                    citation_path="us/statute/1",
-                    source="local",
-                    requested="us/statute/1",
-                    resolved_source=object(),
-                ),
-            ) as mock_resolve,
-            patch(
-                "axiom_encode.cli.resolve_scoped_local_corpus_source",
-                return_value=self._scoped_source("authoritative local source"),
-            ),
-            patch(
-                "axiom_encode.cli.run_source_eval",
-                return_value=[result],
-            ) as mock_run_source,
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            cmd_encode(args)
-
-        assert exc_info.value.code == 0
-        mock_validate.assert_called_once_with(args.corpus_path)
-        mock_resolve.assert_called_once_with(
-            args.citation,
-            args.corpus_path.resolve(),
-            local_only=True,
-        )
-        assert (
-            mock_run_source.call_args.kwargs["local_corpus_root"]
-            == args.corpus_path.resolve()
-        )
-
-    def test_encode_with_source_id_passes_skip_reviewers(self, capsys, tmp_path):
-        args = self._make_args(
-            tmp_path,
-            citation="us/guidance/irs/rev-proc-2025-32/page-18",
-            source_id="us/policies/irs/rev-proc-2025-32/standard-deduction",
-            skip_reviewers=True,
-            sync=False,
-        )
-        result = self._make_eval_result(True)
-        result.citation = args.source_id
-
-        with (
-            patch(
-                "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=CorpusSourceUnit(
-                    body="standard deduction source text",
-                    citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
-                    source="local",
-                    requested="us/guidance/irs/rev-proc-2025-32/page-18",
-                    resolved_source=object(),
-                ),
-            ),
-            patch(
-                "axiom_encode.cli.resolve_scoped_local_corpus_source",
-                return_value=self._scoped_source("standard deduction source text"),
-            ),
-            patch(
-                "axiom_encode.cli.run_source_eval", return_value=[result]
-            ) as mock_run_source,
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            cmd_encode(args)
-
-        assert exc_info.value.code == 0
-        assert mock_run_source.call_args.kwargs["skip_reviewers"] is True
-        assert "Reviewers: skipped" in capsys.readouterr().out
-
-    def test_encode_passes_policyengine_rule_hint_to_source_eval(
-        self, capsys, tmp_path
-    ):
-        args = self._make_args(
-            tmp_path,
-            citation="us/statute/42/1396a/a/10",
-            source_id="us/policies/hhs/medicaid/eligibility",
-            policyengine_rule_hint="is_medicaid_eligible",
-            sync=False,
-        )
-        result = self._make_eval_result(True)
-        result.citation = args.source_id
-
-        with (
-            patch(
-                "axiom_encode.cli.resolve_corpus_source_unit",
-                return_value=CorpusSourceUnit(
-                    body="medicaid source text",
-                    citation_path="us/statute/42/1396a/a/10",
-                    source="local",
-                    requested="us/statute/42/1396a/a/10",
-                    resolved_source=object(),
-                ),
-            ),
-            patch(
-                "axiom_encode.cli.resolve_scoped_local_corpus_source",
-                return_value=self._scoped_source("medicaid source text"),
-            ),
-            patch(
-                "axiom_encode.cli.run_source_eval", return_value=[result]
-            ) as mock_run_source,
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            cmd_encode(args)
-
-        assert exc_info.value.code == 0
-        assert (
-            mock_run_source.call_args.kwargs["policyengine_rule_hint"]
-            == "is_medicaid_eligible"
-        )
-        assert "PolicyEngine rule hint: is_medicaid_eligible" in capsys.readouterr().out
+    def test_corpus_source_unit_requires_resolver_provenance(self):
+        with pytest.raises(TypeError, match="resolved_source"):
+            CorpusSourceUnit(
+                body="standard deduction source text",
+                citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
+                source="local",
+                requested="us/guidance/irs/rev-proc-2025-32/page-18",
+                source_attestation={},
+            )
 
     def test_encode_passes_policyengine_rule_hint_to_model_eval(self, capsys, tmp_path):
         args = self._make_args(
@@ -4492,7 +7161,8 @@ class TestCmdEncode:
 
     def test_apply_generated_encoding_writes_manifest(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-ny"
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-ny"
         generated = (
             output_root
             / "codex-test-model"
@@ -4508,25 +7178,37 @@ class TestCmdEncode:
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
         generated.with_name("c.test.yaml").write_text("[]\n")
-        policy_repo.mkdir()
+        policy_repo.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
         result.generation_prompt_sha256 = "prompt-sha"
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_checkout,
+            tmp_path,
+            citation_path="us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4542,14 +7224,15 @@ class TestCmdEncode:
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
         target = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         target_test = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.test.yaml"
         manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/regulations/18-nycrr/387/12/f/3/v/c.json"
+            policy_checkout
+            / ".axiom/encoding-manifests/us-ny/regulations/18-nycrr/387/12/f/3/v/c.json"
         )
         assert applied == [target, target_test, manifest]
         payload = json.loads(manifest.read_text())
@@ -4559,22 +7242,941 @@ class TestCmdEncode:
         assert payload["generation_prompt_sha256"] == "prompt-sha"
         assert payload["axiom_encode_git"] == {
             "root": "/repo/axiom-encode",
-            "commit": "abc123",
+            "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
             "dirty_tracked": False,
             "version": AXIOM_ENCODE_TEST_VERSION,
             "version_commit": "version123",
         }
-        assert payload["signature"]["algorithm"] == "hmac-sha256"
+        assert payload["validation_execution"]["axiom_encode"] == {
+            "repository": "github.com/TheAxiomFoundation/axiom-encode",
+            "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+            "version": AXIOM_ENCODE_TEST_VERSION,
+        }
+        assert payload["validation_execution"]["axiom_rules_engine"] == {
+            "repository": ("github.com/TheAxiomFoundation/axiom-rules-engine"),
+            "commit": "e" * 40,
+        }
+        assert (
+            payload["validation_execution"]["policy_pre_apply"]["rulespec_root"]
+            == "rulespec-us/us-ny"
+        )
+        assert payload["signature"]["algorithm"] == APPLIED_ENCODING_SIGNATURE_ALGORITHM
+        assert payload["signature"]["key_id"].startswith("sha256:")
         assert payload["applied_files"] == [
             {
-                "path": "regulations/18-nycrr/387/12/f/3/v/c.yaml",
+                "path": "us-ny/regulations/18-nycrr/387/12/f/3/v/c.yaml",
                 "sha256": _sha256_file(target),
             },
             {
-                "path": "regulations/18-nycrr/387/12/f/3/v/c.test.yaml",
+                "path": "us-ny/regulations/18-nycrr/387/12/f/3/v/c.test.yaml",
                 "sha256": _sha256_file(target_test),
             },
         ]
+
+    def test_apply_manifest_build_failure_leaves_live_files_byte_identical(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        target = content_root / "statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            "  summary: original live bytes\nrules: []\n"
+        )
+        manifest = checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_bytes(b"original manifest bytes\n")
+        target_before = target.read_bytes()
+        manifest_before = manifest.read_bytes()
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            patch(
+                "axiom_encode.cli._write_applied_encoding_manifest",
+                side_effect=RuntimeError("manifest build failed"),
+            ),
+            pytest.raises(RuntimeError, match="manifest build failed"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert target.read_bytes() == target_before
+        assert manifest.read_bytes() == manifest_before
+
+    def test_apply_install_failure_rolls_back_prior_replacements(self, tmp_path):
+        first = tmp_path / "rulespec-us/us/statutes/26/1.yaml"
+        second = (
+            tmp_path / "rulespec-us/.axiom/encoding-manifests/us/statutes/26/1.json"
+        )
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        first.write_bytes(b"original rule\n")
+        second.write_bytes(b"original manifest\n")
+
+        from axiom_encode.cli import _atomic_replace_bytes
+
+        def fail_second_replace(target, raw, *, mode=0o644):
+            if target == second:
+                assert first.read_bytes() == b"new rule\n"
+                raise OSError("injected replacement failure")
+            return _atomic_replace_bytes(target, raw, mode=mode)
+
+        with (
+            patch(
+                "axiom_encode.cli._atomic_replace_bytes",
+                side_effect=fail_second_replace,
+            ),
+            pytest.raises(RuntimeError, match="apply transaction failed"),
+        ):
+            _install_apply_transaction(
+                [(first, b"new rule\n"), (second, b"new manifest\n")]
+            )
+
+        assert first.read_bytes() == b"original rule\n"
+        assert second.read_bytes() == b"original manifest\n"
+
+    def test_atomic_replace_persists_each_new_parent_directory(self, tmp_path):
+        from axiom_encode.cli import _atomic_replace_bytes
+
+        target = tmp_path / "one/two/rule.yaml"
+        with patch("axiom_encode.cli._fsync_directory") as fsync_directory:
+            _atomic_replace_bytes(target, b"rule\n")
+
+        assert target.read_bytes() == b"rule\n"
+        assert fsync_directory.call_args_list == [
+            call(tmp_path),
+            call(tmp_path / "one"),
+            call(tmp_path / "one/two"),
+        ]
+
+    def test_apply_transaction_removes_directories_created_before_rollback(
+        self,
+        tmp_path,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        (checkout / "us").mkdir(parents=True)
+        target = checkout / "us/statutes/26/new/deep/rule.yaml"
+
+        with pytest.raises(RuntimeError, match="post-install rejection"):
+            _install_apply_transaction(
+                [(target, b"new rule\n")],
+                checkout_root=checkout,
+                post_install_check=lambda: (_ for _ in ()).throw(
+                    RuntimeError("post-install rejection")
+                ),
+            )
+
+        assert not target.exists()
+        assert (checkout / "us").is_dir()
+        assert not (checkout / "us/statutes").exists()
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_recovery_preflights_all_targets_before_mutation(
+        self,
+        tmp_path,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        first = checkout / "us/statutes/26/1.yaml"
+        second = checkout / "us/statutes/26/2.yaml"
+        first.parent.mkdir(parents=True)
+        first.write_bytes(b"external first\n")
+        second.write_bytes(b"new second\n")
+
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        old_first = b"old first\n"
+        old_second = b"old second\n"
+        (backups / "000000.old").write_bytes(old_first)
+        (backups / "000001.old").write_bytes(old_second)
+        (backups / "000000.old").chmod(0o600)
+        (backups / "000001.old").chmod(0o600)
+        journal = {
+            "schema": _APPLY_TRANSACTION_SCHEMA,
+            "state": "applying",
+            "created_directories": [],
+            "entries": [
+                {
+                    "path": "us/statutes/26/1.yaml",
+                    "existed": True,
+                    "mode": 0o644,
+                    "old_sha256": hashlib.sha256(old_first).hexdigest(),
+                    "backup": "000000.old",
+                    "delete": False,
+                    "new_sha256": hashlib.sha256(b"new first\n").hexdigest(),
+                },
+                {
+                    "path": "us/statutes/26/2.yaml",
+                    "existed": True,
+                    "mode": 0o644,
+                    "old_sha256": hashlib.sha256(old_second).hexdigest(),
+                    "backup": "000001.old",
+                    "delete": False,
+                    "new_sha256": hashlib.sha256(b"new second\n").hexdigest(),
+                },
+            ],
+        }
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(json.dumps(journal))
+        journal_path.chmod(0o600)
+
+        with pytest.raises(RuntimeError, match="externally changed apply target"):
+            _recover_apply_transaction(checkout)
+
+        assert first.read_bytes() == b"external first\n"
+        assert second.read_bytes() == b"new second\n"
+        assert journal_path.exists()
+
+    def test_apply_transaction_rejects_noncanonical_journal_target(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        journal = {
+            "schema": _APPLY_TRANSACTION_SCHEMA,
+            "state": "prepared",
+            "created_directories": [],
+            "entries": [
+                {
+                    "path": ".github/workflows/hidden.yaml",
+                    "existed": False,
+                    "mode": 0o644,
+                    "old_sha256": None,
+                    "backup": None,
+                    "delete": False,
+                    "new_sha256": hashlib.sha256(b"hidden\n").hexdigest(),
+                }
+            ],
+        }
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(json.dumps(journal))
+        journal_path.chmod(0o600)
+
+        with pytest.raises(RuntimeError, match="target is not canonical"):
+            _recover_apply_transaction(checkout)
+
+        assert journal_path.exists()
+
+    def test_apply_transaction_rejects_duplicate_journal_keys(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        (checkout / "us").mkdir(parents=True)
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(
+            "{"
+            f'"schema":{json.dumps(_APPLY_TRANSACTION_SCHEMA)},'
+            '"state":"prepared","state":"applying",'
+            '"entries":[],"created_directories":[]'
+            "}"
+        )
+        journal_path.chmod(0o600)
+
+        with pytest.raises(RuntimeError, match="journal is unreadable"):
+            _recover_apply_transaction(checkout)
+
+        assert journal_path.exists()
+
+    def test_apply_transaction_recovery_enforces_cumulative_byte_limit(
+        self,
+        tmp_path,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        old = b"old\n"
+        new = b"new\n"
+        target.write_bytes(new)
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        backup = backups / "000000.old"
+        backup.write_bytes(old)
+        backup.chmod(0o600)
+        journal = {
+            "schema": _APPLY_TRANSACTION_SCHEMA,
+            "state": "applying",
+            "created_directories": [],
+            "entries": [
+                {
+                    "path": "us/statutes/26/1.yaml",
+                    "existed": True,
+                    "mode": 0o644,
+                    "old_sha256": hashlib.sha256(old).hexdigest(),
+                    "backup": "000000.old",
+                    "delete": False,
+                    "new_sha256": hashlib.sha256(new).hexdigest(),
+                }
+            ],
+        }
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(json.dumps(journal))
+        journal_path.chmod(0o600)
+
+        with (
+            patch("axiom_encode.cli._MAX_APPLY_TRANSACTION_RECOVERY_BYTES", 7),
+            pytest.raises(RuntimeError, match="cumulative byte limit"),
+        ):
+            _recover_apply_transaction(checkout)
+
+        assert target.read_bytes() == new
+        assert journal_path.exists()
+
+    def test_apply_transaction_rejects_symlink_journal(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        outside = tmp_path / "outside.json"
+        outside.write_text("{}")
+        (transaction / "journal.json").symlink_to(outside)
+
+        with pytest.raises(RuntimeError, match="cannot be opened safely"):
+            _recover_apply_transaction(checkout)
+
+        assert outside.read_text() == "{}"
+        assert (transaction / "journal.json").is_symlink()
+
+    def test_apply_transaction_rejects_target_changed_after_validation(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"validated original\n")
+        expected = hashlib.sha256(target.read_bytes()).hexdigest()
+        target.write_bytes(b"concurrent writer\n")
+
+        with pytest.raises(RuntimeError, match="changed after validation"):
+            _install_apply_transaction(
+                [(target, b"new rule\n")],
+                checkout_root=checkout,
+                expected_originals={target: expected},
+            )
+
+        assert target.read_bytes() == b"concurrent writer\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_rejects_special_target_mode_bits(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original\n")
+        target.chmod(0o4755)
+        if target.stat().st_mode & 0o4000 == 0:
+            pytest.skip("filesystem does not preserve set-user-ID mode bits")
+
+        with pytest.raises(RuntimeError, match="unsupported special mode bits"):
+            _install_apply_transaction(
+                [(target, b"new\n")],
+                checkout_root=checkout,
+            )
+
+        assert target.read_bytes() == b"original\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_rejects_concurrent_checkout_writer(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original\n")
+
+        with _exclusive_apply_transaction_lock(checkout):
+            with pytest.raises(
+                RuntimeError, match="Another RuleSpec apply transaction"
+            ):
+                _install_apply_transaction(
+                    [(target, b"new\n")],
+                    checkout_root=checkout,
+                )
+
+        assert target.read_bytes() == b"original\n"
+
+    def test_apply_transaction_recovers_after_sigkill(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original\n")
+        script = f"""
+import os
+from pathlib import Path
+from axiom_encode.cli import _install_apply_transaction
+checkout = Path({str(checkout)!r})
+target = Path({str(target)!r})
+_install_apply_transaction(
+    [(target, b"partially installed\\n")],
+    checkout_root=checkout,
+    post_install_check=lambda: os.kill(os.getpid(), 9),
+)
+"""
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parents[1],
+            check=False,
+        )
+
+        assert completed.returncode == -9
+        assert target.read_bytes() == b"partially installed\n"
+        assert (checkout / ".axiom/.apply-transaction/journal.json").is_file()
+        _recover_apply_transaction(checkout)
+        assert target.read_bytes() == b"original\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_recovers_multi_file_partial_install_after_sigkill(
+        self,
+        tmp_path,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        first = checkout / "us/statutes/26/1.yaml"
+        second = checkout / "us/statutes/26/2.yaml"
+        first.parent.mkdir(parents=True)
+        first.write_bytes(b"original first\n")
+        second.write_bytes(b"original second\n")
+        script = f"""
+import os
+from pathlib import Path
+import axiom_encode.cli as cli
+checkout = Path({str(checkout)!r})
+first = Path({str(first)!r})
+second = Path({str(second)!r})
+original_replace = cli._atomic_replace_bytes
+def kill_after_first_live_replace(target, raw, *, mode=0o644):
+    original_replace(target, raw, mode=mode)
+    if target == first:
+        os.kill(os.getpid(), 9)
+cli._atomic_replace_bytes = kill_after_first_live_replace
+cli._install_apply_transaction(
+    [(first, b"new first\\n"), (second, b"new second\\n")],
+    checkout_root=checkout,
+)
+"""
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parents[1],
+            check=False,
+        )
+
+        assert completed.returncode == -9
+        assert first.read_bytes() == b"new first\n"
+        assert second.read_bytes() == b"original second\n"
+        _recover_apply_transaction(checkout)
+        assert first.read_bytes() == b"original first\n"
+        assert second.read_bytes() == b"original second\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_recovers_partial_deletion_after_sigkill(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        first = checkout / "us/statutes/26/1.yaml"
+        second = checkout / "us/statutes/26/2.yaml"
+        first.parent.mkdir(parents=True)
+        first.write_bytes(b"original first\n")
+        second.write_bytes(b"original second\n")
+        script = f"""
+import os
+from pathlib import Path
+import axiom_encode.cli as cli
+checkout = Path({str(checkout)!r})
+first = Path({str(first)!r})
+second = Path({str(second)!r})
+original_unlink = Path.unlink
+def kill_after_first_live_delete(path, *args, **kwargs):
+    live_delete = path == first and not kwargs.get("missing_ok", False)
+    result = original_unlink(path, *args, **kwargs)
+    if live_delete:
+        os.kill(os.getpid(), 9)
+    return result
+Path.unlink = kill_after_first_live_delete
+cli._install_apply_transaction(
+    [(first, None), (second, None)],
+    checkout_root=checkout,
+)
+"""
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parents[1],
+            check=False,
+        )
+
+        assert completed.returncode == -9
+        assert not first.exists()
+        assert second.read_bytes() == b"original second\n"
+        _recover_apply_transaction(checkout)
+        assert first.read_bytes() == b"original first\n"
+        assert second.read_bytes() == b"original second\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_finalizes_committed_state_after_sigkill(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original\n")
+        script = f"""
+import os
+from pathlib import Path
+import axiom_encode.cli as cli
+checkout = Path({str(checkout)!r})
+target = Path({str(target)!r})
+def kill_before_committed_cleanup(_transaction_dir):
+    os.kill(os.getpid(), 9)
+cli._remove_apply_transaction_directory = kill_before_committed_cleanup
+cli._install_apply_transaction(
+    [(target, b"committed\\n")],
+    checkout_root=checkout,
+)
+"""
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parents[1],
+            check=False,
+        )
+
+        assert completed.returncode == -9
+        assert target.read_bytes() == b"committed\n"
+        journal = json.loads(
+            (checkout / ".axiom/.apply-transaction/journal.json").read_text()
+        )
+        assert journal["state"] == "committed"
+        _recover_apply_transaction(checkout)
+        assert target.read_bytes() == b"committed\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_post_install_dependency_change_rolls_back_live_files(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        target = content_root / "statutes/26/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            "  summary: original live bytes\nrules: []\n"
+        )
+        target_before = target.read_bytes()
+        engine_input = tmp_path / "axiom-rules-engine/engine-input.txt"
+        engine_input.write_text("validated engine bytes\n")
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        from axiom_encode.cli import _atomic_replace_bytes
+
+        replacements = 0
+
+        def mutate_engine_after_first_install(target_path, raw, *, mode=0o644):
+            nonlocal replacements
+            _atomic_replace_bytes(target_path, raw, mode=mode)
+            replacements += 1
+            if replacements == 1:
+                engine_input.write_text("mutated during install\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            patch(
+                "axiom_encode.cli._atomic_replace_bytes",
+                side_effect=mutate_engine_after_first_install,
+            ),
+            pytest.raises(RuntimeError, match="execution dependency changed"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert target.read_bytes() == target_before
+        assert not (
+            checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        ).exists()
+
+    def test_apply_rejects_output_mutated_after_overlay_validation(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+        payload = yaml.safe_load(generated.read_text())
+        payload["module"]["summary"] = "mutated after validation"
+        generated.write_text(yaml.safe_dump(payload, sort_keys=False))
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match="changed after overlay validation"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert not (content_root / "statutes/26/1.yaml").exists()
+        assert not (
+            checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        ).exists()
+
+    def test_apply_rejects_output_swapped_only_while_plan_is_captured(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        from axiom_encode.cli import _planned_apply_file_bytes
+
+        def capture_transient_bytes(*args, **kwargs):
+            planned, wrote_empty_test = _planned_apply_file_bytes(*args, **kwargs)
+            planned[Path("statutes/26/1.yaml")] = b"transient unvalidated bytes\n"
+            return planned, wrote_empty_test
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            patch(
+                "axiom_encode.cli._planned_apply_file_bytes",
+                side_effect=capture_transient_bytes,
+            ),
+            pytest.raises(RuntimeError, match="planned bytes do not match"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert not (content_root / "statutes/26/1.yaml").exists()
+        assert not (
+            checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        ).exists()
+
+    def test_apply_rejects_trace_swapped_only_while_manifest_is_signed(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        trace = Path(result.trace_file)
+        trace.write_text('{"validated": true}\n')
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        from axiom_encode.cli import _write_applied_encoding_manifest
+
+        def sign_transient_trace(*args, **kwargs):
+            original = trace.read_bytes()
+            trace.write_bytes(b'{"transient": "unvalidated"}\n')
+            try:
+                return _write_applied_encoding_manifest(*args, **kwargs)
+            finally:
+                trace.write_bytes(original)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            patch(
+                "axiom_encode.cli._write_applied_encoding_manifest",
+                side_effect=sign_transient_trace,
+            ),
+            pytest.raises(RuntimeError, match="validation snapshot: trace_sha256"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert trace.read_bytes() == b'{"validated": true}\n'
+        assert not (content_root / "statutes/26/1.yaml").exists()
+        assert not (
+            checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        ).exists()
+
+    @pytest.mark.parametrize("mutated_input", ["rulespec", "engine"])
+    def test_apply_rejects_execution_input_mutated_after_overlay_validation(
+        self, tmp_path, mutated_input
+    ):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        generated = output_root / "codex-test-model/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\nrules: []\n"
+        )
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = None
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+        )
+        imported = content_root / "statutes/26/2.yaml"
+        imported.parent.mkdir(parents=True)
+        imported.write_text("format: rulespec/v1\nrules: []\n")
+        engine_input = tmp_path / "axiom-rules-engine/engine-input.txt"
+        engine_input.write_text("validated engine bytes\n")
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+        if mutated_input == "rulespec":
+            imported.write_text("format: rulespec/v1\nrules: []\n# mutated\n")
+        else:
+            engine_input.write_text("mutated engine bytes\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
+            pytest.raises(RuntimeError, match="changed after overlay validation"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+
+        assert not (content_root / "statutes/26/1.yaml").exists()
+        assert not (
+            checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        ).exists()
 
     def test_apply_stamps_and_signs_complete_source_attestation(self, tmp_path):
         output_root = tmp_path / "out"
@@ -4585,28 +8187,37 @@ class TestCmdEncode:
             """format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_paths:
-      - us/statute/26/1
+    corpus_citation_path: us/statute/26/1
     source_sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 rules: []
 """
         )
-        policy_repo.mkdir()
+        policy_repo.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
         result.generation_prompt_sha256 = None
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4621,26 +8232,28 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
             )
 
-        target = policy_repo / "statutes/26/1.yaml"
+        target = policy_repo / "us/statutes/26/1.yaml"
         stamped_verification = yaml.safe_load(target.read_text())["module"][
             "source_verification"
         ]
-        assert stamped_verification["source_sha256"] == "a" * 64
+        expected_source_sha256 = hashlib.sha256(b"test source\n").hexdigest()
+        assert stamped_verification["source_sha256"] == expected_source_sha256
         assert stamped_verification["corpus_citation_path"] == "us/statute/26/1"
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest_payload = json.loads(manifest.read_text())
         manifest_attestation = manifest_payload["source_attestation"]
         assert (
             manifest_attestation["generation_input_sha256"]
             == hashlib.sha256(b"test source\n").hexdigest()
         )
-        assert manifest_attestation["resolved_text_sha256"] == "a" * 64
+        assert manifest_attestation["resolved_text_sha256"] == expected_source_sha256
         assert (
             _applied_encoding_manifest_signature_issue(
-                manifest_payload, TEST_APPLY_SIGNING_KEY
+                manifest_payload, TEST_APPLY_SIGNING_BROKER
             )
             is None
         )
@@ -4648,7 +8261,7 @@ rules: []
         manifest_payload["source_attestation"]["source_sha256"] = "e" * 64
         assert (
             _applied_encoding_manifest_signature_issue(
-                manifest_payload, TEST_APPLY_SIGNING_KEY
+                manifest_payload, TEST_APPLY_SIGNING_BROKER
             )
             == "has an invalid encoder apply manifest signature"
         )
@@ -4662,14 +8275,19 @@ rules: []
 
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
-        metadata = {"source_attestation": _complete_source_attestation()}
+        policy_repo.mkdir(parents=True)
+        corpus_path, source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+            source_text="First line\r\nSecond line\r\n",
+        )
+        metadata = {"source_attestation": source_attestation}
         workspace = prepare_eval_workspace(
             citation="us/statute/26/1",
             runner=parse_runner_spec("codex:test-model"),
             output_root=output_root,
             source_text="First line\r\nSecond line\r\n",
-            axiom_rules_path=policy_repo,
+            axiom_rules_path=policy_repo / "us",
             mode="cold",
             source_metadata_payload=metadata,
             extra_context_paths=[],
@@ -4699,17 +8317,23 @@ rules: []
         result.context_manifest_file = str(workspace.manifest_file)
         result.source_attestation = metadata["source_attestation"]
         result.generation_prompt_sha256 = None
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4724,10 +8348,11 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
             )
 
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
         assert (
             json.loads(manifest.read_text())["source_attestation"][
                 "generation_input_sha256"
@@ -4740,13 +8365,15 @@ rules: []
             with (
                 patch.dict(
                     os.environ,
-                    {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64
+                    },
                 ),
                 patch(
                     "axiom_encode.cli._git_repo_provenance",
                     return_value={
                         "root": "/repo/axiom-encode",
-                        "commit": "abc123",
+                        "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                         "dirty_tracked": False,
                     },
                 ),
@@ -4762,7 +8389,8 @@ rules: []
                 _apply_generated_encoding_result(
                     result,
                     output_root=output_root,
-                    policy_repo_path=policy_repo,
+                    policy_repo_path=policy_repo / "us",
+                    corpus_path=tmp_path / "axiom-corpus",
                 )
 
     def test_apply_rejects_source_verifying_model_result_without_attestation(
@@ -4780,7 +8408,7 @@ module:
 rules: []
 """
         )
-        policy_repo.mkdir()
+        (policy_repo / "us").mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = None
@@ -4788,13 +8416,13 @@ rules: []
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4810,7 +8438,8 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
         assert not (policy_repo / "statutes/26/1.yaml").exists()
@@ -4818,10 +8447,11 @@ rules: []
     def test_apply_rejects_model_result_without_any_source_provenance(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = None
@@ -4829,13 +8459,13 @@ rules: []
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4851,14 +8481,16 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
-        assert not (policy_repo / "statutes/26/1.yaml").exists()
+        assert not (policy_content_root / "statutes/26/1.yaml").exists()
 
     def test_apply_rejects_unattested_continuation_source_path(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text(
@@ -4871,7 +8503,7 @@ module:
 rules: []
 """
         )
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
@@ -4879,13 +8511,13 @@ rules: []
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4896,21 +8528,23 @@ rules: []
                     "version_commit": "version123",
                 },
             ),
-            pytest.raises(RuntimeError, match="us/statute/26/2"),
+            pytest.raises(RuntimeError, match="corpus_citation_paths is not supported"),
         ):
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
-        assert not (policy_repo / "statutes/26/1.yaml").exists()
+        assert not (policy_content_root / "statutes/26/1.yaml").exists()
 
     def test_apply_rejects_supplemental_rulespec_with_different_source_pin(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text(
@@ -4921,7 +8555,7 @@ module:
 rules: []
 """
         )
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
@@ -4938,13 +8572,13 @@ rules: []
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -4963,14 +8597,15 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
                 supplemental_files=supplemental,
             )
 
-        assert not (policy_repo / "statutes/26/1.yaml").exists()
-        assert not (policy_repo / "statutes/26/2.yaml").exists()
+        assert not (policy_content_root / "statutes/26/1.yaml").exists()
+        assert not (policy_content_root / "statutes/26/2.yaml").exists()
 
-    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize("suffix", [".yaml"])
     @pytest.mark.parametrize(
         ("supplemental_content", "expected_issue"),
         [
@@ -4995,11 +8630,12 @@ rules: []
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes/26/1.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
         original_generated = generated.read_text()
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.source_attestation = _complete_source_attestation()
@@ -5008,13 +8644,13 @@ rules: []
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5030,13 +8666,14 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
                 supplemental_files={supplemental_path: supplemental_content},
             )
 
         assert generated.read_text() == original_generated
-        assert not (policy_repo / "statutes/26/1.yaml").exists()
-        assert not (policy_repo / supplemental_path).exists()
+        assert not (policy_content_root / "statutes/26/1.yaml").exists()
+        assert not (policy_content_root / supplemental_path).exists()
 
     def test_apply_generated_encoding_routes_country_monorepo_root(self, tmp_path):
         output_root = tmp_path / "out"
@@ -5046,6 +8683,7 @@ rules: []
         generated.write_text("format: rulespec/v1\nrules: []\n")
         generated.with_name("36B.test.yaml").write_text("[]\n")
         (policy_repo / "us").mkdir(parents=True)
+        _write_test_rulespec_toolchain(policy_repo)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
@@ -5053,17 +8691,27 @@ rules: []
         result.generation_prompt_sha256 = None
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5078,24 +8726,23 @@ rules: []
             applied = _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
         target = policy_repo / "us/statutes/26/36B.yaml"
         target_test = policy_repo / "us/statutes/26/36B.test.yaml"
-        manifest = policy_repo / "us/.axiom/encoding-manifests/statutes/26/36B.json"
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/36B.json"
         assert applied == [target, target_test, manifest]
         assert target.exists()
         assert target_test.exists()
         assert not (policy_repo / "statutes/26/36B.yaml").exists()
-        assert not (
-            policy_repo / ".axiom/encoding-manifests/statutes/26/36B.json"
-        ).exists()
+        assert not (policy_repo / "us/.axiom/encoding-manifests").exists()
         payload = json.loads(manifest.read_text())
         assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/36B.yaml",
-            "statutes/26/36B.test.yaml",
+            "us/statutes/26/36B.yaml",
+            "us/statutes/26/36B.test.yaml",
         ]
 
     def test_apply_generated_encoding_adds_empty_deferred_companion_test(
@@ -5128,6 +8775,7 @@ rules: []
             )
         )
         (policy_repo / "us").mkdir(parents=True)
+        _write_test_rulespec_toolchain(policy_repo)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
@@ -5135,17 +8783,27 @@ rules: []
         result.generation_prompt_sha256 = None
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5160,7 +8818,8 @@ rules: []
             applied = _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
@@ -5168,14 +8827,14 @@ rules: []
         target_test = policy_repo / "us/regulations/42-cfr/435/601/a.test.yaml"
         manifest = (
             policy_repo
-            / "us/.axiom/encoding-manifests/regulations/42-cfr/435/601/a.json"
+            / ".axiom/encoding-manifests/us/regulations/42-cfr/435/601/a.json"
         )
         assert applied == [target, target_test, manifest]
         assert target_test.read_text() == "[]\n"
         payload = json.loads(manifest.read_text())
         assert [item["path"] for item in payload["applied_files"]] == [
-            "regulations/42-cfr/435/601/a.yaml",
-            "regulations/42-cfr/435/601/a.test.yaml",
+            "us/regulations/42-cfr/435/601/a.yaml",
+            "us/regulations/42-cfr/435/601/a.test.yaml",
         ]
 
     # Country-monorepo repos whose repository-structure gate forbids `.json`
@@ -5217,7 +8876,7 @@ rules: []
         ]
     )
 
-    def test_apply_generated_encoding_relocates_manifest_when_layout_forbids_json(
+    def test_apply_generated_encoding_uses_checkout_root_manifest_layout(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
@@ -5231,6 +8890,7 @@ rules: []
         (policy_repo / ".axiom" / "repository-structure.yaml").write_text(
             self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
         )
+        _write_test_rulespec_toolchain(policy_repo)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
@@ -5238,17 +8898,27 @@ rules: []
         result.generation_prompt_sha256 = "prompt-sha-256"
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "uk",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5269,13 +8939,14 @@ rules: []
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo / "uk",
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
         # Modules still land under the jurisdiction content root (uk/…).
         target = policy_repo / "uk/statutes/26/36B.yaml"
         target_test = policy_repo / "uk/statutes/26/36B.test.yaml"
-        # Manifest relocates to the repo-root mirror with a juris-prefixed path.
+        # Manifest always uses the repo-root mirror with a juris-prefixed path.
         manifest = policy_repo / ".axiom/encoding-manifests/uk/statutes/26/36B.json"
         assert applied == [target, target_test, manifest]
         assert target.exists()
@@ -5305,12 +8976,10 @@ rules: []
         assert payload["signature"]["value"]
         assert all(item["sha256"] for item in payload["applied_files"])
 
-    def test_apply_generated_encoding_keeps_config_a_when_layout_allows_json(
+    def test_apply_generated_encoding_ignores_content_root_json_allowance(
         self, tmp_path
     ):
-        # Same juris-stripped generation, but the repo layout permits `.json`
-        # under the content root (rulespec-us), so the manifest stays co-located
-        # (Config A) — placement is decided by the target repo's own gate.
+        # Repository layout rules do not create a second manifest placement.
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
         generated = output_root / "codex-test-model" / "statutes" / "26" / "36B.yaml"
@@ -5322,6 +8991,7 @@ rules: []
         (policy_repo / ".axiom" / "repository-structure.yaml").write_text(
             self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
         )
+        _write_test_rulespec_toolchain(policy_repo)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
@@ -5329,17 +8999,27 @@ rules: []
         result.generation_prompt_sha256 = None
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5354,69 +9034,33 @@ rules: []
             applied = _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
-        manifest = policy_repo / "us/.axiom/encoding-manifests/statutes/26/36B.json"
+        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/36B.json"
         assert applied[-1] == manifest
-        assert not (
-            policy_repo / ".axiom/encoding-manifests/us/statutes/26/36B.json"
-        ).exists()
+        assert not (policy_repo / "us/.axiom/encoding-manifests").exists()
         payload = json.loads(manifest.read_text())
         assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/36B.yaml",
-            "statutes/26/36B.test.yaml",
+            "us/statutes/26/36B.yaml",
+            "us/statutes/26/36B.test.yaml",
         ]
 
-    def test_repository_structure_allows_json_manifest_respects_layout(self, tmp_path):
-        forbidden = tmp_path / "rulespec-uk"
-        (forbidden / ".axiom").mkdir(parents=True)
-        (forbidden / ".axiom" / "repository-structure.yaml").write_text(
-            self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
-        )
-        allowed = tmp_path / "rulespec-us"
-        (allowed / ".axiom").mkdir(parents=True)
-        (allowed / ".axiom" / "repository-structure.yaml").write_text(
-            self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
-        )
-        unknown = tmp_path / "rulespec-none"
-        unknown.mkdir(parents=True)
-
-        assert (
-            _repository_structure_allows_json_manifest(
-                forbidden, "uk/.axiom/encoding-manifests/statutes/26/36B.json"
-            )
-            is False
-        )
-        assert (
-            _repository_structure_allows_json_manifest(
-                allowed, "us/.axiom/encoding-manifests/statutes/26/36B.json"
-            )
-            is True
-        )
-        # No matching rule (bare `.axiom/**` still matches root manifests as
-        # allowed); an unknown layout returns None so callers keep prior placement.
-        assert (
-            _repository_structure_allows_json_manifest(
-                unknown, "uk/.axiom/encoding-manifests/statutes/26/36B.json"
-            )
-            is None
-        )
-
-    def test_resolve_applied_manifest_placement_relocates_only_when_forbidden(
+    def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path
     ):
         # The checkout root (where the gate + canonical manifest tree live) is
         # derived from the content root: `encode --apply` passes the
         # jurisdiction content root (`<checkout>/uk`), not the checkout root.
         repo = tmp_path / "rulespec-uk"
-        (repo / ".axiom").mkdir(parents=True)
+        (repo / "uk").mkdir(parents=True)
+        (repo / ".axiom").mkdir()
         (repo / ".axiom" / "repository-structure.yaml").write_text(
             self._LAYOUT_JSON_FORBIDDEN_UNDER_JURIS
         )
-        # Content lives under uk/ and the gate forbids `.json` there → relocate
-        # to the checkout-root mirror, recovered from the content root alone.
+        # Content always maps to the checkout-root mirror.
         manifest_root, manifest_rel = _resolve_applied_manifest_placement(
             content_root=repo / "uk",
             relative_output=Path("statutes/26/36B.yaml"),
@@ -5424,17 +9068,25 @@ rules: []
         assert manifest_root == repo
         assert manifest_rel == Path("uk/statutes/26/36B.yaml")
 
-        # A flat content root (the checkout root itself) is never relocated.
+        # Checkout-relative callers may already include the jurisdiction once.
         manifest_root, manifest_rel = _resolve_applied_manifest_placement(
-            content_root=repo,
-            relative_output=Path("statutes/26/36B.yaml"),
+            content_root=repo / "uk",
+            relative_output=Path("uk/statutes/26/36B.yaml"),
         )
         assert manifest_root == repo
-        assert manifest_rel == Path("statutes/26/36B.yaml")
+        assert manifest_rel == Path("uk/statutes/26/36B.yaml")
 
-        # A layout that permits `.json` under the content root keeps Config A.
+        # Flat/legacy roots have no fallback placement.
+        with pytest.raises(ValueError, match="canonical"):
+            _resolve_applied_manifest_placement(
+                content_root=repo,
+                relative_output=Path("statutes/26/36B.yaml"),
+            )
+
+        # A layout that permits `.json` under the content root changes nothing.
         allowed = tmp_path / "rulespec-us"
-        (allowed / ".axiom").mkdir(parents=True)
+        (allowed / "us").mkdir(parents=True)
+        (allowed / ".axiom").mkdir()
         (allowed / ".axiom" / "repository-structure.yaml").write_text(
             self._LAYOUT_JSON_ALLOWED_UNDER_JURIS
         )
@@ -5442,11 +9094,13 @@ rules: []
             content_root=allowed / "us",
             relative_output=Path("statutes/26/36B.yaml"),
         )
-        assert manifest_root == allowed / "us"
-        assert manifest_rel == Path("statutes/26/36B.yaml")
+        assert manifest_root == allowed
+        assert manifest_rel == Path("us/statutes/26/36B.yaml")
 
     def test_rulespec_checkout_root_recovers_checkout_from_content_root(self, tmp_path):
         # Country monorepo: content root is <checkout>/<jurisdiction>.
+        (tmp_path / "rulespec-uk" / "uk").mkdir(parents=True)
+        (tmp_path / "rulespec-us" / "us-ga").mkdir(parents=True)
         assert (
             _rulespec_checkout_root(tmp_path / "rulespec-uk" / "uk")
             == tmp_path / "rulespec-uk"
@@ -5455,16 +9109,25 @@ rules: []
             _rulespec_checkout_root(tmp_path / "rulespec-us" / "us-ga")
             == tmp_path / "rulespec-us"
         )
-        # Legacy flat checkout: the content root is the checkout itself.
-        assert (
+        # Legacy, nested, and anonymous roots have no fallback authority.
+        (tmp_path / "rulespec-uk-kingston-upon-thames").mkdir()
+        with pytest.raises(ValueError, match="canonical"):
             _rulespec_checkout_root(tmp_path / "rulespec-uk-kingston-upon-thames")
-            == tmp_path / "rulespec-uk-kingston-upon-thames"
+        _git(tmp_path / "rulespec-uk", "init")
+        _git(
+            tmp_path / "rulespec-uk",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-uk.git",
         )
-        # Nested checkout: the innermost rulespec-* ancestor wins.
         nested = tmp_path / "rulespec-uk" / "_axiom" / "rulespec-us" / "us"
-        assert _rulespec_checkout_root(nested) == nested.parent
-        # No rulespec-* ancestor: falls back to the content root unchanged.
-        assert _rulespec_checkout_root(tmp_path / "somewhere") == tmp_path / "somewhere"
+        nested.mkdir(parents=True)
+        with pytest.raises(ValueError, match="canonical"):
+            _rulespec_checkout_root(nested)
+        (tmp_path / "somewhere").mkdir()
+        with pytest.raises(ValueError, match="canonical"):
+            _rulespec_checkout_root(tmp_path / "somewhere")
 
     def test_apply_generated_encoding_routes_new_state_monorepo_prefix(self, tmp_path):
         output_root = tmp_path / "out"
@@ -5472,7 +9135,6 @@ rules: []
         generated = (
             output_root
             / "codex-test-model"
-            / "us-ks"
             / "policies"
             / "dcf"
             / "keesm"
@@ -5481,7 +9143,7 @@ rules: []
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
         generated.with_name("keesm7410.test.yaml").write_text("[]\n")
-        policy_repo.mkdir()
+        (policy_repo / "us-ks").mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
@@ -5489,17 +9151,28 @@ rules: []
         result.generation_prompt_sha256 = None
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+            citation_path="us-ks/manual/dcf/keesm/keesm7410",
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us-ks",
+            corpus_path=corpus_path,
+        )
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": False,
                 },
             ),
@@ -5514,7 +9187,8 @@ rules: []
             applied = _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_repo / "us-ks",
+                corpus_path=corpus_path,
                 run_id="run-123",
             )
 
@@ -5535,76 +9209,121 @@ rules: []
         ]
         assert (
             _rulespec_apply_content_root(
-                policy_repo,
-                Path("us-ks/policies/dcf/keesm/keesm7410.yaml"),
+                policy_repo / "us-ks",
+                Path("policies/dcf/keesm/keesm7410.yaml"),
             )
-            == policy_repo
+            == policy_repo / "us-ks"
         )
 
     def test_write_applied_manifest_deduplicates_applied_files(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/1401.yaml"
-        target_test = policy_repo / "statutes/26/1401.test.yaml"
-        generated = output_root / "deterministic-repair" / "statutes/26/1401.yaml"
+        policy_content_root = policy_repo / "us"
+        target = policy_content_root / "statutes/26/1401.yaml"
+        target_test = policy_content_root / "statutes/26/1401.test.yaml"
+        generated = output_root / "codex" / "statutes/26/1401.yaml"
         target.parent.mkdir(parents=True)
         generated.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
+        target.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1401\nrules: []\n"
+        )
         target_test.write_text("- name: existing_case\n  period: 2026\n")
         generated.write_text(target.read_text())
+        corpus_path, source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+            citation_path="us/statute/26/1401",
+        )
+        target.write_text(
+            "format: rulespec/v1\nmodule:\n  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1401\n"
+            f"    source_sha256: {source_attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+        generated.write_text(target.read_text())
+        source_file = output_root / "source.txt"
+        source_file.write_text("test source\n")
+        context_manifest = output_root / "context.json"
+        context_manifest.write_text(
+            json.dumps({"source_text_file": source_file.name}) + "\n"
+        )
         result = SimpleNamespace(
             output_file=str(generated),
-            context_manifest_file=None,
+            context_manifest_file=str(context_manifest),
             trace_file=None,
             generation_prompt_sha256=None,
-            tool="axiom-encode test",
+            tool=APPLIED_ENCODING_MODEL_TOOL,
             citation="us:statutes/26/1401",
-            runner="deterministic",
-            backend="deterministic",
+            runner="codex",
+            backend="codex",
             model="manifest-test",
+            source_attestation=source_attestation,
+        )
+        validation_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": {
+                    **_complete_source_attestation("us/statute/26/1401"),
+                    "rulespec_root": "rulespec-us/us",
+                },
+                "applied_files": [],
+            }
+        )
+        setattr(
+            result,
+            _APPLY_VALIDATION_SNAPSHOT_ATTR,
+            {
+                "manifest_validation_execution": validation_payload[
+                    "validation_execution"
+                ]
+            },
         )
 
         manifest = _write_applied_encoding_manifest(
             result,
             output_root=output_root,
-            policy_repo_path=policy_repo,
+            policy_repo_path=policy_content_root,
+            corpus_path=corpus_path,
             relative_output=Path("statutes/26/1401.yaml"),
             applied_files=[target, target_test, target_test],
             axiom_encode_git={
                 "root": "/repo/axiom-encode",
-                "commit": "abc123",
+                "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                 "dirty_tracked": False,
             },
-            signing_key=TEST_APPLY_SIGNING_KEY,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
             run_id="run-123",
         )
 
         payload = json.loads(manifest.read_text())
         assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/1401.yaml",
-            "statutes/26/1401.test.yaml",
+            "us/statutes/26/1401.yaml",
+            "us/statutes/26/1401.test.yaml",
         ]
 
     def test_apply_generated_encoding_rejects_dirty_encoder_build(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes" / "26" / "25B.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch(
                 "axiom_encode.cli._git_repo_provenance",
                 return_value={
                     "root": "/repo/axiom-encode",
-                    "commit": "abc123",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
                     "dirty_tracked": True,
                 },
             ),
@@ -5613,25 +9332,27 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
-        assert not (policy_repo / "statutes/26/25B.yaml").exists()
+        assert not (policy_content_root / "statutes/26/25B.yaml").exists()
 
     def test_apply_generated_encoding_rejects_unknown_encoder_build(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us"
         generated = output_root / "codex-test-model" / "statutes" / "26" / "25B.yaml"
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
 
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             patch("axiom_encode.cli._git_repo_provenance", return_value=None),
             pytest.raises(RuntimeError, match="git provenance is unavailable"),
@@ -5639,10 +9360,11 @@ rules: []
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
-        assert not (policy_repo / "statutes/26/25B.yaml").exists()
+        assert not (policy_content_root / "statutes/26/25B.yaml").exists()
 
     def test_apply_version_provenance_allows_changes_in_version_bump_commit(
         self, tmp_path
@@ -5712,9 +9434,10 @@ rules: []
         with pytest.raises(RuntimeError, match="encoder-affecting files changed"):
             _require_axiom_encode_version_provenance(repo)
 
-    def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
+    def test_apply_generated_encoding_requires_signing_broker(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-ny"
+        policy_repo = tmp_path / "rulespec-us"
+        policy_content_root = policy_repo / "us-ny"
         generated = (
             output_root
             / "codex-test-model"
@@ -5729,18 +9452,22 @@ rules: []
         )
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo.mkdir()
+        policy_content_root.mkdir(parents=True)
         result = self._make_eval_result(True)
         result.output_file = str(generated)
 
         with (
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+            patch("axiom_encode.signing_broker._active_broker", None),
+            pytest.raises(
+                RuntimeError,
+                match="externally attached trusted signing broker",
+            ),
         ):
             _apply_generated_encoding_result(
                 result,
                 output_root=output_root,
-                policy_repo_path=policy_repo,
+                policy_repo_path=policy_content_root,
+                corpus_path=tmp_path / "axiom-corpus",
             )
 
     def test_encode_apply_exits_nonzero_when_overlay_validation_blocks(self, tmp_path):
@@ -5755,7 +9482,11 @@ rules: []
                 return_value=(False, ["dependent failed"], {}),
             ),
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -5837,7 +9568,11 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -5904,7 +9639,11 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -5970,7 +9709,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -6047,7 +9786,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -6120,7 +9859,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -6198,7 +9937,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -6271,7 +10010,7 @@ module:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -6663,7 +10402,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -6792,9 +10531,10 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-nc"
+        policy_repo = tmp_path / "rulespec-us" / "us-nc"
+        policy_repo.mkdir(parents=True)
         federal_file = (
-            tmp_path / "rulespec-us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
         federal_file.parent.mkdir(parents=True)
         federal_file.write_text(
@@ -6893,17 +10633,18 @@ rules:
         )
         result = SimpleNamespace(output_file=rules_file, runner="runner")
 
-        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
-            result,
-            output_root=output_root,
-            policy_repo_path=policy_repo,
-            issues=[
-                "Delegated policy setting missing source_relation: "
-                "`heating_cooling_standard_utility_allowance`, "
-                "`heating_cooling_standard_utility_allowance_for_unit_size` "
-                "encodes a state-set SNAP standard utility allowance."
-            ],
-        )
+        with _authoritative_rulespec_dependency_scope((tmp_path / "rulespec-us",)):
+            repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "Delegated policy setting missing source_relation: "
+                    "`heating_cooling_standard_utility_allowance`, "
+                    "`heating_cooling_standard_utility_allowance_for_unit_size` "
+                    "encodes a state-set SNAP standard utility allowance."
+                ],
+            )
 
         assert repaired == [
             "sets_snap_standard_utility_allowance",
@@ -6980,7 +10721,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-tn",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-tn"),
             issues=[
                 "Embedded scalar literal: snap_standard_deduction_size_category "
                 "line 7 embeds 6 in `min(household_size, 6)`; extract the value "
@@ -7034,7 +10775,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-fl",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-fl"),
             issues=[
                 "Embedded scalar literal: maximum_food_assistance_benefit line 10 "
                 "embeds 10 in `assistance_group_size <= 10`; extract the value "
@@ -7082,7 +10823,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-tn",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-tn"),
             issues=[
                 "Embedded scalar literal: snap_gross_income_standard_for_household "
                 f"line 10 embeds 10 in `{formula}`; extract the value to its own "
@@ -7131,7 +10872,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-az",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-az"),
             issues=[
                 "Embedded scalar literal: child_care_assistance_fee_level "
                 "line 10 embeds 4 in `4`; extract the value to its own named "
@@ -7183,7 +10924,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path),
             issues=[
                 "Embedded scalar literal: applicable_income_limitation_rate line 18 "
                 "embeds 4 in `4 / 3`; extract the value to its own named numeric "
@@ -7252,7 +10993,7 @@ rules:
         repaired = _try_repair_generated_embedded_scalar_literals_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-tn",
+            policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-tn"),
             issues=[
                 "Embedded scalar literal: snap_gross_income_standard_for_household "
                 "line 10 embeds 10 in `snap_gross_income_standard[10]`; "
@@ -7333,7 +11074,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo_path = tmp_path / "us-wa"
+        policy_repo_path = _canonical_rulespec_content_root(tmp_path, "us-wa")
         rules_file = (
             output_root
             / "runner"
@@ -7436,8 +11177,10 @@ rules:
 
     def test_delegated_policy_setting_repair_skips_existing_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-ca"
+        policy_repo.mkdir(parents=True)
         federal_file = (
-            tmp_path / "rulespec-us" / "regulations" / "7-cfr" / "273" / "9.yaml"
+            tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
         federal_file.parent.mkdir(parents=True)
         federal_file.write_text(
@@ -7480,12 +11223,13 @@ rules:
         )
         result = SimpleNamespace(output_file=rules_file, runner="runner")
 
-        repaired = _try_repair_generated_delegated_policy_settings_for_apply(
-            result,
-            output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-ca",
-            issues=["Delegated policy setting missing source_relation"],
-        )
+        with _authoritative_rulespec_dependency_scope((tmp_path / "rulespec-us",)):
+            repaired = _try_repair_generated_delegated_policy_settings_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=["Delegated policy setting missing source_relation"],
+            )
 
         assert repaired == ["import:us:regulations/7-cfr/273/9"]
         payload = yaml.safe_load(rules_file.read_text())
@@ -7493,7 +11237,8 @@ rules:
 
     def test_delegated_policy_setting_repair_drops_unresolved_sets_edge(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo = tmp_path / "rulespec-us" / "us-co"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             output_root / "runner" / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
         )
@@ -7545,6 +11290,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        policy_repo.mkdir(parents=True)
         federal_file = (
             tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
@@ -7703,6 +11449,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        policy_repo.mkdir(parents=True)
         federal_file = (
             tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
@@ -7805,6 +11552,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        policy_repo.mkdir(parents=True)
         federal_file = (
             tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
@@ -7895,6 +11643,7 @@ rules:
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us-tn"
+        policy_repo.mkdir(parents=True)
         federal_file = (
             tmp_path / "rulespec-us" / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
         )
@@ -7992,6 +11741,8 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             output_root / "runner" / "regulations" / "42-cfr" / "435" / "110.yaml"
         )
@@ -8024,7 +11775,7 @@ rules:
         repaired = _try_repair_generated_source_relation_delegations_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us",
+            policy_repo_path=policy_repo,
             issues=[
                 "RuleSpec source relation `implements_section_1931_b_and_d` "
                 "with type `implements` must declare "
@@ -8038,10 +11789,10 @@ rules:
             "parent_or_caretaker_relative_medicaid_eligible"
         ]
 
-    def test_source_relation_delegation_repair_drops_plural_cfr_implements(
-        self, tmp_path
-    ):
+    def test_source_relation_delegation_repair_drops_cfr_implements(self, tmp_path):
         output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             output_root / "runner" / "regulations" / "42-cfr" / "435" / "110.yaml"
         )
@@ -8050,8 +11801,7 @@ rules:
             """format: rulespec/v1
 module:
   source_verification:
-    corpus_citation_paths:
-      - us/regulation/42/435/110
+    corpus_citation_path: us/regulation/42/435/110
 rules:
 - name: implements_section_1931_b_and_d
   kind: source_relation
@@ -8075,7 +11825,7 @@ rules:
         repaired = _try_repair_generated_source_relation_delegations_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us",
+            policy_repo_path=policy_repo,
             issues=[
                 "RuleSpec source relation `implements_section_1931_b_and_d` "
                 "with type `implements` must declare "
@@ -8093,6 +11843,8 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-co"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             output_root / "runner" / "regulations" / "10-ccr-2506-1" / "4.100.yaml"
         )
@@ -8127,7 +11879,7 @@ rules:
         repaired = _try_repair_generated_source_relation_delegations_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us-co",
+            policy_repo_path=policy_repo,
             issues=[
                 "RuleSpec source relation "
                 "`colorado_snap_rules_implement_usda_snap_program_regulations` "
@@ -8148,6 +11900,8 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
         rules_file = output_root / "runner" / "state_rule.yaml"
         rules_file.parent.mkdir(parents=True)
         original = """format: rulespec/v1
@@ -8168,7 +11922,7 @@ rules:
         repaired = _try_repair_generated_source_relation_delegations_for_apply(
             result,
             output_root=output_root,
-            policy_repo_path=tmp_path / "rulespec-us",
+            policy_repo_path=policy_repo,
             issues=[
                 "RuleSpec source relation `implements_federal_option` with type "
                 "`implements` must declare source_relation.basis.delegation"
@@ -8182,7 +11936,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -8231,13 +11985,14 @@ rules:
             == "us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation"
         )
 
-    def test_source_relation_delegation_repair_resolves_sibling_target_repo(
+    def test_source_relation_delegation_repair_resolves_explicit_target_repo(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        state_repo = tmp_path / "rulespec-us-ny"
         federal_repo = tmp_path / "rulespec-us"
-        target_file = federal_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        state_repo = federal_repo / "us-ny"
+        state_repo.mkdir(parents=True)
+        target_file = federal_repo / "us/regulations/7-cfr/273/9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
             """format: rulespec/v1
@@ -8263,16 +12018,17 @@ rules:
         )
         result = SimpleNamespace(output_file=rules_file, runner="runner")
 
-        repaired = _try_repair_generated_source_relation_delegations_for_apply(
-            result,
-            output_root=output_root,
-            policy_repo_path=state_repo,
-            issues=[
-                "RuleSpec source relation `implements_federal_snap_option` "
-                "with type `implements` must declare "
-                "source_relation.basis.delegation"
-            ],
-        )
+        with _authoritative_rulespec_dependency_scope((federal_repo,)):
+            repaired = _try_repair_generated_source_relation_delegations_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=state_repo,
+                issues=[
+                    "RuleSpec source relation `implements_federal_snap_option` "
+                    "with type `implements` must declare "
+                    "source_relation.basis.delegation"
+                ],
+            )
 
         assert repaired == ["implements_federal_snap_option"]
         payload = yaml.safe_load(rules_file.read_text())
@@ -8285,10 +12041,11 @@ rules:
         self, tmp_path, monkeypatch
     ):
         output_root = tmp_path / "out"
-        state_repo = tmp_path / "worktrees" / "rulespec-us-ny"
         configured_parent = tmp_path / "configured"
         federal_repo = configured_parent / "rulespec-us"
-        target_file = federal_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
+        state_repo = federal_repo / "us-ny"
+        state_repo.mkdir(parents=True)
+        target_file = federal_repo / "us/regulations/7-cfr/273/9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
             """format: rulespec/v1
@@ -8315,16 +12072,17 @@ rules:
         )
         result = SimpleNamespace(output_file=rules_file, runner="runner")
 
-        repaired = _try_repair_generated_source_relation_delegations_for_apply(
-            result,
-            output_root=output_root,
-            policy_repo_path=state_repo,
-            issues=[
-                "RuleSpec source relation `implements_federal_snap_option` "
-                "with type `implements` must declare "
-                "source_relation.basis.delegation"
-            ],
-        )
+        with _authoritative_rulespec_dependency_scope((federal_repo,)):
+            repaired = _try_repair_generated_source_relation_delegations_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=state_repo,
+                issues=[
+                    "RuleSpec source relation `implements_federal_snap_option` "
+                    "with type `implements` must declare "
+                    "source_relation.basis.delegation"
+                ],
+            )
 
         assert repaired == ["implements_federal_snap_option"]
         payload = yaml.safe_load(rules_file.read_text())
@@ -8337,7 +12095,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -8386,7 +12144,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -8435,7 +12193,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -8484,7 +12242,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "regulations" / "7-cfr" / "273" / "9.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -8528,7 +12286,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
@@ -9297,7 +13055,7 @@ rules:
             _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
                 result,
                 output_root=output_root,
-                policy_repo_path=tmp_path / "rulespec-us-ga",
+                policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-ga"),
                 issues=[
                     "Ungrounded generated numeric literal: 1.60 (1.6) does not "
                     "appear as a substantive numeric value in the source text."
@@ -9346,7 +13104,7 @@ rules:
             _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
                 result,
                 output_root=output_root,
-                policy_repo_path=tmp_path / "rulespec-us-ga",
+                policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us-ga"),
                 issues=[
                     "Ungrounded generated numeric literal: 1.60 (1.6) does not "
                     "appear as a substantive numeric value in the source text."
@@ -9949,7 +13707,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -9977,7 +13735,7 @@ rules:
     def test_encode_apply_repairs_generated_proof_import_hashes(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
-        imported_file = args.policy_repo_path / "statutes/26/3241/b.yaml"
+        imported_file = args.policy_repo_path / "us/statutes/26/3241/b.yaml"
         imported_file.parent.mkdir(parents=True)
         imported_file.write_text("format: rulespec/v1\nrules: []\n")
         expected_hash = _sha256_file(imported_file)
@@ -10012,7 +13770,7 @@ rules:
 """
         )
         result.output_file = str(output_file)
-        applied_file = args.policy_repo_path / "statutes/26/3211.yaml"
+        applied_file = args.policy_repo_path / "us/statutes/26/3211.yaml"
         hash_issue = (
             "statutes/26/3211.yaml: ci: Proof import hash mismatch: "
             "`employee_representative_tier_2_tax` proof atom 0 imports "
@@ -10033,7 +13791,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -10105,7 +13863,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -10193,7 +13951,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -10542,51 +14300,6 @@ rules:
         assert repaired == []
         assert rules_file.read_text() == original
 
-    def test_inline_medicaid_magi_income_helpers_accepts_plural_source_paths(
-        self, tmp_path
-    ):
-        rules_file = tmp_path / "regulations/42-cfr/435/110.yaml"
-        test_file = tmp_path / "regulations/42-cfr/435/110.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_paths:
-      - us/regulation/42/435/110
-      - us/regulation/42/435/603
-rules:
-- name: household_income_at_or_below_state_section_1931_income_standard
-  kind: derived
-  entity: Person
-  dtype: Judgment
-  period: Month
-  versions:
-  - effective_from: '2014-01-01'
-    formula: household_magi_income <= state_established_section_1931_income_standard
-- name: parent_or_caretaker_relative_medicaid_eligible
-  kind: derived
-  entity: Person
-  dtype: Judgment
-  period: Month
-  versions:
-  - effective_from: '2014-01-01'
-    formula: household_income_at_or_below_state_section_1931_income_standard and person_is_parent
-"""
-        )
-
-        repaired = _inline_medicaid_magi_income_helpers(
-            rules_file=rules_file,
-            test_file=test_file,
-            target_names=[
-                "household_income_at_or_below_state_section_1931_income_standard"
-            ],
-        )
-
-        assert repaired == [
-            "household_income_at_or_below_state_section_1931_income_standard"
-        ]
-
     def test_inline_medicaid_magi_income_helpers_skips_multi_version_helper(
         self, tmp_path
     ):
@@ -10729,7 +14442,7 @@ rules:
     def test_remove_cross_module_dependent_test_outputs_drops_imported_output(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         rules_file = repo / "statutes/26/24/d.yaml"
         test_file = repo / "statutes/26/24/d.test.yaml"
         target_file = repo / "statutes/26/32/c/2.yaml"
@@ -10784,7 +14497,7 @@ rules:
     def test_remove_invalid_dependent_test_inputs_drops_cross_module_stale_ref(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         rules_file = repo / "statutes/26/24/d.yaml"
         test_file = repo / "statutes/26/24/d.test.yaml"
         target_file = repo / "statutes/26/32/c/2.yaml"
@@ -10851,7 +14564,7 @@ rules:
     def test_remove_invalid_dependent_test_inputs_batches_target_stale_refs(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us-co"
+        repo = tmp_path / "rulespec-us" / "us-co"
         rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
         test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
         target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
@@ -10931,7 +14644,7 @@ rules:
         }
 
     def test_remove_unknown_dependent_test_outputs_drops_stale_ref(self, tmp_path):
-        repo = tmp_path / "rulespec-us-co"
+        repo = tmp_path / "rulespec-us" / "us-co"
         rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
         test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
         target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
@@ -10981,7 +14694,7 @@ rules:
     def test_remove_unknown_dependent_test_outputs_moves_local_input_value(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us-co"
+        repo = tmp_path / "rulespec-us" / "us-co"
         rules_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
         test_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.test.yaml"
         target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
@@ -11040,31 +14753,6 @@ rules:
             "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_earned_income": 1000
         }
 
-    def test_remove_unknown_test_output_refs_drops_stale_outputs(self, tmp_path):
-        test_file = tmp_path / "policy.test.yaml"
-        test_file.write_text(
-            """- name: stale_output
-  input: {}
-  output:
-    us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
-    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible: holds
-"""
-        )
-
-        removed = _remove_unknown_test_output_refs(
-            test_file=test_file,
-            issues=[
-                "stale_output: unknown executable output "
-                "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment"
-            ],
-        )
-
-        assert removed == ["us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment"]
-        repaired = yaml.safe_load(test_file.read_text())
-        assert repaired[0]["output"] == {
-            "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible": "holds"
-        }
-
     def test_rewrite_import_output_test_input_refs_drops_input_prefix(self, tmp_path):
         """When a test case writes <producer>#input.X to override an imported
         producer's output, the runtime rejects it because the producer file
@@ -11074,7 +14762,7 @@ rules:
         test cases that referenced
         us:statutes/7/2014/e/6/A#input.snap_net_income 2026-05-28.
         """
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         consumer_file = repo / "statutes/7/2014/c.yaml"
         consumer_test_file = repo / "statutes/7/2014/c.test.yaml"
         producer_file = repo / "statutes/7/2014/e/6/A.yaml"
@@ -11141,7 +14829,7 @@ rules:
     def test_complete_missing_dependent_test_inputs_uses_transitive_import_ref(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         target_file = repo / "statutes/26/32/c/2.yaml"
         dependent_file = repo / "statutes/26/24/d.yaml"
         imported_file = repo / "statutes/26/164/f.yaml"
@@ -11236,7 +14924,7 @@ rules:
     def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us-co"
+        repo = tmp_path / "rulespec-us" / "us-co"
         target_file = repo / "regulations/10-ccr-2506-1/4.403.yaml"
         dependent_file = repo / "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
         sibling_import_file = repo / "regulations/10-ccr-2506-1/4.404.yaml"
@@ -11326,7 +15014,7 @@ rules:
             not in repaired
         )
 
-    def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
+    def test_encode_apply_does_not_mutate_tests_from_ambient_policyengine(
         self, capsys, tmp_path
     ):
         args = self._make_args(
@@ -11400,18 +15088,13 @@ rules:
     us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 86.8
 """
         )
+        original_test = test_file.read_text()
         result.output_file = str(output_file)
         applied_file = args.policy_repo_path / "statutes/26/1401/a.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
-            patch(
-                "axiom_encode.cli._policyengine_us_oasdi_base_for_year",
-                side_effect=lambda year: {
-                    2024: Decimal("168600"),
-                    2026: Decimal("186000"),
-                }.get(year),
-            ),
+            patch.dict(sys.modules, {"policyengine_us": object()}),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
                 return_value=(True, [], {}),
@@ -11420,85 +15103,21 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
 
         assert exc_info.value.code == 0
         output = capsys.readouterr().out
-        assert (
-            "apply=auto_repaired_policyengine_oracle_inputs:"
-            "section_1401_a_uncapped,section_1401_a_cap,"
-            "section_1401_a_2026_cap_uses_policyengine_base"
-        ) in output
+        assert "auto_repaired_policyengine_oracle_inputs" not in output
         assert mock_overlay.call_count == 1
         mock_apply.assert_called_once()
-        test_payload = yaml.safe_load(test_file.read_text())
-        assert test_payload[0]["oracle_inputs"]["policyengine"] == {
-            "self_employment_income": 1000,
-            "employment_income": 100,
-        }
-        assert test_payload[1]["oracle_inputs"]["policyengine"] == {
-            "self_employment_income": 2300,
-            "employment_income": 167900,
-        }
-        assert test_payload[2]["oracle_inputs"]["policyengine"] == {
-            "self_employment_income": 2300,
-            "employment_income": 185300,
-        }
+        assert test_file.read_text() == original_test
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
-        assert run.outcome["auto_repaired_policyengine_oracle_inputs"] == [
-            "section_1401_a_uncapped",
-            "section_1401_a_cap",
-            "section_1401_a_2026_cap_uses_policyengine_base",
-        ]
+        assert "auto_repaired_policyengine_oracle_inputs" not in run.outcome
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
-
-    def test_apply_repair_adds_section_1401_b_policyengine_oracle_inputs(
-        self, tmp_path
-    ):
-        output_root = tmp_path / "out"
-        output_file = (
-            output_root
-            / "codex-test-model"
-            / "statutes"
-            / "26"
-            / "1401"
-            / "b"
-            / "1.yaml"
-        )
-        output_file.parent.mkdir(parents=True)
-        output_file.write_text("format: rulespec/v1\nrules: []\n")
-        test_file = output_file.with_name("1.test.yaml")
-        test_file.write_text(
-            """- name: section_1401_b_1_medicare
-  period: 2024
-  input:
-    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
-    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
-    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
-    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 100
-  output:
-    us:statutes/26/1401/b/1#self_employment_income_tax: 26.7815
-"""
-        )
-        result = SimpleNamespace(
-            output_file=str(output_file),
-            runner="codex-test-model",
-        )
-
-        repaired = _try_repair_generated_policyengine_oracle_inputs_for_apply(
-            result,
-            output_root=output_root,
-        )
-
-        assert repaired == ["section_1401_b_1_medicare"]
-        test_payload = yaml.safe_load(test_file.read_text())
-        assert test_payload[0]["oracle_inputs"]["policyengine"] == {
-            "self_employment_income": 1000,
-        }
 
     def test_repair_anaphoric_scope_identifiers_renames_rules_and_tests(
         self, monkeypatch, tmp_path
@@ -11796,952 +15415,6 @@ rules:
         assert test_payload[-1]["output"] == {
             "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
-
-    def test_repair_california_snap_policy_composition_adds_sua_shelter_bridge(
-        self, tmp_path
-    ):
-        rules_file = tmp_path / "fy-2026-benefit-calculation.yaml"
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  kind: composition
-imports:
-  - us:regulations/7-cfr/273/10
-  - us-ca:regulations/mpp/63-503/324
-rules:
-  - name: snap_excess_shelter_deduction
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    source: California CalFresh FY 2026 benefit calculation composition
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_excess_shelter_deduction_for_net_income
-  - name: snap_eligible
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    source: California CalFresh FY 2026 benefit calculation composition
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_standard_income_eligible
-"""
-        )
-
-        _repair_california_snap_policy_composition(rules_file)
-
-        repaired = rules_file.read_text()
-        assert "  - us-ca:policies/cdss/snap/standard-utility-allowance\n" in repaired
-        assert "  - name: shelter_costs\n" in repaired
-        assert (
-            "household_shelter_costs_incurred + snap_standard_utility_allowance"
-            in repaired
-        )
-        assert "  - name: snap_total_allowable_shelter_expenses\n" in repaired
-        assert "  - name: snap_member_eligible\n" in repaired
-        assert "  - name: snap_household_member_eligible\n" in repaired
-        assert "  - name: calfresh_income_and_resource_eligible\n" in repaired
-        assert "snap_categorically_eligible_for_resource_exemption" in repaired
-        assert "and snap_household_member_eligible" in repaired
-        assert "and calfresh_income_and_resource_eligible" in repaired
-
-    def test_repair_california_snap_program_tests_uses_sua_shelter_input(
-        self, tmp_path
-    ):
-        test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
-        test_file.write_text(
-            """- name: shelter_costs_raise_benefit_when_income_is_positive
-  period: 2026-01
-  input:
-    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500
-  output:
-    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 204.5
-    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182
-- name: ineligible_member_receives_zero
-  period: 2026-01
-  input:
-    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0
-  output:
-    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: not_holds
-"""
-        )
-
-        _repair_california_snap_program_tests(test_file)
-
-        repaired = test_file.read_text()
-        assert (
-            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses"
-            not in repaired
-        )
-        assert (
-            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500"
-            in repaired
-        )
-        assert (
-            "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
-            in repaired
-        )
-        assert "snap_maximum_allotment_for_one_person_household" not in repaired
-        assert (
-            "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663"
-            in repaired
-        )
-        assert (
-            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744"
-            in repaired
-        )
-        assert (
-            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds"
-            in repaired
-        )
-
-    def test_california_snap_sua_migration_rejects_old_and_new_paths(self, tmp_path):
-        repo = tmp_path / "rulespec-us-ca"
-        old_path = (
-            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
-        )
-        new_path = repo / "policies/cdss/snap/standard-utility-allowance.yaml"
-        old_path.parent.mkdir(parents=True)
-        new_path.parent.mkdir(parents=True)
-        old_path.write_text("format: rulespec/v1\n")
-        new_path.write_text("format: rulespec/v1\n")
-
-        with pytest.raises(RuntimeError, match="both old and new RuleSpec paths"):
-            _ensure_no_california_snap_sua_layout_collision(repo)
-
-    def test_california_snap_guard_covers_dirty_old_sua_path(self, tmp_path):
-        repo = tmp_path / "rulespec-us-ca"
-        old_path = (
-            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
-        )
-        old_path.parent.mkdir(parents=True)
-        old_path.write_text("format: rulespec/v1\n")
-        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-m", "initial"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-        )
-        old_path.write_text("format: rulespec/v1\nmodule:\n  summary: dirty\n")
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            pytest.raises(RuntimeError) as exc,
-        ):
-            _ensure_no_unmanifested_preexisting_rulespec_changes(
-                repo,
-                _california_snap_repair_guard_manifest_groups(repo),
-                roots=("guidance", "policies", "regulations", "statutes"),
-            )
-
-        assert (
-            ".axiom/encoding-manifests/guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.json"
-            in str(exc.value)
-        )
-
-    def test_repair_arizona_snap_composition_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us-az"
-        _init_test_git_repo(policy_repo)
-        benefit_file = (
-            policy_repo
-            / "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
-        )
-        benefit_file.parent.mkdir(parents=True)
-        benefit_file.write_text("format: rulespec/v1\nrules: []\n")
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-
-        target = (
-            policy_repo / "policies/des/faa5/na-eligibility-and-benefit-determination/"
-            "fy-2026-benefit-calculation.yaml"
-        )
-        test_file = target.with_name("fy-2026-benefit-calculation.test.yaml")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._companion_test_issues",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_arizona_snap_composition(args)
-
-        content = target.read_text()
-        assert "kind: composition" in content
-        assert "snap_regular_month_allotment" in content
-        assert "snap_maximum_allotment" in content
-        assert "snap_excess_shelter_deduction" in content
-        test_content = test_file.read_text()
-        assert "regular_month_allotment_uses_arizona_benefit_amount" in test_content
-        assert "snap_excess_shelter_deduction_for_net_income: 150" in test_content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/policies/des/faa5/"
-            "na-eligibility-and-benefit-determination/"
-            "fy-2026-benefit-calculation.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "arizona-snap-composition-v1"
-        assert payload["tool"] == "axiom-encode repair-arizona-snap-composition"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
-            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
-        ]
-
-    def test_repair_arizona_snap_composition_refreshes_stale_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us-az"
-        _init_test_git_repo(policy_repo)
-        benefit_file = (
-            policy_repo
-            / "policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml"
-        )
-        benefit_file.parent.mkdir(parents=True)
-        benefit_file.write_text("format: rulespec/v1\nrules: []\n")
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-
-        target = (
-            policy_repo / "policies/des/faa5/na-eligibility-and-benefit-determination/"
-            "fy-2026-benefit-calculation.yaml"
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/policies/des/faa5/"
-            "na-eligibility-and-benefit-determination/"
-            "fy-2026-benefit-calculation.json"
-        )
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._companion_test_issues",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "old123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_arizona_snap_composition(args)
-
-        first_payload = json.loads(manifest.read_text())
-        assert first_payload["axiom_encode_git"]["commit"] == "old123"
-        first_rules_content = target.read_text()
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._companion_test_issues",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "new456", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_arizona_snap_composition(args)
-
-        refreshed_payload = json.loads(manifest.read_text())
-        assert target.read_text() == first_rules_content
-        assert refreshed_payload["axiom_encode_git"]["commit"] == "new456"
-        assert [item["path"] for item in refreshed_payload["applied_files"]] == [
-            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
-            "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.test.yaml",
-        ]
-
-    def test_generate_cms_medicaid_chip_table_writes_signed_state_file(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(policy_repo)
-        (policy_repo / "README.md").write_text("rulespec-us fixture\n")
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-        source_html = tmp_path / "cms-medicaid-chip-bhp-eligibility-levels.html"
-        source_html.write_text(
-            """<html><body>
-<p>MAGI-based rules generally include adjusting income by a 5% FPL disregard.</p>
-<table>
-  <tr>
-    <th>State</th>
-    <th>Children Medicaid Ages 0-1</th>
-    <th>Children Medicaid Ages 1-5</th>
-    <th>Children Medicaid Ages 6-18</th>
-    <th>Children Separate CHIP</th>
-    <th>Pregnant Women Medicaid</th>
-    <th>Pregnant Women CHIP</th>
-    <th>Adults (Medicaid) Parent/Caretaker</th>
-    <th>Adults (Medicaid) Expansion to Adults</th>
-  </tr>
-  <tr>
-    <td>Georgia</td>
-    <td>205%</td>
-    <td>149%</td>
-    <td>133%</td>
-    <td>247%</td>
-    <td>220%</td>
-    <td>N/A</td>
-    <td>28%($)</td>
-    <td>No</td>
-  </tr>
-</table>
-</body></html>
-"""
-        )
-        target = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        shared_target = (
-            policy_repo / "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        test_file = target.with_name(
-            "georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            source_html=source_html,
-            states=["GA"],
-            overwrite_existing=False,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path in {shared_target.resolve(), target.resolve()}
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_generate_cms_medicaid_chip_eligibility_levels(args)
-
-        shared_rules_content = shared_target.read_text()
-        assert "source: 42 CFR 435.603(d)(4)" in shared_rules_content
-        assert (
-            "corpus_citation_path: us/regulation/42/435/603/d" in shared_rules_content
-        )
-        assert "magi_fpl_disregard_rate" in shared_rules_content
-        shared_test_file = shared_target.with_name(
-            "medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        assert (
-            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
-            "#magi_fpl_disregard_rate: 0.05" in shared_test_file.read_text()
-        )
-
-        rules_content = target.read_text()
-        assert (
-            "imports:\n"
-            "  - us:policies/cms/medicaid-chip-bhp-eligibility-levels"
-            "#magi_fpl_disregard_rate\n"
-        ) in rules_content
-        state_payload = yaml.safe_load(rules_content)
-        state_rule_names = {rule["name"] for rule in state_payload["rules"]}
-        assert "magi_fpl_disregard_rate" not in state_rule_names
-        assert "georgia_children_separate_chip_fpl_limit" in rules_content
-        assert "georgia_pregnant_women_chip_available" in rules_content
-        assert "georgia_adult_medicaid_expansion_available" in rules_content
-        assert "georgia_parent_caretaker_standard_uses_dollar_amounts" in rules_content
-        assert "georgia_children_separate_chip_effective_fpl_limit" in rules_content
-        assert (
-            "target: us:policies/cms/medicaid-chip-bhp-eligibility-levels"
-            in rules_content
-        )
-        assert "output: magi_fpl_disregard_rate" in rules_content
-        assert "hash: sha256:" in rules_content
-        assert "georgia_adult_medicaid_expansion_fpl_limit" not in rules_content
-        assert 'excerpt: "28%($)"' in rules_content
-        assert "upstream_source_check:" in rules_content
-        assert "status: official_parameter_source" in rules_content
-        assert "- us/statute/42/1397jj/b/1" in rules_content
-        assert "- us/regulation/42/435/603/d" in rules_content
-        assert "- us/regulation/42/457/340" in rules_content
-
-        test_content = test_file.read_text()
-        assert "#magi_fpl_disregard_rate" not in test_content
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_children_separate_chip_fpl_limit: 2.47" in test_content
-        )
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_children_separate_chip_effective_fpl_limit: 2.52" in test_content
-        )
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_pregnant_women_chip_available: false" in test_content
-        )
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_adult_medicaid_expansion_available: false" in test_content
-        )
-
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
-            "georgia-medicaid-chip-bhp-eligibility-levels.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "cms-medicaid-chip-eligibility-levels-v1"
-        assert payload["tool"] == (
-            "axiom-encode generate-cms-medicaid-chip-eligibility-levels"
-        )
-        assert payload["citation"] == (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-        )
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
-            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
-        ]
-
-        shared_manifest = (
-            policy_repo / ".axiom/encoding-manifests/us/policies/cms/"
-            "medicaid-chip-bhp-eligibility-levels.json"
-        )
-        shared_payload = json.loads(shared_manifest.read_text())
-        assert shared_payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert shared_payload["model"] == "cms-medicaid-chip-eligibility-levels-v1"
-        assert shared_payload["citation"] == (
-            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
-        )
-        assert [
-            applied_file["path"] for applied_file in shared_payload["applied_files"]
-        ] == [
-            "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml",
-            "us/policies/cms/medicaid-chip-bhp-eligibility-levels.test.yaml",
-        ]
-
-    def test_generate_cms_chip_composition_writes_signed_state_file(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(policy_repo)
-        child_source = policy_repo / "us/statutes/42/1397jj/c/1.yaml"
-        child_source.parent.mkdir(parents=True)
-        child_source.write_text(
-            """format: rulespec/v1
-rules:
-  - name: child
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Day
-    source: 42 USC 1397jj(c)(1)
-    versions:
-      - effective_from: '1974-01-01'
-        formula: |-
-          age < 19
-"""
-        )
-        cms_file = (
-            policy_repo
-            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        cms_file.parent.mkdir(parents=True)
-        cms_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: colorado_children_separate_chip_effective_fpl_limit
-    kind: derived
-    dtype: Rate
-    source: CMS table
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.65
-  - name: colorado_pregnant_women_chip_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS table
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.60
-"""
-        )
-        shared_cms_file = (
-            policy_repo / "us/policies/cms/medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        shared_cms_file.parent.mkdir(parents=True)
-        shared_cms_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: magi_fpl_disregard_rate
-    kind: parameter
-    dtype: Rate
-    source: 42 CFR 435.603(d)(4)
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          0.05
-"""
-        )
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-
-        corpus_repo = tmp_path / "axiom-corpus"
-        fcep_version = "2024-01-01-cms-chip-spa"
-        fcep_corpus_jsonl = (
-            corpus_repo / "data/corpus/provisions/us/policy/2024-cms-chip-fcep.jsonl"
-        )
-        fcep_corpus_jsonl.parent.mkdir(parents=True)
-        fcep_corpus_jsonl.write_text(
-            json.dumps(
-                {
-                    "id": "co-24-0001-summary-block-1",
-                    "body": (
-                        "Through this SPA, Colorado extends CHIP eligibility "
-                        "for children from conception to birth with family "
-                        "incomes up to 260 percent of the federal poverty "
-                        "level (FPL) whose parents are not otherwise eligible "
-                        "for Medicaid."
-                    ),
-                    "citation_path": (
-                        "us/policy/cms/chip-spa/co/co-24-0001/summary/block-1"
-                    ),
-                    "expression_date": "2024-01-01",
-                    "jurisdiction": "us",
-                    "metadata": {
-                        "effective_date": "2024-01-01",
-                        "state_abbr": "CO",
-                    },
-                    "document_class": "policy",
-                    "source_as_of": "2024-01-02",
-                    "source_path": "sources/us/policy/cms/chip-spa/co-24-0001.pdf",
-                    "version": fcep_version,
-                }
-            )
-            + "\n"
-        )
-        release_selector = corpus_repo / "manifests/releases/current.json"
-        release_selector.parent.mkdir(parents=True)
-        release_selector.write_text(
-            json.dumps(
-                {
-                    "description": "test active corpus scopes",
-                    "name": "current",
-                    "scopes": [
-                        {
-                            "document_class": "policy",
-                            "jurisdiction": "us",
-                            "version": fcep_version,
-                        }
-                    ],
-                }
-            )
-            + "\n"
-        )
-
-        target = policy_repo / "us-co/policies/cms/colorado-chip-eligibility.yaml"
-        test_file = target.with_name("colorado-chip-eligibility.test.yaml")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            states=["CO"],
-            fcep_corpus_jsonl=fcep_corpus_jsonl,
-            overwrite_existing=False,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_generate_cms_chip_eligibility_composition(args)
-
-        rules_content = target.read_text()
-        rules_payload = yaml.safe_load(rules_content)
-        assert rules_payload["module"]["source_verification"][
-            "corpus_citation_paths"
-        ] == [
-            "us/form/cms/medicaid-chip-bhp-eligibility-levels",
-            "us/statute/42/1397jj/b/1",
-            "us/statute/42/1397ll/d/2",
-            "us/policy/cms/chip-spa/co/co-24-0001/summary/block-1",
-            "us/statute/42/1397ll/f/1",
-            "us/regulation/42/457/10",
-            "us/regulation/42/435/603/d",
-        ]
-        assert "us:statutes/42/1397jj/c/1#child" in rules_content
-        assert (
-            "us:policies/cms/medicaid-chip-bhp-eligibility-levels"
-            "#magi_fpl_disregard_rate" in rules_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
-            "#colorado_children_separate_chip_effective_fpl_limit" in rules_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
-            "#colorado_pregnant_women_chip_fpl_limit" in rules_content
-        )
-        assert "is_chip_eligible_child" in rules_content
-        assert "is_chip_eligible_standard_pregnant_person" in rules_content
-        assert "colorado_fcep_eligibility_available" in rules_content
-        assert "colorado_fcep_fpl_limit" in rules_content
-        assert "colorado_fcep_effective_fpl_limit" in rules_content
-        assert "is_chip_fcep_eligible_person" in rules_content
-        assert "name: is_chip_eligible\n" not in rules_content
-        assert (
-            "medicaid_income_level <= "
-            "colorado_children_separate_chip_effective_fpl_limit" in rules_content
-        )
-        assert (
-            "medicaid_income_level <= colorado_pregnant_women_chip_fpl_limit"
-            in rules_content
-        )
-        assert (
-            "medicaid_income_level <= colorado_fcep_effective_fpl_limit"
-            in rules_content
-        )
-        assert "It also applies the CMS CHIP FCEP SPA source" in rules_content
-
-        test_content = test_file.read_text()
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#is_chip_eligible_child: holds" in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#is_chip_eligible_standard_pregnant_person: holds" in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#colorado_fcep_raw_fpl_limit: 2.60" not in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#colorado_fcep_fpl_limit: 2.60" in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#colorado_fcep_effective_fpl_limit: 2.65" in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#colorado_fcep_eligibility_available: true" in test_content
-        )
-        assert (
-            "us-co:policies/cms/colorado-chip-eligibility"
-            "#is_chip_fcep_eligible_person: holds" in test_content
-        )
-
-        manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/us-co/policies/cms/colorado-chip-eligibility.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "cms-chip-eligibility-composition-v1"
-        assert payload["tool"] == (
-            "axiom-encode generate-cms-chip-eligibility-composition"
-        )
-        assert payload["citation"] == "us-co:policies/cms/colorado-chip-eligibility"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "us-co/policies/cms/colorado-chip-eligibility.yaml",
-            "us-co/policies/cms/colorado-chip-eligibility.test.yaml",
-        ]
-
-    def test_cms_chip_fcep_rejects_unreleased_standalone_jsonl(self, tmp_path):
-        standalone_jsonl = tmp_path / "cms-chip-fcep.jsonl"
-        standalone_jsonl.write_text("{}\n")
-
-        with pytest.raises(RuntimeError, match="direct JSONL child"):
-            _cms_chip_fcep_sources_from_active_corpus_artifact(standalone_jsonl)
-
-    def test_cms_chip_fcep_requires_active_release_selector(self, tmp_path):
-        artifact = (
-            tmp_path
-            / "axiom-corpus/data/corpus/provisions/us/policy/cms-chip-fcep.jsonl"
-        )
-        artifact.parent.mkdir(parents=True)
-        artifact.write_text("{}\n")
-
-        with pytest.raises(RuntimeError, match="Could not resolve active"):
-            _cms_chip_fcep_sources_from_active_corpus_artifact(artifact)
-
-    def test_generate_cms_chip_composition_keeps_unavailable_pregnant_path_false(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(policy_repo)
-        child_source = policy_repo / "us/statutes/42/1397jj/c/1.yaml"
-        child_source.parent.mkdir(parents=True)
-        child_source.write_text("format: rulespec/v1\nrules: []\n")
-        cms_file = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        cms_file.parent.mkdir(parents=True)
-        cms_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: georgia_children_separate_chip_effective_fpl_limit
-    kind: derived
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.52
-  - name: georgia_pregnant_women_chip_available
-    kind: parameter
-    dtype: Boolean
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          false
-"""
-        )
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-
-        target = policy_repo / "us-ga/policies/cms/georgia-chip-eligibility.yaml"
-        args = SimpleNamespace(
-            repo=policy_repo,
-            states=["GA"],
-            overwrite_existing=False,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch(
-                "axiom_encode.cli.ValidatorPipeline",
-                return_value=SimpleNamespace(
-                    validate=lambda path, skip_reviewers: SimpleNamespace(
-                        all_passed=True,
-                        results={},
-                    )
-                ),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_generate_cms_chip_eligibility_composition(args)
-
-        rules_content = target.read_text()
-        assert "georgia_standard_pregnant_chip_eligibility_available" in rules_content
-        assert "georgia_pregnant_women_chip_available" in rules_content
-        assert "georgia_pregnant_women_chip_fpl_limit" not in rules_content
-        assert (
-            "us-ga:policies/cms/georgia-chip-eligibility"
-            "#is_chip_eligible_standard_pregnant_person: not_holds"
-            in target.with_name("georgia-chip-eligibility.test.yaml").read_text()
-        )
-
-    def test_repair_minnesota_mfip_source_check_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(policy_repo)
-        target = (
-            policy_repo
-            / "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  kind: source
-  source_verification:
-    corpus_citation_path: us-mn/manual/dhs/combined-manual/current/page-944
-  summary: Minnesota MFIP grant calculation.
-rules:
-  - name: final_total_mfip_grant
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: max(0, total_mfip_grant_before_proration)
-"""
-        )
-        test_file = target.with_name("mfip-total-grant.test.yaml")
-        test_file.write_text(
-            """- name: no_income_example
-  period: 2026-01
-  input: {}
-  output:
-    us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant#final_total_mfip_grant: 0
-"""
-        )
-        _git(policy_repo, "add", ".")
-        _git(policy_repo, "commit", "-m", "initial")
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_minnesota_mfip_upstream_source_check(
-                SimpleNamespace(
-                    repo=policy_repo,
-                    axiom_rules_path=tmp_path / "axiom-rules-engine",
-                )
-            )
-
-        content = target.read_text()
-        assert "upstream_source_check:" in content
-        assert "us-mn/statute/142G.16" in content
-        assert "us-mn/statute/142G.17" in content
-        assert "us-mn/statute/256P.03" in content
-        manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/us-mn/policies/dhs/combined-manual/"
-            "0022-12/mfip-total-grant.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["citation"] == (
-            "us-mn:policies/dhs/combined-manual/0022-12/mfip-total-grant"
-        )
-        assert payload["model"] == "minnesota-mfip-upstream-source-check-v1"
-        assert payload["tool"] == (
-            "axiom-encode repair-minnesota-mfip-upstream-source-check"
-        )
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.yaml",
-            "us-mn/policies/dhs/combined-manual/0022-12/mfip-total-grant.test.yaml",
-        ]
-
-    def test_minnesota_mfip_source_check_rejects_conflicting_existing_block(
-        self, tmp_path
-    ):
-        target = tmp_path / "mfip-total-grant.yaml"
-        target.write_text(
-            """format: rulespec/v1
-module:
-  kind: source
-  source_verification:
-    corpus_citation_path: us-mn/manual/dhs/combined-manual/current/page-944
-    upstream_source_check:
-      status: no_higher_authority_found
-      checked_paths: []
-      rationale: stale
-rules: []
-"""
-        )
-
-        with pytest.raises(RuntimeError, match="different upstream_source_check"):
-            _repair_minnesota_mfip_upstream_source_check_file(target)
 
     def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
         rules = """format: rulespec/v1
@@ -13381,86 +16054,6 @@ rules:
             not in content
         )
 
-    def test_repair_colorado_tax_validation_validates_only_rulespec_artifacts(
-        self, tmp_path
-    ):
-        repo_path = tmp_path / "rulespec-us"
-        content_root = repo_path / "us-co"
-        target_dir = content_root / "statutes/39/39-22-104"
-        target_dir.mkdir(parents=True)
-        for relative_output in (
-            "1.5.yaml",
-            "1.7/a.yaml",
-            "1.7/b.yaml",
-            "1.7/c.yaml",
-        ):
-            rules_file = target_dir / relative_output
-            rules_file.parent.mkdir(parents=True, exist_ok=True)
-            rules_file.write_text(
-                """format: rulespec/v1
-module:
-  summary: Colorado income tax
-rules:
-- name: subsection_1_5_individual_income_tax
-  kind: derived
-  entity: Person
-  dtype: Money
-  period: Year
-  versions:
-  - effective_from: '1999-01-01'
-    formula: max(0, federal_taxable_income_after_subsection_2_modifications)
-"""
-            )
-        companion = target_dir / "1.5.test.yaml"
-        companion.write_text(
-            """- name: subsection_1_5_rate_applies_to_positive_modified_income
-  input:
-    us-co:statutes/39/39-22-104/1.5#input.federal_taxable_income_after_subsection_2_modifications: 100000
-  output:
-    us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax: 100000
-"""
-        )
-        validated_paths: list[Path] = []
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                pass
-
-            def validate(self, rules_file, skip_reviewers=False):
-                validated_paths.append(Path(rules_file))
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch(
-                "axiom_encode.cli._require_applied_encoding_manifest_signing_key",
-                return_value=TEST_APPLY_SIGNING_KEY,
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123"},
-            ),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._write_grouped_deterministic_repair_manifests",
-                return_value=[],
-            ),
-        ):
-            cmd_repair_colorado_tax_validation(
-                SimpleNamespace(repo=repo_path, axiom_rules_path=tmp_path)
-            )
-
-        assert companion not in validated_paths
-        assert set(validated_paths) == {
-            content_root / "statutes/39/39-22-104/1.5.yaml",
-            content_root / "statutes/39/39-22-104/1.7/a.yaml",
-            content_root / "statutes/39/39-22-104/1.7/b.yaml",
-            content_root / "statutes/39/39-22-104/1.7/c.yaml",
-        }
-        assert "#input.federal_taxable_income: 100000" in companion.read_text()
-
     def test_repair_colorado_snap_2072_preserves_indentless_yaml(self, tmp_path):
         rules_file = tmp_path / "4.207.2.yaml"
         rules_file.write_text(
@@ -14025,7 +16618,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -14058,11 +16651,10 @@ rules:
     def test_zero_branch_repair_uses_upper_bound_input_for_band_selector(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = tmp_path / "out" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
         test_file = rules_file.with_name("A.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        repo.mkdir()
         rules_file.write_text(
             """format: rulespec/v1
 rules:
@@ -14123,13 +16715,12 @@ rules:
     def test_zero_branch_repair_uses_first_upper_bound_for_target_band_zero(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = (
             tmp_path / "out" / "regulations" / "388" / "388-450" / "388-450-0170.yaml"
         )
         test_file = rules_file.with_name("388-450-0170.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        repo.mkdir()
         rules_file.write_text(
             """format: rulespec/v1
 rules:
@@ -14181,11 +16772,10 @@ rules:
     def test_zero_branch_repair_uses_below_first_valid_selector_row_for_sentinel_zero(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = tmp_path / "out" / "policies" / "dhs" / "csmm" / "11-01-01.yaml"
         test_file = rules_file.with_name("11-01-01.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        repo.mkdir()
         rules_file.write_text(
             """format: rulespec/v1
 rules:
@@ -14272,118 +16862,8 @@ rules:
             "us:policies/dhs/csmm/11-01-01#il_aabd_personal_allowance": 0
         }
 
-    def test_repair_zero_branch_tests_derives_hidden_zero_issues(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes" / "26" / "151.yaml"
-        test_file = repo / "statutes" / "26" / "151.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: first_zero_branch_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if first_condition:
-              first_amount
-          else:
-              0
-  - name: second_zero_branch_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if second_condition:
-              second_amount
-          elif backup_condition:
-              backup_amount
-          else:
-              0
-"""
-        )
-        test_file.write_text(
-            """- name: positive_first
-  period: 2026
-  input:
-    us:statutes/26/151#input.first_condition: true
-    us:statutes/26/151#input.first_amount: 5
-  output:
-    us:statutes/26/151#first_zero_branch_amount: 5
-- name: positive_second
-  period: 2026
-  input:
-    us:statutes/26/151#input.second_condition: true
-    us:statutes/26/151#input.second_amount: 7
-  output:
-    us:statutes/26/151#second_zero_branch_amount: 7
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("statutes/26/151.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "scope": SimpleNamespace(
-                            error=(
-                                "Source scope mismatch: `some_rule` is declared "
-                                "on `TaxUnit`, but the embedded source states a "
-                                "person-scoped rule."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_zero_branch_tests(args)
-
-        output = capsys.readouterr().out
-        assert "Applied zero-branch test repair to statutes/26/151.yaml" in output
-        assert "with pending validation issues still remaining: 1" in output
-        test_content = test_file.read_text()
-        assert "auto_zero_first_zero_branch_amount" in test_content
-        assert "auto_zero_second_zero_branch_amount" in test_content
-        assert "#input.elif" not in test_content
-        manifest = repo / ".axiom/encoding-manifests/statutes/26/151.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "zero-branch-test-v1"
-        assert payload["tool"] == "axiom-encode repair-zero-branch-tests"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/151.yaml",
-            "statutes/26/151.test.yaml",
-        ]
-
     def test_repair_zero_branch_tests_skips_noncompiled_outputs(self, tmp_path):
-        repo = tmp_path / "rulespec-us"
+        repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = repo / "statutes" / "26" / "151.yaml"
         test_file = repo / "statutes" / "26" / "151.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -14502,1000 +16982,6 @@ rules:
         }
         assert "be:be/" not in test_file.read_text()
 
-    def test_repair_zero_branch_tests_keeps_unmasked_legacy_issues(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes" / "26" / "152.yaml"
-        test_file = repo / "statutes" / "26" / "152.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: zero_branch_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if condition:
-              amount
-          else:
-              0
-"""
-        )
-        test_file.write_text(
-            """- name: positive_case
-  period: 2026
-  input:
-    us:statutes/26/152#input.condition: true
-    us:statutes/26/152#input.amount: 5
-  output:
-    us:statutes/26/152#zero_branch_amount: 5
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("statutes/26/152.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            call_count = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                self.__class__.call_count += 1
-                if self.__class__.call_count == 1:
-                    error = (
-                        "Zero branch test coverage missing: "
-                        "`zero_branch_amount` has a formula branch that returns 0."
-                    )
-                else:
-                    error = (
-                        "Test case `legacy_case` mixes derived output entities "
-                        "(Household, Person); put outputs for each entity in "
-                        "separate test cases."
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={"ci": SimpleNamespace(error=error)},
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_zero_branch_tests(args)
-
-        output = capsys.readouterr().out
-        assert "Applied zero-branch test repair to statutes/26/152.yaml" in output
-        assert "with pending validation issues still remaining: 1" in output
-        assert "auto_zero_zero_branch_amount" in test_file.read_text()
-        manifest = repo / ".axiom/encoding-manifests/statutes/26/152.json"
-        assert json.loads(manifest.read_text())["model"] == "zero-branch-test-v1"
-
-    def test_repair_test_input_assignments_keeps_unrelated_issues(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes" / "26" / "153.yaml"
-        test_file = repo / "statutes" / "26" / "153.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: conditional_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if qualifying_condition:
-              amount
-          else:
-              0
-"""
-        )
-        test_file.write_text(
-            """- name: positive_case
-  period: 2026
-  input:
-    us:statutes/26/153#input.amount: 5
-  output:
-    us:statutes/26/153#conditional_amount: 5
-- name: second_positive_case
-  period: 2026
-  input:
-    us:statutes/26/153#input.amount: 7
-  output:
-    us:statutes/26/153#conditional_amount: 7
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("statutes/26/153.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            call_count = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                self.__class__.call_count += 1
-                if self.__class__.call_count == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "assignments": SimpleNamespace(
-                                error=(
-                                    "Test input assignment missing: "
-                                    "`positive_case` does not assign "
-                                    "#input.qualifying_condition. Every test for a "
-                                    "proof-required RuleSpec module must set all local "
-                                    "factual inputs, including false facts, so tests "
-                                    "cannot pass through implicit defaults."
-                                )
-                            ),
-                            "numeric": SimpleNamespace(
-                                error=(
-                                    "Source numeric value `10` is not represented in "
-                                    "a non-test RuleSpec file."
-                                )
-                            ),
-                        },
-                    )
-                if self.__class__.call_count == 2:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "assignments": SimpleNamespace(
-                                error=(
-                                    "Test input assignment missing: "
-                                    "`second_positive_case` does not assign "
-                                    "#input.qualifying_condition. Every test for a "
-                                    "proof-required RuleSpec module must set all local "
-                                    "factual inputs, including false facts, so tests "
-                                    "cannot pass through implicit defaults."
-                                )
-                            ),
-                            "numeric": SimpleNamespace(
-                                error=(
-                                    "Source numeric value `10` is not represented in "
-                                    "a non-test RuleSpec file."
-                                )
-                            ),
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "numeric": SimpleNamespace(
-                            error=(
-                                "Source numeric value `10` is not represented in a "
-                                "non-test RuleSpec file."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_test_input_assignments(args)
-
-        output = capsys.readouterr().out
-        assert "Applied test input assignment repair to statutes/26/153.yaml" in output
-        assert "with pending validation issues still remaining: 1" in output
-        cases = yaml.safe_load(test_file.read_text())
-        assert cases[0]["input"] == {
-            "us:statutes/26/153#input.amount": 5,
-            "us:statutes/26/153#input.qualifying_condition": False,
-        }
-        assert cases[1]["input"] == {
-            "us:statutes/26/153#input.amount": 7,
-            "us:statutes/26/153#input.qualifying_condition": False,
-        }
-        manifest = repo / ".axiom/encoding-manifests/statutes/26/153.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "test-input-assignment-v1"
-        assert payload["tool"] == "axiom-encode repair-test-input-assignments"
-
-    def test_repair_invalid_test_inputs_keeps_unrelated_issues(self, capsys, tmp_path):
-        repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes" / "26" / "153.yaml"
-        test_file = repo / "statutes" / "26" / "153.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: conditional_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: amount
-"""
-        )
-        test_file.write_text(
-            """- name: positive_case
-  period: 2026
-  input:
-    us:statutes/26/153#input.amount: 5
-    us:statutes/26/153#input.annual: false
-  output:
-    us:statutes/26/153#conditional_amount: 5
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("statutes/26/153.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            call_count = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                self.__class__.call_count += 1
-                if self.__class__.call_count == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "execution": SimpleNamespace(
-                                error=(
-                                    "Test case `positive_case` execution failed: "
-                                    "dataset input "
-                                    "`us:statutes/26/153#input.annual` must use an "
-                                    "absolute legal RuleSpec reference that resolves "
-                                    "to an input slot, derived rule, or parameter in "
-                                    "the compiled program"
-                                )
-                            ),
-                            "numeric": SimpleNamespace(
-                                error=(
-                                    "Source numeric value `10` is not represented in "
-                                    "a non-test RuleSpec file."
-                                )
-                            ),
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "numeric": SimpleNamespace(
-                            error=(
-                                "Source numeric value `10` is not represented in a "
-                                "non-test RuleSpec file."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_invalid_test_inputs(args)
-
-        output = capsys.readouterr().out
-        assert "Applied invalid test input repair to statutes/26/153.yaml" in output
-        assert "with pending validation issues still remaining: 1" in output
-        cases = yaml.safe_load(test_file.read_text())
-        assert cases[0]["input"] == {
-            "us:statutes/26/153#input.amount": 5,
-        }
-        manifest = repo / ".axiom/encoding-manifests/statutes/26/153.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "invalid-test-input-v1"
-        assert payload["tool"] == "axiom-encode repair-invalid-test-inputs"
-
-    def test_repair_mixed_derived_entity_output_tests_keeps_unrelated_issues(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        rules_file = repo / "statutes" / "26" / "3121" / "l.yaml"
-        test_file = repo / "statutes" / "26" / "3121" / "l.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: agreement_covers_foreign_affiliate_service
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '1990-01-01'
-        formula: employee_is_citizen_or_resident_of_united_states
-  - name: termination_of_subsection_l_agreement_prohibited
-    kind: derived
-    entity: Employer
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '1990-01-01'
-        formula: agreement_under_subsection_l
-  - name: overpayment_claim_filing_limit_years
-    kind: parameter
-    dtype: Number
-    versions:
-      - effective_from: '1990-01-01'
-        formula: 2
-"""
-        )
-        test_file.write_text(
-            """- name: excluded_service_and_unadjustable_overpayment
-  period: 2026
-  input:
-    us:statutes/26/3121/l#input.employee_is_citizen_or_resident_of_united_states: false
-    us:statutes/26/3121/l#input.agreement_under_subsection_l: true
-  output:
-    us:statutes/26/3121/l#agreement_covers_foreign_affiliate_service: not_holds
-    us:statutes/26/3121/l#termination_of_subsection_l_agreement_prohibited: holds
-    us:statutes/26/3121/l#overpayment_claim_filing_limit_years: 2
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("statutes/26/3121/l.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            call_count = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                self.__class__.call_count += 1
-                if self.__class__.call_count == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "mixed": SimpleNamespace(
-                                error=(
-                                    "Test case "
-                                    "`excluded_service_and_unadjustable_overpayment` "
-                                    "mixes derived output entities "
-                                    "(Employer, Person); put outputs for each "
-                                    "entity in separate test cases."
-                                )
-                            ),
-                            "numeric": SimpleNamespace(
-                                error=(
-                                    "Source numeric value `10` is not represented in "
-                                    "a non-test RuleSpec file."
-                                )
-                            ),
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "numeric": SimpleNamespace(
-                            error=(
-                                "Source numeric value `10` is not represented in a "
-                                "non-test RuleSpec file."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_mixed_derived_entity_output_tests(args)
-
-        output = capsys.readouterr().out
-        assert (
-            "Applied mixed derived-entity output test repair to statutes/26/3121/l.yaml"
-        ) in output
-        assert "with pending validation issues still remaining: 1" in output
-        cases = yaml.safe_load(test_file.read_text())
-        assert [case["name"] for case in cases] == [
-            "excluded_service_and_unadjustable_overpayment",
-            "excluded_service_and_unadjustable_overpayment_employer_outputs",
-        ]
-        assert (
-            "us:statutes/26/3121/l#overpayment_claim_filing_limit_years"
-            in cases[0]["output"]
-        )
-        manifest = repo / ".axiom/encoding-manifests/statutes/26/3121/l.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "mixed-derived-entity-output-test-v1"
-        assert (
-            payload["tool"] == "axiom-encode repair-mixed-derived-entity-output-tests"
-        )
-
-    def test_repair_delegated_policy_settings_keeps_unrelated_issues(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us-nc"
-        federal_file = (
-            tmp_path / "rulespec-us" / "regulations" / "7-cfr" / "273" / "9.yaml"
-        )
-        federal_file.parent.mkdir(parents=True)
-        federal_file.write_text(
-            """format: rulespec/v1
-rules:
-- name: snap_standard_utility_allowance_state_option
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '0'
-- name: snap_limited_utility_allowance_state_option
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '0'
-- name: snap_individual_utility_allowance_state_option
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '0'
-"""
-        )
-        rules_file = repo / "policies" / "fns" / "utility-allowances.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  summary: North Carolina FNS SNAP utility allowance table.
-rules:
-- name: heating_cooling_standard_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  source: FNS 360.01(A)
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '637'
-- name: non_heating_non_cooling_basic_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  source: FNS 360.01(A)
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '392'
-- name: telephone_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  source: FNS 360.01(A)
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '42'
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("policies/fns/utility-allowances.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            call_count = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                self.__class__.call_count += 1
-                if self.__class__.call_count == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "numeric": SimpleNamespace(
-                                error=(
-                                    "Source numeric value `10` is not represented in "
-                                    "a non-test RuleSpec file."
-                                )
-                            ),
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "numeric": SimpleNamespace(
-                            error=(
-                                "Source numeric value `10` is not represented in a "
-                                "non-test RuleSpec file."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_delegated_policy_settings(args)
-
-        output = capsys.readouterr().out
-        assert (
-            "Applied delegated policy setting repair to "
-            "policies/fns/utility-allowances.yaml"
-        ) in output
-        assert "with pending validation issues still remaining: 1" in output
-        payload = yaml.safe_load(rules_file.read_text())
-        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
-        relation_targets = [
-            rule["source_relation"]["target"]
-            for rule in payload["rules"]
-            if rule.get("kind") == "source_relation"
-        ]
-        assert (
-            "us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option"
-            in relation_targets
-        )
-        manifest = (
-            repo / ".axiom/encoding-manifests/policies/fns/utility-allowances.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "delegated-policy-setting-v1"
-        assert (
-            manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
-        )
-
-    def test_repair_delegated_policy_settings_drops_unresolved_existing_edge(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us-co"
-        rules_file = repo / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  summary: Colorado SNAP household utility allowance standards.
-rules:
-  - name: sets_snap_standard_utility_allowance
-    kind: source_relation
-    source_relation:
-      type: sets
-      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
-      basis:
-        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-  - name: snap_standard_utility_allowance
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '594'
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("regulations/10-ccr-2506-1/4.407.31.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_delegated_policy_settings(args)
-
-        output = capsys.readouterr().out
-        assert (
-            "Applied delegated policy setting repair to "
-            "regulations/10-ccr-2506-1/4.407.31.yaml: "
-            "sets_snap_standard_utility_allowance"
-        ) in output
-        payload = yaml.safe_load(rules_file.read_text())
-        assert [rule["name"] for rule in payload["rules"]] == [
-            "snap_standard_utility_allowance"
-        ]
-        manifest = (
-            repo / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.407.31.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "delegated-policy-setting-v1"
-        assert (
-            manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
-        )
-
-    def test_repair_delegated_policy_settings_imports_resolved_monorepo_edge(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        federal_file = repo / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
-        federal_file.parent.mkdir(parents=True)
-        federal_file.write_text(
-            """format: rulespec/v1
-rules:
-- name: snap_state_standard_utility_allowance_delegation
-  kind: source_relation
-  source_relation:
-    type: delegates
-    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
-    authority: federal
-- name: snap_standard_utility_allowance_state_option
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '0'
-"""
-        )
-        rules_file = repo / "us-co" / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  summary: Colorado SNAP household utility allowance standards.
-rules:
-  - name: sets_snap_standard_utility_allowance
-    kind: source_relation
-    source_relation:
-      type: sets
-      target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-      value: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
-      basis:
-        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-  - name: snap_standard_utility_allowance
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '594'
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("us-co/regulations/10-ccr-2506-1/4.407.31.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_delegated_policy_settings(args)
-
-        output = capsys.readouterr().out
-        assert (
-            "Applied delegated policy setting repair to "
-            "us-co/regulations/10-ccr-2506-1/4.407.31.yaml: "
-            "import:us:regulations/7-cfr/273/9"
-        ) in output
-        assert "\nrules:\n  - name: sets_snap_standard_utility_allowance" in (
-            rules_file.read_text()
-        )
-        payload = yaml.safe_load(rules_file.read_text())
-        assert payload["imports"] == ["us:regulations/7-cfr/273/9"]
-        assert [rule["name"] for rule in payload["rules"]] == [
-            "sets_snap_standard_utility_allowance",
-            "snap_standard_utility_allowance",
-        ]
-        manifest = (
-            repo
-            / ".axiom/encoding-manifests/us-co/regulations/10-ccr-2506-1/4.407.31.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["citation"] == (
-            "us-co:regulations/10-ccr-2506-1/4.407.31"
-        )
-        assert manifest_payload["model"] == "delegated-policy-setting-v1"
-        assert (
-            manifest_payload["tool"] == "axiom-encode repair-delegated-policy-settings"
-        )
-
-    def test_repair_delegated_policy_settings_requires_signing_key_before_mutating(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        federal_file = repo / "us" / "regulations" / "7-cfr" / "273" / "9.yaml"
-        federal_file.parent.mkdir(parents=True)
-        federal_file.write_text(
-            """format: rulespec/v1
-rules:
-- name: snap_state_standard_utility_allowance_delegation
-  kind: source_relation
-  source_relation:
-    type: delegates
-    target: us:regulations/7-cfr/273/9#snap_utility_allowance_for_shelter_costs
-    authority: federal
-- name: snap_standard_utility_allowance_state_option
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '0'
-"""
-        )
-        rules_file = repo / "us-ga" / "policies" / "dfcs" / "snap" / "3617.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  summary: Georgia SNAP utility allowances.
-rules:
-- name: sets_snap_standard_utility_allowance
-  kind: source_relation
-  source_relation:
-    type: sets
-    target: us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option
-    value: us-ga:policies/dfcs/snap/3617#snap_standard_utility_allowance
-    basis:
-      delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
-- name: snap_standard_utility_allowance
-  kind: derived
-  entity: Household
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: '405'
-"""
-        )
-        original = rules_file.read_text()
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("us-ga/policies/dfcs/snap/3617.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "compile": SimpleNamespace(
-                            error=(
-                                "RuleSpec source relation "
-                                "`sets_snap_standard_utility_allowance` sets target "
-                                "`us:regulations/7-cfr/273/9#snap_standard_utility_allowance_state_option`, "
-                                "but the target does not resolve to an executable "
-                                "parameter or derived rule in the merged program"
-                            )
-                        )
-                    },
-                )
-
-        provenance = MagicMock()
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                provenance,
-            ),
-            patch.dict(os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: ""}),
-            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
-        ):
-            cmd_repair_delegated_policy_settings(args)
-
-        provenance.assert_not_called()
-        assert rules_file.read_text() == original
-        assert not (
-            repo / ".axiom/encoding-manifests/us-ga/policies/dfcs/snap/3617.json"
-        ).exists()
-
-    def test_repair_bare_snapunit_entities_uses_module_summary_context(
-        self, capsys, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us-co"
-        rules_file = repo / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-module:
-  summary: Colorado SNAP household utility allowance standards.
-rules:
-- name: snap_standard_utility_allowance
-  kind: derived
-  entity: SnapUnit
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: 594
-- name: snap_limited_utility_allowance
-  kind: derived
-  entity: SnapUnit
-  dtype: Money
-  period: Month
-  versions:
-  - effective_from: '2025-10-01'
-    formula: 377
-"""
-        )
-        args = SimpleNamespace(
-            repo=repo,
-            file=Path("regulations/10-ccr-2506-1/4.407.31.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                payload = yaml.safe_load(rules_file.read_text())
-                entities = {
-                    rule["name"]: rule.get("entity")
-                    for rule in payload["rules"]
-                    if isinstance(rule, dict)
-                }
-                if entities["snap_standard_utility_allowance"] == "SnapUnit":
-                    error = (
-                        "Filtered entity dependency missing: "
-                        "`snap_standard_utility_allowance` uses "
-                        "`entity: SnapUnit`, but this RuleSpec file does not "
-                        "declare `SnapUnit` with a `kind: derived_relation` rule "
-                        "or import its declaring relation (`snap_unit`)."
-                    )
-                elif entities["snap_limited_utility_allowance"] == "SnapUnit":
-                    error = (
-                        "Filtered entity dependency missing: "
-                        "`snap_limited_utility_allowance` uses "
-                        "`entity: SnapUnit`, but this RuleSpec file does not "
-                        "declare `SnapUnit` with a `kind: derived_relation` rule "
-                        "or import its declaring relation (`snap_unit`)."
-                    )
-                else:
-                    error = (
-                        "Source numeric value `10` is not represented in a "
-                        "non-test RuleSpec file."
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={"issue": SimpleNamespace(error=error)},
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_bare_snapunit_entities(args)
-
-        output = capsys.readouterr().out
-        assert (
-            "Applied bare SnapUnit entity repair to "
-            "regulations/10-ccr-2506-1/4.407.31.yaml"
-        ) in output
-        payload = yaml.safe_load(rules_file.read_text())
-        assert [rule["entity"] for rule in payload["rules"]] == [
-            "Household",
-            "Household",
-        ]
-        manifest = (
-            repo / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.407.31.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "bare-snapunit-entity-v1"
-        assert manifest_payload["tool"] == "axiom-encode repair-bare-snapunit-entities"
-
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
     ):
@@ -15553,7 +17039,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -15582,7 +17068,7 @@ rules:
     def test_exception_companion_repair_requires_matching_positive_signature(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-co"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-co")
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.test.yaml"
         test_file.parent.mkdir(parents=True)
         test_file.write_text(
@@ -15719,7 +17205,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -15836,7 +17322,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16026,7 +17512,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16126,7 +17612,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16163,13 +17649,14 @@ rules:
     def test_encode_apply_repairs_self_referential_generated_derived_rules(
         self, capsys, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-co"
+        policy_repo.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             backend="codex",
-            citation="10 CCR 2506-1 4.203.3",
-            policy_repo_path=policy_repo,
+            citation="us-co/regulation/10-ccr-2506-1/4.203.3",
+            policy_repo_path=policy_checkout,
             sync=False,
         )
         args.apply = True
@@ -16248,7 +17735,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16378,7 +17865,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16411,13 +17898,14 @@ rules:
     def test_encode_apply_reruns_invalid_input_repair_after_canonical_repair(
         self, capsys, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-co"
+        policy_repo.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             backend="codex",
-            citation="10 CCR 2506-1 4.205.32",
-            policy_repo_path=policy_repo,
+            citation="us-co/regulation/10-ccr-2506-1/4.205.32",
+            policy_repo_path=policy_checkout,
             sync=False,
         )
         args.apply = True
@@ -16486,7 +17974,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16691,7 +18179,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16788,7 +18276,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16901,7 +18389,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -16957,10 +18445,10 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        parent_file = policy_repo / "us" / "regulations/42-cfr/435/110.yaml"
-        adult_file = policy_repo / "us" / "regulations/42-cfr/435/119.yaml"
-        engagement_file = policy_repo / "us" / "statutes/42/1396a/xx.yaml"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        parent_file = policy_repo / "regulations/42-cfr/435/110.yaml"
+        adult_file = policy_repo / "regulations/42-cfr/435/119.yaml"
+        engagement_file = policy_repo / "statutes/42/1396a/xx.yaml"
         for path, output_name, formula in [
             (
                 parent_file,
@@ -17091,13 +18579,14 @@ rules:
     def test_encode_apply_retries_unsafe_deferral_after_positive_repair(
         self, capsys, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-co"
+        policy_repo.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             backend="codex",
             citation="us-co/regulation/10-ccr-2506-1/4.400",
-            policy_repo_path=policy_repo,
+            policy_repo_path=policy_checkout,
             sync=False,
         )
         args.apply = True
@@ -17188,7 +18677,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -17224,13 +18713,14 @@ rules:
         assert run.outcome["status"] == "apply_applied"
 
     def test_encode_apply_repeats_scalar_relation_row_repair(self, capsys, tmp_path):
-        policy_repo = tmp_path / "rulespec-us-ny"
-        policy_repo.mkdir()
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-ny"
+        policy_repo.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             backend="codex",
             citation="us-ny/regulation/18-nycrr/387/14/a/5",
-            policy_repo_path=policy_repo,
+            policy_repo_path=policy_checkout,
             sync=False,
         )
         args.apply = True
@@ -17283,9 +18773,21 @@ rules:
 """
         )
         companion_test = (
-            tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.test.yaml"
+            policy_checkout / "us" / "statutes" / "7" / "2012" / "j.test.yaml"
         )
         companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 1
+      arguments:
+        - Household
+"""
+        )
         companion_test.write_text(
             """- name: household_has_elderly_or_disabled_member
   period: 2026-01
@@ -17296,8 +18798,9 @@ rules:
     us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
 """
         )
+        args.rulespec_dependency_root = [policy_checkout]
         result.output_file = str(output_file)
-        applied_file = args.policy_repo_path / "regulations/18-nycrr/387/14/a/5.yaml"
+        applied_file = policy_repo / "regulations/18-nycrr/387/14/a/5.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
@@ -17331,7 +18834,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -17469,7 +18972,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -17608,7 +19111,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -17643,7 +19146,7 @@ rules:
         assert run.outcome["status"] == "apply_applied"
 
     def test_derived_output_test_repair_uses_indexed_selector_key(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
+        repo_path = _canonical_rulespec_content_root(tmp_path)
         rules_file = repo_path / "statutes" / "26" / "3241" / "b.yaml"
         test_file = repo_path / "statutes" / "26" / "3241" / "b.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -17747,7 +19250,7 @@ rules:
         }
 
     def test_judgment_positive_test_repair_clones_existing_scenario(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
+        repo_path = _canonical_rulespec_content_root(tmp_path)
         test_file = repo_path / "statutes" / "26" / "3102" / "f" / "1.test.yaml"
         test_file.parent.mkdir(parents=True)
         test_file.write_text(
@@ -17792,7 +19295,7 @@ rules:
     def test_judgment_positive_test_repair_skips_unsatisfiable_false_rule(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-co"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.yaml"
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.801.43.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -17844,7 +19347,7 @@ rules:
         }
 
     def test_judgment_positive_test_repair_synthesizes_formula_inputs(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
+        repo_path = tmp_path / "rulespec-us" / "us"
         rules_file = repo_path / "statutes" / "26" / "3303.yaml"
         test_file = repo_path / "statutes" / "26" / "3303.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -17985,7 +19488,7 @@ rules:
         }
 
     def test_judgment_positive_test_repair_prefers_legal_or_branch(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
+        repo_path = _canonical_rulespec_content_root(tmp_path)
         rules_file = repo_path / "statutes" / "26" / "21.yaml"
         test_file = repo_path / "statutes" / "26" / "21.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -18035,27 +19538,26 @@ rules:
             "us:statutes/26/21#treated_as_not_married_under_section_21": "holds"
         }
 
-    def test_rulespec_anchor_base_for_output_uses_country_relative_root(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
+    def test_rulespec_anchor_base_for_output_uses_canonical_content_root(
+        self, tmp_path
+    ):
+        federal_root = _canonical_rulespec_content_root(tmp_path)
+        colorado_root = _canonical_rulespec_content_root(tmp_path, "us-co")
 
         assert (
-            _rulespec_anchor_base_for_output(repo_path, Path("us/statutes/5/5566.yaml"))
+            _rulespec_anchor_base_for_output(federal_root, Path("statutes/5/5566.yaml"))
             == "us:statutes/5/5566"
         )
         assert (
             _rulespec_anchor_base_for_output(
-                repo_path, Path("us-co/statutes/39/39-22-104/1.5.yaml")
+                colorado_root, Path("statutes/39/39-22-104/1.5.yaml")
             )
             == "us-co:statutes/39/39-22-104/1.5"
         )
-        assert (
-            _rulespec_anchor_base_for_output(repo_path, Path("statutes/5/5566.yaml"))
-            == "us:statutes/5/5566"
-        )
 
     def test_import_base_to_repo_file_resolves_country_content_root(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
-        imported = repo_path / "us" / "statutes" / "26" / "3306" / "c" / "9.yaml"
+        repo_path = tmp_path / "rulespec-us" / "us"
+        imported = repo_path / "statutes" / "26" / "3306" / "c" / "9.yaml"
         imported.parent.mkdir(parents=True)
         imported.write_text("format: rulespec/v1\nrules: []\n")
 
@@ -18067,10 +19569,22 @@ rules:
             == imported
         )
 
+    @pytest.mark.parametrize(
+        "target",
+        ("programs/snap/fy-2026", "us:programs/snap/fy-2026"),
+    )
+    def test_import_base_to_repo_file_rejects_program_specs(self, tmp_path, target):
+        repo_path = _canonical_rulespec_content_root(tmp_path)
+        program = repo_path / "programs" / "snap" / "fy-2026.yaml"
+        program.parent.mkdir(parents=True)
+        program.write_text("program: us/snap\nperiod: 2026-01\noutputs: [benefit]\n")
+
+        assert _import_base_to_repo_file(target, repo_path=repo_path) is None
+
     def test_expected_proof_import_hash_resolves_country_content_root(self, tmp_path):
-        repo_path = tmp_path / "rulespec-us"
-        imported = repo_path / "us" / "statutes" / "26" / "3306" / "c" / "9.yaml"
-        target = repo_path / "us" / "statutes" / "26" / "3306" / "d.yaml"
+        repo_path = tmp_path / "rulespec-us" / "us"
+        imported = repo_path / "statutes" / "26" / "3306" / "c" / "9.yaml"
+        target = repo_path / "statutes" / "26" / "3306" / "d.yaml"
         imported.parent.mkdir(parents=True)
         target.parent.mkdir(parents=True, exist_ok=True)
         imported.write_text("format: rulespec/v1\nrules: []\n")
@@ -18089,7 +19603,7 @@ rules:
     def test_judgment_positive_test_repair_uses_imported_companion_inputs(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us"
+        repo_path = tmp_path / "rulespec-us" / "us"
         rules_file = repo_path / "statutes" / "42" / "1396a" / "e.yaml"
         test_file = rules_file.with_name("e.test.yaml")
         imported_file = rules_file.parent / "e" / "14.yaml"
@@ -18188,7 +19702,7 @@ rules:
     def test_judgment_positive_test_repair_synthesizes_string_equality_input(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-ga"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-ga")
         rules_file = (
             repo_path / "policies" / "decal" / "caps" / "appendix-c-payment-zones.yaml"
         )
@@ -18237,7 +19751,7 @@ rules:
     def test_judgment_positive_test_repair_synthesizes_count_helper_inputs(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-co"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.407.31.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -18306,7 +19820,7 @@ rules:
     def test_judgment_positive_test_repair_synthesizes_local_judgment_dependency_inputs(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-co"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.802.62.yaml"
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.802.62.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -18403,7 +19917,7 @@ rules:
     def test_judgment_positive_test_repair_breaks_parenthesized_exception(
         self, tmp_path
     ):
-        repo_path = tmp_path / "rulespec-us-co"
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.yaml"
         test_file = repo_path / "regulations" / "10-ccr-2506-1" / "4.403.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -18467,172 +19981,6 @@ rules:
         assert synthesized["output"] == {
             "us-co:regulations/10-ccr-2506-1/4.403#wioa_on_the_job_training_earnings_earned_income": "holds"
         }
-
-    def test_repair_judgment_positive_tests_repeats_until_validation_passes(
-        self, tmp_path
-    ):
-        repo_path = tmp_path / "rulespec-us"
-        rules_file = repo_path / "statutes" / "26" / "3231" / "e.yaml"
-        test_file = repo_path / "statutes" / "26" / "3231" / "e.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: first_positive_judgment
-    kind: derived
-    dtype: Judgment
-    versions:
-      - effective_from: '2026-01-01'
-        formula: first_condition
-  - name: second_positive_judgment
-    kind: derived
-    dtype: Judgment
-    versions:
-      - effective_from: '2026-01-01'
-        formula: second_condition
-"""
-        )
-        test_file.write_text("[]\n")
-        args = SimpleNamespace(
-            repo=repo_path,
-            file=Path("statutes/26/3231/e.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        def has_holds_output(rule_name):
-            test_payload = yaml.safe_load(test_file.read_text()) or []
-            return any(
-                isinstance(test_case, dict)
-                and test_case.get("output")
-                == {f"us:statutes/26/3231/e#{rule_name}": "holds"}
-                for test_case in test_payload
-            )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                for rule_name in (
-                    "first_positive_judgment",
-                    "second_positive_judgment",
-                ):
-                    if not has_holds_output(rule_name):
-                        return SimpleNamespace(
-                            all_passed=False,
-                            results={
-                                "ci": SimpleNamespace(
-                                    error=(
-                                        "Judgment rule missing positive companion "
-                                        "output coverage: "
-                                        f"`us:statutes/26/3231/e#{rule_name}` "
-                                        "is not asserted as `holds` by the companion "
-                                        "`.test.yaml` file."
-                                    )
-                                )
-                            },
-                        )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_judgment_positive_tests(args)
-
-        test_payload = yaml.safe_load(test_file.read_text())
-        assert [test_case["name"] for test_case in test_payload] == [
-            "auto_positive_first_positive_judgment",
-            "auto_positive_second_positive_judgment",
-        ]
-        manifest = repo_path / ".axiom/encoding-manifests/statutes/26/3231/e.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["tool"] == "axiom-encode repair-judgment-positive-tests"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/3231/e.yaml",
-            "statutes/26/3231/e.test.yaml",
-        ]
-
-    def test_repair_judgment_positive_tests_restores_when_no_candidate_passes(
-        self, tmp_path
-    ):
-        repo_path = tmp_path / "rulespec-us"
-        rules_file = repo_path / "statutes" / "26" / "3231" / "e.yaml"
-        test_file = repo_path / "statutes" / "26" / "3231" / "e.test.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-rules:
-  - name: first_positive_judgment
-    kind: derived
-    dtype: Judgment
-    versions:
-      - effective_from: '2026-01-01'
-        formula: first_condition
-"""
-        )
-        original_test_content = "# preserve this comment\n[]\n"
-        test_file.write_text(original_test_content)
-        args = SimpleNamespace(
-            repo=repo_path,
-            file=Path("statutes/26/3231/e.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == rules_file.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "ci": SimpleNamespace(
-                            error=(
-                                "Judgment rule missing positive companion output "
-                                "coverage: "
-                                "`us:statutes/26/3231/e#first_positive_judgment` "
-                                "is not asserted as `holds` by the companion "
-                                "`.test.yaml` file."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=["candidate still fails"],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_judgment_positive_tests(args)
-
-        assert test_file.read_text() == original_test_content
-        manifest = repo_path / ".axiom/encoding-manifests/statutes/26/3231/e.json"
-        assert not manifest.exists()
 
     def test_encode_apply_auto_repairs_auto_output_test_mismatches(
         self, capsys, tmp_path
@@ -18713,7 +20061,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -18811,7 +20159,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -18874,8 +20222,7 @@ rules:
     {output_ref}: not_holds
 """
         )
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         issues = [
             "regulations/10-ccr-2506-1/4.707.3.yaml: ci: "
             "Test case "
@@ -18965,7 +20312,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19028,7 +20375,7 @@ rules:
 """
         )
 
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         producer_file = policy_repo / "regulations/42-cfr/435/603/e.yaml"
         producer_file.parent.mkdir(parents=True)
         producer_file.write_text(
@@ -19110,7 +20457,7 @@ rules:
 """
         )
 
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         producer_file = policy_repo / "regulations/42-cfr/435/603/e.yaml"
         producer_file.parent.mkdir(parents=True)
         producer_file.write_text(
@@ -19213,7 +20560,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19238,13 +20585,14 @@ rules: []
     def test_encode_apply_repairs_near_target_test_input_prefix_typo(
         self, capsys, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_checkout = tmp_path / "rulespec-us"
+        policy_repo = policy_checkout / "us-co"
+        policy_repo.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
             backend="codex",
-            citation="10 CCR 2506-1 4.801.4",
-            policy_repo_path=policy_repo,
+            citation="us-co/regulation/10-ccr-2506-1/4.801.4",
+            policy_repo_path=policy_checkout,
             sync=False,
         )
         args.apply = True
@@ -19290,7 +20638,7 @@ rules:
 """
         )
         result.output_file = str(output_file)
-        applied_file = args.policy_repo_path / "regulations/10-ccr-2506-1/4.801.4.yaml"
+        applied_file = policy_repo / "regulations/10-ccr-2506-1/4.801.4.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
@@ -19317,7 +20665,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19347,7 +20695,9 @@ rules:
         result = self._make_eval_result(False)
         result.error = "Generated RuleSpec failed CI validation"
 
-        imported_file = args.policy_repo_path / "statutes" / "26" / "1" / "h.yaml"
+        imported_file = (
+            args.policy_repo_path / "us" / "statutes" / "26" / "1" / "h.yaml"
+        )
         imported_file.parent.mkdir(parents=True)
         imported_file.write_text(
             """format: rulespec/v1
@@ -19387,7 +20737,7 @@ rules: []
 """
         )
         result.output_file = str(output_file)
-        applied_file = args.policy_repo_path / "statutes/26/199A.yaml"
+        applied_file = args.policy_repo_path / "us/statutes/26/199A.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
@@ -19420,7 +20770,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19531,7 +20881,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19659,7 +21009,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -19999,7 +21349,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20022,7 +21372,7 @@ rules:
     def test_overlay_validation_suppresses_ancestor_targets_for_subsection_migration(
         self, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         ancestor = repo / "statutes/26/151.yaml"
         ancestor_test = repo / "statutes/26/151.test.yaml"
         target = repo / "statutes/26/151/d.yaml"
@@ -20044,7 +21394,7 @@ rules:
         assert sibling.exists()
 
     def test_overlay_validation_preserves_imported_ancestor_target(self, tmp_path):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path / "rulespec-us" / "us"
         ancestor = repo / "statutes/26/163/h/4/C.yaml"
         ancestor_test = repo / "statutes/26/163/h/4/C.test.yaml"
         target = repo / "statutes/26/163/h/4/C/ii/I.yaml"
@@ -20092,7 +21442,7 @@ rules:
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20151,7 +21501,7 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20190,7 +21540,11 @@ rules: []
                 return_value=(True, [], {}),
             ) as mock_overlay,
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20226,7 +21580,11 @@ rules: []
                 return_value=(False, ["overlay compile failed"], {}),
             ) as mock_overlay,
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20262,7 +21620,11 @@ rules: []
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ),
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
@@ -20288,7 +21650,7 @@ rules: []
         ]
 
     def test_mixed_scalar_output_test_repair_splits_parameter_outputs(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = policy_repo / "statutes/26/164/f.yaml"
         test_file = policy_repo / "statutes/26/164/f.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -20365,7 +21727,7 @@ rules:
     def test_mixed_scalar_output_test_repair_unwraps_row_shaped_parameter_output(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = policy_repo / "statutes/26/3121/a/7.yaml"
         test_file = policy_repo / "statutes/26/3121/a/7.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -20431,7 +21793,7 @@ rules:
     def test_mixed_scalar_output_test_repair_moves_scalar_case_to_effective_period(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = policy_repo / "statutes/39/39-22-104/4/f.yaml"
         test_file = policy_repo / "statutes/39/39-22-104/4/f.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -20499,7 +21861,7 @@ rules:
     def test_future_effective_output_test_repair_splits_mixed_period_outputs(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file = policy_repo / "statutes/39/39-22-104/4/f.yaml"
         test_file = policy_repo / "statutes/39/39-22-104/4/f.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -20566,7 +21928,7 @@ rules:
     def test_mixed_scalar_output_test_repair_drops_nonterminating_fraction_parameter(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = policy_repo / "statutes/26/3306/c/20.yaml"
         test_file = policy_repo / "statutes/26/3306/c/20.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -20632,7 +21994,7 @@ rules:
         )
 
     def test_imported_rule_name_collision_repair_prefixes_local_outputs(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported_file = policy_repo / "statutes/26/3121/c.yaml"
         rules_file = policy_repo / "statutes/26/3306/d.yaml"
         test_file = policy_repo / "statutes/26/3306/d.test.yaml"
@@ -20725,8 +22087,9 @@ rules:
     def test_imported_rule_name_collision_repair_resolves_cross_prefix_imports(
         self, tmp_path
     ):
-        state_repo = tmp_path / "rulespec-us-co"
-        federal_repo = tmp_path / "rulespec-us"
+        checkout = tmp_path / "rulespec-us"
+        state_repo = checkout / "us-co"
+        federal_repo = checkout / "us"
         imported_file = federal_repo / "regulations/7-cfr/273/5.yaml"
         rules_file = state_repo / "regulations/10-ccr-2506-1/4.306.yaml"
         test_file = state_repo / "regulations/10-ccr-2506-1/4.306.test.yaml"
@@ -20767,12 +22130,13 @@ rules:
 """
         )
 
-        repaired = _repair_imported_rule_name_collisions(
-            rules_file=rules_file,
-            test_file=test_file,
-            repo_path=state_repo,
-            relative_output=Path("regulations/10-ccr-2506-1/4.306.yaml"),
-        )
+        with _authoritative_rulespec_dependency_scope((checkout,)):
+            repaired = _repair_imported_rule_name_collisions(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=state_repo,
+                relative_output=Path("regulations/10-ccr-2506-1/4.306.yaml"),
+            )
 
         rules_payload = yaml.safe_load(rules_file.read_text())
         test_cases = yaml.safe_load(test_file.read_text())
@@ -20793,7 +22157,7 @@ rules:
     def test_upstream_placement_duplicate_repair_imports_existing_target(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         upstream_file = policy_repo / "statutes/26/3121/c.yaml"
         rules_file = policy_repo / "statutes/26/3306/d.yaml"
         test_file = policy_repo / "statutes/26/3306/d.test.yaml"
@@ -20897,13 +22261,14 @@ rules:
         assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
         assert test_cases[0]["output"] == {"us:statutes/26/3306/d#pay_period": "holds"}
 
-    def test_upstream_placement_duplicate_repair_uses_country_monorepo_content_root(
+    def test_upstream_placement_duplicate_repair_uses_exact_jurisdiction_content_root(
         self, tmp_path
     ):
         policy_repo = tmp_path / "rulespec-us"
-        upstream_file = policy_repo / "us/statutes/42/1396a/a/10.yaml"
-        rules_file = policy_repo / "us/policies/hhs/medicaid/eligibility.yaml"
-        test_file = policy_repo / "us/policies/hhs/medicaid/eligibility.test.yaml"
+        content_root = policy_repo / "us"
+        upstream_file = content_root / "statutes/42/1396a/a/10.yaml"
+        rules_file = content_root / "policies/hhs/medicaid/eligibility.yaml"
+        test_file = content_root / "policies/hhs/medicaid/eligibility.test.yaml"
         upstream_file.parent.mkdir(parents=True)
         rules_file.parent.mkdir(parents=True)
         upstream_file.write_text(
@@ -20960,7 +22325,7 @@ rules:
         repaired = _repair_upstream_placement_duplicate_imports(
             rules_file=rules_file,
             test_file=test_file,
-            repo_path=policy_repo,
+            repo_path=content_root,
             relative_output=Path("policies/hhs/medicaid/eligibility.yaml"),
         )
 
@@ -21142,7 +22507,7 @@ rules:
     def test_upstream_placement_duplicate_repair_restates_duplicate_only_module(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         upstream_file = policy_repo / "statutes/26/3121/f.yaml"
         rules_file = policy_repo / "statutes/26/3306/m.yaml"
         test_file = policy_repo / "statutes/26/3306/m.test.yaml"
@@ -21295,7 +22660,7 @@ rules:
     def test_restatement_source_relation_repair_removes_executable_copy_helpers(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = policy_repo / "policies/dfcs/snap/3613.yaml"
         test_file = policy_repo / "policies/dfcs/snap/3613.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -21421,8 +22786,7 @@ rules:
         )
         rules_file.parent.mkdir(parents=True)
         test_file = rules_file.with_suffix(".test.yaml")
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -21499,8 +22863,7 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/e/1.yaml"
         rules_file.parent.mkdir(parents=True)
         test_file = rules_file.with_suffix(".test.yaml")
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -21550,8 +22913,7 @@ rules:
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3306/e.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -21601,8 +22963,7 @@ rules: []
             output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
         )
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us-wa"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-wa")
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -21666,182 +23027,6 @@ rules:
             "cash_assistance_income_requirement_satisfied"
         ]
 
-    def test_repair_same_section_subsection_imports_writes_signed_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us" / "statutes" / "42" / "426" / "c.yaml"
-        imported = policy_repo / "us" / "statutes" / "42" / "426" / "b.yaml"
-        target.parent.mkdir(parents=True)
-        imported.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules: []
-"""
-        )
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: disability_insurance_beneficiary_entitled_to_hospital_insurance
-    kind: derived
-    dtype: Judgment
-    versions:
-      - effective_from: '0001-01-01'
-        formula: beneficiary_is_entitled
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/42/426/c.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["policy_repo_path"] == policy_repo / "us"
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                if "us:statutes/42/426/b#" in target.read_text():
-                    return SimpleNamespace(all_passed=True, results={})
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "ci": SimpleNamespace(
-                            error=(
-                                "Same-section subsection import missing: source "
-                                "text cites `statutes/42/426/b` in an "
-                                "exception/cross-reference clause, but the file "
-                                "does not import it."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_same_section_subsection_imports(args)
-
-        content = target.read_text()
-        assert (
-            "  - us:statutes/42/426/b"
-            "#disability_insurance_beneficiary_entitled_to_hospital_insurance\n"
-        ) in content
-        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/42/426/c.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "same-section-subsection-import-v1"
-        assert payload["tool"] == "axiom-encode repair-same-section-subsection-imports"
-        assert payload["citation"] == "us:statutes/42/426/c"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "us/statutes/42/426/c.yaml"
-        ]
-
-    def test_repair_missing_deferred_outputs_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us" / "statutes" / "26" / "26.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  summary: Section 26 nonrefundable credit limit.
-rules:
-  - name: income_tax_before_refundable_credits
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    versions:
-      - effective_from: '2026-01-01'
-        formula: income_tax_before_credits
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/26/26.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["policy_repo_path"] == policy_repo / "us"
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                target_text = target.read_text()
-                if "us:statutes/26/26/b#" not in target_text:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Source sub-paragraph coverage missing: "
-                                    "26 USC 26(b) ('Regular tax liability For "
-                                    "purposes of this part') has no rule citing it "
-                                    "and no entry in `module.deferred_outputs`."
-                                )
-                            )
-                        },
-                    )
-                if "us:statutes/26/26/c#" not in target_text:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Source sub-paragraph coverage missing: "
-                                    "26 USC 26(c) ('Tentative minimum tax For "
-                                    "purposes of this part') has no rule citing it "
-                                    "and no entry in `module.deferred_outputs`."
-                                )
-                            )
-                        },
-                    )
-                if "deferred_outputs:" in target_text:
-                    return SimpleNamespace(all_passed=True, results={})
-                raise AssertionError("expected deferred outputs to be added")
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_deferred_outputs(args)
-
-        payload = yaml.safe_load(target.read_text())
-        deferred_outputs = payload["module"]["deferred_outputs"]
-        assert deferred_outputs[0]["output"].startswith("us:statutes/26/26/b#")
-        assert deferred_outputs[1]["output"].startswith("us:statutes/26/26/c#")
-        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/26.json"
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "missing-deferred-output-v1"
-        assert (
-            manifest_payload["tool"] == "axiom-encode repair-missing-deferred-outputs"
-        )
-        assert manifest_payload["citation"] == "us:statutes/26/26"
-
     def test_import_target_prefix_typo_repair_uses_declared_import(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = (
@@ -21849,7 +23034,7 @@ rules:
         )
         rules_file.parent.mkdir(parents=True)
         test_file = rules_file.with_name("388-450-0162.test.yaml")
-        policy_repo = tmp_path / "rulespec-us-wa"
+        policy_repo = tmp_path / "rulespec-us" / "us-wa"
         imported_file = policy_repo / "regulations/388/388-450/388-450-0170.yaml"
         imported_file.parent.mkdir(parents=True)
         imported_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -21912,8 +23097,7 @@ rules:
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/39/39-22-123.5.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -21974,7 +23158,7 @@ rules:
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3406/d.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         cited_file = policy_repo / "statutes" / "26" / "3406" / "a.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -22018,13 +23202,15 @@ imports:
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
         rules_file.parent.mkdir(parents=True)
-        rules_repo = tmp_path / "rulespec-us"
-        _write_active_corpus_row(
+        rules_repo = _canonical_rulespec_content_root(tmp_path)
+        corpus_release = _bind_test_corpus_release(
+            rules_repo,
             tmp_path / "axiom-corpus",
-            "us/statute/42/1396a/xx",
-            "Beginning in 2027, a State shall verify that an individual has "
-            "completed not less than 80 hours of community engagement activities.",
-            filename="2026-06-29-medicaid.jsonl",
+            citation_path="us/statute/42/1396a/xx",
+            body=(
+                "Beginning in 2027, a State shall verify that an individual has "
+                "completed not less than 80 hours of community engagement activities."
+            ),
         )
         rules_file.write_text(
             """format: rulespec/v1
@@ -22055,6 +23241,7 @@ rules:
             result,
             output_root=output_root,
             rules_repo_path=rules_repo,
+            corpus_release=corpus_release,
             issues=[
                 "Ungrounded generated numeric literal: 80 does not appear as "
                 "a substantive numeric value in the source text."
@@ -22081,6 +23268,14 @@ rules:
         )
         rules_file.parent.mkdir(parents=True)
         rules_repo = tmp_path / "rulespec-us" / "us-mt"
+        corpus_release = _bind_test_corpus_release(
+            rules_repo,
+            tmp_path / "axiom-corpus",
+            citation_path=(
+                "us-mt/regulation/title-37/chapter-37-78/"
+                "subchapter-37-78-4/rule-37-78-420"
+            ),
+        )
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -22112,6 +23307,7 @@ rules:
             result,
             output_root=output_root,
             rules_repo_path=rules_repo,
+            corpus_release=corpus_release,
             issues=[
                 "ci: Source sub-paragraph coverage missing: "
                 "us-mt/regulation/title-37/chapter-37-78/subchapter-37-78-4/rule-37-78-420(a) "
@@ -22145,12 +23341,12 @@ rules:
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
         rules_file.parent.mkdir(parents=True)
-        rules_repo = tmp_path / "rulespec-us"
-        _write_active_corpus_row(
+        rules_repo = _canonical_rulespec_content_root(tmp_path)
+        corpus_release = _bind_test_corpus_release(
+            rules_repo,
             tmp_path / "axiom-corpus",
-            "us/statute/42/1396a/xx",
-            "A State shall verify community engagement.",
-            filename="2026-06-29-medicaid.jsonl",
+            citation_path="us/statute/42/1396a/xx",
+            body="A State shall verify community engagement.",
         )
         rules_file.write_text(
             """format: rulespec/v1
@@ -22169,6 +23365,7 @@ rules: []
             result,
             output_root=output_root,
             rules_repo_path=rules_repo,
+            corpus_release=corpus_release,
             issues=[
                 "Ungrounded generated numeric literal: 80 does not appear as "
                 "a substantive numeric value in the source text."
@@ -22229,7 +23426,7 @@ rules: []
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/7/2015/d/2/C.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         cited_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
@@ -22298,7 +23495,7 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3121/b/8.yaml"
         test_file = rules_file.with_name("8.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         cited_file = policy_repo / "statutes" / "26" / "3121" / "r.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_test_file = cited_file.with_name("r.test.yaml")
@@ -22434,8 +23631,8 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
@@ -22582,8 +23779,8 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
@@ -22705,8 +23902,8 @@ rules:
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         test_file = rules_file.with_name("10.test.yaml")
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
@@ -22837,8 +24034,8 @@ rules:
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/a/10.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        cited_file = policy_repo / "us" / "statutes" / "42" / "1396a" / "xx.yaml"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        cited_file = policy_repo / "statutes" / "42" / "1396a" / "xx.yaml"
         cited_file.parent.mkdir(parents=True)
         cited_file.write_text(
             """format: rulespec/v1
@@ -23308,8 +24505,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -23471,8 +24667,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -23537,8 +24732,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3134/b.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3134/b.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 imports:
@@ -23645,8 +24839,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3510.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3510.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -23713,8 +24906,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -23830,8 +25022,7 @@ rules:
             / "policies/des/ccap/reimbursement-rates.yaml"
         )
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -23969,8 +25160,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text(
             """format: rulespec/v1
 module:
@@ -24061,8 +25251,7 @@ rules:
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
         test_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.test.yaml"
         rules_file.parent.mkdir(parents=True)
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file.write_text("format: rulespec/v1\nrules: []\n")
         test_file.write_text(
             """- name: tier_rates
@@ -24153,7 +25342,7 @@ rules:
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         rules_file = policy_repo / "statutes/26/3121/l.yaml"
         test_file = policy_repo / "statutes/26/3121/l.test.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -24364,40 +25553,131 @@ rules:
 
 
 class TestCmdRetire:
-    def _repo_with_encoded_rule(self, tmp_path):
-        repo = tmp_path / "rulespec-uk"
-        rule = repo / "policies/govuk/example.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        test_file = rule.with_name("example.test.yaml")
-        test_file.write_text("[]\n")
-        manifest = repo / ".axiom/encoding-manifests/policies/govuk/example.json"
-        manifest.parent.mkdir(parents=True)
-        manifest.write_text(
-            json.dumps(
-                {
-                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                    "tool": "axiom-encode encode --apply",
-                    "run_id": "abc123",
-                    "applied_files": [
-                        {"path": "policies/govuk/example.yaml", "sha256": "deadbeef"}
-                    ],
-                }
-            )
-            + "\n"
+    @pytest.fixture(autouse=True)
+    def _clean_encoder_provenance(self, monkeypatch):
+        monkeypatch.setattr(
+            "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+            lambda: {
+                "root": "/repo/axiom-encode",
+                "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                "dirty_tracked": False,
+                "version": AXIOM_ENCODE_TEST_VERSION,
+                "version_commit": "b" * 40,
+            },
         )
+
+    def _repo_with_encoded_rule(
+        self,
+        tmp_path,
+        *,
+        source_root: str = "policies",
+        source_tail: str = "govuk/example",
+        citation_path: str = "uk/policy/govuk/example",
+    ):
+        repo = tmp_path / "rulespec-uk"
+        relative_rule = Path("uk") / source_root / f"{source_tail}.yaml"
+        rule = repo / relative_rule
+        rule.parent.mkdir(parents=True)
+        release = _bind_test_corpus_release(
+            repo,
+            tmp_path / "axiom-corpus",
+            citation_path=citation_path,
+            body="authoritative retirement source\n",
+        )
+        source_attestation = resolve_corpus_source_unit(
+            citation_path,
+            release,
+        ).source_attestation
+        source_attestation["generation_input_sha256"] = source_attestation[
+            "resolved_text_sha256"
+        ]
+        source_attestation["rulespec_root"] = "rulespec-uk/uk"
+        rule.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: {citation_path}\n"
+            f"    source_sha256: {source_attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+        test_file = rule.with_name(rule.stem + ".test.yaml")
+        test_file.write_text("[]\n")
+        manifest = repo / _applied_encoding_manifest_path(relative_rule)
+        manifest.parent.mkdir(parents=True)
+        payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "tool": APPLIED_ENCODING_MODEL_TOOL,
+                "backend": "codex",
+                "model": "test-encoder-v1",
+                "run_id": "abc123",
+                "source_attestation": source_attestation,
+                "applied_files": [
+                    {
+                        "path": relative_rule.as_posix(),
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": test_file.relative_to(repo).as_posix(),
+                        "sha256": _sha256_file(test_file),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(payload) + "\n")
+        self.corpus_path = release.root
         return repo, rule, test_file, manifest
+
+    def _add_second_encoded_rule(self, repo: Path, prior_manifest: Path):
+        prior = json.loads(prior_manifest.read_text())
+        source_attestation = prior["source_attestation"]
+        rule = repo / "uk/policies/govuk/other.yaml"
+        test_file = rule.with_name("other.test.yaml")
+        rule.parent.mkdir(parents=True, exist_ok=True)
+        rule.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: {source_attestation['requested_corpus_citation_path']}\n"
+            f"    source_sha256: {source_attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+        test_file.write_text("[]\n")
+        manifest = repo / _applied_encoding_manifest_path(
+            Path("uk/policies/govuk/other.yaml")
+        )
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": source_attestation,
+                "applied_files": [
+                    {
+                        "path": "uk/policies/govuk/other.yaml",
+                        "sha256": _sha256_file(rule),
+                    },
+                    {
+                        "path": "uk/policies/govuk/other.test.yaml",
+                        "sha256": _sha256_file(test_file),
+                    },
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(payload) + "\n")
+        return rule, test_file, manifest
 
     def test_retire_embeds_prior_manifest_and_deletes_companions(self, tmp_path):
         repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             cmd_retire(
                 SimpleNamespace(
-                    paths=["policies/govuk/example.yaml"],
+                    paths=["uk/policies/govuk/example.yaml"],
                     policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
                     reason="superseded by statute modules",
                 )
             )
@@ -24408,14 +25688,298 @@ class TestCmdRetire:
         assert payload["reason"] == "superseded by statute modules"
         assert payload["retired_manifest"]["run_id"] == "abc123"
         assert {item["path"] for item in payload["applied_files"]} == {
-            "policies/govuk/example.yaml",
-            "policies/govuk/example.test.yaml",
+            "uk/policies/govuk/example.yaml",
+            "uk/policies/govuk/example.test.yaml",
         }
         assert all(item["deleted"] is True for item in payload["applied_files"])
         assert (
-            _applied_encoding_manifest_signature_issue(payload, TEST_APPLY_SIGNING_KEY)
+            _applied_encoding_manifest_signature_issue(
+                payload, TEST_APPLY_SIGNING_BROKER
+            )
             is None
         )
+
+    def test_retire_supplemental_target_deletes_complete_manifest_group(
+        self,
+        tmp_path,
+    ):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        prior = json.loads(manifest.read_text())
+        attestation = prior["source_attestation"]
+        supplemental = repo / "uk/policies/govuk/dependent.yaml"
+        supplemental_test = supplemental.with_name("dependent.test.yaml")
+        supplemental.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: {attestation['requested_corpus_citation_path']}\n"
+            f"    source_sha256: {attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+        supplemental_test.write_text("[]\n")
+        prior["applied_files"].extend(
+            [
+                {
+                    "path": supplemental.relative_to(repo).as_posix(),
+                    "sha256": _sha256_file(supplemental),
+                },
+                {
+                    "path": supplemental_test.relative_to(repo).as_posix(),
+                    "sha256": _sha256_file(supplemental_test),
+                },
+            ]
+        )
+        _sign_applied_encoding_manifest(prior, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(prior) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/dependent.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="retire the complete generated group",
+                )
+            )
+
+        assert all(
+            not path.exists()
+            for path in (rule, test_file, supplemental, supplemental_test)
+        )
+        retired = json.loads(manifest.read_text())
+        assert {item["path"] for item in retired["applied_files"]} == {
+            "uk/policies/govuk/example.yaml",
+            "uk/policies/govuk/example.test.yaml",
+            "uk/policies/govuk/dependent.yaml",
+            "uk/policies/govuk/dependent.test.yaml",
+        }
+
+    def test_retire_rejects_overlapping_supplemental_manifest_ownership(
+        self,
+        tmp_path,
+    ):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        other_rule, other_test, other_manifest = self._add_second_encoded_rule(
+            repo,
+            manifest,
+        )
+        other_payload = json.loads(other_manifest.read_text())
+        other_payload["applied_files"].append(
+            {
+                "path": test_file.relative_to(repo).as_posix(),
+                "sha256": _sha256_file(test_file),
+            }
+        )
+        _sign_applied_encoding_manifest(
+            other_payload,
+            TEST_APPLY_SIGNING_BROKER,
+        )
+        other_manifest.write_text(json.dumps(other_payload) + "\n")
+        originals = {
+            path: path.read_bytes()
+            for path in (
+                rule,
+                test_file,
+                manifest,
+                other_rule,
+                other_test,
+                other_manifest,
+            )
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    **TEST_APPLY_SIGNING_ENV,
+                    "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                },
+                clear=True,
+            ),
+            pytest.raises(SystemExit, match="expected sole manifest owner"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/example.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="must not orphan the overlapping manifest",
+                )
+            )
+
+        assert all(path.read_bytes() == raw for path, raw in originals.items())
+
+    def test_retire_supports_legislation_root(self, tmp_path):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(
+            tmp_path,
+            source_root="legislation",
+            source_tail="ukpga/2026/1",
+            citation_path="uk/statute/ukpga/2026/1",
+        )
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/legislation/ukpga/2026/1.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert not rule.exists()
+        assert not test_file.exists()
+        payload = json.loads(manifest.read_text())
+        assert payload["tool"] == "axiom-encode retire"
+        assert {item["path"] for item in payload["applied_files"]} == {
+            "uk/legislation/ukpga/2026/1.yaml",
+            "uk/legislation/ukpga/2026/1.test.yaml",
+        }
+
+    def test_retire_rolls_back_when_second_delete_fails(self, tmp_path, monkeypatch):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        originals = {path: path.read_bytes() for path in (rule, test_file, manifest)}
+        original_unlink = Path.unlink
+
+        def fail_companion_unlink(path, *args, **kwargs):
+            if path == test_file and not kwargs.get("missing_ok", False):
+                raise OSError("injected second-delete failure")
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", fail_companion_unlink)
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            pytest.raises(RuntimeError, match="transaction failed"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/example.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert all(path.read_bytes() == raw for path, raw in originals.items())
+
+    def test_retire_rolls_back_when_second_manifest_write_fails(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        import axiom_encode.cli as cli_module
+
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        other_rule, other_test, other_manifest = self._add_second_encoded_rule(
+            repo,
+            manifest,
+        )
+        originals = {
+            path: path.read_bytes()
+            for path in (
+                rule,
+                test_file,
+                manifest,
+                other_rule,
+                other_test,
+                other_manifest,
+            )
+        }
+        original_replace = cli_module._atomic_replace_bytes
+
+        def fail_second_manifest(target, raw, *, mode=0o644):
+            if target == other_manifest:
+                raise OSError("injected second-manifest failure")
+            return original_replace(target, raw, mode=mode)
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._atomic_replace_bytes",
+            fail_second_manifest,
+        )
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            pytest.raises(RuntimeError, match="transaction failed"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=[
+                        "uk/policies/govuk/example.yaml",
+                        "uk/policies/govuk/other.yaml",
+                    ],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert all(path.read_bytes() == raw for path, raw in originals.items())
+
+    def test_retire_rejects_tampered_prior_manifest_without_mutation(self, tmp_path):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        payload = json.loads(manifest.read_text())
+        payload["run_id"] = "tampered"
+        manifest.write_text(json.dumps(payload) + "\n")
+        manifest_before = manifest.read_bytes()
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            pytest.raises(SystemExit, match="current apply manifest"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/example.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert rule.exists()
+        assert test_file.exists()
+        assert manifest.read_bytes() == manifest_before
+
+    def test_retire_rejects_manual_prior_manifest_without_mutation(self, tmp_path):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        payload = json.loads(manifest.read_text())
+        payload["backend"] = "manual"
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+        manifest_before = manifest.read_bytes()
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            pytest.raises(SystemExit, match="current apply manifest"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/example.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert rule.exists()
+        assert test_file.exists()
+        assert manifest.read_bytes() == manifest_before
 
     def test_retire_rejects_paths_outside_policy_repo(self, tmp_path):
         repo, *_ = self._repo_with_encoded_rule(tmp_path)
@@ -24423,7 +25987,7 @@ class TestCmdRetire:
         with (
             patch.dict(
                 os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
             ),
             pytest.raises(SystemExit) as exc,
         ):
@@ -24431,56 +25995,594 @@ class TestCmdRetire:
                 SimpleNamespace(
                     paths=[str(outside)],
                     policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
                     reason="x",
                 )
             )
         assert "not inside the policy repo" in str(exc.value)
 
+    def test_retire_rejects_companion_only_without_mutation(self, tmp_path):
+        repo, rule, test_file, manifest = self._repo_with_encoded_rule(tmp_path)
+        manifest_before = manifest.read_bytes()
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            pytest.raises(SystemExit, match="retire its primary RuleSpec file"),
+        ):
+            cmd_retire(
+                SimpleNamespace(
+                    paths=["uk/policies/govuk/example.test.yaml"],
+                    policy_repo_path=repo,
+                    corpus_path=self.corpus_path,
+                    reason="superseded",
+                )
+            )
+
+        assert rule.exists()
+        assert test_file.exists()
+        assert manifest.read_bytes() == manifest_before
+
+
+class TestResolverOwnedManifestWriter:
+    def _setup(self, tmp_path: Path):
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us"
+        content_root.mkdir(parents=True)
+        corpus_path = tmp_path / "axiom-corpus"
+        release = _bind_test_corpus_release(
+            checkout,
+            corpus_path,
+            body="authoritative manifest source\n",
+        )
+        return checkout, content_root, corpus_path, release
+
+    @staticmethod
+    def _write_rule(
+        path: Path, citation_path: str, *, source_sha256: str | None = None
+    ):
+        source_sha_line = (
+            f"    source_sha256: {source_sha256}\n" if source_sha256 else ""
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: {citation_path}\n"
+            f"{source_sha_line}"
+            "rules: []\n"
+        )
+
+    @staticmethod
+    def _result(output_file: Path, *, backend: str = "codex"):
+        return SimpleNamespace(
+            output_file=str(output_file),
+            context_manifest_file=None,
+            trace_file=None,
+            generation_prompt_sha256=None,
+            tool=APPLIED_ENCODING_MODEL_TOOL,
+            citation="us:statutes/26/1",
+            runner=backend,
+            backend=backend,
+            model="manifest-attestation-test",
+            source_attestation=None,
+        )
+
+    def test_writer_rejects_removed_yml_extension_before_manifest_write(self, tmp_path):
+        checkout, content_root, corpus_path, _release = self._setup(tmp_path)
+        rule = content_root / "statutes/26/1.yml"
+        self._write_rule(rule, "us/statute/26/1")
+        generated = tmp_path / "out/deterministic-repair/statutes/26/1.yml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(rule.read_text())
+
+        with pytest.raises(RuntimeError, match=r"canonical \.yaml extension"):
+            _write_applied_encoding_manifest(
+                self._result(generated),
+                output_root=tmp_path / "out",
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+                relative_output=Path("statutes/26/1.yml"),
+                applied_files=[rule],
+                axiom_encode_git={"commit": "a" * 40},
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+            )
+
+        assert not (checkout / ".axiom/encoding-manifests").exists()
+
+    def test_verifier_rejects_signed_manifest_covering_removed_yml_extension(
+        self, tmp_path
+    ):
+        checkout, content_root, _corpus_path, release = self._setup(tmp_path)
+        source_unit = resolve_corpus_source_unit("us/statute/26/1", release)
+        rule = content_root / "statutes/26/1.yaml"
+        self._write_rule(
+            rule,
+            "us/statute/26/1",
+            source_sha256=str(source_unit.source_attestation["source_sha256"]),
+        )
+        source_attestation = {
+            **source_unit.source_attestation,
+            "generation_input_sha256": hashlib.sha256(
+                source_unit.body.encode()
+            ).hexdigest(),
+            "rulespec_root": "rulespec-us/us",
+        }
+        payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": source_attestation,
+                "applied_files": [
+                    {
+                        "path": "us/statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        payload["applied_files"][0]["path"] = "us/statutes/26/1.yml"
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                checkout,
+                manifest.relative_to(checkout).as_posix(),
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+            )
+        )
+
+        assert verified is None
+        assert any("canonical .yaml RuleSpec extension" in issue for issue in issues)
+
+    def test_model_writer_rejects_forged_resolver_row(self, tmp_path):
+        _checkout, content_root, corpus_path, release = self._setup(tmp_path)
+        source_unit = resolve_corpus_source_unit("us/statute/26/1", release)
+        rule = content_root / "statutes/26/1.yaml"
+        self._write_rule(
+            rule,
+            "us/statute/26/1",
+            source_sha256=str(source_unit.source_attestation["source_sha256"]),
+        )
+        generated = tmp_path / "out/codex/statutes/26/1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(rule.read_text())
+        result = self._result(generated, backend="codex")
+        result.source_attestation = {
+            **source_unit.source_attestation,
+            "generation_input_sha256": hashlib.sha256(
+                source_unit.body.encode()
+            ).hexdigest(),
+        }
+        result.source_attestation["row"] = dict(result.source_attestation["row"])
+        result.source_attestation["row"]["record_id"] = "forged-row"
+        source_file = tmp_path / "source.txt"
+        source_file.write_text(source_unit.body)
+        context_manifest = tmp_path / "context.json"
+        context_manifest.write_text(
+            json.dumps({"source_text_file": source_file.name}) + "\n"
+        )
+        result.context_manifest_file = str(context_manifest)
+
+        with pytest.raises(RuntimeError, match="differs from the explicit signed"):
+            _write_applied_encoding_manifest(
+                result,
+                output_root=tmp_path / "out",
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+                relative_output=Path("statutes/26/1.yaml"),
+                applied_files=[rule],
+                axiom_encode_git={"commit": "a" * 40},
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+            )
+
 
 class TestGuardGenerated:
+    @pytest.fixture
+    def tmp_path(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        """Run every guard case at the exact country-checkout boundary."""
+
+        checkout = tmp_path_factory.mktemp("guard-generated") / "rulespec-us"
+        checkout.mkdir()
+        return checkout
+
+    @pytest.fixture(autouse=True)
+    def _rulespec_toolchain(self, monkeypatch, tmp_path):
+        release = _bind_test_corpus_release(
+            tmp_path,
+            tmp_path / "axiom-corpus",
+            body="test source\n",
+        )
+        self.corpus_release = release
+        self.corpus_path = release.root
+        self.source_attestation = resolve_corpus_source_unit(
+            "us/statute/26/1",
+            release,
+        ).source_attestation
+        self.source_attestation["generation_input_sha256"] = self.source_attestation[
+            "resolved_text_sha256"
+        ]
+        self.source_attestation["rulespec_root"] = "rulespec-us/us"
+        monkeypatch.setattr(
+            "axiom_encode.cli.canonical_rulespec_root_identity",
+            lambda path: (
+                f"rulespec-{Path(path).name.split('-', 1)[0]}/{Path(path).name}"
+            ),
+        )
+
+    def _source_backed_rule(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            f"    source_sha256: {self.source_attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+
+    def _canonical_guard_repo(self, tmp_path: Path) -> Path:
+        """Return the exact country checkout used by every class fixture."""
+
+        _write_test_rulespec_toolchain(
+            tmp_path,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        return tmp_path
+
+    def _attestation(self, rulespec_root: str = "rulespec-us/us") -> dict[str, object]:
+        attestation = json.loads(json.dumps(self.source_attestation))
+        attestation["rulespec_root"] = rulespec_root
+        return attestation
+
+    def _model_manifest(
+        self,
+        applied_files: list[dict[str, object]],
+        *,
+        rulespec_root: str = "rulespec-us/us",
+    ) -> dict[str, object]:
+        return _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(rulespec_root),
+                "applied_files": applied_files,
+            }
+        )
+
+    def _retirement_manifest(
+        self,
+        deleted_paths: list[str],
+        *,
+        retired_manifest: dict[str, object] | None = None,
+        rulespec_root: str = "rulespec-us/us",
+    ) -> dict[str, object]:
+        prior = retired_manifest or self._model_manifest(
+            [
+                {
+                    "path": path,
+                    "sha256": "a" * 64,
+                }
+                for path in deleted_paths
+            ],
+            rulespec_root=rulespec_root,
+        )
+        return _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "source_attestation": self._attestation(rulespec_root),
+                "retired_manifest": prior,
+                "applied_files": [
+                    {
+                        "path": path,
+                        "deleted": True,
+                    }
+                    for path in deleted_paths
+                ],
+            }
+        )
+
+    def test_empty_diff_still_verifies_signed_release_binding(self, tmp_path):
+        toolchain = tmp_path / ".axiom/toolchain.toml"
+        toolchain.write_text(
+            toolchain.read_text().replace(
+                self.corpus_release.content_sha256,
+                "f" * 64,
+            )
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[],
+        )
+
+        assert len(issues) == 1
+        assert "RuleSpec corpus/toolchain binding is invalid" in issues[0]
+
     def test_rejects_rulespec_change_without_encoder_manifest(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
+        rule = tmp_path / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
 
         issues = guard_generated_change_issues(
             tmp_path,
-            changed_files=["regulations/example.yaml"],
+            corpus_path=self.corpus_path,
+            changed_files=["us/regulations/example.yaml"],
         )
 
         assert issues == [
-            "regulations/example.yaml changed without a matching .axiom/encoding-manifests manifest"
+            "us/regulations/example.yaml changed without a matching .axiom/encoding-manifests manifest"
+        ]
+
+    def test_canonical_rulespec_path_contract_splits_layout_from_atomic_modules(self):
+        assert RULESPEC_ATOMIC_MODULE_ROOTS == {
+            "legislation",
+            "policies",
+            "regulations",
+            "statutes",
+        }
+        assert RULESPEC_COMPOSITION_SPEC_ROOT == "programs"
+        assert RULESPEC_FILESYSTEM_ROOTS == {
+            *RULESPEC_ATOMIC_MODULE_ROOTS,
+            RULESPEC_COMPOSITION_SPEC_ROOT,
+        }
+        assert RULESPEC_FILE_SUFFIX == ".yaml"
+
+    def test_rejects_removed_yml_rulespec_extension(self, tmp_path):
+        rule = tmp_path / "us/legislation/ukpga/2026/1.yml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=["us/legislation/ukpga/2026/1.yml"],
+        )
+
+        assert issues == [
+            "us/legislation/ukpga/2026/1.yml uses the removed .yml RuleSpec "
+            "extension; rename it to canonical .yaml"
         ]
 
     def test_rejects_existing_rulespec_without_encoder_manifest_in_all_mode(
         self, tmp_path
     ):
-        rule = tmp_path / "regulations/example.yaml"
+        rule = tmp_path / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
 
         issues = guard_generated_change_issues(
             tmp_path,
+            corpus_path=self.corpus_path,
             roots=("regulations",),
             all_files=True,
         )
 
         assert issues == [
-            "regulations/example.yaml is missing a matching .axiom/encoding-manifests manifest"
+            "us/regulations/example.yaml is missing a matching .axiom/encoding-manifests manifest"
+        ]
+
+    def test_all_mode_rejects_empty_rulespec_corpus(self, tmp_path):
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            all_files=True,
+        )
+
+        assert issues == [
+            "--all found no protected RuleSpec YAML files or changed deletions; "
+            "refusing to approve an empty corpus"
+        ]
+
+    def test_all_mode_rejects_deleted_rulespec_and_manifest(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        rule = repo / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                self._model_manifest(
+                    [
+                        {
+                            "path": "us/regulations/example.yaml",
+                            "sha256": _sha256_file(rule),
+                        }
+                    ]
+                )
+            )
+            + "\n"
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add encoded rule")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        rule.unlink()
+        manifest.unlink()
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "delete rule and evidence")
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+            roots=("regulations",),
+            all_files=True,
+        )
+
+        assert issues == [
+            "us/regulations/example.yaml is missing a matching "
+            ".axiom/encoding-manifests manifest"
+        ]
+
+    def test_all_mode_accepts_signed_retirement_of_deleted_rulespec(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        rule = repo / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        prior_manifest = self._model_manifest(
+            [
+                {
+                    "path": "us/regulations/example.yaml",
+                    "sha256": _sha256_file(rule),
+                }
+            ]
+        )
+        manifest.write_text(json.dumps(prior_manifest) + "\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add encoded rule")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        rule.unlink()
+        manifest.write_text(
+            json.dumps(
+                self._retirement_manifest(
+                    ["us/regulations/example.yaml"],
+                    retired_manifest=prior_manifest,
+                )
+            )
+            + "\n"
+        )
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "retire encoded rule")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                repo,
+                corpus_path=self.corpus_path,
+                base_ref=base_ref,
+                head_ref="HEAD",
+                roots=("regulations",),
+                all_files=True,
+            )
+
+        assert issues == []
+
+    def test_all_mode_rejects_protected_file_renamed_outside_guarded_roots(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        for name in ("victim", "survivor"):
+            rule = repo / f"us/regulations/{name}.yaml"
+            self._source_backed_rule(rule)
+            manifest = repo / f".axiom/encoding-manifests/us/regulations/{name}.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                json.dumps(
+                    self._model_manifest(
+                        [
+                            {
+                                "path": f"us/regulations/{name}.yaml",
+                                "sha256": _sha256_file(rule),
+                            }
+                        ]
+                    )
+                )
+                + "\n"
+            )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add encoded rules")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        escaped = repo / "tests/victim.yaml"
+        escaped.parent.mkdir()
+        (repo / "us/regulations/victim.yaml").rename(escaped)
+        (repo / ".axiom/encoding-manifests/us/regulations/victim.json").unlink()
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "hide protected rule as test fixture")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                repo,
+                corpus_path=self.corpus_path,
+                base_ref=base_ref,
+                head_ref="HEAD",
+                roots=("regulations",),
+                all_files=True,
+            )
+
+        assert issues == [
+            "us/regulations/victim.yaml is missing a matching "
+            ".axiom/encoding-manifests manifest"
+        ]
+
+    def test_git_changed_files_preserves_newline_in_deleted_path(self, tmp_path):
+        repo = tmp_path / "repo"
+        _init_test_git_repo(repo)
+        relative = "us/regulations/line\nbreak.yaml"
+        rule = repo / relative
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add unusual protected path")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        rule.unlink()
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "delete unusual protected path")
+
+        assert _git_changed_files(
+            repo,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        ) == [relative]
+
+    def test_legislation_root_is_protected(self, tmp_path):
+        rule = tmp_path / "uk/legislation/ukpga/2026/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=["uk/legislation/ukpga/2026/1.yaml"],
+        )
+
+        assert issues == [
+            "uk/legislation/ukpga/2026/1.yaml changed without a matching "
+            ".axiom/encoding-manifests manifest"
         ]
 
     def test_accepts_rulespec_change_with_matching_encoder_manifest(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(),
                 "applied_files": [
                     {
-                        "path": "regulations/example.yaml",
+                        "path": "us/regulations/example.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24490,42 +26592,320 @@ class TestGuardGenerated:
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/example.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
                 ],
             )
 
         assert issues == []
+
+    def test_rejects_legacy_deterministic_manifest(self, tmp_path):
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "backend": "deterministic",
+            "tool": "axiom-encode repair-nonnegative-floors",
+            "axiom_encode_version": AXIOM_ENCODE_TEST_VERSION,
+            "axiom_encode_git": {"commit": "a" * 40},
+            "validation_waiver_set_sha256": TEST_VALIDATION_WAIVER_SHA256,
+            "source_attestation": self._attestation(),
+            "deterministic_execution": {
+                "schema": "axiom-encode/deterministic-repair-execution/v1",
+                "axiom_encode": dict(TEST_PINNED_ENCODER_IDENTITY),
+            },
+            "applied_files": [
+                {
+                    "path": "us/regulations/example.yaml",
+                    "sha256": _sha256_file(rule),
+                }
+            ],
+        }
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
+                ],
+            )
+
+        assert any("backend is not canonical" in issue for issue in issues)
+
+    @pytest.mark.parametrize("mutation", ["top_level", "applied_file"])
+    def test_rejects_model_manifest_fields_outside_exact_v5_schema(
+        self,
+        tmp_path,
+        mutation,
+    ):
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        payload = self._model_manifest(
+            [
+                {
+                    "path": "us/regulations/example.yaml",
+                    "sha256": _sha256_file(rule),
+                }
+            ]
+        )
+        if mutation == "top_level":
+            payload["legacy_compatibility"] = True
+        else:
+            payload["applied_files"][0]["legacy_digest"] = "a" * 64
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
+                ],
+            )
+
+        assert any("exact model" in issue for issue in issues)
+
+    def test_guard_rejects_retirement_with_unverified_nested_manifest(self, tmp_path):
+        relative = "us/regulations/example.yaml"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        payload = self._retirement_manifest([relative])
+        payload["retired_manifest"]["signature"]["value"] = "f" * 64
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[relative, manifest.relative_to(tmp_path).as_posix()],
+            )
+
+        assert any("retired_manifest has an invalid" in issue for issue in issues)
+
+    def test_guard_rejects_retirement_when_nested_manifest_covers_other_paths(
+        self,
+        tmp_path,
+    ):
+        relative = "us/regulations/example.yaml"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        payload = self._retirement_manifest([relative])
+        payload["retired_manifest"]["applied_files"][0]["path"] = (
+            "us/regulations/other.yaml"
+        )
+        _sign_applied_encoding_manifest(
+            payload["retired_manifest"],
+            TEST_APPLY_SIGNING_BROKER,
+        )
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[relative, manifest.relative_to(tmp_path).as_posix()],
+            )
+
+        assert any(
+            "applied files do not exactly match the retired paths" in issue
+            for issue in issues
+        )
+
+    @pytest.mark.parametrize("mutation", ["tool", "commit", "version"])
+    def test_rejects_model_manifest_outside_running_encoder_contract(
+        self,
+        tmp_path,
+        mutation,
+    ):
+        source_sha256 = str(self.source_attestation["source_sha256"])
+        rule = tmp_path / "us/statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            f"    source_sha256: {source_sha256}\n"
+            "rules: []\n"
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(),
+                "applied_files": [
+                    {
+                        "path": "us/statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        if mutation == "tool":
+            payload["tool"] = "axiom-encode encode"
+        else:
+            payload["validation_execution"]["axiom_encode"][mutation] = (
+                "b" * 40 if mutation == "commit" else "forged-version"
+            )
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
+                ],
+            )
+
+        expected = (
+            "model backend must use tool"
+            if mutation == "tool"
+            else "does not match the running pinned encoder"
+        )
+        assert any(expected in issue for issue in issues)
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_field"),
+        [
+            ("provision_digest", "provision_file_sha256"),
+            ("provision_path", "provision_file"),
+            ("row_identity", "row"),
+        ],
+    )
+    def test_rejects_validly_signed_manifest_with_forged_corpus_artifact_or_row(
+        self,
+        tmp_path,
+        mutation,
+        expected_field,
+    ):
+        attestation = json.loads(json.dumps(self.source_attestation))
+        row = attestation["row"]
+        assert isinstance(row, dict)
+        if mutation == "provision_digest":
+            attestation["provision_file_sha256"] = "f" * 64
+            row["provision_file_sha256"] = "f" * 64
+        elif mutation == "provision_path":
+            forged_path = "data/corpus/provisions/us/statute/forged.jsonl"
+            attestation["provision_file"] = forged_path
+            row["provision_file"] = forged_path
+        else:
+            row["record_id"] = "forged-row"
+
+        source_sha256 = str(attestation["source_sha256"])
+        rule = tmp_path / "us/statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {source_sha256}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                _signed_manifest_payload(
+                    {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "backend": "codex",
+                        "source_attestation": attestation,
+                        "applied_files": [
+                            {
+                                "path": "us/statutes/26/1.yaml",
+                                "sha256": _sha256_file(rule),
+                            }
+                        ],
+                    }
+                )
+            )
+            + "\n"
+        )
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
+                ],
+            )
+
+        assert any(
+            expected_field in issue and "signed local corpus release resolver" in issue
+            for issue in issues
+        )
 
     def test_accepts_model_manifest_with_complete_matching_source_attestation(
         self, tmp_path
     ):
-        rule = tmp_path / "statutes/26/1.yaml"
+        repo = self._canonical_guard_repo(tmp_path)
+        source_sha256 = str(self.source_attestation["source_sha256"])
+        rule = repo / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text(
             f"""format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/statute/26/1
-    source_sha256: {"a" * 64}
+    source_sha256: {source_sha256}
 rules: []
 """
         )
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
                 "backend": "codex",
-                "source_attestation": _complete_source_attestation(),
+                "source_attestation": self.source_attestation,
                 "applied_files": [
                     {
-                        "path": "statutes/26/1.yaml",
+                        "path": "us/statutes/26/1.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24535,20 +26915,97 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
-                tmp_path,
+                repo,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "statutes/26/1.yaml",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
         assert issues == []
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_issue"),
+        [
+            ("missing", "validation_execution is missing"),
+            (
+                "forged_engine_repository",
+                "validation_execution.axiom_rules_engine.repository is not canonical",
+            ),
+            (
+                "malformed_engine_commit",
+                "validation_execution.axiom_rules_engine.commit is invalid",
+            ),
+        ],
+    )
+    def test_rejects_model_manifest_without_canonical_validation_execution(
+        self,
+        tmp_path,
+        mutation,
+        expected_issue,
+    ):
+        source_sha256 = str(self.source_attestation["source_sha256"])
+        rule = tmp_path / "us/statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {source_sha256}
+rules: []
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self.source_attestation,
+                "applied_files": [
+                    {
+                        "path": "us/statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        if mutation == "missing":
+            manifest_payload.pop("validation_execution")
+        elif mutation == "forged_engine_repository":
+            manifest_payload["validation_execution"]["axiom_rules_engine"][
+                "repository"
+            ] = "github.com/attacker/axiom-rules-engine"
+        else:
+            manifest_payload["validation_execution"]["axiom_rules_engine"]["commit"] = (
+                "ABC123"
+            )
+        _sign_applied_encoding_manifest(manifest_payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
+                ],
+            )
+
+        assert any(expected_issue in issue for issue in issues)
 
     def test_rejects_model_manifest_missing_required_source_attestation(self, tmp_path):
-        rule = tmp_path / "statutes/26/1.yaml"
+        repo = self._canonical_guard_repo(tmp_path)
+        rule = repo / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text(
             f"""format: rulespec/v1
@@ -24559,7 +27016,7 @@ module:
 rules: []
 """
         )
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24567,7 +27024,7 @@ rules: []
                 "backend": "codex",
                 "applied_files": [
                     {
-                        "path": "statutes/26/1.yaml",
+                        "path": "us/statutes/26/1.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24577,178 +27034,46 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
-                tmp_path,
+                repo,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "statutes/26/1.yaml",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    def test_all_mode_accepts_unchanged_historical_model_manifest_without_attestation(
-        self, tmp_path
-    ):
+    @pytest.mark.parametrize("backend", ["codex", "claude"])
+    def test_all_mode_always_rejects_v4_model_manifest(self, tmp_path, backend):
         repo = tmp_path / "rulespec-us"
         _init_test_git_repo(repo)
-        _rule, manifest = _write_legacy_model_manifest(repo)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        _write_v4_model_manifest(repo, backend=backend)
         _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "historical encoder output")
+
         with patch.dict(
             os.environ,
-            {
-                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
-                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
-            },
-        ):
-            _git(repo, "commit", "-m", "historical encoder output")
-        inventory = tmp_path / "rollout-inventory.json"
-        inventory.write_text(
-            json.dumps(
-                {
-                    "repositories": {
-                        "rulespec-us": [
-                            {
-                                "path": manifest.relative_to(repo).as_posix(),
-                                "sha256": _sha256_file(manifest),
-                            }
-                        ]
-                    }
-                }
-            )
-        )
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY",
-                inventory,
-            ),
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 repo,
+                corpus_path=self.corpus_path,
                 roots=("statutes",),
                 all_files=True,
             )
 
-        assert issues == []
-
-    @pytest.mark.parametrize("included", [False, True])
-    def test_anthropic_v1_manifest_requires_frozen_inventory_membership(
-        self, tmp_path, included
-    ):
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        _rule, manifest = _write_legacy_model_manifest(repo, backend="anthropic")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "historical anthropic encoder output")
-        entries = []
-        if included:
-            entries.append(
-                {
-                    "path": manifest.relative_to(repo).as_posix(),
-                    "sha256": _sha256_file(manifest),
-                }
-            )
-        inventory = tmp_path / "rollout-inventory.json"
-        inventory.write_text(json.dumps({"repositories": {"rulespec-us": entries}}))
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY",
-                inventory,
-            ),
-        ):
-            issues = guard_generated_change_issues(
-                repo,
-                roots=("statutes",),
-                all_files=True,
-            )
-
-        if included:
-            assert issues == []
-        else:
-            assert any("is missing source_attestation" in issue for issue in issues)
-
-    def test_all_mode_rejects_changed_historical_manifest_without_attestation(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        _rule, manifest = _write_legacy_model_manifest(repo)
-        _git(repo, "add", ".")
-        with patch.dict(
-            os.environ,
-            {
-                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
-                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
-            },
-        ):
-            _git(repo, "commit", "-m", "historical encoder output")
-        payload = json.loads(manifest.read_text())
-        payload["model"] = "newly-resigned-model"
-        manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
-
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            issues = guard_generated_change_issues(
-                repo,
-                roots=("statutes",),
-                all_files=True,
-            )
-
-        assert any("missing a lowercase source_sha256 pin" in issue for issue in issues)
-        assert any("is missing source_attestation" in issue for issue in issues)
-
-    def test_all_mode_rejects_newly_committed_v1_shape_without_attestation(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        (repo / "README.md").write_text("baseline\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "baseline")
-        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
-        _write_legacy_model_manifest(repo)
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "new manifest with historical shape")
-
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            issues_without_base = guard_generated_change_issues(
-                repo,
-                roots=("statutes",),
-                all_files=True,
-            )
-            issues_since_base = guard_generated_change_issues(
-                repo,
-                base_ref=base_ref,
-                roots=("statutes",),
-                all_files=True,
-            )
-
-        assert any(
-            "is missing source_attestation" in issue for issue in issues_without_base
-        )
-        assert any(
-            "is missing source_attestation" in issue for issue in issues_since_base
-        )
+        assert any("is not an encoder apply manifest" in issue for issue in issues)
 
     def test_rejects_model_manifest_missing_source_pin_and_attestation(self, tmp_path):
-        rule = tmp_path / "statutes/26/1.yaml"
+        rule = tmp_path / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text(
             """format: rulespec/v1
@@ -24758,7 +27083,7 @@ module:
 rules: []
 """
         )
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24766,7 +27091,7 @@ rules: []
                 "backend": "codex",
                 "applied_files": [
                     {
-                        "path": "statutes/26/1.yaml",
+                        "path": "us/statutes/26/1.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24776,27 +27101,28 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "statutes/26/1.yaml",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
         assert any("missing a lowercase source_sha256 pin" in issue for issue in issues)
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize("suffix", [".yaml"])
     def test_rejects_model_manifest_without_source_verification_or_attestation(
         self, tmp_path, suffix
     ):
-        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule = tmp_path / f"us/statutes/26/1{suffix}"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24804,7 +27130,7 @@ rules: []
                 "backend": "codex",
                 "applied_files": [
                     {
-                        "path": f"statutes/26/1{suffix}",
+                        "path": f"us/statutes/26/1{suffix}",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24814,20 +27140,21 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    f"statutes/26/1{suffix}",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    f"us/statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
         assert any("is missing module.source_verification" in issue for issue in issues)
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize("suffix", [".yaml"])
     @pytest.mark.parametrize(
         ("content", "expected_issue"),
         [
@@ -24846,10 +27173,10 @@ rules: []
         content,
         expected_issue,
     ):
-        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule = tmp_path / f"us/statutes/26/1{suffix}"
         rule.parent.mkdir(parents=True)
         rule.write_text(content)
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24857,7 +27184,7 @@ rules: []
                 "backend": "codex",
                 "applied_files": [
                     {
-                        "path": f"statutes/26/1{suffix}",
+                        "path": f"us/statutes/26/1{suffix}",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24867,24 +27194,25 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    f"statutes/26/1{suffix}",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    f"us/statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
         assert any(expected_issue in issue for issue in issues)
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize("suffix", [".yaml"])
     def test_rejects_model_manifest_with_missing_covered_rulespec(
         self, tmp_path, suffix
     ):
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24892,7 +27220,7 @@ rules: []
                 "backend": "codex",
                 "applied_files": [
                     {
-                        "path": f"statutes/26/1{suffix}",
+                        "path": f"us/statutes/26/1{suffix}",
                         "sha256": "a" * 64,
                     }
                 ],
@@ -24902,24 +27230,28 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    f"statutes/26/1{suffix}",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    f"us/statutes/26/1{suffix}",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
-        assert any("is missing or is not a regular file" in issue for issue in issues)
+        assert any(
+            "cannot verify" in issue and "Could not safely open" in issue
+            for issue in issues
+        )
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    @pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+    @pytest.mark.parametrize("suffix", [".yaml"])
     def test_rejects_model_manifest_with_unreadable_covered_rulespec(
         self, tmp_path, suffix
     ):
-        rule = tmp_path / f"statutes/26/1{suffix}"
+        rule = tmp_path / f"us/statutes/26/1{suffix}"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
         payload = {
@@ -24927,25 +27259,28 @@ rules: []
             "backend": "codex",
             "applied_files": [
                 {
-                    "path": f"statutes/26/1{suffix}",
+                    "path": f"us/statutes/26/1{suffix}",
                     "sha256": _sha256_file(rule),
                 }
             ],
         }
 
-        with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+        with patch(
+            "axiom_encode.cli.read_bounded_regular_file",
+            side_effect=UnsafeCorpusPathError("permission denied"),
+        ):
             issues = _applied_manifest_source_attestation_issues(
                 payload,
                 repo_path=tmp_path,
                 root_prefix="",
-                manifest_label=".axiom/encoding-manifests/statutes/26/1.json",
+                manifest_label=".axiom/encoding-manifests/us/statutes/26/1.json",
             )
 
         assert any("cannot be read: permission denied" in issue for issue in issues)
         assert any("is missing source_attestation" in issue for issue in issues)
 
-    def test_rejects_model_manifest_with_unattested_continuation_path(self, tmp_path):
-        rule = tmp_path / "statutes/26/1.yaml"
+    def test_rejects_model_manifest_with_single_item_plural_locator(self, tmp_path):
+        rule = tmp_path / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text(
             f"""format: rulespec/v1
@@ -24954,12 +27289,11 @@ module:
     corpus_citation_path: us/statute/26/1
     corpus_citation_paths:
       - us/statute/26/1
-      - us/statute/26/2
     source_sha256: {"a" * 64}
 rules: []
 """
         )
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -24968,7 +27302,7 @@ rules: []
                 "source_attestation": _complete_source_attestation(),
                 "applied_files": [
                     {
-                        "path": "statutes/26/1.yaml",
+                        "path": "us/statutes/26/1.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -24978,21 +27312,87 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "statutes/26/1.yaml",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
-        assert any("path(s) not bound" in issue for issue in issues)
-        assert any("us/statute/26/2" in issue for issue in issues)
+        assert any(
+            "corpus_citation_paths is not supported" in issue for issue in issues
+        )
+
+    def test_rejects_validly_signed_manifest_with_nested_plural_locator(self, tmp_path):
+        source_sha256 = str(self.source_attestation["source_sha256"])
+        rule = tmp_path / "us/statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    source_sha256: {source_sha256}
+rules:
+  - name: example
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/26/1
+              corpus_citation_paths:
+                - us/statute/26/1
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        )
+        manifest = tmp_path / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(),
+                "applied_files": [
+                    {
+                        "path": "us/statutes/26/1.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
+                ],
+            )
+
+        assert any(
+            "Plural corpus source paths are not supported" in issue
+            and "metadata.proof.atoms[0].source.corpus_citation_paths" in issue
+            for issue in issues
+        )
 
     def test_rejects_manifest_source_attestation_hash_or_path_mismatch(self, tmp_path):
-        rule = tmp_path / "statutes/26/1.yaml"
+        repo = self._canonical_guard_repo(tmp_path)
+        rule = repo / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text(
             f"""format: rulespec/v1
@@ -25003,7 +27403,7 @@ module:
 rules: []
 """
         )
-        manifest = tmp_path / ".axiom/encoding-manifests/statutes/26/1.json"
+        manifest = repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -25012,7 +27412,7 @@ rules: []
                 "source_attestation": _complete_source_attestation(),
                 "applied_files": [
                     {
-                        "path": "statutes/26/1.yaml",
+                        "path": "us/statutes/26/1.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -25022,13 +27422,14 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
-                tmp_path,
+                repo,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "statutes/26/1.yaml",
-                    ".axiom/encoding-manifests/statutes/26/1.json",
+                    "us/statutes/26/1.yaml",
+                    ".axiom/encoding-manifests/us/statutes/26/1.json",
                 ],
             )
 
@@ -25036,10 +27437,10 @@ rules: []
         assert any("corpus path(s) not bound" in issue for issue in issues)
 
     def test_rejects_incomplete_attestation_claimed_by_manual_manifest(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
+        rule = tmp_path / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
@@ -25048,7 +27449,7 @@ rules: []
                 "source_attestation": {"source_sha256": "a" * 64},
                 "applied_files": [
                     {
-                        "path": "regulations/example.yaml",
+                        "path": "us/regulations/example.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -25058,38 +27459,40 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/example.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
                 ],
             )
 
         assert any("has invalid source_attestation" in issue for issue in issues)
 
-    def test_accepts_monorepo_rulespec_change_with_nested_encoder_manifest(
+    def test_accepts_monorepo_rulespec_change_with_root_encoder_manifest(
         self, tmp_path
     ):
         rule = tmp_path / "us-ca/policies/example.yaml"
         test = tmp_path / "us-ca/policies/example.test.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
+        self._source_backed_rule(rule)
         test.write_text("cases: []\n")
-        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us-ca/policies/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation("rulespec-us/us-ca"),
                 "applied_files": [
                     {
-                        "path": "policies/example.yaml",
+                        "path": "us-ca/policies/example.yaml",
                         "sha256": _sha256_file(rule),
                     },
                     {
-                        "path": "policies/example.test.yaml",
+                        "path": "us-ca/policies/example.test.yaml",
                         "sha256": _sha256_file(test),
                     },
                 ],
@@ -25099,125 +27502,113 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
-                roots=("us-ca",),
+                corpus_path=self.corpus_path,
+                roots=("policies",),
                 changed_files=[
                     "us-ca/policies/example.yaml",
                     "us-ca/policies/example.test.yaml",
-                    "us-ca/.axiom/encoding-manifests/policies/example.json",
+                    ".axiom/encoding-manifests/us-ca/policies/example.json",
                 ],
             )
 
         assert issues == []
 
     def test_accepts_protected_deletion_listed_in_changed_manifest(self, tmp_path):
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
-        manifest_payload = _signed_manifest_payload(
-            {
-                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                "applied_files": [
-                    {"path": "regulations/example.yaml", "deleted": True}
-                ],
-            }
-        )
+        manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
         manifest.write_text(json.dumps(manifest_payload) + "\n")
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/removal.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/removal.json",
                 ],
             )
 
         assert issues == []
 
     def test_rejects_deletion_entry_when_file_still_exists(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
+        rule = tmp_path / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
-        manifest_payload = _signed_manifest_payload(
-            {
-                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                "applied_files": [
-                    {"path": "regulations/example.yaml", "deleted": True}
-                ],
-            }
-        )
+        manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
         manifest.write_text(json.dumps(manifest_payload) + "\n")
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/removal.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/removal.json",
                 ],
             )
 
         assert issues == [
-            "regulations/example.yaml is listed as deleted in an encoder apply "
-            "manifest but still exists in the working tree"
+            ".axiom/encoding-manifests/us/regulations/removal.json lists "
+            "us/regulations/example.yaml as deleted but it exists"
         ]
 
     def test_tolerates_manifest_deleted_in_same_change(self, tmp_path):
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/removal.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
-        manifest_payload = _signed_manifest_payload(
-            {
-                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                "applied_files": [
-                    {"path": "regulations/example.yaml", "deleted": True}
-                ],
-            }
-        )
+        manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
         manifest.write_text(json.dumps(manifest_payload) + "\n")
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/removal.json",
-                    ".axiom/encoding-manifests/regulations/stale.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/removal.json",
+                    ".axiom/encoding-manifests/us/regulations/stale.json",
                 ],
             )
 
         assert issues == []
 
-    def test_accepts_rulespec_change_when_any_changed_manifest_matches(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
+    def test_rejects_rulespec_change_when_any_changed_manifest_is_stale(self, tmp_path):
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
         current_hash = _sha256_file(rule)
 
-        repair_manifest = tmp_path / ".axiom/encoding-manifests/regulations/repair.json"
-        owner_manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        repair_manifest = (
+            tmp_path / ".axiom/encoding-manifests/us/regulations/repair.json"
+        )
+        owner_manifest = (
+            tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
+        )
         repair_manifest.parent.mkdir(parents=True)
         repair_manifest.write_text(
             json.dumps(
                 _signed_manifest_payload(
                     {
                         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "backend": "codex",
+                        "source_attestation": self._attestation(),
                         "applied_files": [
                             {
-                                "path": "regulations/example.yaml",
+                                "path": "us/regulations/example.yaml",
                                 "sha256": current_hash,
                             }
                         ],
@@ -25231,10 +27622,12 @@ rules: []
                 _signed_manifest_payload(
                     {
                         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "backend": "codex",
+                        "source_attestation": self._attestation(),
                         "applied_files": [
                             {
-                                "path": "regulations/example.yaml",
-                                "sha256": "stale-owner-hash",
+                                "path": "us/regulations/example.yaml",
+                                "sha256": "f" * 64,
                             }
                         ],
                     }
@@ -25245,33 +27638,38 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/repair.json",
-                    ".axiom/encoding-manifests/regulations/example.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/repair.json",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
                 ],
             )
 
-        assert issues == []
+        assert issues == [
+            ".axiom/encoding-manifests/us/regulations/example.json has stale "
+            "sha256 for us/regulations/example.yaml"
+        ]
 
     def test_accepts_existing_rulespec_with_matching_encoder_manifest_in_all_mode(
         self, tmp_path
     ):
-        rule = tmp_path / "regulations/example.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(),
                 "applied_files": [
                     {
-                        "path": "regulations/example.yaml",
+                        "path": "us/regulations/example.yaml",
                         "sha256": _sha256_file(rule),
                     }
                 ],
@@ -25281,10 +27679,11 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 roots=("regulations",),
                 all_files=True,
             )
@@ -25294,14 +27693,15 @@ rules: []
     def test_accepts_country_prefixed_existing_rulespec_in_all_mode(self, tmp_path):
         rule = tmp_path / "us-ga/policies/example.yaml"
         test = tmp_path / "us-ga/policies/example.test.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
+        self._source_backed_rule(rule)
         test.write_text("cases: []\n")
         manifest = tmp_path / ".axiom/encoding-manifests/us-ga/policies/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation("rulespec-us/us-ga"),
                 "applied_files": [
                     {
                         "path": "us-ga/policies/example.yaml",
@@ -25318,36 +27718,38 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 roots=("policies",),
                 all_files=True,
             )
 
         assert issues == []
 
-    def test_accepts_monorepo_existing_rulespec_with_nested_manifest_in_all_mode(
+    def test_accepts_monorepo_existing_rulespec_with_root_manifest_in_all_mode(
         self, tmp_path
     ):
         rule = tmp_path / "us-ca/policies/example.yaml"
         test = tmp_path / "us-ca/policies/example.test.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
+        self._source_backed_rule(rule)
         test.write_text("cases: []\n")
-        manifest = tmp_path / "us-ca/.axiom/encoding-manifests/policies/example.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us-ca/policies/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation("rulespec-us/us-ca"),
                 "applied_files": [
                     {
-                        "path": "policies/example.yaml",
+                        "path": "us-ca/policies/example.yaml",
                         "sha256": _sha256_file(rule),
                     },
                     {
-                        "path": "policies/example.test.yaml",
+                        "path": "us-ca/policies/example.test.yaml",
                         "sha256": _sha256_file(test),
                     },
                 ],
@@ -25357,29 +27759,31 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
-                roots=("us-ca",),
+                corpus_path=self.corpus_path,
+                roots=("policies",),
                 all_files=True,
             )
 
         assert issues == []
 
     def test_rejects_rulespec_change_with_stale_encoder_manifest(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        rule = tmp_path / "us/regulations/example.yaml"
+        self._source_backed_rule(rule)
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = _signed_manifest_payload(
             {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": self._attestation(),
                 "applied_files": [
                     {
-                        "path": "regulations/example.yaml",
-                        "sha256": "not-current",
+                        "path": "us/regulations/example.yaml",
+                        "sha256": "f" * 64,
                     }
                 ],
             }
@@ -25388,33 +27792,36 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/example.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
                 ],
             )
 
         assert issues == [
-            "regulations/example.yaml content does not match the encoder apply manifest sha256"
+            ".axiom/encoding-manifests/us/regulations/example.json has stale sha256 "
+            "for us/regulations/example.yaml"
         ]
 
     def test_rejects_rulespec_change_with_unsigned_encoder_manifest(self, tmp_path):
-        rule = tmp_path / "regulations/example.yaml"
+        rule = tmp_path / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
-        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/example.json"
         manifest.parent.mkdir(parents=True)
         manifest.write_text(
             json.dumps(
                 {
                     "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "backend": "codex",
                     "applied_files": [
                         {
-                            "path": "regulations/example.yaml",
+                            "path": "us/regulations/example.yaml",
                             "sha256": _sha256_file(rule),
                         }
                     ],
@@ -25425,28 +27832,36 @@ rules: []
 
         with patch.dict(
             os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             issues = guard_generated_change_issues(
                 tmp_path,
+                corpus_path=self.corpus_path,
                 changed_files=[
-                    "regulations/example.yaml",
-                    ".axiom/encoding-manifests/regulations/example.json",
+                    "us/regulations/example.yaml",
+                    ".axiom/encoding-manifests/us/regulations/example.json",
                 ],
             )
 
         assert issues == [
-            ".axiom/encoding-manifests/regulations/example.json is missing an encoder apply manifest signature"
+            ".axiom/encoding-manifests/us/regulations/example.json is missing an encoder apply manifest signature"
         ]
 
     def test_guard_generated_command_exits_nonzero_for_manual_change(
         self, capsys, tmp_path
     ):
-        rule = tmp_path / "regulations/example.yaml"
+        repo = tmp_path / "rulespec-us"
+        release = _bind_test_corpus_release(
+            repo,
+            tmp_path / "canonical-axiom-corpus",
+            body="test source\n",
+        )
+        rule = repo / "us/regulations/example.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("format: rulespec/v1\nrules: []\n")
         args = SimpleNamespace(
-            repo=tmp_path,
+            repo=repo,
+            corpus_path=release.root,
             base_ref=None,
             head_ref="HEAD",
             roots="regulations",
@@ -25456,7 +27871,7 @@ rules: []
         with (
             patch(
                 "axiom_encode.cli._git_changed_files",
-                return_value=["regulations/example.yaml"],
+                return_value=["us/regulations/example.yaml"],
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -25467,10 +27882,23 @@ rules: []
 
 
 class TestApplyDependencyValidation:
+    @pytest.fixture(autouse=True)
+    def _isolate_overlay_mechanics_from_apply_provenance(self, monkeypatch):
+        """Keep repair/dependency tests focused on their staged overlay behavior."""
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._stamp_generated_source_attestation_for_apply",
+            lambda _result, _output_file: None,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._record_successful_apply_validation",
+            lambda _result, **_kwargs: None,
+        )
+
     def test_repair_generated_import_symbol_near_miss_updates_imports_and_formulas(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         imported = policy_repo / "statutes/26/1401/a.yaml"
         generated = policy_repo / "statutes/26/164/f.yaml"
         imported.parent.mkdir(parents=True)
@@ -25539,7 +27967,7 @@ rules:
     def test_repair_generated_import_symbol_near_miss_requires_clear_match(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         imported = policy_repo / "statutes/26/9999.yaml"
         generated = policy_repo / "statutes/26/8888.yaml"
         imported.parent.mkdir(parents=True)
@@ -25700,7 +28128,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         imported = policy_repo / "regulations/10-ccr-2506-1/4.206.yaml"
         generated = (
             output_root / "codex-test-model" / "regulations/10-ccr-2506-1/4.400.yaml"
@@ -25752,7 +28180,9 @@ rules:
     us-co:regulations/10-ccr-2506-1/4.400#standard_eligibility_resource_value_considered: true
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
             result,
@@ -25782,12 +28212,13 @@ rules:
         )
 
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported = policy_repo / "statutes/26/1/h.yaml"
         dependent = policy_repo / "statutes/26/199A.yaml"
         dependent_test = policy_repo / "statutes/26/199A.test.yaml"
         imported.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True, exist_ok=True)
+        _write_test_rulespec_toolchain(policy_repo)
         imported.write_text(
             """format: rulespec/v1
 rules:
@@ -25849,7 +28280,7 @@ rules: []
     def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported = policy_repo / "statutes/26/1402/a.yaml"
         dependent = policy_repo / "statutes/26/1402/b.yaml"
         dependent_test = policy_repo / "statutes/26/1402/b.test.yaml"
@@ -25915,7 +28346,7 @@ rules:
     def test_complete_missing_imported_test_inputs_adds_whole_module_deferred_import_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported = policy_repo / "statutes/26/1402/a.yaml"
         dependent = policy_repo / "statutes/26/1402/b.yaml"
         dependent_test = policy_repo / "statutes/26/1402/b.test.yaml"
@@ -25980,7 +28411,7 @@ rules:
     def test_complete_missing_imported_test_inputs_adds_transitive_import_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         leaf = policy_repo / "statutes/26/1402/b.yaml"
         middle = policy_repo / "statutes/26/1401/a.yaml"
         dependent = policy_repo / "statutes/26/164/f.yaml"
@@ -26061,7 +28492,7 @@ rules: []
     def test_complete_missing_imported_test_inputs_adds_transitive_deferred_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         deferred = policy_repo / "statutes/26/1402/a.yaml"
         middle = policy_repo / "statutes/26/1402/b.yaml"
         imported = policy_repo / "statutes/26/1401/a.yaml"
@@ -26151,7 +28582,7 @@ rules: []
         )
 
     def test_complete_missing_imported_test_inputs_adds_local_defaults(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target = policy_repo / "statutes/26/24/d.yaml"
         target_test = policy_repo / "statutes/26/24/d.test.yaml"
         target.parent.mkdir(parents=True)
@@ -26200,213 +28631,9 @@ rules:
             in target_test.read_text()
         )
 
-    def test_companion_reference_cleanup_can_add_new_import_defaults(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/32/c/2.yaml"
-        dependent = policy_repo / "statutes/26/24/d.yaml"
-        dependent_test = policy_repo / "statutes/26/24/d.test.yaml"
-        imported.parent.mkdir(parents=True)
-        dependent.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: earned_income_before_section_112_election
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          employee_compensation_includible_in_gross_income
-          + net_earnings_from_self_employment_after_self_employment_tax_deduction
-"""
-        )
-        dependent.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/32/c/2#earned_income_before_section_112_election
-rules:
-  - name: ctc_phase_in_earned_income_base
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          earned_income_before_section_112_election
-"""
-        )
-        dependent_test.write_text(
-            """- name: phase_in_case
-  input:
-    us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 20000
-  output:
-    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 0
-    us:statutes/26/32/c/2#self_employment_earned_income_component: 0
-"""
-        )
-
-        rewritten = _rewrite_stale_imported_test_input_refs(
-            test_file=dependent_test,
-            repo_path=policy_repo,
-            issues=[
-                "phase_in_case: input "
-                "`us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income` "
-                "does not resolve to an input slot"
-            ],
-        )
-        removed = _remove_unknown_test_output_refs(
-            test_file=dependent_test,
-            issues=[
-                "phase_in_case: unknown executable output "
-                "us:statutes/26/32/c/2#self_employment_earned_income_component"
-            ],
-        )
-        changed = _complete_missing_imported_test_inputs(
-            rules_file=dependent,
-            test_file=dependent_test,
-            repo_path=policy_repo,
-            validation=SimpleNamespace(
-                results={
-                    "ci": SimpleNamespace(
-                        error=(
-                            "phase_in_case: missing input "
-                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction` "
-                            "for entity `case` over 2026-01-01..2026-12-31"
-                        )
-                    )
-                }
-            ),
-        )
-
-        assert rewritten == [
-            "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income -> us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income"
-        ]
-        assert removed == [
-            "us:statutes/26/32/c/2#self_employment_earned_income_component"
-        ]
-        assert changed is True
-        repaired = dependent_test.read_text()
-        assert "self_employment_earned_income_component" not in repaired
-        assert "wages_salaries_tips" not in repaired
-        assert (
-            "us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income: 20000"
-            in repaired
-        )
-        assert (
-            "us:statutes/26/32/c/2#input.net_earnings_from_self_employment_after_self_employment_tax_deduction: 0"
-            in repaired
-        )
-
-    def test_repair_companion_test_references_adds_missing_defaults_with_case(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "us/statutes/26/32/c/2.yaml"
-        dependent = policy_repo / "us/statutes/26/24/d.yaml"
-        dependent_test = policy_repo / "us/statutes/26/24/d.test.yaml"
-        imported.parent.mkdir(parents=True)
-        dependent.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: earned_income_before_section_112_election
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          employee_compensation_includible_in_gross_income
-          + net_earnings_from_self_employment_after_self_employment_tax_deduction
-"""
-        )
-        dependent.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/32/c/2#earned_income_before_section_112_election
-rules:
-  - name: ctc_phase_in_earned_income_base
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          earned_income_before_section_112_election
-"""
-        )
-        dependent_test.write_text(
-            """- name: phase_in_case
-  input:
-    us:statutes/26/32/c/2#input.employee_compensation_includible_in_gross_income: 20000
-  output:
-    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 0
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/26/24/d.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        failure_sequence = iter(
-            [
-                [
-                    {
-                        "case": "phase_in_case",
-                        "message": (
-                            "missing input "
-                            "`net_earnings_from_self_employment_after_self_employment_tax_deduction` "
-                            "for entity `case` over 2026-01-01..2026-12-31"
-                        ),
-                    }
-                ],
-                [],
-                [],
-            ]
-        )
-
-        def fake_companion_failures(test_file, *, root, axiom_rules_path):
-            assert test_file == dependent_test.resolve()
-            assert root == policy_repo.resolve()
-            assert axiom_rules_path == tmp_path / "axiom-rules-engine"
-            return next(failure_sequence)
-
-        with (
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                side_effect=fake_companion_failures,
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_companion_test_references(args)
-
-        assert (
-            "us:statutes/26/32/c/2#input.net_earnings_from_self_employment_after_self_employment_tax_deduction: 0"
-            in dependent_test.read_text()
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/us/statutes/26/24/d.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["tool"] == "axiom-encode repair-companion-test-references"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "us/statutes/26/24/d.yaml",
-            "us/statutes/26/24/d.test.yaml",
-        ]
-
     def test_rulespec_base_for_file_uses_country_content_root(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us/statutes/26/24/d.yaml"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        target = policy_repo / "statutes/26/24/d.yaml"
         target.parent.mkdir(parents=True)
         target.write_text("format: rulespec/v1\nrules: []\n")
 
@@ -26418,7 +28645,7 @@ rules:
     def test_complete_missing_imported_test_inputs_adds_table_entity_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported = policy_repo / "statutes/26/3121/y.yaml"
         dependent = policy_repo / "statutes/26/3121/b/15.yaml"
         dependent_test = policy_repo / "statutes/26/3121/b/15.test.yaml"
@@ -26505,7 +28732,7 @@ rules:
     def test_complete_missing_imported_test_inputs_adds_relation_row_defaults(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         imported = policy_repo / "regulations/42-cfr/435/603/e.yaml"
         dependent = policy_repo / "regulations/42-cfr/435/603/d.yaml"
         dependent_test = policy_repo / "regulations/42-cfr/435/603/d.test.yaml"
@@ -26588,409 +28815,6 @@ rules:
             relation_rows[0]["us:regulations/42-cfr/435/603/e#input.payment_amount"]
             == 0
         )
-
-    def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/1/h.yaml"
-        target = policy_repo / "statutes/26/1/j.yaml"
-        test_file = policy_repo / "statutes/26/1/j.test.yaml"
-        imported.parent.mkdir(parents=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: capital_gains_excluded_from_taxable_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          long_term_capital_gains - net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/1/h
-rules: []
-"""
-        )
-        test_file.write_text(
-            """- name: ordinary_income_case
-  input:
-    us:statutes/26/1/h#input.long_term_capital_gains: 0
-  output: {}
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/1/j.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `ordinary_income_case` execution failed: "
-                                    "missing input `net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii`"
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_imported_test_inputs(args)
-
-        updated = test_file.read_text()
-        assert (
-            "us:statutes/26/1/h#input."
-            "net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii: 0"
-            in updated
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1/j.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "imported-test-inputs-v1"
-        assert payload["tool"] == "axiom-encode repair-imported-test-inputs"
-
-    def test_repair_imported_test_inputs_removes_import_output_placeholders(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/224.yaml"
-        target = policy_repo / "statutes/26/63.yaml"
-        test_file = policy_repo / "statutes/26/63.test.yaml"
-        imported.parent.mkdir(parents=True)
-        imported.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
-rules: []
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/224
-rules: []
-"""
-        )
-        test_file.write_text(
-            """- name: transitive_case
-  input:
-    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
-    us:statutes/26/63#input.adjusted_gross_income: 100000
-  output: {}
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/63.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` execution failed: "
-                                    "dataset input "
-                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
-                                    "must use an absolute legal RuleSpec reference "
-                                    "that resolves to an input slot, derived rule, "
-                                    "or parameter in the compiled program"
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_imported_test_inputs(args)
-
-        updated = test_file.read_text()
-        assert (
-            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
-            not in updated
-        )
-        assert "us:statutes/26/63#input.adjusted_gross_income: 100000" in updated
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "imported-test-inputs-v1"
-
-    def test_repair_imported_test_inputs_removes_stale_invalid_refs_then_fills_missing_imports(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/1401/b/1.yaml"
-        target = policy_repo / "statutes/26/32/c/2.yaml"
-        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
-        imported.parent.mkdir(parents=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: self_employment_income_tax
-    kind: derived
-    entity: Person
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: self_employment_income * 0.029
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/1401/b/1#self_employment_income_tax
-rules: []
-"""
-        )
-        test_file.write_text(
-            """- name: transitive_case
-  input:
-    us:statutes/26/1401#input.self_employment_income: 1000
-    us:statutes/26/32/c/2#input.taxpayer_is_individual: true
-  output:
-    us:statutes/26/32/c/2#self_employment_earned_income_component: 900
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/32/c/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` execution failed: "
-                                    "dataset input "
-                                    "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
-                                    "must use an absolute legal RuleSpec reference "
-                                    "that resolves to an input slot, derived rule, "
-                                    "or parameter in the compiled program"
-                                )
-                            )
-                        },
-                    )
-                if FakePipeline.calls == 2:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` execution failed: "
-                                    "missing input `self_employment_income`"
-                                )
-                            )
-                        },
-                    )
-                if FakePipeline.calls == 3:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` output "
-                                    "`tmp-rulespec:statutes/26/32/c/2#self_employment_earned_income_component` "
-                                    "expected decimal 900, got decimal 1000."
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_imported_test_inputs(args)
-
-        updated = test_file.read_text()
-        assert "us:statutes/26/1401#input.self_employment_income" not in updated
-        assert "us:statutes/26/32/c/2#input.taxpayer_is_individual: true" in updated
-        assert "us:statutes/26/1401/b/1#input.self_employment_income: 0" in updated
-        assert (
-            "us:statutes/26/32/c/2#self_employment_earned_income_component: 1000"
-            in updated
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "imported-test-inputs-v1"
-
-    def test_repair_imported_test_inputs_rewrites_stale_exclusion_inputs(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/63.yaml"
-        test_file = policy_repo / "statutes/26/63.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/224
-  - us:statutes/26/225
-rules: []
-"""
-        )
-        test_file.write_text(
-            """- name: transitive_case
-  input:
-    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911: 0
-    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
-    us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933: 0
-    us:statutes/26/63#input.adjusted_gross_income: 100000
-  output: {}
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/63.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` input invalid: "
-                                    "input "
-                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911` "
-                                    "does not resolve to an input slot; "
-                                    "input "
-                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
-                                    "does not resolve to an input slot; "
-                                    "input "
-                                    "`us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933` "
-                                    "does not resolve to an input slot"
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_imported_test_inputs(args)
-
-        updated = test_file.read_text()
-        assert (
-            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911"
-            not in updated
-        )
-        assert (
-            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
-            not in updated
-        )
-        assert (
-            "us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933"
-            not in updated
-        )
-        assert (
-            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0"
-            in updated
-        )
-        assert (
-            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
-            in updated
-        )
-        assert (
-            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 0"
-            in updated
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "imported-test-inputs-v1"
 
     def test_repair_snap_2014c_income_standard_test_inputs(self, tmp_path):
         test_file = tmp_path / "c.test.yaml"
@@ -27137,11 +28961,17 @@ rules: []
         )
 
     def test_repair_scalar_relation_rows_from_companion_tests(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us-ny"
-        companion_test = (
-            tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.test.yaml"
+        policy_repo = tmp_path / "rulespec-us" / "us-ny"
+        policy_repo.mkdir(parents=True)
+        dependency_root = tmp_path / "rulespec-us"
+        dependency_module = (
+            dependency_root / "us" / "statutes" / "7" / "2012" / "j.yaml"
         )
-        companion_test.parent.mkdir(parents=True)
+        dependency_module.parent.mkdir(parents=True)
+        dependency_module.write_text("format: rulespec/v1\nrules: []\n")
+        companion_test = (
+            dependency_root / "us" / "statutes" / "7" / "2012" / "j.test.yaml"
+        )
         companion_test.write_text(
             """- name: household_has_elderly_or_disabled_member
   period: 2026-01
@@ -27165,17 +28995,18 @@ rules: []
 """
         )
 
-        repaired = _repair_scalar_relation_rows(
-            test_file=test_file,
-            policy_repo_path=policy_repo,
-            parsed_issues=[
-                (
-                    "elderly_or_disabled_member_household",
-                    "us:statutes/7/2012/j#relation.member_of_household",
-                    1,
-                )
-            ],
-        )
+        with _authoritative_rulespec_dependency_scope((dependency_root,)):
+            repaired = _repair_scalar_relation_rows(
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[
+                    (
+                        "elderly_or_disabled_member_household",
+                        "us:statutes/7/2012/j#relation.member_of_household",
+                        1,
+                    )
+                ],
+            )
 
         assert repaired == [
             "elderly_or_disabled_member_household:"
@@ -27187,8 +29018,8 @@ rules: []
         ]
 
     def test_repair_scalar_relation_rows_from_generated_formula(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-uk"
-        policy_repo.mkdir()
+        policy_repo = tmp_path / "rulespec-uk" / "uk"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             tmp_path / "generated" / "statutes" / "ukpga" / "2007" / "3" / "23.yaml"
         )
@@ -27350,8 +29181,8 @@ rules:
     def test_try_repair_scalar_relation_rows_from_missing_input_assignment(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us"
-        policy_repo.mkdir()
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
         output_root = tmp_path / "out"
         rules_file = (
             output_root / "codex-test-model" / "statutes" / "26" / "36B" / "b.yaml"
@@ -27540,8 +29371,8 @@ rules:
     def test_repair_scalar_relation_rows_from_generated_count_where_formula(
         self, tmp_path
     ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        policy_repo.mkdir()
+        policy_repo = tmp_path / "rulespec-us" / "us-co"
+        policy_repo.mkdir(parents=True)
         rules_file = (
             tmp_path / "generated" / "regulations" / "10-ccr-2506-1" / "4.208.1.yaml"
         )
@@ -27618,7 +29449,7 @@ rules:
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-ny"
+        policy_repo = tmp_path / "rulespec-us" / "us-ny"
         target = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         generated = (
             output_root
@@ -27642,13 +29473,18 @@ rules:
 """
         )
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
             result,
             output_root=output_root,
             policy_repo_path=policy_repo,
             axiom_rules_path=tmp_path / "axiom-rules-engine",
+            local_corpus_release=_bind_test_corpus_release(
+                policy_repo, tmp_path / "axiom-corpus"
+            ),
         )
 
         assert ok is False
@@ -27657,7 +29493,7 @@ rules:
         assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
         assert "dropped existing source_relation" in issues[0]
 
-    def test_apply_overlay_preserves_requested_source_metadata_for_parent_fallback(
+    def test_apply_overlay_reads_source_metadata_from_explicit_context_manifest(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
@@ -27666,53 +29502,38 @@ rules:
         )
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
-        manifest_path = (
-            output_root
-            / "_eval_workspaces"
-            / "codex-test-model"
-            / "us-co-statute-39-39-22-104-1.7-c"
-            / "workspace"
-            / "context-manifest.json"
-        )
+        manifest_path = tmp_path / "explicit-context" / "context-manifest.json"
         manifest_path.parent.mkdir(parents=True)
+        source_attestation = {
+            "requested_corpus_citation_path": "us-co/statute/39/39-22-104/1.7/c",
+            "resolved_corpus_citation_path": "us-co/statute/39/39-22-104",
+        }
         manifest_path.write_text(
             json.dumps(
                 {
                     "citation": "us-co/statute/39/39-22-104/1.7/c",
-                    "source_metadata": {
-                        "corpus_citation_path": "us-co/statute/39/39-22-104",
-                        "corpus_source": "supabase",
-                        "requested_source": "us-co/statute/39/39-22-104/1.7/c",
-                    },
+                    "source_metadata": {"source_attestation": source_attestation},
                 }
             )
         )
-
-        overlay_parent = tmp_path / "overlay"
-        overlay_target = (
-            overlay_parent / "rulespec-us-co" / "statutes/39/39-22-104/1.7/c.yaml"
-        )
-        overlay_target.parent.mkdir(parents=True)
-        overlay_target.write_text(output_file.read_text())
-
-        written = _write_overlay_eval_source_metadata_for_generated_output(
-            output_file=output_file,
-            overlay_parent=overlay_parent,
-            relative_output=Path("statutes/39/39-22-104/1.7/c.yaml"),
+        result = SimpleNamespace(
+            output_file=str(output_file),
+            context_manifest_file=str(manifest_path),
+            source_attestation=source_attestation,
         )
 
-        assert written is not None
-        assert _load_nearby_eval_source_metadata(overlay_target) == {
-            "corpus_citation_path": "us-co/statute/39/39-22-104",
-            "corpus_source": "supabase",
-            "requested_source": "us-co/statute/39/39-22-104/1.7/c",
+        assert _generated_result_source_metadata(result) == {
+            "source_attestation": {
+                "requested_corpus_citation_path": ("us-co/statute/39/39-22-104/1.7/c"),
+                "resolved_corpus_citation_path": "us-co/statute/39/39-22-104",
+            },
         }
 
     def test_apply_overlay_validation_allows_deferred_replacement_of_executable_file(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         target = policy_repo / "regulations/7-cfr/273/10.yaml"
         generated = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
         target.parent.mkdir(parents=True)
@@ -27737,7 +29558,9 @@ module:
 rules: []
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -27753,9 +29576,12 @@ rules: []
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
-        assert ok is True
+        assert ok is True, issues
         assert issues == []
         assert supplemental == {}
 
@@ -27763,11 +29589,11 @@ rules: []
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         generated_test = generated.with_name("151.test.yaml")
         generated.parent.mkdir(parents=True)
-        policy_repo.mkdir()
+        policy_repo.mkdir(parents=True)
         generated.write_text(
             """format: rulespec/v1
 rules:
@@ -27795,7 +29621,9 @@ rules:
     us:statutes/26/151#section_151_amount: 5
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         validation_attempts: list[str] = []
 
         class FakePipeline:
@@ -27829,6 +29657,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -27843,18 +29674,20 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us-worktree"
-        sibling_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "active" / "rulespec-us" / "us"
+        sibling_repo = tmp_path / "ambient" / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/3201.yaml"
-        policy_repo.mkdir()
-        sibling_repo.mkdir()
+        policy_repo.mkdir(parents=True)
+        sibling_repo.mkdir(parents=True)
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **kwargs):
-                assert Path(kwargs["policy_repo_path"]).name == "rulespec-us"
+                assert Path(kwargs["policy_repo_path"]).name == "us"
 
             def validate(self, _path, *, skip_reviewers):
                 assert skip_reviewers is True
@@ -27872,6 +29705,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -27899,15 +29735,15 @@ imports:
 rules: []
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         staged_federal_files: list[Path] = []
 
         class FakePipeline:
             def __init__(self, **kwargs):
                 repo_path = Path(kwargs["policy_repo_path"])
-                staged_federal = (
-                    repo_path.parent / "rulespec-us/us/regulations/7-cfr/273/9.yaml"
-                )
+                staged_federal = repo_path.parent / "us/regulations/7-cfr/273/9.yaml"
                 staged_federal_files.append(staged_federal)
                 assert staged_federal.exists()
 
@@ -27922,6 +29758,10 @@ rules: []
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
                 validate_dependents=False,
+                rulespec_dependency_roots=(monorepo,),
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -27929,14 +29769,15 @@ rules: []
         assert supplemental == {}
         assert len(staged_federal_files) == 1
 
-    def test_apply_overlay_validation_routes_country_monorepo_root(self, tmp_path):
+    def test_apply_overlay_validation_uses_canonical_content_root(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
         generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
-        (policy_repo / "us").mkdir(parents=True)
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         pipeline_roots: list[Path] = []
         validated_paths: list[Path] = []
 
@@ -27955,6 +29796,9 @@ rules: []
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -27985,14 +29829,61 @@ rules: []
         assert (target / "us/regulations/7-cfr/273/9.yaml").exists()
         assert not target.is_symlink()
 
+    def test_apply_overlay_stages_only_explicit_dependency_roots(self, tmp_path):
+        policy_repo = tmp_path / "active" / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        ambient_root = tmp_path / "active" / "rulespec-uk"
+        ambient_file = ambient_root / "uk/statutes/1/ambient.yaml"
+        ambient_file.parent.mkdir(parents=True)
+        ambient_file.write_text("format: rulespec/v1\nrules: []\n")
+        dependency_root = tmp_path / "declared" / "rulespec-nz"
+        dependency_file = dependency_root / "nz/statutes/1/declared.yaml"
+        dependency_file.parent.mkdir(parents=True)
+        dependency_file.write_text("format: rulespec/v1\nrules: []\n")
+        overlay_parent = tmp_path / "overlay"
+        overlay_parent.mkdir()
+
+        staged = _stage_apply_overlay_dependency_roots(
+            overlay_parent=overlay_parent,
+            policy_repo_path=policy_repo,
+            overlay_repo_name="rulespec-us",
+            rulespec_dependency_roots=(dependency_root,),
+        )
+
+        assert staged == (overlay_parent / "rulespec-nz",)
+        assert (staged[0] / "nz/statutes/1/declared.yaml").is_file()
+        assert not (overlay_parent / "rulespec-uk").exists()
+
+    def test_apply_overlay_rejects_symlink_dependency_root(self, tmp_path):
+        policy_repo = tmp_path / "active" / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        dependency_root = tmp_path / "private" / "rulespec-uk"
+        (dependency_root / "uk").mkdir(parents=True)
+        aliases = tmp_path / "aliases"
+        aliases.mkdir()
+        alias = aliases / "rulespec-uk"
+        alias.symlink_to(dependency_root, target_is_directory=True)
+        overlay_parent = tmp_path / "overlay"
+        overlay_parent.mkdir()
+
+        with pytest.raises(UnsafeRulespecContextPath, match="contains a symlink"):
+            _stage_apply_overlay_dependency_roots(
+                overlay_parent=overlay_parent,
+                policy_repo_path=policy_repo,
+                overlay_repo_name="rulespec-us",
+                rulespec_dependency_roots=(alias,),
+            )
+
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
         generated.parent.mkdir(parents=True)
-        policy_repo.mkdir()
+        policy_repo.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         seen_require_policy_proofs: list[bool] = []
 
         class FakePipeline:
@@ -28011,393 +29902,15 @@ rules: []
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
         assert issues == []
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
-
-    def test_repair_nonnegative_floors_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "regulations/7-cfr/273/10.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: snap_calculated_monthly_allotment_before_minimums
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if state_agency_rounds_thirty_percent_net_income_up: snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate) else: floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
-
-  - name: snap_monthly_allotment
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if household_initial_month and snap_calculated_monthly_allotment_before_minimums < snap_initial_month_minimum_issuance: 0 else: snap_calculated_monthly_allotment_before_minimums
-"""
-        )
-        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
-        test_file.write_text(
-            """- name: existing_positive_case
-  period: 2026-01
-  input:
-    us:regulations/7-cfr/273/10#input.household_size: 1
-  output:
-    us:regulations/7-cfr/273/10#snap_monthly_allotment: 24
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("regulations/7-cfr/273/10.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_nonnegative_floors(args)
-
-        content = target.read_text()
-        assert "max(0, snap_maximum_allotment_for_household_size - ceil(" in content
-        assert "else: max(0, floor(snap_maximum_allotment_for_household_size" in content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["backend"] == "deterministic"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "regulations/7-cfr/273/10.yaml",
-        ]
-        assert payload["tool"] == "axiom-encode repair-nonnegative-floors"
-
-    def test_repair_snap_273_10_allotment_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "regulations/7-cfr/273/10.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:policies/usda/snap/fy-2026-cola/deductions
-  - us:regulations/7-cfr/273/9
-rules:
-  - name: snap_calculated_monthly_allotment_before_minimums
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
-  - name: snap_minimum_benefit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          floor((snap_maximum_allotment_for_one_person_household * snap_minimum_benefit_rate) + 0.5)
-"""
-        )
-        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
-        test_file.write_text(
-            """- name: one_person_household_receives_minimum_benefit
-  period: 2026-01
-  input:
-    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
-    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298
-  output:
-    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_snap_273_10_allotment(args)
-
-        content = target.read_text()
-        assert "us:policies/usda/snap/fy-2026-cola/maximum-allotments" in content
-        assert "snap_maximum_allotment_for_household_size" not in content
-        assert "snap_maximum_allotment_for_one_person_household" not in content
-        assert "snap_maximum_allotment - ceil(" in content
-        assert (
-            "snap_one_person_thrifty_food_plan_cost * snap_minimum_benefit_rate"
-            in content
-        )
-        test_content = test_file.read_text()
-        assert (
-            "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1"
-            in test_content
-        )
-        assert "snap_maximum_allotment_for_one_person_household" not in test_content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "regulations/7-cfr/273/10.yaml",
-            "regulations/7-cfr/273/10.test.yaml",
-        ]
-        assert payload["tool"] == "axiom-encode repair-snap-273-10-allotment"
-
-    def test_repair_snap_273_9_income_eligibility_writes_signed_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "regulations/7-cfr/273/9.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/7/2012/j
-  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
-rules:
-  - name: snap_standard_gross_income_eligible
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          snap_household_has_elderly_or_disabled_member
-          or snap_gross_monthly_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
-  - name: snap_standard_net_income_eligible
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_net_income <= snap_net_income_limit_100_percent_fpl_48_states_dc
-"""
-        )
-        test_file = policy_repo / "regulations/7-cfr/273/9.test.yaml"
-        test_file.write_text(
-            """- name: non_elderly_household_must_meet_gross_and_net_income_standards
-  period: 2026-01
-  input:
-    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
-    us:regulations/7-cfr/273/9#input.snap_gross_monthly_income: 1696
-    us:regulations/7-cfr/273/9#input.snap_net_income: 1305
-  output:
-    us:regulations/7-cfr/273/9#snap_standard_income_eligible: holds
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_snap_273_9_income_eligibility(args)
-
-        content = target.read_text()
-        assert "us:regulations/7-cfr/273/10" in content
-        assert "snap_gross_monthly_income" not in content
-        assert "snap_total_gross_income <=" in content
-        assert "snap_net_monthly_income <=" in content
-        test_content = test_file.read_text()
-        assert (
-            "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"
-            not in test_content
-        )
-        assert (
-            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696"
-            in test_content
-        )
-        assert (
-            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5"
-            in test_content
-        )
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "regulations/7-cfr/273/9.yaml",
-            "regulations/7-cfr/273/9.test.yaml",
-        ]
-        assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
-
-    def test_repair_snap_273_9_income_eligibility_refreshes_stale_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "regulations/7-cfr/273/9.yaml"
-        target.parent.mkdir(parents=True)
-        repaired_rules = """format: rulespec/v1
-imports:
-  - us:statutes/7/2012/j
-  - us:regulations/7-cfr/273/10
-  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
-rules:
-  - name: snap_standard_gross_income_eligible
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          snap_household_has_elderly_or_disabled_member
-          or snap_total_gross_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
-  - name: snap_standard_net_income_eligible
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_net_monthly_income <= snap_net_income_limit_100_percent_fpl_48_states_dc
-"""
-        target.write_text(repaired_rules)
-        test_file = policy_repo / "regulations/7-cfr/273/9.test.yaml"
-        repaired_tests = """- name: non_elderly_household_must_meet_gross_and_net_income_standards
-  period: 2026-01
-  input:
-    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
-    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
-    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 0
-    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 1696
-    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
-    us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction: false
-    us:regulations/7-cfr/273/10#input.snap_total_medical_expenses: 0
-    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses: 0
-    us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments: 0
-    us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction: 0
-    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 925.5
-  output:
-    us:regulations/7-cfr/273/9#snap_standard_income_eligible: holds
-"""
-        test_file.write_text(repaired_tests)
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/9.json"
-        )
-        manifest.parent.mkdir(parents=True)
-        stale_payload = {
-            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "tool": "axiom-encode repair-snap-273-9-income-eligibility",
-            "axiom_encode_version": "0.2.624",
-            "axiom_encode_git": {"commit": "old", "dirty_tracked": False},
-            "applied_files": [
-                {
-                    "path": "regulations/7-cfr/273/9.yaml",
-                    "sha256": _sha256_file(target),
-                },
-                {
-                    "path": "regulations/7-cfr/273/9.test.yaml",
-                    "sha256": _sha256_file(test_file),
-                },
-            ],
-        }
-        manifest.write_text(json.dumps(stale_payload))
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        current_git = {"commit": "new", "dirty_tracked": False}
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value=current_git,
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_snap_273_9_income_eligibility(args)
-
-        payload = json.loads(manifest.read_text())
-        assert target.read_text() == repaired_rules
-        assert test_file.read_text() == repaired_tests
-        assert payload["axiom_encode_version"] == AXIOM_ENCODE_TEST_VERSION
-        assert payload["axiom_encode_git"] == current_git
-        assert payload["tool"] == "axiom-encode repair-snap-273-9-income-eligibility"
 
     def test_repair_medicaid_optional_senior_composition_updates_rule_and_tests(
         self,
@@ -28749,994 +30262,6 @@ rules:
         assert "optional working disabled category eligible" in changed_tests
         assert "optional SSI excess earnings category eligible" in changed_tests
 
-    def test_repair_medicaid_primary_category_refreshes_stale_manifest(self, tmp_path):
-        checkout = tmp_path / "rulespec-us"
-        _init_test_git_repo(checkout)
-        policy_repo = checkout / "us"
-        rules_file = policy_repo / "statutes/42/1396a/a/10.yaml"
-        test_file = policy_repo / "statutes/42/1396a/a/10.test.yaml"
-        medically_needy_file = policy_repo / "regulations/42-cfr/435/301.yaml"
-        rules_file.parent.mkdir(parents=True)
-        rules_file.write_text(
-            """format: rulespec/v1
-imports:
-  - us:regulations/42-cfr/435/110#parent_or_caretaker_relative_eligible
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/statute/42/1396a/a/10
-rules:
-  - name: is_medicaid_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Month
-    source: 42 USC 1396a(a)(10)(A)(i)-(ii)
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: predicate
-            source:
-              corpus_citation_path: us/statute/42/1396a/a/10
-    versions:
-      - effective_from: '2014-01-01'
-        formula: |-
-          former_foster_care_child_medicaid_required
-          or is_optional_senior_or_disabled_for_medicaid
-"""
-        )
-        test_file.write_text(
-            """- name: no composed mandatory category eligible
-  period: 2027-01
-  input:
-    us:regulations/42-cfr/435/110#input.person_is_parent_or_caretaker_relative: false
-  output:
-    us:statutes/42/1396a/a/10#is_medicaid_eligible: not_holds
-"""
-        )
-        medically_needy_file.parent.mkdir(parents=True, exist_ok=True)
-        medically_needy_file.write_text("format: rulespec/v1\nrules: []\n")
-        _git(checkout, "add", ".")
-        _git(checkout, "commit", "-m", "initial")
-
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path.suffix == ".yaml"
-                assert path.is_relative_to(policy_repo)
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/42/1396a/a/10.json"
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "old123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_medicaid_primary_category_composition(args)
-
-        first_payload = json.loads(manifest.read_text())
-        first_rules_content = rules_file.read_text()
-        first_test_content = test_file.read_text()
-        assert first_payload["axiom_encode_git"]["commit"] == "old123"
-        assert "\n  - us:statutes/42/1396a/m\n" in first_rules_content
-        _git(checkout, "add", ".")
-        _git(checkout, "commit", "-m", "apply old repair")
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "new456", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_medicaid_primary_category_composition(args)
-
-        refreshed_payload = json.loads(manifest.read_text())
-        assert rules_file.read_text() == first_rules_content
-        assert test_file.read_text() == first_test_content
-        assert refreshed_payload["axiom_encode_git"]["commit"] == "new456"
-        assert [item["path"] for item in refreshed_payload["applied_files"]] == [
-            "statutes/42/1396a/a/10.yaml",
-            "statutes/42/1396a/a/10.test.yaml",
-        ]
-        _git(checkout, "add", ".")
-        _git(checkout, "commit", "-m", "refresh manifest")
-
-        rules_file.write_text(
-            rules_file.read_text().replace(
-                "\n  - us:statutes/42/1396a/m\n",
-                "\n  - us:statutes/42/1396a/m#is_optional_senior_or_disabled_for_medicaid\n",
-            )
-        )
-        _git(checkout, "add", str(rules_file.relative_to(checkout)))
-        _git(checkout, "commit", "-m", "stale module import")
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "new789", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_medicaid_primary_category_composition(args)
-
-        repaired_payload = json.loads(manifest.read_text())
-        assert "\n  - us:statutes/42/1396a/m\n" in rules_file.read_text()
-        assert test_file.read_text() == first_test_content
-        assert repaired_payload["axiom_encode_git"]["commit"] == "new789"
-        assert [item["path"] for item in repaired_payload["applied_files"]] == [
-            "statutes/42/1396a/a/10.yaml",
-            "statutes/42/1396a/a/10.test.yaml",
-        ]
-
-    def test_repair_georgia_cms_medicaid_availability_writes_signed_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-  summary: |-
-    Georgia row: Pregnant Women CHIP N/A; Adults (Medicaid) Parent/Caretaker 28%($); Adults (Medicaid) Expansion to Adults No.
-rules:
-  - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
-    kind: parameter
-    dtype: Rate
-    source: CMS Medicaid, CHIP and BHP Eligibility Levels table, Georgia row
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: table_cell
-            source:
-              corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-              table:
-                header: State Medicaid, CHIP and BHP Income Eligibility Standards
-                row: Georgia
-                column: Adults (Medicaid) Parent/Caretaker
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          0.28
-"""
-        )
-        test_file = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        test_file.write_text(
-            """- name: georgia_magi_eligibility_level_parameters_as_of_december_2023
-  period:
-    period_kind: custom
-    name: day
-    start: '2023-12-01'
-    end: '2023-12-01'
-  input: {}
-  output:
-    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit: 0.28
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_georgia_cms_medicaid_availability(args)
-
-        rules_payload = yaml.safe_load(target.read_text())
-        rule_names = [rule["name"] for rule in rules_payload["rules"]]
-        assert "georgia_parent_caretaker_standard_uses_dollar_amounts" in rule_names
-        assert "georgia_pregnant_women_chip_available" in rule_names
-        assert "georgia_adult_medicaid_expansion_available" in rule_names
-        content = target.read_text()
-        assert 'excerpt: "28%($)"' in content
-        assert 'excerpt: "N/A"' in content
-        assert 'excerpt: "No"' in content
-        test_content = test_file.read_text()
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_parent_caretaker_standard_uses_dollar_amounts: true"
-        ) in test_content
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_pregnant_women_chip_available: false"
-        ) in test_content
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_adult_medicaid_expansion_available: false"
-        ) in test_content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
-            "georgia-medicaid-chip-bhp-eligibility-levels.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "georgia-cms-medicaid-availability-v1"
-        assert (
-            payload["tool"] == "axiom-encode repair-georgia-cms-medicaid-availability"
-        )
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml",
-            "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml",
-        ]
-
-    def test_repair_georgia_cms_medicaid_availability_does_not_mutate_without_signing_key(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        original_rules = """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-rules:
-  - name: georgia_parent_caretaker_adults_medicaid_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          0.28
-"""
-        target.write_text(original_rules)
-        test_file = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        original_tests = """- name: existing
-  output:
-    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_parent_caretaker_adults_medicaid_fpl_limit: 0.28
-"""
-        test_file.write_text(original_tests)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        provenance = MagicMock()
-
-        with (
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                provenance,
-            ),
-            patch.dict(os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: ""}),
-            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
-        ):
-            cmd_repair_georgia_cms_medicaid_availability(args)
-
-        provenance.assert_not_called()
-        assert target.read_text() == original_rules
-        assert test_file.read_text() == original_tests
-        assert not (
-            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
-            "georgia-medicaid-chip-bhp-eligibility-levels.json"
-        ).exists()
-
-    def test_repair_georgia_cms_effective_magi_limits_writes_signed_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-  summary: |-
-    Georgia row: Children Medicaid Ages 0-1 205%; Ages 1-5 149%; Ages 6-18 133%; Children Separate CHIP 247%; Pregnant Women Medicaid 220%. The MAGI-based rules generally include a 5% FPL disregard.
-rules:
-  - name: magi_fpl_disregard_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          0.05
-  - name: georgia_children_medicaid_ages_0_to_1_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.05
-  - name: georgia_children_medicaid_ages_1_to_5_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.49
-  - name: georgia_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.33
-  - name: georgia_children_separate_chip_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.47
-  - name: georgia_pregnant_women_medicaid_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.20
-"""
-        )
-        test_file = (
-            policy_repo
-            / "us-ga/policies/cms/georgia-medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        test_file.write_text(
-            """- name: georgia_magi_eligibility_level_parameters_as_of_december_2023
-  period:
-    period_kind: custom
-    name: day
-    start: '2023-12-01'
-    end: '2023-12-01'
-  input: {}
-  output:
-    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate: 0.05
-    us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels#georgia_children_medicaid_ages_0_to_1_fpl_limit: 2.05
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_georgia_cms_effective_magi_limits(args)
-
-        rules_payload = yaml.safe_load(target.read_text())
-        rules_by_name = {rule["name"]: rule for rule in rules_payload["rules"]}
-        infant_rule = rules_by_name[
-            "georgia_children_medicaid_ages_0_to_1_effective_fpl_limit"
-        ]
-        assert infant_rule["kind"] == "derived"
-        assert (
-            infant_rule["versions"][0]["formula"]
-            == "georgia_children_medicaid_ages_0_to_1_fpl_limit + magi_fpl_disregard_rate"
-        )
-        assert (
-            "georgia_children_medicaid_ages_1_to_5_effective_fpl_limit" in rules_by_name
-        )
-        assert (
-            "georgia_children_medicaid_ages_6_to_18_effective_fpl_limit"
-            in rules_by_name
-        )
-        assert "georgia_children_separate_chip_effective_fpl_limit" in rules_by_name
-        assert "georgia_pregnant_women_medicaid_effective_fpl_limit" in rules_by_name
-        test_content = test_file.read_text()
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_children_medicaid_ages_0_to_1_effective_fpl_limit: 2.10"
-        ) in test_content
-        assert (
-            "us-ga:policies/cms/georgia-medicaid-chip-bhp-eligibility-levels"
-            "#georgia_pregnant_women_medicaid_effective_fpl_limit: 2.25"
-        ) in test_content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/us-ga/policies/cms/"
-            "georgia-medicaid-chip-bhp-eligibility-levels.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "georgia-cms-effective-magi-limits-v1"
-        assert (
-            payload["tool"] == "axiom-encode repair-georgia-cms-effective-magi-limits"
-        )
-
-    def test_repair_cms_effective_magi_limits_writes_colorado_signed_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = (
-            policy_repo
-            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
-  summary: |-
-    Colorado row: Children Medicaid Ages 0-1 142%; Ages 1-5 142%; Ages 6-18 142%; Children Separate CHIP 260%; Pregnant Women Medicaid 195%; Pregnant Women CHIP 260%. The MAGI-based rules generally include a 5% FPL disregard.
-rules:
-  - name: magi_fpl_disregard_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          0.05
-  - name: colorado_children_medicaid_ages_0_to_1_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.42
-  - name: colorado_children_medicaid_ages_1_to_5_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.42
-  - name: colorado_children_medicaid_ages_6_to_18_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.42
-  - name: colorado_children_separate_chip_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.60
-  - name: colorado_pregnant_women_medicaid_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          1.95
-  - name: colorado_pregnant_women_chip_fpl_limit
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2023-12-01'
-        formula: |-
-          2.60
-"""
-        )
-        test_file = (
-            policy_repo
-            / "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.test.yaml"
-        )
-        test_file.write_text(
-            """- name: colorado_magi_eligibility_level_parameters_as_of_december_2023
-  period:
-    period_kind: custom
-    name: day
-    start: '2023-12-01'
-    end: '2023-12-01'
-  input: {}
-  output:
-    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate: 0.05
-    us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_separate_chip_fpl_limit: 2.60
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            target=Path(
-                "us-co/policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml"
-            ),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_cms_effective_magi_limits(args)
-
-        rules_payload = yaml.safe_load(target.read_text())
-        rules_by_name = {rule["name"]: rule for rule in rules_payload["rules"]}
-        assert (
-            rules_by_name["colorado_children_separate_chip_effective_fpl_limit"][
-                "versions"
-            ][0]["formula"]
-            == "colorado_children_separate_chip_fpl_limit + magi_fpl_disregard_rate"
-        )
-        assert "colorado_pregnant_women_chip_effective_fpl_limit" in rules_by_name
-        test_content = test_file.read_text()
-        assert (
-            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
-            "#colorado_children_separate_chip_effective_fpl_limit: 2.65"
-        ) in test_content
-        assert (
-            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
-            "#colorado_pregnant_women_chip_effective_fpl_limit: 2.65"
-        ) in test_content
-        manifest = (
-            policy_repo / ".axiom/encoding-manifests/us-co/policies/cms/"
-            "colorado-medicaid-chip-bhp-eligibility-levels.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
-        assert payload["model"] == "cms-effective-magi-limits-v1"
-        assert payload["tool"] == "axiom-encode repair-cms-effective-magi-limits"
-        assert payload["citation"] == (
-            "us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels"
-        )
-
-        args.refresh_manifest = True
-        first_rules_content = target.read_text()
-        first_test_content = test_file.read_text()
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
-            ),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "def456", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_cms_effective_magi_limits(args)
-
-        assert target.read_text() == first_rules_content
-        assert test_file.read_text() == first_test_content
-        refreshed_payload = json.loads(manifest.read_text())
-        assert refreshed_payload["axiom_encode_git"]["commit"] == "def456"
-        assert (
-            refreshed_payload["tool"] == "axiom-encode repair-cms-effective-magi-limits"
-        )
-
-    def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "regulations/7-cfr/273/10.yaml"
-        target.parent.mkdir(parents=True)
-        original_rules = """format: rulespec/v1
-imports:
-  - us:policies/usda/snap/fy-2026-cola/deductions
-  - us:regulations/7-cfr/273/9
-rules:
-  - name: snap_calculated_monthly_allotment_before_minimums
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
-"""
-        target.write_text(original_rules)
-        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
-        original_tests = """- name: one_person_household_receives_minimum_benefit
-  period: 2026-01
-  input:
-    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
-  output:
-    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
-"""
-        test_file.write_text(original_tests)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FailingPipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                raise RuntimeError("validator crashed")
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FailingPipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            pytest.raises(RuntimeError, match="validator crashed"),
-        ):
-            cmd_repair_snap_273_10_allotment(args)
-
-        assert target.read_text() == original_rules
-        assert test_file.read_text() == original_tests
-        assert not (
-            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
-        ).exists()
-
-    def test_repair_current_year_final_amounts_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = (
-            policy_repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
-        )
-        imported.parent.mkdir(parents=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: eitc_maximum_credit_amounts
-    kind: parameter
-    dtype: Money
-    indexed_by: qualifying_child_count
-    versions:
-      - effective_from: '2026-01-01'
-        values:
-          0: 664
-          1: 4427
-"""
-        )
-        target = policy_repo / "statutes/26/32.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:policies/irs/rev-proc-2025-32/earned-income-credit
-rules:
-  - name: eitc_capped_child_count
-    kind: derived
-    entity: TaxUnit
-    dtype: Integer
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: min(eitc_child_count, 3)
-  - name: eitc_maximum
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/32
-              text: "credit percentage of the earned income amount"
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          eitc_phase_in_rate * eitc_earned_income_amount
-"""
-        )
-        test_file = policy_repo / "statutes/26/32.test.yaml"
-        test_file.write_text(
-            """- name: one_child_phase_in
-  period:
-    period_kind: tax_year
-    start: '2026-01-01'
-    end: '2026-12-31'
-  output:
-    us:statutes/26/32#eitc_capped_child_count: 1
-    us:statutes/26/32#eitc_maximum: 4426.8
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/32.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "ci": SimpleNamespace(
-                            error=(
-                                "Nonnegative amount income base missing floor: "
-                                "`eitc_phased_in`"
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_current_year_final_amounts(args)
-
-        content = target.read_text()
-        assert isinstance(yaml.safe_load(content), dict)
-        assert "match eitc_capped_child_count:" in content
-        assert "1 => eitc_maximum_credit_amounts[1]" in content
-        assert "output: eitc_maximum_credit_amounts" in content
-        assert "us:statutes/26/32#eitc_maximum: 4427" in test_file.read_text()
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/32.yaml",
-            "statutes/26/32.test.yaml",
-        ]
-        assert payload["tool"] == "axiom-encode repair-current-year-final-amounts"
-
-    def test_repair_nonnegative_floors_taxable_income_test_checks_final_output_only(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/63.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: taxable_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
-"""
-        )
-        test_file = policy_repo / "statutes/26/63.test.yaml"
-        test_file.write_text(
-            """- name: existing_positive_case
-  period:
-    period_kind: tax_year
-    start: '2026-01-01'
-    end: '2026-12-31'
-  input:
-    us:statutes/26/63#input.gross_income: 100000
-  output:
-    us:statutes/26/63#taxable_income: 100000
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/63.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_nonnegative_floors(args)
-
-    def test_repair_nonnegative_floors_manifest_keeps_unchanged_companion_test(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/999.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: example_credit_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          maximum_credit_amount - adjusted_gross_income
-"""
-        )
-        test_file = policy_repo / "statutes/26/999.test.yaml"
-        test_file.write_text(
-            """- name: existing_case
-  period:
-    period_kind: tax_year
-    start: '2026-01-01'
-    end: '2026-12-31'
-  input:
-    us:statutes/26/999#input.maximum_credit_amount: 1000
-    us:statutes/26/999#input.adjusted_gross_income: 200
-  output:
-    us:statutes/26/999#example_credit_amount: 800
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/999.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_nonnegative_floors(args)
-
-        assert (
-            "max(0, maximum_credit_amount - adjusted_gross_income)"
-            in target.read_text()
-        )
-        assert test_file.read_text().startswith("- name: existing_case")
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/999.json"
-        payload = json.loads(manifest.read_text())
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/999.yaml",
-        ]
-
     def test_has_zero_output_test_requires_exact_legal_id(self):
         cases = [
             {
@@ -29749,164 +30274,6 @@ rules:
 
         assert _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
         assert _has_zero_output_test(cases, "us:statutes/26/1#taxable_income") is True
-
-    def test_repair_tax_filing_status_branches_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  summary: joint / surviving spouse and any other case
-rules:
-  - name: additional_medicare_wage_tax_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2013-01-01'
-        formula: |-
-          match filing_status:
-              1 => additional_medicare_wage_tax_joint_threshold
-              2 => additional_medicare_wage_tax_joint_threshold / 2
-              0 => additional_medicare_wage_tax_other_threshold
-"""
-        )
-        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
-        test_file.write_text(
-            """- name: joint_above_threshold
-  period:
-    period_kind: tax_year
-    start: 2026-01-01
-    end: 2026-12-31
-  input:
-    us:statutes/26/3101/b/2#input.filing_status: 1
-    us:statutes/26/3101/b/2#input.wages: 300000
-  output:
-    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
-    us:statutes/26/3101/b/2#additional_medicare_excess_wages: 50000
-    us:statutes/26/3101/b/2#additional_medicare_tax: 450
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_filing_status_branches(args)
-
-        content = target.read_text()
-        assert "4 => additional_medicare_wage_tax_joint_threshold" in content
-        assert "3 => additional_medicare_wage_tax_other_threshold" in content
-        test_content = test_file.read_text()
-        assert "surviving_spouse_uses_joint_threshold" not in test_content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "tax-filing-status-branch-v1"
-        assert payload["tool"] == "axiom-encode repair-tax-filing-status-branches"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/3101/b/2.yaml"
-        ]
-
-    def test_repair_section_85_unemployment_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/85.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  deferred_outputs:
-    - output: us:statutes/26/85#temporary_unemployment_compensation_exclusion
-rules:
-  - name: unemployment_compensation
-    kind: derived
-    entity: Person
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '1990-01-01'
-        formula: |-
-          amount_received_under_united_states_or_state_law_in_nature_of_unemployment_compensation
-"""
-        )
-        test_file = policy_repo / "statutes/26/85.test.yaml"
-        test_file.write_text("[]\n")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/85.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_section_85_unemployment(args)
-
-        content = target.read_text()
-        assert "deferred_outputs" not in content
-        assert "section_85_unemployment_compensation_recipient_of_tax_unit" in content
-        assert "sum_where(" in content
-        assert "temporary_unemployment_compensation_exclusion" in content
-        assert "unemployment_compensation_included_in_gross_income" in content
-        test_content = test_file.read_text()
-        assert "temporary_2020_exclusion_applies_per_spouse_on_joint_return" in (
-            test_content
-        )
-        assert "pre_temporary_year_includes_unemployment_compensation" in test_content
-        assert (
-            "us:statutes/26/85#relation.section_85_unemployment_compensation_recipient_of_tax_unit"
-            in test_content
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/85.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "section-85-unemployment-v1"
-        assert payload["tool"] == "axiom-encode repair-section-85-unemployment"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/85.yaml",
-            "statutes/26/85.test.yaml",
-        ]
 
     def test_repair_tax_filing_status_branches_routes_joint_only_status_four_to_other(
         self,
@@ -29966,2342 +30333,6 @@ rules:
             "additional_medicare_wage_tax_threshold:surviving_spouse_to_other_case",
         ]
 
-    def test_repair_tax_filing_status_branches_updates_status_four_test_outputs(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  summary: |-
-    Internal Revenue Code 3101(b)(2) - additional Medicare tax on wages
-    above a filing-status-specific threshold.
-
-    Filing-status encoding convention (matches PolicyEngine US):
-        0 = single
-        1 = joint / surviving spouse
-        2 = married filing separately
-        3 = head of household
-
-    0.9% rate applied to wages above the threshold; thresholds set by
-    26 USC 3101(b)(2)(A)-(C): $250,000 for a joint return or surviving
-    spouse, one-half of that amount for a married individual filing
-    separately, and $200,000 in any other case.
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-rules:
-  - name: additional_medicare_wage_tax_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    source: 26 USC 3101(b)(2)(A)-(C)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: |-
-          match filing_status:
-              1 => additional_medicare_wage_tax_joint_threshold
-              4 => additional_medicare_wage_tax_joint_threshold
-              2 => additional_medicare_wage_tax_joint_threshold / 2
-              0 => additional_medicare_wage_tax_other_threshold
-              3 => additional_medicare_wage_tax_other_threshold
-"""
-        )
-        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
-        test_file.write_text(
-            """- name: surviving_spouse_uses_joint_threshold
-  period:
-    period_kind: tax_year
-    start: 2026-01-01
-    end: 2026-12-31
-  input:
-    us:statutes/26/3101/b/2#input.filing_status: 4
-    us:statutes/26/3101/b/2#input.wages: 300000
-  output:
-    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
-    us:statutes/26/3101/b/2#additional_medicare_excess_wages: 50000
-    us:statutes/26/3101/b/2#additional_medicare_tax: 450
-    us:statutes/26/3101/b/2#status_four_flag: false
-    us:statutes/26/3101/b/2#status_four_label: joint
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        mismatch_results = [
-            (
-                "Test case `surviving_spouse_uses_joint_threshold` output "
-                "`us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold` "
-                "expected integer 250000, got integer 200000."
-            ),
-            (
-                "Test case `surviving_spouse_uses_joint_threshold` output "
-                "`us:statutes/26/3101/b/2#additional_medicare_excess_wages` "
-                "expected integer 50000, got integer 100000."
-            ),
-            (
-                "Test case `surviving_spouse_uses_joint_threshold` output "
-                "`us:statutes/26/3101/b/2#additional_medicare_tax` "
-                "expected integer 450, got integer 900."
-            ),
-            (
-                "Test case `surviving_spouse_uses_joint_threshold` output "
-                "`us:statutes/26/3101/b/2#status_four_flag` "
-                "expected bool false, got bool true."
-            ),
-            (
-                "Test case `surviving_spouse_uses_joint_threshold` output "
-                "`us:statutes/26/3101/b/2#status_four_label` "
-                "expected text joint, got text other."
-            ),
-        ]
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                if FakePipeline.calls < len(mismatch_results):
-                    error = mismatch_results[FakePipeline.calls]
-                    FakePipeline.calls += 1
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={"ci": SimpleNamespace(error=error)},
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._extract_source_verification_text",
-                return_value=(
-                    "(2) Additional tax ... in excess of-- "
-                    "(A) in the case of a joint return, $250,000, "
-                    "(B) in the case of a married taxpayer filing a separate return, "
-                    "1/2 of the dollar amount determined under subparagraph (A), and "
-                    "(C) in any other case, $200,000."
-                ),
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_filing_status_branches(args)
-
-        content = target.read_text()
-        assert "1 = joint / surviving spouse" not in content
-        assert "1 = joint" in content
-        assert "4 = surviving spouse / qualifying widow(er)" in content
-        assert "$250,000 for a joint return or surviving" not in content
-        assert "$250,000 for a joint return, one-half" in content
-        assert (
-            "$250,000 for a joint return, one-half of that amount for a married "
-            "individual filing" not in content
-        )
-        assert "surviving_spouse_uses_joint_threshold" not in test_file.read_text()
-        repaired_test = yaml.safe_load(test_file.read_text())
-        assert repaired_test[0]["name"] == "surviving_spouse_uses_other_threshold"
-        outputs = repaired_test[0]["output"]
-        assert (
-            outputs["us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold"]
-            == 200000
-        )
-        assert (
-            outputs["us:statutes/26/3101/b/2#additional_medicare_excess_wages"]
-            == 100000
-        )
-        assert outputs["us:statutes/26/3101/b/2#additional_medicare_tax"] == 900
-        assert outputs["us:statutes/26/3101/b/2#status_four_flag"] is True
-        assert outputs["us:statutes/26/3101/b/2#status_four_label"] == "other"
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        payload = json.loads(manifest.read_text())
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/3101/b/2.yaml",
-            "statutes/26/3101/b/2.test.yaml",
-        ]
-
-    def test_repair_tax_filing_status_branches_does_not_mutate_without_signing_key(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        original_content = """format: rulespec/v1
-module:
-  summary: joint / surviving spouse and any other case
-rules:
-  - name: additional_medicare_wage_tax_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2013-01-01'
-        formula: |-
-          match filing_status:
-              1 => additional_medicare_wage_tax_joint_threshold
-              2 => additional_medicare_wage_tax_joint_threshold / 2
-              0 => additional_medicare_wage_tax_other_threshold
-"""
-        target.write_text(original_content)
-        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
-        original_test_content = """- name: joint_above_threshold
-  output:
-    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
-"""
-        test_file.write_text(original_test_content)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
-        ):
-            cmd_repair_tax_filing_status_branches(args)
-
-        assert target.read_text() == original_content
-        assert test_file.read_text() == original_test_content
-
-    def test_repair_tax_status_components_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: additional_standard_deduction_for_aged_or_blind
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if taxable_year_begins_after_2017:
-              if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
-          else:
-              regular_amount
-"""
-        )
-        test_file = target.with_name("standard-deduction.test.yaml")
-        test_file.write_text(
-            """- name: head_of_household
-  input:
-    us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status: 3
-    us:policies/irs/rev-proc-2025-32/standard-deduction#input.individual_is_unmarried_and_not_surviving_spouse: true
-    us:policies/irs/rev-proc-2025-32/standard-deduction#input.taxable_year_begins_after_2017: true
-  output:
-    us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind: 2050
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("policies/irs/rev-proc-2025-32/standard-deduction.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                assert "individual_is_unmarried" not in target.read_text()
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_status_components(args)
-
-        content = target.read_text()
-        assert "individual_is_unmarried_and_not_surviving_spouse" not in content
-        assert "filing_status == 0 or filing_status == 3" in content
-        assert "taxable_year_begins_after_2017" not in content
-        assert (
-            "taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
-            in content
-        )
-        test_content = test_file.read_text()
-        assert (
-            "input.individual_is_unmarried_and_not_surviving_spouse" not in test_content
-        )
-        assert "input.taxable_year_begins_after_2017" not in test_content
-        assert (
-            "input.taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
-            in test_content
-        )
-        manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/standard-deduction.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "tax-status-component-v1"
-        assert payload["tool"] == "axiom-encode repair-tax-status-components"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "policies/irs/rev-proc-2025-32/standard-deduction.yaml",
-            "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml",
-        ]
-
-    def test_repair_tax_status_components_allows_preexisting_test_failures(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: additional_standard_deduction_for_aged_or_blind
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
-"""
-        )
-        test_file = target.with_name("standard-deduction.test.yaml")
-        test_file.write_text(
-            """- name: legacy_companion_shape
-  input:
-    us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status: 3
-    us:policies/irs/rev-proc-2025-32/standard-deduction#input.individual_is_unmarried_and_not_surviving_spouse: true
-  output:
-    us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind: 2050
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("policies/irs/rev-proc-2025-32/standard-deduction.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        preexisting_issue = (
-            "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml :: "
-            "legacy_companion_shape: unknown executable output "
-            "us:policies/irs/rev-proc-2025-32/standard-deduction"
-            "#additional_standard_deduction_for_aged_or_blind"
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                assert "individual_is_unmarried" not in target.read_text()
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._companion_test_issues",
-                side_effect=[[preexisting_issue], [preexisting_issue]],
-            ) as companion_tests,
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_status_components(args)
-
-        assert companion_tests.call_count == 2
-        assert (
-            "individual_is_unmarried_and_not_surviving_spouse" not in target.read_text()
-        )
-        assert (
-            "input.individual_is_unmarried_and_not_surviving_spouse"
-            not in test_file.read_text()
-        )
-
-    def test_repair_tax_status_temporal_rewrite_only_updates_formulas(self):
-        content = """format: rulespec/v1
-module:
-  summary: taxable_year_begins_after_2017 remains historical prose.
-rules:
-  - name: exemption_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              text: taxable_year_begins_after_2017 remains quoted source text
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          if taxable_year_begins_after_2017: 0 else: 2000
-"""
-
-        repaired, repairs = _repair_section_151_temporal_fact_names(content)
-
-        assert repairs == [
-            "taxable_year_begins_after_2017->taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
-        ]
-        assert (
-            "summary: taxable_year_begins_after_2017 remains historical prose."
-            in repaired
-        )
-        assert (
-            "text: taxable_year_begins_after_2017 remains quoted source text"
-            in repaired
-        )
-        assert (
-            "if taxable_year_begins_after_tcja_exemption_amount_zero_effective_date: 0 else: 2000"
-            in repaired
-        )
-
-    def test_repair_tax_status_components_keeps_unchanged_test_in_manifest(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/151.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: exemption_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: if taxable_year_begins_after_2017: 0 else: 5000
-"""
-        )
-        test_file = target.with_name("151.test.yaml")
-        test_file.write_text(
-            """- name: unchanged_test
-  input:
-    us:statutes/26/151#input.adjusted_gross_income: 0
-  output:
-    us:statutes/26/151#exemption_amount: 0
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/151.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_status_components(args)
-
-        assert test_file.read_text().startswith("- name: unchanged_test")
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/151.json"
-        payload = json.loads(manifest.read_text())
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/151.yaml",
-            "statutes/26/151.test.yaml",
-        ]
-
-    def test_repair_tax_status_components_rejects_dirty_related_tests(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/151.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: exemption_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: if taxable_year_begins_after_2017: 0 else: 5000
-"""
-        )
-        target.with_name("151.test.yaml").write_text(
-            """- name: exemption_amount
-  input:
-    us:statutes/26/151#input.taxable_year_begins_after_2017: true
-  output:
-    us:statutes/26/151#exemption_amount: 0
-"""
-        )
-        related_test = policy_repo / "statutes/26/63.test.yaml"
-        related_test.write_text(
-            """- name: unrelated_baseline
-  input:
-    us:example#input.value: 1
-  output:
-    us:example#output.value: 1
-"""
-        )
-        subprocess.run(
-            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
-        )
-        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Axiom Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "-m",
-                "baseline",
-            ],
-            cwd=policy_repo,
-            check=True,
-            stdout=subprocess.PIPE,
-        )
-        dirty_related_content = """- name: dirty_related_151_case
-  input:
-    us:statutes/26/151#input.taxable_year_begins_after_2017: true
-  output:
-    us:example#output.value: 1
-"""
-        related_test.write_text(dirty_related_content)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/151.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            pytest.raises(
-                RuntimeError,
-                match="Refusing to sign over pre-existing RuleSpec target changes",
-            ) as excinfo,
-        ):
-            cmd_repair_tax_status_components(args)
-
-        assert ".axiom/encoding-manifests/statutes/26/151.json" in str(excinfo.value)
-        assert related_test.read_text() == dirty_related_content
-
-    def test_generated_dependency_guard_rejects_unmanifested_existing_file(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        target = repo / "statutes/26/931.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-
-        with pytest.raises(
-            RuntimeError,
-            match="Refusing to overwrite existing RuleSpec dependency files",
-        ):
-            _ensure_generated_dependency_files_safe(
-                repo,
-                generated_files={
-                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
-                },
-            )
-
-    def test_generated_dependency_guard_accepts_unchanged_historical_manifest(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        target, _manifest = _write_legacy_model_manifest(
-            repo,
-            rule_rel="statutes/26/931.yaml",
-        )
-        _git(repo, "add", ".")
-        with patch.dict(
-            os.environ,
-            {
-                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
-                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
-            },
-        ):
-            _git(repo, "commit", "-m", "historical encoder dependency")
-
-        inventory = tmp_path / "rollout-inventory.json"
-        inventory.write_text(
-            json.dumps(
-                {
-                    "repositories": {
-                        "rulespec-us": [
-                            {
-                                "path": _manifest.relative_to(repo).as_posix(),
-                                "sha256": _sha256_file(_manifest),
-                            }
-                        ]
-                    }
-                }
-            )
-        )
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY",
-                inventory,
-            ),
-        ):
-            _ensure_generated_dependency_files_safe(
-                repo,
-                generated_files={
-                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
-                },
-            )
-
-    def test_generated_dependency_guard_rejects_changed_historical_manifest(
-        self, tmp_path
-    ):
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        target, manifest = _write_legacy_model_manifest(
-            repo,
-            rule_rel="statutes/26/931.yaml",
-        )
-        _git(repo, "add", ".")
-        with patch.dict(
-            os.environ,
-            {
-                "GIT_AUTHOR_DATE": "2026-07-09T00:00:00+00:00",
-                "GIT_COMMITTER_DATE": "2026-07-09T00:00:00+00:00",
-            },
-        ):
-            _git(repo, "commit", "-m", "historical encoder dependency")
-        payload = json.loads(manifest.read_text())
-        payload["model"] = "newly-resigned-model"
-        manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            pytest.raises(
-                RuntimeError,
-                match="Refusing to overwrite existing RuleSpec dependency files",
-            ),
-        ):
-            _ensure_generated_dependency_files_safe(
-                repo,
-                generated_files={
-                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
-                },
-            )
-
-    def test_repair_tax_status_components_defers_151_68b_phaseout(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/151.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/statute/26/151
-  summary: |-
-    Section 151(d)(3) refers to the applicable amount in effect under section 68(b).
-rules:
-  - name: exemption_phaseout_rate_per_increment
-    kind: parameter
-    dtype: Rate
-    source: 26 USC 151(d)(3)(B)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: 0.02
-  - name: exemption_phaseout_increment
-    kind: parameter
-    dtype: Money
-    unit: USD
-    source: 26 USC 151(d)(3)(B)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: 2500
-  - name: exemption_phaseout_increment_separate
-    kind: parameter
-    dtype: Money
-    unit: USD
-    source: 26 USC 151(d)(3)(B)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: 1250
-  - name: exemption_phaseout_maximum_percentage
-    kind: parameter
-    dtype: Rate
-    source: 26 USC 151(d)(3)(B)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: 1
-  - name: exemption_phaseout_applicable_percentage
-    kind: derived
-    entity: TaxUnit
-    dtype: Rate
-    period: Year
-    source: 26 USC 151(d)(3)(A)-(B)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, adjusted_gross_income - applicable_amount_in_effect_under_section_68_b)
-  - name: senior_deduction_modified_adjusted_gross_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 151(d)(5)(C)(iii)(II)
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/151
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          adjusted_gross_income
-          + amount_excluded_from_gross_income_under_section_911
-          + amount_excluded_from_gross_income_under_section_931
-          + amount_excluded_from_gross_income_under_section_933
-  - name: exemption_individual_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    source: 26 USC 151(c)
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/151
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          tin_included_on_return_claiming_exemption
-          and is_dependent_under_section_152_of_taxpayer
-  - name: senior_deduction_allowed
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    source: 26 USC 151(d)(5)(C)(i)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          not taxpayer_is_married_individual_within_section_7703
-"""
-        )
-        test_file = target.with_name("151.test.yaml")
-        test_file.write_text(
-            """- name: senior_magi
-  input:
-    us:statutes/26/151#input.adjusted_gross_income: 100000
-    us:statutes/26/151#input.applicable_amount_in_effect_under_section_68_b: 0
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911: 5000
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933: 0
-    us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
-    us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer: true
-  output:
-    us:statutes/26/151#exemption_phaseout_applicable_percentage: 1
-    us:statutes/26/151#senior_deduction_modified_adjusted_gross_income: 105000
-    us:statutes/26/151#exemption_individual_eligible: holds
-"""
-        )
-        section_63_test = policy_repo / "statutes/26/63.test.yaml"
-        section_63_test.write_text(
-            """- name: dependent_151_case
-  input:
-    us:statutes/26/151#input.taxable_year_begins_after_2017: true
-    us:statutes/26/151#input.taxable_year_begins_before_2029: true
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911: 0
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
-    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933: 0
-    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
-    us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703: false
-    us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
-  output:
-    us:statutes/26/63#taxable_income: 0
-"""
-        )
-        section_63_f_test = policy_repo / "statutes/26/63/f.test.yaml"
-        section_63_f_test.parent.mkdir(parents=True, exist_ok=True)
-        section_63_f_test.write_text(
-            """- name: spouse_entitlements_require_section_151_exemption
-  input:
-    us:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f:
-    - us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
-      us:statutes/26/151#input.is_spouse_of_taxpayer: true
-  output:
-    us:statutes/26/63/f#spouse_aged_additional_amount_entitlement: holds
-"""
-        )
-        section_152_c = policy_repo / "statutes/26/152/c.yaml"
-        section_152_c.parent.mkdir(parents=True, exist_ok=True)
-        section_152_c.write_text(
-            """format: rulespec/v1
-rules:
-  - name: qualifying_child
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: qualifying_child_before_tiebreaker
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/151.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert skip_reviewers is True
-                if path != target.resolve():
-                    assert path in {
-                        policy_repo / "statutes/26/911/a/1.yaml",
-                        policy_repo / "statutes/26/911.yaml",
-                        policy_repo / "statutes/26/152.yaml",
-                        policy_repo / "statutes/26/152/d.yaml",
-                        policy_repo / "statutes/26/931.yaml",
-                        policy_repo / "statutes/26/933.yaml",
-                    }
-                    return SimpleNamespace(all_passed=True, results={})
-                content = target.read_text()
-                assert "applicable_amount_in_effect_under_section_68_b" not in content
-                assert (
-                    "  - name: exemption_phaseout_applicable_percentage\n"
-                    not in content
-                )
-                assert "deferred_outputs:" in content
-                assert "us:statutes/26/68/b#applicable_amount" in content
-                assert (
-                    "us:statutes/26/911#income_excluded_from_gross_income_under_section_911"
-                    in content
-                )
-                assert "is_dependent_under_section_152_of_taxpayer" not in content
-                assert "us:statutes/26/152#dependent_of_taxpayer" in content
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_status_components(args)
-
-        content = target.read_text()
-        assert "amount_excluded_from_gross_income_under_section_911" not in content
-        assert "income_excluded_from_gross_income_under_section_911" in content
-        assert "dependent_of_taxpayer" in content
-        assert "us:statutes/26/151#exemption_phaseout_increment_separate" in content
-        test_content = test_file.read_text()
-        assert "applicable_amount_in_effect_under_section_68_b" not in test_content
-        assert "exemption_phaseout_applicable_percentage" not in test_content
-        assert "is_dependent_under_section_152_of_taxpayer" not in test_content
-        assert (
-            "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911"
-            not in test_content
-        )
-        assert (
-            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 5000"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 0"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/152/c#input.individual_is_child_of_taxpayer" in test_content
-        )
-        related_test_content = section_63_test.read_text()
-        assert "us:statutes/26/151#input.taxable_year_begins_after_2017" not in (
-            related_test_content
-        )
-        assert (
-            "us:statutes/26/151#input.taxable_year_begins_after_tcja_exemption_amount_zero_effective_date: true"
-            in related_test_content
-        )
-        assert "us:statutes/26/151#input.taxable_year_begins_before_2029" not in (
-            related_test_content
-        )
-        assert (
-            "us:statutes/26/151#input.taxable_year_begins_before_senior_deduction_expiration_date: true"
-            in related_test_content
-        )
-        assert (
-            "us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703"
-            not in related_test_content
-        )
-        assert "additional_exemption_allowable_for_spouse_under_section_151_b" not in (
-            related_test_content
-        )
-        assert (
-            "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f: 0"
-            in related_test_content
-        )
-        assert (
-            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
-            not in related_test_content
-        )
-        assert (
-            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
-            in related_test_content
-        )
-        related_63_f_content = section_63_f_test.read_text()
-        assert "us:statutes/26/151#input.filing_status: 0" in related_63_f_content
-        assert (
-            "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f"
-            not in related_63_f_content
-        )
-        generated_911_a_1 = policy_repo / "statutes/26/911/a/1.yaml"
-        generated_911 = policy_repo / "statutes/26/911.yaml"
-        assert generated_911_a_1.exists()
-        assert generated_911.exists()
-        assert f"hash: sha256:{_sha256_file(generated_911)}" in content
-        assert f"hash: sha256:{_sha256_file(generated_911_a_1)}" in (
-            generated_911.read_text()
-        )
-        assert (policy_repo / "statutes/26/152.yaml").exists()
-        assert (policy_repo / "statutes/26/152/d.yaml").exists()
-        assert (policy_repo / "statutes/26/931.yaml").exists()
-        assert (policy_repo / "statutes/26/933.yaml").exists()
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/151.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "tax-status-component-v1"
-        assert payload["tool"] == "axiom-encode repair-tax-status-components"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/151.yaml",
-            "statutes/26/151.test.yaml",
-            "statutes/26/63.test.yaml",
-            "statutes/26/63/f.test.yaml",
-            "statutes/26/911/a/1.yaml",
-            "statutes/26/911/a/1.test.yaml",
-            "statutes/26/911.yaml",
-            "statutes/26/911.test.yaml",
-            "statutes/26/152/d.yaml",
-            "statutes/26/152/d.test.yaml",
-            "statutes/26/152.yaml",
-            "statutes/26/152.test.yaml",
-            "statutes/26/931.yaml",
-            "statutes/26/931.test.yaml",
-            "statutes/26/933.yaml",
-            "statutes/26/933.test.yaml",
-        ]
-
-    def test_repair_section_151_911_import_hashes_generated_and_existing_files(
-        self, tmp_path
-    ):
-        content = """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: senior_deduction_modified_adjusted_gross_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: adjusted_gross_income + amount_excluded_from_gross_income_under_section_911
-"""
-        repo_without_911 = tmp_path / "without-911"
-        repaired, repairs, generated = _repair_section_151_imports(
-            content, repo_path=repo_without_911
-        )
-        generated_911 = generated[repo_without_911 / "statutes/26/911.yaml"]
-        assert repairs == [
-            "amount_excluded_from_gross_income_under_section_911->income_excluded_from_gross_income_under_section_911"
-        ]
-        assert f"hash: sha256:{_sha256_text(generated_911)}" in repaired
-
-        repo_with_911 = tmp_path / "with-911"
-        section_911 = repo_with_911 / "statutes/26/911.yaml"
-        section_911.parent.mkdir(parents=True)
-        section_911.write_text(
-            """format: rulespec/v1
-rules:
-  - name: income_excluded_from_gross_income_under_section_911
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: existing_911_passthrough
-"""
-        )
-        repaired, repairs, generated = _repair_section_151_imports(
-            content, repo_path=repo_with_911
-        )
-        assert generated == {}
-        assert repairs == [
-            "amount_excluded_from_gross_income_under_section_911->income_excluded_from_gross_income_under_section_911"
-        ]
-        assert f"hash: sha256:{_sha256_file(section_911)}" in repaired
-
-    def test_repair_tax_status_components_imports_24_child_dependencies(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/24.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/statute/26/24
-  summary: |-
-    Section 24 uses section 152(c), section 151, and sections 911, 931, and 933.
-rules:
-  - name: ctc_modified_adjusted_gross_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/24
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          adjusted_gross_income
-          + amount_excluded_from_gross_income_under_section_911
-          + amount_excluded_from_gross_income_under_section_931
-          + amount_excluded_from_gross_income_under_section_933
-  - name: ctc_qualifying_child
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/24
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          qualifying_child_under_section_152_c
-          and allowed_deduction_under_section_151_for_child
-          and not certain_noncitizen_exception_applies
-  - name: ctc_after_advance_payments
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/24
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          max(0, ctc_before_advance_payments - aggregate_advance_payments_under_section_7527A)
-"""
-        )
-        test_file = target.with_name("24.test.yaml")
-        test_file.write_text(
-            """- name: child
-  input:
-    us:statutes/26/24#input.qualifying_child_under_section_152_c: true
-    us:statutes/26/24#input.allowed_deduction_under_section_151_for_child: true
-    us:statutes/26/24#input.certain_noncitizen_exception_applies: false
-  output:
-    us:statutes/26/24#ctc_qualifying_child: holds
-- name: child_relation_row
-  input:
-    us:statutes/26/24#relation.ctc_qualifying_child_of_tax_unit:
-    - us:statutes/26/24#input.qualifying_child_under_section_152_c: true
-      us:statutes/26/24#input.allowed_deduction_under_section_151_for_child: true
-      us:statutes/26/24#input.certain_noncitizen_exception_applies: false
-  output:
-    us:statutes/26/24#ctc_qualifying_child: holds
-- name: magi
-  input:
-    us:statutes/26/24#input.adjusted_gross_income: 100
-    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_911: 1
-    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_931: 2
-    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_933: 3
-  output:
-    us:statutes/26/24#ctc_modified_adjusted_gross_income: 106
-- name: advance_payment_reduction
-  input:
-    us:statutes/26/24#input.ctc_before_advance_payments: 500
-    us:statutes/26/24#input.aggregate_advance_payments_under_section_7527A: 100
-  output:
-    us:statutes/26/24#ctc_after_advance_payments: 400
-"""
-        )
-        section_151 = policy_repo / "statutes/26/151.yaml"
-        section_151.write_text(
-            """format: rulespec/v1
-rules:
-  - name: exemption_individual_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: tin_included_on_return_claiming_exemption and is_taxpayer
-"""
-        )
-        section_152_c = policy_repo / "statutes/26/152/c.yaml"
-        section_152_c.parent.mkdir(parents=True, exist_ok=True)
-        section_152_c.write_text(
-            """format: rulespec/v1
-rules:
-  - name: qualifying_child
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: individual_is_child_of_taxpayer_or_descendant_of_such_child
-"""
-        )
-        section_911 = policy_repo / "statutes/26/911.yaml"
-        section_911.write_text(
-            """format: rulespec/v1
-rules:
-  - name: income_excluded_from_gross_income_under_section_911
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: foreign_earned_income_excluded_from_gross_income
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/24.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert skip_reviewers is True
-                if path == target.resolve():
-                    content = target.read_text()
-                    assert "qualifying_child_under_section_152_c" not in content
-                    assert (
-                        "allowed_deduction_under_section_151_for_child" not in content
-                    )
-                    assert "us:statutes/26/152/c#qualifying_child" in content
-                    assert "us:statutes/26/151#exemption_individual_eligible" in content
-                    assert (
-                        "us:statutes/26/7527A#aggregate_advance_payments_under_section_7527A"
-                        in content
-                    )
-                    assert "qualifying_child" in content
-                    assert "exemption_individual_eligible" in content
-                    return SimpleNamespace(all_passed=True, results={})
-                assert path in {
-                    policy_repo / "statutes/26/931.yaml",
-                    policy_repo / "statutes/26/933.yaml",
-                    policy_repo / "statutes/26/7527A.yaml",
-                }
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
-            patch(
-                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_tax_status_components(args)
-
-        test_content = test_file.read_text()
-        assert "us:statutes/26/24#input.qualifying_child_under_section_152_c" not in (
-            test_content
-        )
-        assert (
-            "us:statutes/26/24#input.allowed_deduction_under_section_151_for_child"
-            not in test_content
-        )
-        assert (
-            "us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: true"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true"
-            in test_content
-        )
-        assert (
-            "    - us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: true"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 1"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 2"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 3"
-            in test_content
-        )
-        assert (
-            "us:statutes/26/7527A#input.advance_payments_made_under_section_7527A: 100"
-            in test_content
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["tool"] == "axiom-encode repair-tax-status-components"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/24.yaml",
-            "statutes/26/24.test.yaml",
-            "statutes/26/931.yaml",
-            "statutes/26/931.test.yaml",
-            "statutes/26/933.yaml",
-            "statutes/26/933.test.yaml",
-            "statutes/26/7527A.yaml",
-            "statutes/26/7527A.test.yaml",
-        ]
-
-    def test_repair_unreferenced_proof_imports_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/1402/a.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/1401#self_employment_oasdi_tax_rate
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: paragraph_12_deduction
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/1402
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/1401#self_employment_oasdi_tax_rate
-              hash: sha256:abc123
-    versions:
-      - effective_from: '1990-01-01'
-        formula: |-
-          net_earnings_before_paragraph_12_adjustment * paragraph_12_deduction_rate
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/1402/a.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_unreferenced_proof_imports(args)
-
-        content = target.read_text()
-        assert "us:statutes/26/1401#self_employment_oasdi_tax_rate" not in content
-        assert "formula: |-" in content
-        assert (
-            "          net_earnings_before_paragraph_12_adjustment * "
-            "paragraph_12_deduction_rate"
-        ) in content
-        assert "  - name: paragraph_12_deduction\n" in content
-        payload = yaml.safe_load(content)
-        atoms = payload["rules"][0]["metadata"]["proof"]["atoms"]
-        assert all(atom.get("kind") != "import" for atom in atoms)
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1402/a.json"
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["backend"] == "deterministic"
-        assert manifest_payload["model"] == "proof-import-reference-v1"
-        assert (
-            manifest_payload["tool"] == "axiom-encode repair-unreferenced-proof-imports"
-        )
-        assert [
-            applied_file["path"] for applied_file in manifest_payload["applied_files"]
-        ] == ["statutes/26/1402/a.yaml"]
-
-    def test_repair_section_172_c_capacity_writes_signed_manifests(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target_1212 = policy_repo / "statutes/26/1212/a/1.yaml"
-        test_1212 = policy_repo / "statutes/26/1212/a/1.test.yaml"
-        target_1222 = policy_repo / "statutes/26/1222.yaml"
-        test_1222 = policy_repo / "statutes/26/1222.test.yaml"
-        target_1212.parent.mkdir(parents=True)
-        target_1222.parent.mkdir(parents=True, exist_ok=True)
-        target_1212.write_text(
-            """format: rulespec/v1
-rules:
-  - name: corporation_capital_loss_carryback_to_taxable_year
-    kind: derived
-    entity: Corporation
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '1990-01-01'
-        formula: |-
-          min(
-              net_capital_loss_not_attributable_to_foreign_expropriation_capital_loss,
-              capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
-          )
-"""
-        )
-        test_1212.write_text(
-            """- name: carryback_case
-  input:
-    ? us:statutes/26/1212/a/1#input.capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
-    : 8000
-  output:
-    us:statutes/26/1212/a/1#corporation_capital_loss_carryback_to_taxable_year: 8000
-"""
-        )
-        target_1222.write_text(
-            """format: rulespec/v1
-rules:
-  - name: short_term_capital_loss
-    kind: derived
-    entity: Corporation
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/1212/a/1#corporation_capital_loss_carryback_to_taxable_year
-              output: corporation_capital_loss_carryback_to_taxable_year
-              hash: sha256:stale
-    versions:
-      - effective_from: '1990-01-01'
-        formula: |-
-          corporation_capital_loss_carryback_to_taxable_year
-"""
-        )
-        test_1222.write_text(
-            """- name: dependent_case
-  input:
-    ? us:statutes/26/1212/a/1#input.capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
-    : 3000
-  output:
-    us:statutes/26/1222#short_term_capital_loss: 3000
-"""
-        )
-        subprocess.run(
-            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
-        )
-        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Axiom Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "-m",
-                "baseline",
-            ],
-            cwd=policy_repo,
-            check=True,
-            stdout=subprocess.PIPE,
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        companion_failures = MagicMock(return_value=[])
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert skip_reviewers is True
-                assert path in {
-                    policy_repo / "statutes/26/172/c.yaml",
-                    target_1212,
-                    target_1222,
-                }
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                companion_failures,
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_section_172_c_capacity(args)
-
-        assert [call.args[0] for call in companion_failures.call_args_list] == [
-            policy_repo / "statutes/26/172/c.test.yaml",
-            test_1212,
-            test_1222,
-        ]
-        assert (policy_repo / "statutes/26/172/c.yaml").exists()
-        assert (
-            "us:statutes/26/172/c#deduction_capacity_before_net_operating_loss"
-            in target_1212.read_text()
-        )
-        assert (
-            "capital_loss_carryback_amount_that_does_not_increase_or_produce"
-            not in target_1212.read_text()
-        )
-        assert "us:statutes/26/172/c#input.gross_income: 8000" in test_1212.read_text()
-        assert "us:statutes/26/172/c#input.gross_income: 3000" in test_1222.read_text()
-        assert f"hash: sha256:{_sha256_file(target_1212)}" in target_1222.read_text()
-        for manifest in (
-            policy_repo / ".axiom/encoding-manifests/statutes/26/172/c.json",
-            policy_repo / ".axiom/encoding-manifests/statutes/26/1212/a/1.json",
-            policy_repo / ".axiom/encoding-manifests/statutes/26/1222.json",
-        ):
-            payload = json.loads(manifest.read_text())
-            assert payload["model"] == "section-172-c-capacity-v1"
-            assert payload["tool"] == "axiom-encode repair-section-172-c-capacity"
-            applied_paths = [
-                applied_file["path"] for applied_file in payload["applied_files"]
-            ]
-            assert (
-                applied_paths
-                == {
-                    policy_repo / ".axiom/encoding-manifests/statutes/26/172/c.json": [
-                        "statutes/26/172/c.yaml",
-                        "statutes/26/172/c.test.yaml",
-                    ],
-                    policy_repo
-                    / ".axiom/encoding-manifests/statutes/26/1212/a/1.json": [
-                        "statutes/26/1212/a/1.yaml",
-                        "statutes/26/1212/a/1.test.yaml",
-                    ],
-                    policy_repo / ".axiom/encoding-manifests/statutes/26/1222.json": [
-                        "statutes/26/1222.yaml",
-                        "statutes/26/1222.test.yaml",
-                    ],
-                }[manifest]
-            )
-
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            assert (
-                guard_generated_change_issues(
-                    policy_repo,
-                    changed_files=[
-                        "statutes/26/172/c.yaml",
-                        "statutes/26/172/c.test.yaml",
-                        "statutes/26/1212/a/1.yaml",
-                        "statutes/26/1212/a/1.test.yaml",
-                        "statutes/26/1222.yaml",
-                        "statutes/26/1222.test.yaml",
-                        ".axiom/encoding-manifests/statutes/26/172/c.json",
-                        ".axiom/encoding-manifests/statutes/26/1212/a/1.json",
-                        ".axiom/encoding-manifests/statutes/26/1222.json",
-                    ],
-                )
-                == []
-            )
-
-    def test_repair_section_172_c_capacity_refuses_dirty_targets(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target_1212 = policy_repo / "statutes/26/1212/a/1.yaml"
-        target_1212.parent.mkdir(parents=True)
-        target_1212.write_text("format: rulespec/v1\nrules: []\n")
-        subprocess.run(
-            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
-        )
-        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Axiom Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "-m",
-                "baseline",
-            ],
-            cwd=policy_repo,
-            check=True,
-            stdout=subprocess.PIPE,
-        )
-        target_1212.write_text("format: rulespec/v1\nrules:\n  - manual\n")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", side_effect=AssertionError),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            pytest.raises(RuntimeError, match="Refusing to sign over pre-existing"),
-        ):
-            cmd_repair_section_172_c_capacity(args)
-
-        assert not (policy_repo / "statutes/26/172").exists()
-
-    def test_repair_section_911_a_1_exclusion_writes_signed_manifests(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target_1411 = policy_repo / "statutes/26/1411.yaml"
-        test_1411 = policy_repo / "statutes/26/1411.test.yaml"
-        target_1411.parent.mkdir(parents=True)
-        target_1411.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
-rules:
-  - name: niit_modified_adjusted_gross_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: definition
-            source:
-              corpus_citation_path: us/statute/26/1411
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
-              output: section_911_disallowed_deductions_and_exclusions
-              hash: sha256:abc
-    versions:
-      - effective_from: '2013-01-01'
-        formula: |-
-          adjusted_gross_income
-          + amount_excluded_from_gross_income_under_section_911_a_1
-          - section_911_disallowed_deductions_and_exclusions
-"""
-        )
-        test_1411.write_text(
-            """- name: section_911_case
-  input:
-    us:statutes/26/1411#input.amount_excluded_from_gross_income_under_section_911_a_1: 10000
-  output:
-    us:statutes/26/1411#niit_modified_adjusted_gross_income: 10000
-"""
-        )
-        subprocess.run(
-            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
-        )
-        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Axiom Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "-m",
-                "baseline",
-            ],
-            cwd=policy_repo,
-            check=True,
-            stdout=subprocess.PIPE,
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        companion_failures = MagicMock(return_value=[])
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert skip_reviewers is True
-                assert path in {
-                    policy_repo / "statutes/26/911/a/1.yaml",
-                    policy_repo / "statutes/26/67/e.yaml",
-                    target_1411,
-                }
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                companion_failures,
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_section_911_a_1_exclusion(args)
-
-        target_911 = policy_repo / "statutes/26/911/a/1.yaml"
-        target_67 = policy_repo / "statutes/26/67/e.yaml"
-        assert target_911.exists()
-        assert target_67.exists()
-        assert (
-            "us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income"
-            in target_1411.read_text()
-        )
-        assert f"hash: sha256:{_sha256_file(target_911)}" in target_1411.read_text()
-        assert (
-            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 10000"
-            in test_1411.read_text()
-        )
-        assert [call.args[0] for call in companion_failures.call_args_list] == [
-            policy_repo / "statutes/26/911/a/1.test.yaml",
-            policy_repo / "statutes/26/67/e.test.yaml",
-            test_1411,
-        ]
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            assert (
-                guard_generated_change_issues(
-                    policy_repo,
-                    changed_files=[
-                        "statutes/26/911/a/1.yaml",
-                        "statutes/26/911/a/1.test.yaml",
-                        "statutes/26/67/e.yaml",
-                        "statutes/26/67/e.test.yaml",
-                        "statutes/26/1411.yaml",
-                        "statutes/26/1411.test.yaml",
-                        ".axiom/encoding-manifests/statutes/26/911/a/1.json",
-                        ".axiom/encoding-manifests/statutes/26/67/e.json",
-                        ".axiom/encoding-manifests/statutes/26/1411.json",
-                    ],
-                )
-                == []
-            )
-
-    def test_repair_section_63_f_stale_test_inputs_writes_signed_manifests(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target_63_c = policy_repo / "statutes/26/63/c.yaml"
-        target_63 = policy_repo / "statutes/26/63.yaml"
-        target_6012 = policy_repo / "statutes/26/6012.yaml"
-        target_1_f_3 = policy_repo / "statutes/26/1/f/3.yaml"
-        target_121 = policy_repo / "statutes/26/121.yaml"
-        target_911_a_1 = policy_repo / "statutes/26/911/a/1.yaml"
-        target_911 = policy_repo / "statutes/26/911.yaml"
-        target_443_a_1 = policy_repo / "statutes/26/443/a/1.yaml"
-        target_7703 = policy_repo / "statutes/26/7703.yaml"
-        target_6013_a = policy_repo / "statutes/26/6013/a.yaml"
-        for target in (
-            target_1_f_3,
-            target_121,
-            target_911_a_1,
-            target_911,
-            target_443_a_1,
-            target_63_c,
-            target_63,
-            target_6012,
-            target_7703,
-            target_6013_a,
-        ):
-            target.parent.mkdir(parents=True, exist_ok=True)
-        target_63_c.write_text(
-            """format: rulespec/v1
-rules:
-  - name: head_of_household_basic_standard_deduction_amount
-    kind: derived
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          if taxable_year_begins_after_2025:
-            23625 + floor(23625 * cost_of_living_adjustment_under_section_1_f_3 / 50) * 50
-          else:
-            23625
-  - name: standard_deduction_ineligible
-    kind: derived
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change
-"""
-        )
-        target_63.write_text("format: rulespec/v1\nrules: []\n")
-        target_6012.write_text(
-            """format: rulespec/v1
-rules:
-  - name: gross_income_for_section_6012
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: formula
-            source:
-              corpus_citation_path: us/statute/26/6012
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          gross_income + gain_excluded_from_gross_income_under_section_121
-          + income_excluded_from_gross_income_under_section_911
-  - name: unmarried_individual_exception_to_return_requirement_under_2018_2025_rule
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: exception
-            source:
-              corpus_citation_path: us/statute/26/6012
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          taxable_year_begins_after_2017_and_before_2026
-          and individual_not_married_under_section_7703
-          and gross_income_for_section_6012 <= standard_deduction
-  - name: joint_return_exception_to_return_requirement_under_2018_2025_rule
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: exception
-            source:
-              corpus_citation_path: us/statute/26/6012
-    versions:
-      - effective_from: '2018-01-01'
-        formula: |-
-          individual_entitled_to_make_joint_return
-          and combined_gross_income_of_individual_and_spouse_for_section_6012 <= standard_deduction
-"""
-        )
-        target_443_a_1.write_text("format: rulespec/v1\nrules: []\n")
-        target_7703.write_text("format: rulespec/v1\nrules: []\n")
-        target_6013_a.write_text("format: rulespec/v1\nrules: []\n")
-        for target in (target_63_c, target_63, target_6012):
-            test_content = """- name: stale_input_case
-  input:
-    us:statutes/26/63/c#input.taxable_year_begins_after_2025: true
-    us:statutes/26/63/c#input.cost_of_living_adjustment_under_section_1_f_3: 0.1
-    us:statutes/26/63/c#input.return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change: false
-    us:statutes/26/63/f#input.filing_status: 0
-    us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
-    us:example#input.other_value: 1
-  output:
-    us:example#output.value: 1
-"""
-            if target == target_6012:
-                test_content = test_content.replace(
-                    "    us:example#input.other_value: 1\n",
-                    "    us:statutes/26/6012#input.individual_not_married_under_section_7703: true\n"
-                    "    us:statutes/26/6012#input.individual_entitled_to_make_joint_return: true\n"
-                    "    us:statutes/26/6012#input.taxable_year_begins_after_2017_and_before_2026: true\n"
-                    "    us:statutes/26/6012#input.gain_excluded_from_gross_income_under_section_121: 0\n"
-                    "    us:statutes/26/6012#input.income_excluded_from_gross_income_under_section_911: 0\n"
-                    "    us:example#input.other_value: 1\n",
-                )
-            target.with_name(f"{target.stem}.test.yaml").write_text(test_content)
-        subprocess.run(
-            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
-        )
-        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Axiom Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "-m",
-                "baseline",
-            ],
-            cwd=policy_repo,
-            check=True,
-            stdout=subprocess.PIPE,
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-        companion_failures = MagicMock(return_value=[])
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures",
-                companion_failures,
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_section_63_f_stale_test_inputs(args)
-
-        for relative in (
-            "statutes/26/63/c.test.yaml",
-            "statutes/26/63.test.yaml",
-            "statutes/26/6012.test.yaml",
-        ):
-            content = (policy_repo / relative).read_text()
-            assert "additional_exemption_allowable_for_spouse" not in content
-            assert "us:statutes/26/63/f#input.filing_status" not in content
-            assert "cost_of_living_adjustment_under_section_1_f_3" not in content
-            assert "return_under_section_443_a_1" not in content
-            assert (
-                "us:statutes/26/1/f/3#input.consumer_price_index_for_preceding_calendar_year: 110"
-                in content
-            )
-            assert (
-                "us:statutes/26/443/a/1#input.taxpayer_changes_annual_accounting_period: false"
-                in content
-            )
-            assert (
-                "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f: 0"
-                in content
-            )
-            assert "us:example#input.other_value: 1" in content
-        assert target_1_f_3.exists()
-        assert "cost_of_living_adjustment" in target_1_f_3.read_text()
-        assert target_121.exists()
-        assert "principal_residence_sale_gain_exclusion" in target_121.read_text()
-        assert target_911_a_1.exists()
-        assert (
-            "foreign_earned_income_excluded_from_gross_income"
-            in target_911_a_1.read_text()
-        )
-        assert target_911.exists()
-        assert (
-            "income_excluded_from_gross_income_under_section_911"
-            in target_911.read_text()
-        )
-        assert (
-            "cost_of_living_adjustment_under_section_1_f_3"
-            not in target_63_c.read_text()
-        )
-        assert (
-            "us:statutes/26/1/f/3#cost_of_living_adjustment" in target_63_c.read_text()
-        )
-        assert "taxable_year_begins_after_2025" not in target_63_c.read_text()
-        assert (
-            "taxable_year_begins_after_tcja_standard_deduction_transition_period"
-            in target_63_c.read_text()
-        )
-        assert "return_under_section_443_a_1" not in target_63_c.read_text()
-        assert (
-            "annual_accounting_period_change_with_secretary_approval"
-            in target_63_c.read_text()
-        )
-        assert (
-            "gain_excluded_from_gross_income_under_section_121"
-            not in target_6012.read_text()
-        )
-        assert "principal_residence_sale_gain_exclusion" in target_6012.read_text()
-        assert (
-            "us:statutes/26/911#income_excluded_from_gross_income_under_section_911"
-            in target_6012.read_text()
-        )
-        assert (
-            "taxable_year_begins_after_2017_and_before_2026"
-            not in target_6012.read_text()
-        )
-        assert (
-            "taxable_year_is_in_temporary_effective_window" in target_6012.read_text()
-        )
-        assert (
-            "individual_not_married_under_section_7703" not in target_6012.read_text()
-        )
-        assert (
-            "not taxpayer_considered_married_after_living_apart_rule"
-            in target_6012.read_text()
-        )
-        assert "individual_entitled_to_make_joint_return" not in target_6012.read_text()
-        assert "joint_return_may_be_made" in target_6012.read_text()
-        assert (
-            "us:statutes/26/7703#input.taxpayer_married_at_close_of_taxable_year: false"
-            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
-        )
-        assert (
-            "us:statutes/26/6013/a#input.taxpayers_are_husband_and_wife: true"
-            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
-        )
-        assert (
-            "us:statutes/26/121#input.principal_residence_sale_gain_excluded_from_gross_income: 0"
-            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
-        )
-        assert (
-            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0"
-            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
-        )
-        assert {call.args[0] for call in companion_failures.call_args_list} == {
-            policy_repo / "statutes/26/1/f/3.test.yaml",
-            policy_repo / "statutes/26/121.test.yaml",
-            policy_repo / "statutes/26/911/a/1.test.yaml",
-            policy_repo / "statutes/26/911.test.yaml",
-            policy_repo / "statutes/26/63/c.test.yaml",
-            policy_repo / "statutes/26/63.test.yaml",
-            policy_repo / "statutes/26/6012.test.yaml",
-        }
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            assert (
-                guard_generated_change_issues(
-                    policy_repo,
-                    changed_files=[
-                        "statutes/26/1/f/3.yaml",
-                        "statutes/26/1/f/3.test.yaml",
-                        "statutes/26/121.yaml",
-                        "statutes/26/121.test.yaml",
-                        "statutes/26/911/a/1.yaml",
-                        "statutes/26/911/a/1.test.yaml",
-                        "statutes/26/911.yaml",
-                        "statutes/26/911.test.yaml",
-                        "statutes/26/63/c.yaml",
-                        "statutes/26/63/c.test.yaml",
-                        "statutes/26/63.test.yaml",
-                        "statutes/26/6012.yaml",
-                        "statutes/26/6012.test.yaml",
-                        ".axiom/encoding-manifests/statutes/26/1/f/3.json",
-                        ".axiom/encoding-manifests/statutes/26/121.json",
-                        ".axiom/encoding-manifests/statutes/26/911/a/1.json",
-                        ".axiom/encoding-manifests/statutes/26/911.json",
-                        ".axiom/encoding-manifests/statutes/26/63/c.json",
-                        ".axiom/encoding-manifests/statutes/26/63.json",
-                        ".axiom/encoding-manifests/statutes/26/6012.json",
-                    ],
-                )
-                == []
-            )
-
-    def test_repair_missing_source_proofs_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-  summary: Medicare tax threshold source text.
-rules:
-  - name: additional_medicare_tax_rate
-    kind: parameter
-    dtype: Rate
-    source: 26 USC 3101(b)(2)(A)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: '0.009'
-  - name: additional_medicare_tax
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 3101(b)(2)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: wages * additional_medicare_tax_rate
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        content = target.read_text()
-        assert "proof_validation:\n    required: true" in content
-        assert content.count("metadata:\n      proof:\n        atoms:") == 2
-        assert "kind: parameter" in content
-        assert "kind: formula" in content
-        assert "corpus_citation_path: us/statute/26/3101" in content
-        assert "span: '26 USC 3101(b)(2)(A)'" in content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "source-proof-atom-v1"
-        assert payload["tool"] == "axiom-encode repair-missing-source-proofs"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/3101/b/2.yaml",
-        ]
-
-    def test_repair_missing_source_proofs_signs_changed_companion_test(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-  summary: Medicare tax threshold source text.
-rules:
-  - name: additional_medicare_tax
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 3101(b)(2)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: wages * additional_medicare_tax_rate
-"""
-        )
-        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
-        test_file.write_text(
-            """- name: additional_medicare_tax_example
-  period: 2026
-  input:
-    us:statutes/26/3101/b/2#input.wages: 250000
-  output:
-    us:statutes/26/3101/b/2#additional_medicare_tax: 450
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._changed_manifest_group_files",
-                return_value=[target, test_file],
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        payload = json.loads(manifest.read_text())
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/3101/b/2.yaml",
-            "statutes/26/3101/b/2.test.yaml",
-        ]
-
-    def test_repair_missing_source_proofs_refreshes_changed_companion_manifest(
-        self, tmp_path, capsys
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-  summary: Medicare tax threshold source text.
-rules:
-  - name: additional_medicare_tax
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 3101(b)(2)
-    metadata:
-      proof:
-        atoms:
-          - kind: formula
-            corpus_citation_path: us/statute/26/3101
-            span: '26 USC 3101(b)(2)'
-    versions:
-      - effective_from: '2013-01-01'
-        formula: wages * additional_medicare_tax_rate
-"""
-        )
-        original_content = target.read_text()
-        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
-        test_file.write_text(
-            """- name: additional_medicare_tax_example
-  period: 2026
-  input:
-    us:statutes/26/3101/b/2#input.wages: 250000
-  output:
-    us:statutes/26/3101/b/2#additional_medicare_tax: 450
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch(
-                "axiom_encode.cli.ValidatorPipeline",
-                side_effect=AssertionError("refresh should not validate"),
-            ),
-            patch(
-                "axiom_encode.cli._changed_manifest_group_files",
-                return_value=[test_file],
-            ),
-            patch(
-                "axiom_encode.cli._applied_manifest_matches_current_deterministic_repair",
-                return_value=False,
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        output = capsys.readouterr().out
-        assert "Refreshed missing source proof repair manifest" in output
-        assert target.read_text() == original_content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "source-proof-atom-v1"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "statutes/26/3101/b/2.yaml",
-            "statutes/26/3101/b/2.test.yaml",
-        ]
-
     def test_changed_manifest_group_files_matches_subrepo_git_paths(self, tmp_path):
         worktree = tmp_path / "rulespec-us"
         policy_repo = worktree / "us-co"
@@ -32342,109 +30373,6 @@ rules:
         )
 
         assert changed == [test_file]
-
-    def test_repair_missing_source_proofs_keeps_progress_with_pending_issues(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-  summary: Medicare tax threshold source text.
-rules:
-  - name: additional_medicare_tax_rate
-    kind: parameter
-    dtype: Rate
-    source: 26 USC 3101(b)(2)(A)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: '0.009'
-  - name: additional_medicare_tax
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 3101(b)(2)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: wages * additional_medicare_tax_rate
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "rate": SimpleNamespace(
-                                error=(
-                                    "Proof missing: rule "
-                                    "`additional_medicare_tax_rate` is "
-                                    "policy-bearing and must declare "
-                                    "`metadata.proof.atoms`."
-                                )
-                            ),
-                            "tax": SimpleNamespace(
-                                error=(
-                                    "Proof missing: rule "
-                                    "`additional_medicare_tax` is "
-                                    "policy-bearing and must declare "
-                                    "`metadata.proof.atoms`."
-                                )
-                            ),
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "tax": SimpleNamespace(
-                            error=(
-                                "Proof missing: rule `additional_medicare_tax` "
-                                "is policy-bearing and must declare "
-                                "`metadata.proof.atoms`."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        content = target.read_text()
-        assert "proof_validation:\n    required: true" in content
-        assert content.count("metadata:\n      proof:\n        atoms:") == 2
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        assert manifest.exists()
-        assert FakePipeline.calls == 2
 
     def test_repair_missing_source_proofs_treats_derived_relation_as_executable(
         self,
@@ -32505,666 +30433,6 @@ rules:
         assert "corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.403" in repaired
         assert "span: 10 CCR 2506-1 section 4.403(A)" in repaired
 
-    def test_repair_embedded_scalar_literals_extracts_parameter(self, tmp_path):
-        content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2
-rules:
-  - name: snap_self_employment_income_annualized_under_4_402_2
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    source: 10 CCR 2506-1 section 4.402.2(A)(1)
-    versions:
-      - effective_from: '2025-10-01'
-        formula: annual_self_employment_income / 12
-"""
-        issues = [
-            "Embedded scalar literal: "
-            "snap_self_employment_income_annualized_under_4_402_2 line 14 "
-            "embeds 12 in `annual_self_employment_income / 12`; "
-            "extract the value to its own named numeric concept or indexed table/grid value"
-        ]
-
-        repaired, repaired_rules = _repair_embedded_scalar_literals(
-            content,
-            relative_output=Path("regulations/10-ccr-2506-1/4.402.2.yaml"),
-            policy_repo_path=tmp_path / "rulespec-us-co",
-            issues=issues,
-        )
-
-        assert repaired_rules == [
-            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
-        ]
-        assert (
-            "name: snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
-            in repaired
-        )
-        assert "formula: '12'" in repaired
-        assert (
-            "corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2" in repaired
-        )
-        assert "span: 10 CCR 2506-1 section 4.402.2(A)(1)" in repaired
-        assert (
-            "formula: annual_self_employment_income / "
-            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
-            in repaired
-        )
-        assert (
-            "target: us-co:regulations/10-ccr-2506-1/4.402.2"
-            "#snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
-            in repaired
-        )
-
-    def test_repair_embedded_scalar_literals_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us-co"
-        target = policy_repo / "regulations/10-ccr-2506-1/4.402.2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.402.2
-rules:
-  - name: snap_self_employment_income_annualized_under_4_402_2
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    source: 10 CCR 2506-1 section 4.402.2(A)(1)
-    versions:
-      - effective_from: '2025-10-01'
-        formula: annual_self_employment_income / 12
-  - name: snap_contract_income_annualized_under_4_402_2
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    source: 10 CCR 2506-1 section 4.402.2(A)(2)
-    versions:
-      - effective_from: '2025-10-01'
-        formula: annual_contract_income / 12
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("regulations/10-ccr-2506-1/4.402.2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                content = path.read_text()
-                if "annual_self_employment_income / 12" in content:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "scalar": SimpleNamespace(
-                                error=(
-                                    "Embedded scalar literal: "
-                                    "snap_self_employment_income_annualized_under_4_402_2 "
-                                    "line 14 embeds 12 in "
-                                    "`annual_self_employment_income / 12`; "
-                                    "extract the value to its own named numeric concept "
-                                    "or indexed table/grid value"
-                                )
-                            )
-                        },
-                    )
-                if "annual_contract_income / 12" in content:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "scalar": SimpleNamespace(
-                                error=(
-                                    "Embedded scalar literal: "
-                                    "snap_contract_income_annualized_under_4_402_2 "
-                                    "line 24 embeds 12 in "
-                                    "`annual_contract_income / 12`; "
-                                    "extract the value to its own named numeric concept "
-                                    "or indexed table/grid value"
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "proof": SimpleNamespace(
-                            error=(
-                                "Proof missing: "
-                                "snap_self_employment_income_annualized_under_4_402_2 "
-                                "is awaiting a separate repair"
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_embedded_scalar_literals(args)
-
-        content = target.read_text()
-        assert (
-            "snap_self_employment_income_annualized_under_4_402_2_scalar_limit"
-            in content
-        )
-        assert "snap_contract_income_annualized_under_4_402_2_scalar_limit" in content
-        assert "annual_self_employment_income / 12" not in content
-        assert "annual_contract_income / 12" not in content
-        manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/regulations/10-ccr-2506-1/4.402.2.json"
-        )
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "embedded-scalar-literal-v1"
-        assert payload["tool"] == "axiom-encode repair-embedded-scalar-literals"
-        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
-            "regulations/10-ccr-2506-1/4.402.2.yaml",
-        ]
-
-    def test_repair_missing_source_proofs_allows_pending_tax_branch_repair(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/3101/b/2.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/3101
-  summary: joint return or surviving spouse.
-rules:
-  - name: additional_medicare_wage_tax_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 3101(b)(2)(A)-(C)
-    versions:
-      - effective_from: '2013-01-01'
-        formula: |-
-          match filing_status:
-              1 => additional_medicare_wage_tax_joint_threshold
-              2 => additional_medicare_wage_tax_joint_threshold / 2
-              0 => additional_medicare_wage_tax_other_threshold
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/3101/b/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "filing_status": SimpleNamespace(
-                            error=(
-                                "Filing status branch missing surviving spouse: "
-                                "`additional_medicare_wage_tax_threshold` handles "
-                                "joint-return status code 1 while this source "
-                                "mentions surviving spouse."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        content = target.read_text()
-        assert "metadata:\n      proof:\n        atoms:" in content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
-        assert manifest.exists()
-
-    def test_repair_missing_source_proofs_allows_pending_nonnegative_floor_repair(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/1/h.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/1
-  summary: capital gains taxable income exclusion.
-rules:
-  - name: capital_gains_excluded_from_taxable_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 1(h)(1)(A)
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxable_income - capital_gains_exclusion
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/1/h.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "nonnegative": SimpleNamespace(
-                            error=(
-                                "Nonnegative taxable income missing floor: "
-                                "`capital_gains_excluded_from_taxable_income` "
-                                "can return a negative amount."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_missing_source_proofs(args)
-
-        content = target.read_text()
-        assert "metadata:\n      proof:\n        atoms:" in content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1/h.json"
-        assert manifest.exists()
-
-    def test_repair_proof_import_hashes_writes_signed_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/22.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: section_22_age_threshold
-    kind: parameter
-    dtype: Integer
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          65
-  - name: section_22_aged_individual
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/22#section_22_age_threshold
-              output: section_22_age_threshold
-              hash: sha256:20182e27b153a3a48aad21a7321215bf9a581fcd69e4a87d815d8ade8a2cccff
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          age >= section_22_age_threshold
-"""
-        )
-        test_file = target.with_name("22.test.yaml")
-        test_file.write_text("- name: existing_case\n  period: 2026\n")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/22.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(
-                    all_passed=False,
-                    results={
-                        "zero_branch": SimpleNamespace(
-                            error=(
-                                "Zero branch test coverage missing: "
-                                "`section_22_initial_amount_before_disability_cap` "
-                                "has a formula branch that returns 0."
-                            )
-                        )
-                    },
-                )
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        content = target.read_text()
-        assert "hash: sha256:local" in content
-        assert "20182e27" not in content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/22.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "deterministic"
-        assert payload["model"] == "proof-import-hash-v1"
-        assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/22.yaml",
-            "statutes/26/22.test.yaml",
-        ]
-
-    def test_repair_proof_import_hashes_removes_stale_invalid_test_inputs(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/1401/b/1.yaml"
-        target = policy_repo / "statutes/26/32/c/2.yaml"
-        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
-        imported.parent.mkdir(parents=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: self_employment_income_tax
-    kind: derived
-    entity: Person
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: self_employment_income * 0.029
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/1401/b/1#self_employment_income_tax
-rules:
-  - name: self_employment_earned_income_component
-    kind: derived
-    entity: Person
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/1401/b/1#self_employment_income_tax
-              output: self_employment_income_tax
-              hash: sha256:old
-    versions:
-      - effective_from: '2026-01-01'
-        formula: self_employment_income_tax
-"""
-        )
-        test_file.write_text(
-            """- name: transitive_case
-  input:
-    us:statutes/26/1401#input.self_employment_income: 1000
-    us:statutes/26/32/c/2#input.taxpayer_is_individual: true
-  output:
-    us:statutes/26/32/c/2#self_employment_earned_income_component: 900
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/32/c/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` execution failed: "
-                                    "dataset input "
-                                    "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
-                                    "must use an absolute legal RuleSpec reference "
-                                    "that resolves to an input slot, derived rule, "
-                                    "or parameter in the compiled program"
-                                )
-                            )
-                        },
-                    )
-                if FakePipeline.calls == 2:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` execution failed: "
-                                    "missing input `self_employment_income`"
-                                )
-                            )
-                        },
-                    )
-                if FakePipeline.calls == 3:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `transitive_case` output "
-                                    "`tmp-rulespec:statutes/26/32/c/2#self_employment_earned_income_component` "
-                                    "expected decimal 900, got decimal 1000."
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        target_content = target.read_text()
-        assert "sha256:old" not in target_content
-        updated_test = test_file.read_text()
-        assert "us:statutes/26/1401#input.self_employment_income" not in updated_test
-        assert "us:statutes/26/1401/b/1#input.self_employment_income: 0" in updated_test
-        assert (
-            "us:statutes/26/32/c/2#self_employment_earned_income_component: 1000"
-            in updated_test
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "proof-import-hash-v1"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/32/c/2.yaml",
-            "statutes/26/32/c/2.test.yaml",
-        ]
-
-    def test_repair_proof_import_hashes_removes_unknown_test_outputs(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/26/32/c/2.yaml"
-        target = policy_repo / "statutes/26/24/d.yaml"
-        test_file = policy_repo / "statutes/26/24/d.test.yaml"
-        imported.parent.mkdir(parents=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-module:
-  status: deferred
-  deferred_outputs:
-    - output: us:statutes/26/32/c/2#earned_income
-      reason: deferred
-rules: []
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/32/c/2
-rules:
-  - name: ctc_phase_in_earned_income_base
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/32/c/2#earned_income
-              output: earned_income
-              hash: sha256:old
-    versions:
-      - effective_from: '2026-01-01'
-        formula: earned_income
-"""
-        )
-        test_file.write_text(
-            """- name: copied_companion_case
-  input:
-    us:statutes/26/24/d#input.earned_income: 1000
-  output:
-    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 1000
-    us:statutes/26/32/c/2#self_employment_earned_income_component: 0
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/24/d.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `copied_companion_case` output "
-                                    "`us:statutes/26/32/c/2#self_employment_earned_income_component` "
-                                    "does not resolve to a derived rule, or parameter "
-                                    "in statutes/26/32/c/2.yaml."
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        assert "sha256:old" not in target.read_text()
-        updated = test_file.read_text()
-        assert "self_employment_earned_income_component" not in updated
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "proof-import-hash-v1"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/24/d.yaml",
-            "statutes/26/24/d.test.yaml",
-        ]
-
     def test_missing_input_default_treats_base_as_numeric(self):
         assert (
             _infer_missing_input_default(
@@ -33208,1462 +30476,11 @@ rules:
     ):
         assert _infer_missing_input_default(input_name) is False
 
-    def test_repair_imported_proof_hashes_writes_target_file_hash(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        imported = policy_repo / "statutes/7/2015/d/2/C.yaml"
-        target = policy_repo / "statutes/7/2015/d/2.yaml"
-        imported.parent.mkdir(parents=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        imported.write_text(
-            """format: rulespec/v1
-rules:
-  - name: bona_fide_student_half_time_enrollment_exemption_applies
-    kind: derived
-    entity: Person
-    dtype: Boolean
-    period: Month
-    formula: |-
-      true
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: paragraph_1_work_requirements_exemption_applies
-    kind: derived
-    entity: Person
-    dtype: Boolean
-    period: Month
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/7/2015/d/2/C#bona_fide_student_half_time_enrollment_exemption_applies
-              output: bona_fide_student_half_time_enrollment_exemption_applies
-              hash: sha256:old
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          bona_fide_student_half_time_enrollment_exemption_applies
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/7/2015/d/2.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        expected_hash = f"sha256:{_sha256_file(imported)}"
-        content = target.read_text()
-        assert f"hash: {expected_hash}" in content
-        assert "sha256:old" not in content
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/7/2015/d/2.json"
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "proof-import-hash-v1"
-        assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
-        assert payload["applied_files"][0]["path"] == "statutes/7/2015/d/2.yaml"
-
-    def test_repair_proof_import_hashes_refreshes_existing_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/63.yaml"
-        test_file = policy_repo / "statutes/26/63.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: taxable_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: adjusted_gross_income
-"""
-        )
-        test_file.write_text(
-            """- name: taxable_income_case
-  input:
-    us:statutes/26/63#input.adjusted_gross_income: 100
-  output:
-    us:statutes/26/63#taxable_income: 100
-"""
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
-        manifest.parent.mkdir(parents=True)
-        manifest.write_text('{"model": "proof-import-hash-v1"}')
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/63.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        payload = json.loads(manifest.read_text())
-        assert payload["model"] == "proof-import-hash-v1"
-        assert payload["axiom_encode_git"]["commit"] == "abc123"
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/63.yaml",
-            "statutes/26/63.test.yaml",
-        ]
-
-    def test_repair_proof_import_hashes_removes_import_output_placeholders(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        section_151 = policy_repo / "statutes/26/151.yaml"
-        section_224 = policy_repo / "statutes/26/224.yaml"
-        target = policy_repo / "statutes/26/63.yaml"
-        test_file = policy_repo / "statutes/26/63.test.yaml"
-        target.parent.mkdir(parents=True)
-        section_151.write_text(
-            """format: rulespec/v1
-rules:
-  - name: section_151_exemption_deduction
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: 0
-"""
-        )
-        section_224.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
-rules: []
-"""
-        )
-        target.write_text(
-            """format: rulespec/v1
-imports:
-  - us:statutes/26/151#section_151_exemption_deduction
-  - us:statutes/26/224
-rules:
-  - name: taxable_income
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    metadata:
-      proof:
-        atoms:
-          - path: versions[0].formula
-            kind: import
-            import:
-              target: us:statutes/26/151#section_151_exemption_deduction
-              output: section_151_exemption_deduction
-              hash: sha256:old
-    versions:
-      - effective_from: '2026-01-01'
-        formula: adjusted_gross_income - section_151_exemption_deduction
-"""
-        )
-        test_file.write_text(
-            """- name: invalid_import_output_input
-  input:
-    us:statutes/26/63#input.adjusted_gross_income: 100000
-    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
-  output:
-    us:statutes/26/63#taxable_income: 100000
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/63.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakePipeline:
-            calls = 0
-
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is False
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                FakePipeline.calls += 1
-                if FakePipeline.calls == 1:
-                    return SimpleNamespace(
-                        all_passed=False,
-                        results={
-                            "ci": SimpleNamespace(
-                                error=(
-                                    "Test case `invalid_import_output_input` execution failed: "
-                                    "dataset input "
-                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
-                                    "must use an absolute legal RuleSpec reference "
-                                    "that resolves to an input slot, derived rule, "
-                                    "or parameter in the compiled program"
-                                )
-                            )
-                        },
-                    )
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_proof_import_hashes(args)
-
-        assert "sha256:old" not in target.read_text()
-        updated = test_file.read_text()
-        assert (
-            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
-            not in updated
-        )
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
-        payload = json.loads(manifest.read_text())
-        assert [item["path"] for item in payload["applied_files"]] == [
-            "statutes/26/63.yaml",
-            "statutes/26/63.test.yaml",
-        ]
-
-    def test_repair_oracle_parameter_tests_adds_missing_parameter_output(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/32.yaml"
-        test_file = policy_repo / "statutes/26/32.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: qualifying_child_marker
-    kind: derived
-    dtype: Count
-    versions:
-      - effective_from: '2026-01-01'
-        formula: max(0, qualifying_child_count)
-  - name: eitc_phase_in_rates
-    kind: parameter
-    dtype: Rate
-    indexed_by: qualifying_child_count
-    versions:
-      - effective_from: '2026-01-01'
-        values:
-          0: 0.0765
-          1: 0.34
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us:statutes/26/32#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/32.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == "us:statutes/26/32#eitc_phase_in_rates":
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == "oracle_parameter_eitc_phase_in_rates_0"
-        assert added["input"] == {"us:statutes/26/32#input.qualifying_child_count": 0}
-        assert added["output"] == {"us:statutes/26/32#eitc_phase_in_rates": 0.0765}
-        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "oracle-parameter-test-v1"
-        assert manifest_payload["tool"] == "axiom-encode repair-oracle-parameter-tests"
-        assert [item["path"] for item in manifest_payload["applied_files"]] == [
-            "statutes/26/32.yaml",
-            "statutes/26/32.test.yaml",
-        ]
-
-    def test_repair_oracle_parameter_tests_assigns_local_factual_inputs(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0020.yaml"
-        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0020.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-module:
-  proof_validation:
-    required: true
-rules:
-  - name: cash_assistance_payment_standard_size_band
-    kind: derived
-    entity: AssistanceUnit
-    dtype: Integer
-    period: Month
-    versions:
-      - effective_from: '0001-01-01'
-        formula: |-
-          if assistance_unit_size >= 10: 10 else: assistance_unit_size
-  - name: cash_assistance_maximum_monthly_payment_standard
-    kind: parameter
-    dtype: Money
-    unit: USD
-    indexed_by: cash_assistance_payment_standard_size_band
-    versions:
-      - effective_from: '0001-01-01'
-        values:
-          1: 450
-          10: 1662
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us-wa:regulations/388/388-478/388-478-0020#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us-wa/regulations/388/388-478/388-478-0020.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == (
-                    "us-wa:regulations/388/388-478/388-478-0020"
-                    "#cash_assistance_maximum_monthly_payment_standard"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == (
-            "oracle_parameter_cash_assistance_maximum_monthly_payment_standard_1"
-        )
-        assert added["input"] == {
-            "us-wa:regulations/388/388-478/388-478-0020#input.assistance_unit_size": 1,
-            "us-wa:regulations/388/388-478/388-478-0020#input.cash_assistance_payment_standard_size_band": 1,
-        }
-        assert added["output"] == {
-            "us-wa:regulations/388/388-478/388-478-0020#cash_assistance_maximum_monthly_payment_standard": 450
-        }
-
-    def test_repair_oracle_parameter_tests_uses_month_for_monthly_parameters(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.yaml"
-        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: medical_institution_monthly_ssp_base
-    kind: parameter
-    dtype: Money
-    unit: USD
-    period: Month
-    versions:
-      - effective_from: '2023-07-01'
-        formula: '70'
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us-wa:regulations/388/388-478/388-478-0055#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo / "us-wa",
-            file=Path("regulations/388/388-478/388-478-0055.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == (
-                    "us-wa:regulations/388/388-478/388-478-0055"
-                    "#medical_institution_monthly_ssp_base"
-                ):
-                    return SimpleNamespace(
-                        mapping_type="parameter_value", period="month"
-                    )
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == "oracle_parameter_medical_institution_monthly_ssp_base"
-        assert added["period"] == "2023-07"
-        assert added["input"] == {}
-        assert added["output"] == {
-            "us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base": 70
-        }
-
-    def test_repair_oracle_parameter_tests_uses_next_month_for_midmonth_effective_date(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = (
-            policy_repo
-            / "us-al/policies/dhr/ssp/state-supplement-payment-standard.yaml"
-        )
-        test_file = (
-            policy_repo
-            / "us-al/policies/dhr/ssp/state-supplement-payment-standard.test.yaml"
-        )
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: fcmp_nursing_care_payment_monthly_amount
-    kind: parameter
-    dtype: Money
-    unit: USD
-    period: Month
-    versions:
-      - effective_from: '1995-03-31'
-        formula: '100'
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us-al:policies/dhr/ssp/state-supplement-payment-standard#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo / "us-al",
-            file=Path("policies/dhr/ssp/state-supplement-payment-standard.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == (
-                    "us-al:policies/dhr/ssp/state-supplement-payment-standard"
-                    "#fcmp_nursing_care_payment_monthly_amount"
-                ):
-                    return SimpleNamespace(
-                        mapping_type="parameter_value", period="month"
-                    )
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == (
-            "oracle_parameter_fcmp_nursing_care_payment_monthly_amount"
-        )
-        assert added["period"] == "1995-04"
-        assert added["output"] == {
-            "us-al:policies/dhr/ssp/state-supplement-payment-standard#fcmp_nursing_care_payment_monthly_amount": 100
-        }
-
-    def test_repair_oracle_parameter_tests_refreshes_existing_monthly_period(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.yaml"
-        test_file = policy_repo / "us-wa/regulations/388/388-478/388-478-0055.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: medical_institution_monthly_ssp_base
-    kind: parameter
-    dtype: Money
-    unit: USD
-    period: Month
-    versions:
-      - effective_from: '2023-07-01'
-        formula: '70'
-"""
-        )
-        test_file.write_text(
-            """- name: oracle_parameter_medical_institution_monthly_ssp_base
-  period:
-    period_kind: custom
-    name: policy_year
-    start: '2023-07-01'
-    end: '2024-06-30'
-  input: {}
-  output:
-    us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base: 70
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo / "us-wa",
-            file=Path("regulations/388/388-478/388-478-0055.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == (
-                    "us-wa:regulations/388/388-478/388-478-0055"
-                    "#medical_institution_monthly_ssp_base"
-                ):
-                    return SimpleNamespace(
-                        mapping_type="parameter_value", period="month"
-                    )
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        assert len(payload) == 1
-        assert payload[0]["period"] == "2023-07"
-        assert payload[0]["output"] == {
-            "us-wa:regulations/388/388-478/388-478-0055#medical_institution_monthly_ssp_base": 70
-        }
-
-    def test_repair_oracle_parameter_tests_refreshes_to_latest_monthly_value(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us-il/manual/dhs/csmm/25-06-01.yaml"
-        test_file = policy_repo / "us-il/manual/dhs/csmm/25-06-01.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: aabd_grant_adjustment_amount
-    kind: parameter
-    dtype: Money
-    unit: USD
-    period: Month
-    versions:
-      - effective_from: '1977-07-01'
-        formula: '10'
-      - effective_from: '2025-01-01'
-        formula: '788.9'
-"""
-        )
-        test_file.write_text(
-            """- name: oracle_parameter_aabd_grant_adjustment_amount
-  period: 1977-07
-  input: {}
-  output:
-    us-il:manual/dhs/csmm/25-06-01#aabd_grant_adjustment_amount: 10
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo / "us-il",
-            file=Path("manual/dhs/csmm/25-06-01.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if (
-                    legal_id
-                    == "us-il:manual/dhs/csmm/25-06-01#aabd_grant_adjustment_amount"
-                ):
-                    return SimpleNamespace(
-                        mapping_type="parameter_value", period="month"
-                    )
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        assert len(payload) == 1
-        assert payload[0]["period"] == "2025-01"
-        assert payload[0]["output"] == {
-            "us-il:manual/dhs/csmm/25-06-01#aabd_grant_adjustment_amount": 788.9
-        }
-
-    def test_repair_oracle_parameter_tests_replaces_empty_list_file(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/42/18795a/c/3.yaml"
-        test_file = policy_repo / "statutes/42/18795a/c/3.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: heat_pump_water_heater_rebate_cap
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2022-08-16'
-        formula: '1750'
-"""
-        )
-        test_file.write_text("[]\n")
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/42/18795a/c/3.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if (
-                    legal_id
-                    == "us:statutes/42/18795a/c/3#heat_pump_water_heater_rebate_cap"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        assert isinstance(payload, list)
-        assert len(payload) == 1
-        assert payload[0]["name"] == (
-            "oracle_parameter_heat_pump_water_heater_rebate_cap"
-        )
-        assert "[]\n-" not in test_file.read_text()
-
-    def test_repair_oracle_parameter_tests_uses_canonical_country_monorepo_anchor(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us/statutes/42/1382c/a/1.yaml"
-        test_file = policy_repo / "us/statutes/42/1382c/a/1.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: aged_age_threshold_years
-    kind: parameter
-    dtype: Count
-    versions:
-      - effective_from: '1974-01-01'
-        formula: '65'
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us:statutes/42/1382c/a/1#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/42/1382c/a/1.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == ("us:statutes/42/1382c/a/1#aged_age_threshold_years"):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == "oracle_parameter_aged_age_threshold_years"
-        assert added["input"] == {}
-        assert added["output"] == {
-            "us:statutes/42/1382c/a/1#aged_age_threshold_years": 65
-        }
-        manifest = (
-            policy_repo / "us/.axiom/encoding-manifests/statutes/42/1382c/a/1.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert [item["path"] for item in manifest_payload["applied_files"]] == [
-            "statutes/42/1382c/a/1.yaml",
-            "statutes/42/1382c/a/1.test.yaml",
-        ]
-
-    def test_repair_oracle_parameter_tests_uses_state_subroot_manifest(self, tmp_path):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us-ga/policies/dfcs/medicaid/2578.yaml"
-        test_file = policy_repo / "us-ga/policies/dfcs/medicaid/2578.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: nursing_home_state_supplement_amount
-    kind: parameter
-    dtype: Money
-    unit: USD
-    period: Month
-    versions:
-      - effective_from: '2006-07-01'
-        formula: '20'
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us-ga:policies/dfcs/medicaid/2578#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us-ga/policies/dfcs/medicaid/2578.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == (
-                    "us-ga:policies/dfcs/medicaid/2578"
-                    "#nursing_home_state_supplement_amount"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-1]
-        assert added["name"] == "oracle_parameter_nursing_home_state_supplement_amount"
-        assert added["input"] == {}
-        assert added["output"] == {
-            "us-ga:policies/dfcs/medicaid/2578#nursing_home_state_supplement_amount": 20
-        }
-        manifest = (
-            policy_repo
-            / ".axiom/encoding-manifests/us-ga/policies/dfcs/medicaid/2578.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert [item["path"] for item in manifest_payload["applied_files"]] == [
-            "us-ga/policies/dfcs/medicaid/2578.yaml",
-            "us-ga/policies/dfcs/medicaid/2578.test.yaml",
-        ]
-        assert not (
-            policy_repo
-            / "us/.axiom/encoding-manifests/policies/dfcs/medicaid/2578.json"
-        ).exists()
-
-    def test_repair_oracle_parameter_tests_refreshes_manifest_when_case_exists(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us/statutes/42/1382c/a/1.yaml"
-        test_file = policy_repo / "us/statutes/42/1382c/a/1.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: aged_age_threshold_years
-    kind: parameter
-    dtype: Count
-    versions:
-      - effective_from: '1974-01-01'
-        formula: '65'
-"""
-        )
-        original_test_content = """- name: existing
-  output:
-    us:statutes/42/1382c/a/1#some_other_output: 1
-- name: oracle_parameter_aged_age_threshold_years
-  period:
-    period_kind: tax_year
-    start: '1974-01-01'
-    end: '1974-12-31'
-  input: {}
-  output:
-    us:statutes/42/1382c/a/1#aged_age_threshold_years: 65
-"""
-        test_file.write_text(original_test_content)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/42/1382c/a/1.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if legal_id == ("us:statutes/42/1382c/a/1#aged_age_threshold_years"):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        assert test_file.read_text() == original_test_content
-        manifest = (
-            policy_repo / "us/.axiom/encoding-manifests/statutes/42/1382c/a/1.json"
-        )
-        manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "oracle-parameter-test-v1"
-        assert [item["path"] for item in manifest_payload["applied_files"]] == [
-            "statutes/42/1382c/a/1.yaml",
-            "statutes/42/1382c/a/1.test.yaml",
-        ]
-
-    def test_repair_oracle_parameter_tests_refreshes_existing_input_defaults(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us/statutes/42/601.yaml"
-        test_file = policy_repo / "us/statutes/42/601.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: tanf_thirty_dollar_earned_income_disregard
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '30'
-  - name: earned_income_disregards
-    kind: derived
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: max(0, incapacitated_adult_care_expenses)
-"""
-        )
-        test_file.write_text(
-            """- name: oracle_parameter_tanf_thirty_dollar_earned_income_disregard
-  period:
-    period_kind: tax_year
-    start: '2026-01-01'
-    end: '2026-12-31'
-  input:
-    us:statutes/42/601#input.incapacitated_adult_care_expenses: false
-  output:
-    us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard: 30
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/42/601.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if (
-                    legal_id
-                    == "us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        assert payload[0]["input"] == {
-            "us:statutes/42/601#input.incapacitated_adult_care_expenses": 0
-        }
-
-    def test_repair_oracle_parameter_tests_refreshes_cases_mapping_inputs(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "us/statutes/42/601.yaml"
-        test_file = policy_repo / "us/statutes/42/601.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: tanf_thirty_dollar_earned_income_disregard
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '30'
-  - name: earned_income_disregards
-    kind: derived
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: max(0, incapacitated_adult_care_expenses)
-"""
-        )
-        test_file.write_text(
-            """cases:
-  - name: oracle_parameter_tanf_thirty_dollar_earned_income_disregard
-    period:
-      period_kind: tax_year
-      start: '2026-01-01'
-      end: '2026-12-31'
-    input:
-      us:statutes/42/601#input.incapacitated_adult_care_expenses: false
-    output:
-      us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard: 30
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("us/statutes/42/601.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if (
-                    legal_id
-                    == "us:statutes/42/601#tanf_thirty_dollar_earned_income_disregard"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        assert payload["cases"][0]["input"] == {
-            "us:statutes/42/601#input.incapacitated_adult_care_expenses": 0
-        }
-
-    def test_repair_oracle_parameter_tests_appends_scalar_parameter_case(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us-co"
-        target = policy_repo / "statutes/39/39-22-104/4/y.yaml"
-        test_file = policy_repo / "statutes/39/39-22-104/4/y.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: military_retirement_benefits_cap_initial_phase
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2019-01-01'
-        formula: '4500'
-  - name: earned_income_remainder_exclusion_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '1974-01-01'
-        formula: '1 / 2'
-  - name: earned_income_one_third_exclusion_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '1974-01-01'
-        formula: '1 / 3'
-"""
-        )
-        test_file.write_text(
-            """- name: existing
-  output:
-    us-co:statutes/39/39-22-104/4/y#some_other_output: 1
-"""
-        )
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/39/39-22-104/4/y.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        class FakeRegistry:
-            def mapping_for_legal_id(self, legal_id, *, country=None):
-                assert country == "us"
-                if (
-                    legal_id
-                    == "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase"
-                    or legal_id
-                    == "us-co:statutes/39/39-22-104/4/y#earned_income_remainder_exclusion_rate"
-                    or legal_id
-                    == "us-co:statutes/39/39-22-104/4/y#earned_income_one_third_exclusion_rate"
-                ):
-                    return SimpleNamespace(mapping_type="parameter_value")
-                return None
-
-        class FakePipeline:
-            def __init__(self, **kwargs):
-                assert kwargs["require_policy_proofs"] is True
-
-            def validate(self, path, *, skip_reviewers):
-                assert path == target.resolve()
-                assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
-
-        with (
-            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
-            patch(
-                "axiom_encode.cli.load_policyengine_registry",
-                return_value=FakeRegistry(),
-            ),
-            patch(
-                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value={"commit": "abc123", "dirty_tracked": False},
-            ),
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        payload = yaml.safe_load(test_file.read_text())
-        added = payload[-3]
-        assert (
-            added["name"]
-            == "oracle_parameter_military_retirement_benefits_cap_initial_phase"
-        )
-        assert added["input"] == {}
-        assert added["output"] == {
-            "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase": 4500
-        }
-        fraction_added = payload[-2]
-        assert (
-            fraction_added["name"]
-            == "oracle_parameter_earned_income_remainder_exclusion_rate"
-        )
-        assert fraction_added["input"] == {}
-        assert fraction_added["output"] == {
-            "us-co:statutes/39/39-22-104/4/y#earned_income_remainder_exclusion_rate": 0.5
-        }
-        nonterminating_fraction_added = payload[-1]
-        assert (
-            nonterminating_fraction_added["name"]
-            == "oracle_parameter_earned_income_one_third_exclusion_rate"
-        )
-        assert nonterminating_fraction_added["input"] == {}
-        assert nonterminating_fraction_added["output"] == {
-            "us-co:statutes/39/39-22-104/4/y#earned_income_one_third_exclusion_rate": "0.3333333333333333333333333333"
-        }
-
-    def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
-        self, tmp_path
-    ):
-        policy_repo = tmp_path / "rulespec-us"
-        target = policy_repo / "statutes/26/32.yaml"
-        test_file = policy_repo / "statutes/26/32.test.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text(
-            """format: rulespec/v1
-rules:
-  - name: eitc_phase_in_rates
-    kind: parameter
-    dtype: Rate
-    indexed_by: qualifying_child_count
-    versions:
-      - effective_from: '2026-01-01'
-        values:
-          0: 0.0765
-"""
-        )
-        original_test_content = """- name: existing
-  output:
-    us:statutes/26/32#some_other_output: 1
-"""
-        test_file.write_text(original_test_content)
-        args = SimpleNamespace(
-            repo=policy_repo,
-            file=Path("statutes/26/32.yaml"),
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
-
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
-        ):
-            cmd_repair_oracle_parameter_tests(args)
-
-        assert test_file.read_text() == original_test_content
-
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/7/2015/d/2/C.yaml"
         dependent = policy_repo / "statutes/7/2015/d/2.yaml"
         generated.parent.mkdir(parents=True)
@@ -34672,7 +30489,9 @@ rules:
         dependent.write_text(
             "format: rulespec/v1\nimports:\n  - us:statutes/7/2015/d/2/C\nrules: []\n"
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         validated_paths: list[Path] = []
 
         class FakePipeline:
@@ -34690,6 +30509,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -34701,7 +30523,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/24/h.yaml"
         dependent = policy_repo / "statutes/26/24/d.yaml"
         generated.parent.mkdir(parents=True)
@@ -34710,7 +30532,9 @@ rules:
         dependent.write_text(
             "format: rulespec/v1\nimports:\n  - us:statutes/26/24/h\nrules: []\n"
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         validated_paths: list[Path] = []
 
         class FakePipeline:
@@ -34729,6 +30553,9 @@ rules:
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
                 validate_dependents=False,
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -34740,7 +30567,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/63/c.yaml"
         generated_test = generated.with_name("c.test.yaml")
         dependent = policy_repo / "statutes/26/63.yaml"
@@ -34774,7 +30601,9 @@ rules:
     us:statutes/26/63#taxable_income: 73900
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
         required = [
             "married_filing_separately_and_either_spouse_itemizes",
             "additional_standard_deduction_entitlement_count_under_subsection_f",
@@ -34811,6 +30640,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -34836,7 +30668,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         generated_test = generated.with_name("151.test.yaml")
         dependent = policy_repo / "statutes/26/7703.yaml"
@@ -34866,7 +30698,9 @@ rules:
     us:statutes/26/7703#taxpayer_not_considered_married_when_living_apart: holds
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -34904,6 +30738,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -34922,7 +30759,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = (
             output_root / "codex-test-model" / "statutes" / "26" / "63" / "f.yaml"
         )
@@ -34962,7 +30799,9 @@ rules: []
     us:statutes/26/63/f#spouse_aged_additional_amount_entitlement: holds
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -34998,6 +30837,9 @@ rules: []
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
                 validate_dependents=False,
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35012,7 +30854,7 @@ rules: []
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         generated.parent.mkdir(parents=True)
@@ -35054,7 +30896,9 @@ rules:
           section_151_exemption_deduction
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -35088,6 +30932,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35100,7 +30947,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         unused_import = policy_repo / "statutes/26/999.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
@@ -35156,7 +31003,9 @@ rules:
           section_151_exemption_deduction
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -35197,6 +31046,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35210,7 +31062,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         dependent_test = dependent.with_name("63.test.yaml")
@@ -35229,7 +31081,9 @@ rules:
     us:statutes/26/63#taxable_income: 80000
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -35264,6 +31118,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35276,7 +31133,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         dependent_test = dependent.with_name("63.test.yaml")
@@ -35301,7 +31158,9 @@ rules: []
     us:statutes/26/63#taxable_income: 80000
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -35340,6 +31199,9 @@ rules: []
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35355,7 +31217,7 @@ rules: []
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rulespec-us"
+        policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         dependent_test = dependent.with_name("63.test.yaml")
@@ -35387,7 +31249,9 @@ rules: []
     us:statutes/26/63#taxable_income: 80000
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -35426,6 +31290,9 @@ rules: []
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is True
@@ -35468,7 +31335,9 @@ rules:
     us:statutes/26/63/c#basic_standard_deduction_by_filing_status: 32200
 """
         )
-        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline:
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
@@ -35476,6 +31345,9 @@ rules:
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
             )
 
         assert ok is False
@@ -35487,7 +31359,7 @@ rules:
         )
 
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
-        repo = tmp_path / "rulespec-us-ny"
+        repo = tmp_path / "rulespec-us" / "us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
         unrelated = repo / "policies/otda/snap/other.yaml"
@@ -35820,7 +31692,7 @@ class TestTranscriptSyncCommands:
 
 class TestCmdValidateEdgeCases:
     def test_validate_rules_us_found_in_path(self, capsys, tmp_path):
-        """Validation uses the country checkout, never a jurisdiction subroot."""
+        """Validation uses the exact canonical jurisdiction content root."""
         rules_us = tmp_path / "rulespec-us" / "us" / "statutes" / "26" / "1"
         rules_us.mkdir(parents=True)
         rulespec_file = rules_us / "test.yaml"
@@ -35828,9 +31700,13 @@ class TestCmdValidateEdgeCases:
         # Create axiom-rules-engine sibling
         axiom_rules_path = tmp_path / "axiom-rules-engine"
         axiom_rules_path.mkdir(parents=True)
+        corpus_path = tmp_path / "axiom-corpus"
+        _bind_test_corpus_release(tmp_path / "rulespec-us", corpus_path)
 
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = corpus_path
+        args.axiom_rules_path = axiom_rules_path
         args.json = False
         args.skip_reviewers = False
         args.oracle = None
@@ -35846,7 +31722,6 @@ class TestCmdValidateEdgeCases:
             parameter_reviewer=8.5,
             integration_reviewer=8.0,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -35855,9 +31730,9 @@ class TestCmdValidateEdgeCases:
                 cmd_validate(args)
             assert exc_info.value.code == 0
             call_kwargs = mock_pipeline_cls.call_args[1]
-            assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us"
+            assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us" / "us"
 
-    def test_validate_uses_enclosing_non_federal_policy_repo(self, tmp_path):
+    def test_validate_rejects_legacy_jurisdiction_checkout(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us-tn" / "sources"
         policy_repo.mkdir(parents=True)
         rulespec_file = policy_repo / "test.yaml"
@@ -35866,6 +31741,7 @@ class TestCmdValidateEdgeCases:
 
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = tmp_path / "axiom-corpus"
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -35881,11 +31757,10 @@ class TestCmdValidateEdgeCases:
             parameter_reviewer=None,
             integration_reviewer=None,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
-            with pytest.raises(ValueError, match="country-monorepo layout"):
+            with pytest.raises(ValueError, match="not inside a canonical country"):
                 cmd_validate(args)
             mock_pipeline_cls.assert_not_called()
 
@@ -35904,6 +31779,7 @@ class TestCmdValidateEdgeCases:
 
         args = MagicMock()
         args.files = [rulespec_file]
+        args.corpus_path = tmp_path / "axiom-corpus"
         args.json = False
         args.skip_reviewers = True
         args.oracle = None
@@ -35919,7 +31795,6 @@ class TestCmdValidateEdgeCases:
             parameter_reviewer=None,
             integration_reviewer=None,
             policyengine_match=None,
-            taxsim_match=None,
         )
 
         with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline_cls:
@@ -36005,542 +31880,129 @@ class TestCmdCalibrationEdgeCases:
         assert "Calibration Report" in captured.out
 
 
-class TestSignAppliedFiles:
-    def _repo_with_unmanifested_encodings(self, tmp_path: Path) -> tuple[Path, str]:
-        repo = tmp_path / "rulespec-ca"
-        _init_test_git_repo(repo)
-        (repo / "README.md").write_text("# rulespec-ca\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "initial")
-        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+class TestProgramsRootExcludedFromAtomicGuard:
+    """Declarative ProgramSpecs never enter encoder manifest/signing surfaces."""
 
-        rule = repo / "policies/cra/t4127-2026/claim-codes.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        test = repo / "policies/cra/t4127-2026/claim-codes.test.yaml"
-        test.write_text("cases: []\n")
-        statute = repo / "statutes/ita/117.yaml"
-        statute.parent.mkdir(parents=True)
-        statute.write_text("format: rulespec/v1\nrules: []\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "encode without manifests")
-        return repo, base_sha
-
-    def _country_repo_with_unmanifested_encodings(
-        self, tmp_path: Path
-    ) -> tuple[Path, str]:
-        repo = tmp_path / "rulespec-us"
-        _init_test_git_repo(repo)
-        (repo / "README.md").write_text("# rulespec-us\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "initial")
-        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
-
-        rule = repo / "us-ga/policies/dfcs/snap/3617.yaml"
-        rule.parent.mkdir(parents=True)
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        test = repo / "us-ga/policies/dfcs/snap/3617.test.yaml"
-        test.write_text("cases: []\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "encode country-prefixed rule without manifest")
-        return repo, base_sha
-
-    def _provenance_stub(self) -> dict:
-        return {
-            "commit": "a" * 40,
-            "dirty_tracked": False,
-            "root": "/tmp/axiom-encode",
-            "version": "0.0.0",
-            "version_commit": "a" * 40,
-        }
-
-    def test_signs_changed_files_and_passes_guard(self, tmp_path, capsys):
-        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value=self._provenance_stub(),
-            ),
-        ):
-            cmd_sign_applied_files(
-                SimpleNamespace(
-                    repo=repo,
-                    base_ref=base_sha,
-                    head_ref="HEAD",
-                    dry_run=False,
-                    manual_exception="#976",
-                )
-            )
-
-        output = capsys.readouterr().out
-        assert "guard passes with the new manifests included" in output
-
-        rule_manifest = json.loads(
-            (
-                repo
-                / ".axiom/encoding-manifests/policies/cra/t4127-2026/claim-codes.json"
-            ).read_text()
-        )
-        assert {item["path"] for item in rule_manifest["applied_files"]} == {
-            "policies/cra/t4127-2026/claim-codes.yaml",
-            "policies/cra/t4127-2026/claim-codes.test.yaml",
-        }
-        assert rule_manifest["tool"] == "axiom-encode sign-applied-files"
-        assert rule_manifest["backend"] == "manual"
-        assert rule_manifest[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] == "#976"
-        assert rule_manifest["citation"] == "ca:policies/cra/t4127-2026/claim-codes"
-        assert (
-            _applied_encoding_manifest_signature_issue(
-                rule_manifest, TEST_APPLY_SIGNING_KEY
-            )
-            is None
-        )
-
-        statute_manifest = json.loads(
-            (repo / ".axiom/encoding-manifests/statutes/ita/117.json").read_text()
-        )
-        assert [item["path"] for item in statute_manifest["applied_files"]] == [
-            "statutes/ita/117.yaml"
-        ]
-
-        # Commit the manifests the way the real flow does, so the CI-style
-        # diff against the base includes them.
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "attest encodings")
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-        assert issues == []
-
-    def test_signs_country_prefixed_files_and_passes_guard(self, tmp_path, capsys):
-        repo, base_sha = self._country_repo_with_unmanifested_encodings(tmp_path)
-
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value=self._provenance_stub(),
-            ),
-        ):
-            cmd_sign_applied_files(
-                SimpleNamespace(
-                    repo=repo,
-                    base_ref=base_sha,
-                    head_ref="HEAD",
-                    dry_run=False,
-                    manual_exception="#976",
-                )
-            )
-
-        output = capsys.readouterr().out
-        assert "guard passes with the new manifests included" in output
-
-        manifest = json.loads(
-            (
-                repo / ".axiom/encoding-manifests/us-ga/policies/dfcs/snap/3617.json"
-            ).read_text()
-        )
-        assert {item["path"] for item in manifest["applied_files"]} == {
-            "us-ga/policies/dfcs/snap/3617.yaml",
-            "us-ga/policies/dfcs/snap/3617.test.yaml",
-        }
-        assert manifest["citation"] == "us-ga:policies/dfcs/snap/3617"
-
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "attest country-prefixed encoding")
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-        assert issues == []
-
-    def test_dry_run_writes_nothing(self, tmp_path, capsys):
-        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
-
-        cmd_sign_applied_files(
-            SimpleNamespace(repo=repo, base_ref=base_sha, head_ref="HEAD", dry_run=True)
-        )
-
-        output = capsys.readouterr().out
-        assert "would sign policies/cra/t4127-2026/claim-codes.yaml" in output
-        assert not (repo / ".axiom/encoding-manifests").exists()
-
-    def test_reports_when_nothing_changed(self, tmp_path, capsys):
-        repo, _base_sha = self._repo_with_unmanifested_encodings(tmp_path)
-        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
-
-        cmd_sign_applied_files(
-            SimpleNamespace(repo=repo, base_ref=head, head_ref="HEAD", dry_run=False)
-        )
-
-        assert "No protected RuleSpec changes to attest." in capsys.readouterr().out
-
-    def test_rejects_companion_test_without_main_file(self, tmp_path, capsys):
-        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
-        orphan = repo / "policies/cra/orphan.test.yaml"
-        orphan.write_text("cases: []\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "orphan test")
-
-        with pytest.raises(SystemExit):
-            cmd_sign_applied_files(
-                SimpleNamespace(
-                    repo=repo, base_ref=base_sha, head_ref="HEAD", dry_run=False
-                )
-            )
-        assert "main RuleSpec file is missing" in capsys.readouterr().out
-
-    def test_attesting_new_files_without_marker_fails_the_guard(self, tmp_path, capsys):
-        # sign-applied-files on genuinely NEW rule files without a
-        # manual_exception marker writes manifests, but the guard re-check
-        # then fails: net-new statutory encoding may not be laundered in as a
-        # bare manual attestation (encode#1053, item 3).
-        repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
-        with (
-            patch.dict(
-                os.environ,
-                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value=self._provenance_stub(),
-            ),
-            pytest.raises(SystemExit),
-        ):
-            cmd_sign_applied_files(
-                SimpleNamespace(
-                    repo=repo,
-                    base_ref=base_sha,
-                    head_ref="HEAD",
-                    dry_run=False,
-                    manual_exception=None,
-                )
-            )
-        out = capsys.readouterr().out
-        assert "Guard would still fail after signing" in out
-        assert "is a new rule file" in out
-        assert "does not record a genuine encoder backend" in out
-
-
-class TestProgramsRootGuarded:
-    """`programs/` composed pilots must carry a manifest (encode#1053, item 1)."""
-
-    def test_new_program_file_without_manifest_is_rejected(self, tmp_path):
-        rule = tmp_path / "programs/uk/universal-credit/fy-2026-27.yaml"
+    def test_canonical_program_file_is_not_an_atomic_guard_target(self, tmp_path):
+        checkout = tmp_path / "rulespec-uk"
+        checkout.mkdir()
+        corpus_path = _bind_test_corpus_release(
+            checkout,
+            tmp_path / "axiom-corpus",
+        ).root
+        rule = checkout / "uk/programs/universal-credit/fy-2026-27.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("program: uk/universal-credit\nperiod: 2026-04\n")
 
         issues = guard_generated_change_issues(
-            tmp_path,
-            changed_files=["programs/uk/universal-credit/fy-2026-27.yaml"],
+            checkout,
+            corpus_path=corpus_path,
+            changed_files=["uk/programs/universal-credit/fy-2026-27.yaml"],
         )
 
-        assert issues == [
-            "programs/uk/universal-credit/fy-2026-27.yaml changed without a "
-            "matching .axiom/encoding-manifests manifest"
-        ]
+        assert issues == []
 
-    def test_country_prefixed_program_file_is_protected(self, tmp_path):
-        rule = tmp_path / "programs/us-tn/snap/fy-2026.yaml"
+    def test_program_file_cannot_be_forced_into_atomic_guard_roots(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir()
+        corpus_path = _bind_test_corpus_release(
+            checkout,
+            tmp_path / "axiom-corpus",
+        ).root
+        rule = checkout / "us-tn/programs/snap/fy-2026.yaml"
         rule.parent.mkdir(parents=True)
         rule.write_text("program: us-tn/snap\nperiod: 2026-01\n")
 
         issues = guard_generated_change_issues(
-            tmp_path,
-            changed_files=["programs/us-tn/snap/fy-2026.yaml"],
+            checkout,
+            corpus_path=corpus_path,
+            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+            changed_files=["us-tn/programs/snap/fy-2026.yaml"],
         )
 
-        assert len(issues) == 1
-        assert "programs/us-tn/snap/fy-2026.yaml" in issues[0]
+        assert issues == []
+
+    def test_guard_command_rejects_repository_root_programs(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        program = checkout / "programs/us/snap/fy-2026.yaml"
+        program.parent.mkdir(parents=True)
+        program.write_text("program: us/snap\nperiod: 2026-01\noutputs: [benefit]\n")
+
+        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+            cmd_guard_generated(
+                SimpleNamespace(
+                    repo=checkout,
+                    corpus_path=tmp_path / "axiom-corpus",
+                    base_ref=None,
+                    head_ref="HEAD",
+                    json=False,
+                    all=False,
+                )
+            )
 
 
-class TestManualExceptionMarkerValidation:
-    """The manual_exception marker grammar (encode#1053, item 3)."""
+class TestManifestCurrentState:
+    """Applied manifests attest only the current generated state."""
 
-    def test_named_classes_are_valid(self):
-        from axiom_encode.cli import _manual_exception_marker_is_valid
+    _CORPUS_CITATION_PATH = "be/statute/be/example"
 
-        for marker in ("composition", "repair", "fixtures"):
-            assert _manual_exception_marker_is_valid(marker) is True
-
-    def test_issue_references_are_valid(self):
-        from axiom_encode.cli import _manual_exception_marker_is_valid
-
-        for marker in (
-            "#1060",
-            "encode#1060",
-            "TheAxiomFoundation/axiom-encode#1060",
-        ):
-            assert _manual_exception_marker_is_valid(marker) is True
-
-    def test_empty_or_unknown_markers_are_invalid(self):
-        from axiom_encode.cli import _manual_exception_marker_is_valid
-
-        for marker in ("", "   ", "oracle", "because", "1060", "#", None, 5):
-            assert _manual_exception_marker_is_valid(marker) is False
-
-
-class TestManualExceptionGate:
-    """Reject manual manifests introducing new rule files (encode#1053, item 3)."""
-
-    def _repo(self, tmp_path: Path) -> tuple[Path, str]:
-        repo = tmp_path / "rulespec-be"
-        _init_test_git_repo(repo)
-        (repo / "README.md").write_text("# rulespec-be\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "initial")
-        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
-        return repo, base_sha
-
-    _BACKEND_UNSET = object()
-
-    def _write_manual_manifest(
-        self,
-        repo: Path,
-        rule_rel: str,
-        *,
-        manual_exception=None,
-        content=None,
-        backend="manual",
-    ) -> None:
-        normalized_backend = backend.lower() if isinstance(backend, str) else ""
-        encoder_backends = {"codex", "openai", "claude"}
-        if content is None and normalized_backend in encoder_backends:
-            content = f"""format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/1
-    source_sha256: {"a" * 64}
-rules: []
-"""
-        rule = repo / rule_rel
-        rule.parent.mkdir(parents=True, exist_ok=True)
-        rule.write_text(content or "format: rulespec/v1\nrules: []\n")
-        manifest = (
-            repo / ".axiom/encoding-manifests" / Path(rule_rel).with_suffix(".json")
+    def _setup(self, tmp_path: Path):
+        checkout = tmp_path / "rulespec-be"
+        repo = checkout / "be"
+        rule = repo / "statutes/be/example.yaml"
+        rule.parent.mkdir(parents=True)
+        release = _bind_test_corpus_release(
+            checkout,
+            tmp_path / "axiom-corpus",
+            citation_path=self._CORPUS_CITATION_PATH,
+            body="authoritative current-state source\n",
         )
-        manifest.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "runner": "manual-attestation",
-            "applied_files": [
-                {"path": rule_rel, "sha256": _sha256_file(rule)},
-            ],
+        source_unit = resolve_corpus_source_unit(
+            self._CORPUS_CITATION_PATH,
+            release,
+        )
+        rule.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: {self._CORPUS_CITATION_PATH}\n"
+            f"    source_sha256: {source_unit.source_attestation['source_sha256']}\n"
+            "rules: []\n"
+        )
+        generated = tmp_path / "gen/statutes/be/example.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(rule.read_text())
+        source_file = tmp_path / "eval-context/source.txt"
+        source_file.parent.mkdir(parents=True)
+        source_file.write_text(source_unit.body)
+        context_manifest = source_file.with_name("context.json")
+        context_manifest.write_text(
+            json.dumps({"source_text_file": source_file.name}) + "\n"
+        )
+        source_attestation = {
+            **source_unit.source_attestation,
+            "generation_input_sha256": hashlib.sha256(
+                source_unit.body.encode()
+            ).hexdigest(),
         }
-        # `backend=None` writes an explicit null; the sentinel omits the field
-        # entirely (to exercise an absent backend); otherwise write the value.
-        if backend is not self._BACKEND_UNSET:
-            payload["backend"] = backend
-        if normalized_backend in encoder_backends:
-            payload["source_attestation"] = _complete_source_attestation()
-        if manual_exception is not None:
-            payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] = manual_exception
-        manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
-
-    def test_new_file_manual_manifest_without_marker_is_rejected(self, tmp_path):
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(repo, "statutes/be/example.yaml")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "hand-author new statute via manual manifest")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert any(
-            "is a new rule file" in issue and "statutes/be/example.yaml" in issue
-            for issue in issues
-        ), issues
-
-    def test_new_file_manual_manifest_with_composition_marker_is_accepted(
-        self, tmp_path
-    ):
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(
+        return (
+            checkout,
             repo,
-            "programs/be/social-assistance/fy-2026.yaml",
-            manual_exception="composition",
+            release.root,
+            rule,
+            generated,
+            source_attestation,
+            context_manifest,
         )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "compose new program pipeline")
 
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert issues == []
-
-    def test_new_file_manual_manifest_with_issue_ref_marker_is_accepted(self, tmp_path):
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(
-            repo, "statutes/be/fixture.yaml", manual_exception="#1060"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "add fixture referencing issue")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert issues == []
-
-    def test_new_file_manual_manifest_with_bogus_marker_is_rejected(self, tmp_path):
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(
-            repo, "statutes/be/example.yaml", manual_exception="because-i-said-so"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "invalid marker")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert any("is a new rule file" in issue for issue in issues), issues
-
-    def test_editing_existing_file_with_manual_manifest_needs_no_marker(self, tmp_path):
-        # A manual attestation over a PRE-EXISTING rule file (an edit, not a
-        # new file) is allowed without a marker: the gate targets net-new
-        # statutory encoding only.
-        repo, _base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(repo, "statutes/be/example.yaml")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "baseline statute + manual manifest")
-        edit_base = _git(repo, "rev-parse", "HEAD").stdout.strip()
-
-        # Edit the existing file and re-attest so the manifest hash matches the
-        # edited content (no marker). The file already existed at edit_base, so
-        # it is a modification, not a net-new file.
-        self._write_manual_manifest(
-            repo,
-            "statutes/be/example.yaml",
-            content="format: rulespec/v1\nrules: []\n# revised\n",
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "re-attest edit")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=edit_base)
-
-        assert issues == []
-
-    def test_new_file_introduced_by_rename_without_marker_is_rejected(self, tmp_path):
-        # Bypass regression: a net-new rule file introduced by `git mv` of a
-        # similar donor is reported by git as a rename (R), not an add (A).
-        # The gate must still reject it (encode#1053 review, bypass 1).
-        repo, _base_sha = self._repo(tmp_path)
-        # Commit a donor rule so the new file can be a >=50%-similar rename.
-        self._write_manual_manifest(
-            repo, "statutes/be/donor.yaml", manual_exception="#1053"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "baseline donor + attested manifest")
-        rename_base = _git(repo, "rev-parse", "HEAD").stdout.strip()
-
-        # git mv the donor to a new path and attest the destination as manual,
-        # no marker. Rename detection makes this an R record, not an A.
-        _git(repo, "mv", "statutes/be/donor.yaml", "statutes/be/smuggled.yaml")
-        # Re-point/refresh the manual manifest onto the renamed destination.
-        (repo / ".axiom/encoding-manifests/statutes/be/donor.json").unlink()
-        self._write_manual_manifest(repo, "statutes/be/smuggled.yaml")
-        _git(repo, "add", "-A")
-        _git(repo, "commit", "-m", "rename donor into new statute, manual, no marker")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=rename_base)
-
-        assert any(
-            "is a new rule file" in issue and "statutes/be/smuggled.yaml" in issue
-            for issue in issues
-        ), issues
-
-    @pytest.mark.parametrize(
-        "backend",
-        ["", "MANUAL", "manual ", " manual", "handwritten", None, "_BACKEND_UNSET"],
-    )
-    def test_new_file_non_encoder_backend_without_marker_is_rejected(
-        self, tmp_path, backend
+    def _make_result(
+        self,
+        output_file: Path,
+        *,
+        source_attestation: dict[str, object],
+        context_manifest_file: Path,
+        **overrides,
     ):
-        # Bypass regression: the gate is fail-closed. Any backend that is not a
-        # genuine encoder name (empty, absent, mis-cased, space-padded,
-        # unknown) must require a marker for a net-new file (bypass 2).
-        repo, base_sha = self._repo(tmp_path)
-        backend_value = self._BACKEND_UNSET if backend == "_BACKEND_UNSET" else backend
-        self._write_manual_manifest(
-            repo, "statutes/be/example.yaml", backend=backend_value
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", f"new statute, backend={backend!r}, no marker")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert any(
-            "does not record a genuine encoder backend" in issue for issue in issues
-        ), (backend, issues)
-
-    @pytest.mark.parametrize("backend", ["codex", "openai", "claude"])
-    def test_new_file_encoder_backend_needs_no_marker(self, tmp_path, backend):
-        # A net-new file covered by a genuine encoder-backend manifest is
-        # exempt (the encoder-first path). Case-insensitive.
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(
-            repo, "statutes/be/example.yaml", backend=backend.upper()
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", f"new statute via {backend}")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert issues == []
-
-    def test_new_file_deterministic_repair_backend_needs_no_marker(self, tmp_path):
-        # Deterministic-repair manifests (backend: deterministic) are a
-        # recognized machine generator with signed tool/model provenance, so a
-        # new file they produce is exempt without a manual_exception marker.
-        repo, base_sha = self._repo(tmp_path)
-        self._write_manual_manifest(
-            repo, "statutes/be/example.yaml", backend="deterministic"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "new statute via deterministic repair")
-
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(repo, base_ref=base_sha)
-
-        assert issues == []
-
-
-class TestSupersedesChain:
-    """Manifests overwriting a prior one embed a supersedes record (item 2)."""
-
-    def _make_result(self, output_file: Path, **overrides):
         defaults = dict(
             output_file=str(output_file),
             runner="codex:gpt-5.5",
@@ -36550,364 +32012,219 @@ class TestSupersedesChain:
             citation="be:statutes/be/example",
             generation_prompt_sha256="deadbeef",
             trace_file=None,
-            context_manifest_file=None,
+            context_manifest_file=str(context_manifest_file),
+            source_attestation=source_attestation,
         )
         defaults.update(overrides)
-        return SimpleNamespace(**defaults)
+        result = SimpleNamespace(**defaults)
+        validation_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "backend": "codex",
+                "source_attestation": {
+                    **source_attestation,
+                    "rulespec_root": "rulespec-be/be",
+                },
+                "applied_files": [],
+            }
+        )
+        setattr(
+            result,
+            _APPLY_VALIDATION_SNAPSHOT_ATTR,
+            {
+                "manifest_validation_execution": validation_payload[
+                    "validation_execution"
+                ]
+            },
+        )
+        return result
 
-    def test_first_manifest_has_no_supersedes(self, tmp_path):
-        repo = tmp_path / "rulespec-be"
-        (repo / "statutes/be").mkdir(parents=True)
-        rule = repo / "statutes/be/example.yaml"
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        gen = tmp_path / "gen/statutes/be/example.yaml"
-        gen.parent.mkdir(parents=True)
-        gen.write_text(rule.read_text())
+    def test_manifest_has_no_legacy_supersedes_chain(self, tmp_path):
+        (
+            checkout,
+            repo,
+            corpus_path,
+            rule,
+            gen,
+            source_attestation,
+            context_manifest,
+        ) = self._setup(tmp_path)
 
         manifest = _write_applied_encoding_manifest(
-            self._make_result(gen),
+            self._make_result(
+                gen,
+                source_attestation=source_attestation,
+                context_manifest_file=context_manifest,
+            ),
             output_root=tmp_path / "gen",
             policy_repo_path=repo,
+            corpus_path=corpus_path,
             relative_output=Path("statutes/be/example.yaml"),
             applied_files=[rule],
             run_id="run-1",
-            signing_key=TEST_APPLY_SIGNING_KEY,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
             axiom_encode_git={"commit": "a" * 40},
         )
         payload = json.loads(manifest.read_text())
+        assert manifest == (
+            checkout / ".axiom/encoding-manifests/be/statutes/be/example.json"
+        )
+        assert payload["applied_files"] == [
+            {
+                "path": "be/statutes/be/example.yaml",
+                "sha256": _sha256_file(rule),
+            }
+        ]
+        assert payload["source_attestation"]["rulespec_root"] == "rulespec-be/be"
         assert "supersedes" not in payload
         assert payload["backend"] == "codex"
 
-    def test_reattest_embeds_prior_encoder_record(self, tmp_path):
-        repo = tmp_path / "rulespec-be"
-        (repo / "statutes/be").mkdir(parents=True)
-        rule = repo / "statutes/be/example.yaml"
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        gen = tmp_path / "gen/statutes/be/example.yaml"
-        gen.parent.mkdir(parents=True)
-        gen.write_text(rule.read_text())
+    def test_overwrite_replaces_prior_manifest(self, tmp_path):
+        (
+            _checkout,
+            repo,
+            corpus_path,
+            rule,
+            gen,
+            source_attestation,
+            context_manifest,
+        ) = self._setup(tmp_path)
 
         # 1) Encoder-generated manifest.
         _write_applied_encoding_manifest(
-            self._make_result(gen),
+            self._make_result(
+                gen,
+                source_attestation=source_attestation,
+                context_manifest_file=context_manifest,
+            ),
             output_root=tmp_path / "gen",
             policy_repo_path=repo,
+            corpus_path=corpus_path,
             relative_output=Path("statutes/be/example.yaml"),
             applied_files=[rule],
             run_id="run-1",
-            signing_key=TEST_APPLY_SIGNING_KEY,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
             axiom_encode_git={"commit": "a" * 40},
         )
 
-        # 2) Hand-repair, re-attested as manual -> supersedes must retain the
-        # encoder generation record so the history stays a chain.
-        rule.write_text("format: rulespec/v1\nrules: []\n# hand repaired\n")
+        rule.write_text(rule.read_text() + "# regenerated\n")
         gen.write_text(rule.read_text())
         manifest = _write_applied_encoding_manifest(
             self._make_result(
                 gen,
-                backend="manual",
-                runner="manual-attestation",
-                model="",
-                generation_prompt_sha256=None,
-                tool="axiom-encode sign-applied-files",
+                source_attestation=source_attestation,
+                context_manifest_file=context_manifest,
+                generation_prompt_sha256="feedface",
             ),
             output_root=tmp_path / "gen",
             policy_repo_path=repo,
+            corpus_path=corpus_path,
             relative_output=Path("statutes/be/example.yaml"),
             applied_files=[rule],
-            run_id=None,
-            signing_key=TEST_APPLY_SIGNING_KEY,
+            run_id="run-2",
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
             axiom_encode_git={"commit": "a" * 40},
         )
         payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "manual"
-        supersedes = payload.get("supersedes")
-        assert supersedes is not None
-        assert supersedes["backend"] == "codex"
-        assert supersedes["run_id"] == "run-1"
-        assert supersedes["generation_prompt_sha256"] == "deadbeef"
-        assert len(supersedes["manifest_sha256"]) == 64
-        # The superseding manifest stays signature-valid with the new field.
+        assert payload["backend"] == "codex"
+        assert payload["run_id"] == "run-2"
+        assert payload["generation_prompt_sha256"] == "feedface"
+        assert "supersedes" not in payload
         assert (
-            _applied_encoding_manifest_signature_issue(payload, TEST_APPLY_SIGNING_KEY)
+            _applied_encoding_manifest_signature_issue(
+                payload, TEST_APPLY_SIGNING_BROKER
+            )
             is None
         )
 
-    def test_supersedes_chains_across_three_writes(self, tmp_path):
-        repo = tmp_path / "rulespec-be"
-        (repo / "statutes/be").mkdir(parents=True)
-        rule = repo / "statutes/be/example.yaml"
-        rule.write_text("format: rulespec/v1\nrules: []\n")
-        gen = tmp_path / "gen/statutes/be/example.yaml"
-        gen.parent.mkdir(parents=True)
-
-        def _write(backend, run_id):
-            gen.write_text(rule.read_text())
-            return _write_applied_encoding_manifest(
-                self._make_result(gen, backend=backend, run_id=run_id),
-                output_root=tmp_path / "gen",
-                policy_repo_path=repo,
-                relative_output=Path("statutes/be/example.yaml"),
-                applied_files=[rule],
-                run_id=run_id,
-                signing_key=TEST_APPLY_SIGNING_KEY,
-                axiom_encode_git={"commit": "a" * 40},
-            )
-
-        _write("codex", "run-1")
-        rule.write_text("format: rulespec/v1\nrules: []\n# v2\n")
-        _write("manual", None)
-        rule.write_text("format: rulespec/v1\nrules: []\n# v3\n")
-        manifest = _write("codex", "run-3")
-
-        payload = json.loads(manifest.read_text())
-        # Newest -> prior (manual) -> original (codex run-1) chain is linked.
-        assert payload["supersedes"]["backend"] == "manual"
-        assert payload["supersedes"]["supersedes"]["backend"] == "codex"
-        assert payload["supersedes"]["supersedes"]["run_id"] == "run-1"
-
-
-class TestSignAppliedFilesBackfill:
-    """`sign-applied-files --all` corpus backfill (encode#1053, item 4)."""
-
-    def _provenance_stub(self) -> dict:
-        return {
-            "commit": "a" * 40,
-            "dirty_tracked": False,
-            "root": "/tmp/axiom-encode",
-            "version": "0.0.0",
-            "version_commit": "a" * 40,
-        }
-
-    def _repo_with_unmanifested_corpus(self, tmp_path: Path) -> Path:
-        repo = tmp_path / "rulespec-be"
-        _init_test_git_repo(repo)
-        for rel in (
-            "be/statutes/example.yaml",
-            "be/regulations/example.yaml",
-            "be-wal/statutes/example.yaml",
-        ):
-            path = repo / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("format: rulespec/v1\nrules: []\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "corpus without manifests")
-        return repo
-
-    def _run(self, repo: Path, **overrides):
-        args = SimpleNamespace(
-            repo=repo,
-            base_ref=None,
-            head_ref="HEAD",
-            dry_run=False,
-            all=True,
-            roots=" ".join(sorted(["policies", "programs", "regulations", "statutes"])),
-            manual_exception="composition",
-        )
-        for key, value in overrides.items():
-            setattr(args, key, value)
-        with (
-            patch.dict(
-                os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-            ),
-            patch(
-                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
-                return_value=self._provenance_stub(),
-            ),
-        ):
-            cmd_sign_applied_files(args)
-
-    def test_backfill_attests_whole_corpus_and_passes_guard(self, tmp_path, capsys):
-        repo = self._repo_with_unmanifested_corpus(tmp_path)
-        self._run(repo)
-        out = capsys.readouterr().out
-        assert "guard passes with the new manifests included" in out
-
-        # Every rule file now has a manual manifest carrying the marker.
-        manifests = list((repo / ".axiom/encoding-manifests").rglob("*.json"))
-        assert len(manifests) == 3
-        for manifest in manifests:
-            payload = json.loads(manifest.read_text())
-            assert payload["backend"] == "manual"
-            assert payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] == "composition"
-
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "attest corpus")
-        with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-        ):
-            issues = guard_generated_change_issues(
-                repo,
-                roots=("policies", "programs", "regulations", "statutes"),
-                all_files=True,
-            )
-        assert issues == []
-
-    def test_backfill_is_idempotent(self, tmp_path, capsys):
-        repo = self._repo_with_unmanifested_corpus(tmp_path)
-        self._run(repo)
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "first attest")
-        capsys.readouterr()
-
-        # Second run should find nothing new to attest.
-        self._run(repo)
-        assert "No unmanifested protected RuleSpec files to attest." in (
-            capsys.readouterr().out
-        )
-
-    def test_backfill_rejects_invalid_marker(self, tmp_path, capsys):
-        repo = self._repo_with_unmanifested_corpus(tmp_path)
-        with pytest.raises(SystemExit):
-            self._run(repo, manual_exception="nonsense")
-        assert "Invalid --manual-exception" in capsys.readouterr().out
-
-    def test_backfill_does_not_clobber_encoder_manifest_via_sibling(
-        self, tmp_path, capsys
-    ):
-        # Bypass regression (encode#1053 review, bypass 3): a main file that is
-        # already covered by a genuine encoder manifest must NOT be downgraded
-        # to backend: manual just because its companion .test.yaml is
-        # unmanifested. --all must skip that group.
-        repo = tmp_path / "rulespec-be"
-        _init_test_git_repo(repo)
-        main_rel = "be/statutes/encoded.yaml"
-        test_rel = "be/statutes/encoded.test.yaml"
-        (repo / main_rel).parent.mkdir(parents=True, exist_ok=True)
-        (repo / main_rel).write_text("format: rulespec/v1\nrules: []\n")
-        (repo / test_rel).write_text("cases: []\n")
-        # Encoder manifest covering ONLY the main file (test left unmanifested).
-        manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.json"
-        manifest.parent.mkdir(parents=True, exist_ok=True)
-        manifest.write_text(
-            json.dumps(
-                _signed_manifest_payload(
-                    {
-                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                        "backend": "codex",
-                        "model": "gpt-5.5",
-                        "run_id": "ENCODER-RUN-99",
-                        "applied_files": [
-                            {"path": main_rel, "sha256": _sha256_file(repo / main_rel)}
-                        ],
-                    }
-                )
-            )
-            + "\n"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "encoder main + unmanifested test")
-
-        self._run(repo)
-        capsys.readouterr()
-
-        payload = json.loads(manifest.read_text())
-        assert payload["backend"] == "codex", "encoder manifest was downgraded"
-        assert payload["run_id"] == "ENCODER-RUN-99"
-        assert APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD not in payload
-
-    def test_backfill_does_not_shadow_encoder_covered_companion_test(
-        self, tmp_path, capsys
-    ):
-        # Reverse-direction anti-clobber (review CONSIDER 1): main is
-        # unmanifested but its companion .test.yaml has its OWN encoder
-        # manifest. --all must attest only the main and must NOT fold the
-        # already-covered test into a new manual group that shadows it.
-        repo = tmp_path / "rulespec-be"
-        _init_test_git_repo(repo)
-        main_rel = "be/statutes/encoded.yaml"
-        test_rel = "be/statutes/encoded.test.yaml"
-        (repo / main_rel).parent.mkdir(parents=True, exist_ok=True)
-        (repo / main_rel).write_text("format: rulespec/v1\nrules: []\n")
-        (repo / test_rel).write_text("cases: []\n")
-        # Encoder manifest covering ONLY the companion test.
-        test_manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.test.json"
-        test_manifest.parent.mkdir(parents=True, exist_ok=True)
-        test_manifest.write_text(
-            json.dumps(
-                _signed_manifest_payload(
-                    {
-                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                        "backend": "codex",
-                        "run_id": "ENCODER-TEST-77",
-                        "applied_files": [
-                            {"path": test_rel, "sha256": _sha256_file(repo / test_rel)}
-                        ],
-                    }
-                )
-            )
-            + "\n"
-        )
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "unmanifested main + encoder-covered test")
-
-        self._run(repo)
-        capsys.readouterr()
-
-        # The test's own encoder manifest is untouched.
-        test_payload = json.loads(test_manifest.read_text())
-        assert test_payload["backend"] == "codex"
-        assert test_payload["run_id"] == "ENCODER-TEST-77"
-        # The new manual manifest for the main covers only the main file,
-        # not the already-covered test.
-        main_manifest = repo / ".axiom/encoding-manifests/be/statutes/encoded.json"
-        assert main_manifest.exists()
-        main_payload = json.loads(main_manifest.read_text())
-        assert main_payload["backend"] == "manual"
-        assert [item["path"] for item in main_payload["applied_files"]] == [main_rel]
-
 
 class TestManifestCensus:
-    """Per-repo encoder-% census stat (encode#1053, item 5)."""
+    """Per-repo generated-provenance census stat (encode#1053, item 5)."""
 
     def _repo(self, tmp_path: Path) -> Path:
         repo = tmp_path / "rulespec-be"
-        (repo / "statutes/be").mkdir(parents=True)
+        (repo / "be/statutes/be").mkdir(parents=True)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256="e" * 64,
+        )
         return repo
 
     def _add_rule(self, repo: Path, rel: str) -> Path:
-        path = repo / rel
+        path = repo / "be" / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("format: rulespec/v1\nrules: []\n")
         return path
 
     def _add_manifest(self, repo: Path, rel: str, *, backend: str) -> None:
-        rule = repo / rel
-        manifest = repo / ".axiom/encoding-manifests" / Path(rel).with_suffix(".json")
+        rule = repo / "be" / rel
+        manifest = (
+            repo / ".axiom/encoding-manifests/be" / Path(rel).with_suffix(".json")
+        )
         manifest.parent.mkdir(parents=True, exist_ok=True)
+        source_attestation = None
+        if backend in {"claude", "codex", "openai", "deterministic"}:
+            rule.write_text(
+                f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: be/statute/be/example
+    source_sha256: {"a" * 64}
+rules: []
+"""
+            )
+            source_attestation = _complete_source_attestation("be/statute/be/example")
+            source_attestation["rulespec_root"] = "rulespec-be/be"
         payload = {
             "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
             "backend": backend,
-            "applied_files": [{"path": rel, "sha256": _sha256_file(rule)}],
+            "applied_files": [{"path": f"be/{rel}", "sha256": _sha256_file(rule)}],
         }
-        if backend == "manual":
-            payload[APPLIED_ENCODING_MANUAL_EXCEPTION_FIELD] = "composition"
+        if source_attestation is not None:
+            payload["source_attestation"] = source_attestation
         manifest.write_text(json.dumps(_signed_manifest_payload(payload)) + "\n")
 
-    def test_census_counts_encoder_manual_unmanifested(self, tmp_path):
+    def test_census_treats_legacy_deterministic_as_unmanifested(self, tmp_path):
         from axiom_encode.cli import _manifest_census
 
         repo = self._repo(tmp_path)
         self._add_rule(repo, "statutes/be/encoded.yaml")
         self._add_manifest(repo, "statutes/be/encoded.yaml", backend="codex")
-        self._add_rule(repo, "statutes/be/manual.yaml")
-        self._add_manifest(repo, "statutes/be/manual.yaml", backend="manual")
+        self._add_rule(repo, "statutes/be/legacy.yaml")
+        self._add_manifest(
+            repo,
+            "statutes/be/legacy.yaml",
+            backend="deterministic",
+        )
         self._add_rule(repo, "statutes/be/bare.yaml")  # no manifest
 
         with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             census = _manifest_census(
-                repo, roots=("policies", "programs", "regulations", "statutes")
+                repo, roots=("policies", "regulations", "statutes")
             )
 
         assert census["total"] == 3
         assert census["encoder"] == 1
-        assert census["manual"] == 1
-        assert census["unmanifested"] == 1
+        assert "deterministic" not in census
+        assert census["unmanifested"] == 2
         assert census["encoder_pct"] == pytest.approx(33.3, abs=0.1)
-        assert "statutes/be/bare.yaml" in census["unmanifested_paths"]
+        assert "be/statutes/be/bare.yaml" in census["unmanifested_paths"]
+        assert "be/statutes/be/legacy.yaml" in census["unmanifested_paths"]
+
+    def test_census_counts_legislation_root(self, tmp_path):
+        from axiom_encode.cli import _manifest_census
+
+        repo = self._repo(tmp_path)
+        self._add_rule(repo, "legislation/ukpga/2026/1.yaml")
+
+        census = _manifest_census(repo, roots=("legislation",))
+
+        assert census["total"] == 1
+        assert census["unmanifested"] == 1
+        assert census["unmanifested_paths"] == ["be/legislation/ukpga/2026/1.yaml"]
 
     def test_census_badge_json_shape(self, tmp_path, capsys):
         repo = self._repo(tmp_path)
@@ -36916,13 +32233,14 @@ class TestManifestCensus:
 
         args = SimpleNamespace(
             repo=repo,
-            roots=" ".join(["policies", "programs", "regulations", "statutes"]),
+            roots=" ".join(["policies", "regulations", "statutes"]),
             json=False,
             badge=True,
             out=None,
         )
         with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             cmd_manifest_census(args)
 
@@ -36940,13 +32258,14 @@ class TestManifestCensus:
 
         args = SimpleNamespace(
             repo=repo,
-            roots=" ".join(["policies", "programs", "regulations", "statutes"]),
+            roots=" ".join(["policies", "regulations", "statutes"]),
             json=False,
             badge=True,
             out=out,
         )
         with patch.dict(
-            os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             cmd_manifest_census(args)
 
@@ -36954,112 +32273,27 @@ class TestManifestCensus:
         badge = json.loads(out.read_text())
         assert badge["schemaVersion"] == 1
 
-    def test_census_json_attests_capture_time_and_remaining_member_count(
-        self, tmp_path, capsys
-    ):
+    def test_census_json_attests_capture_time(self, tmp_path, capsys):
         repo = self._repo(tmp_path)
-        _git(repo, "init")
-        _git(repo, "config", "user.email", "test@example.com")
-        _git(repo, "config", "user.name", "Test User")
-        _rule, manifest = _write_legacy_model_manifest(repo)
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "baseline")
-        inventory = tmp_path / "rollout-inventory.json"
-        inventory.write_text(
-            json.dumps(
-                {
-                    "repositories": {
-                        "rulespec-be": [
-                            {
-                                "path": manifest.relative_to(repo).as_posix(),
-                                "sha256": _sha256_file(manifest),
-                            }
-                        ]
-                    }
-                }
-            )
+        self._add_rule(repo, "statutes/be/encoded.yaml")
+        self._add_manifest(
+            repo,
+            "statutes/be/encoded.yaml",
+            backend="codex",
         )
         args = SimpleNamespace(
             repo=repo,
-            roots="policies programs regulations statutes",
+            roots="policies regulations statutes",
             json=True,
             badge=False,
             out=None,
         )
 
-        with (
-            patch.dict(
-                os.environ, {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY}
-            ),
-            patch("axiom_encode.cli.APPLIED_ENCODING_V1_ROLLOUT_INVENTORY", inventory),
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
         ):
             cmd_manifest_census(args)
 
         census = json.loads(capsys.readouterr().out)
         assert census["captured_at"].endswith("Z")
-        assert census["remaining_v1_compat_lane_count"] == len(
-            census["remaining_v1_compat_lane"]
-        )
-        assert census["remaining_v1_compat_lane_count"] == 1
-        assert census["remaining_v1_compat_lane"] == [
-            manifest.relative_to(repo).as_posix()
-        ]
-
-
-def test_local_corpus_auto_repair_fails_only_for_differing_checkout_bodies(
-    tmp_path,
-):
-    rules_repo = tmp_path / "workspace/project/rulespec-us"
-    rules_repo.mkdir(parents=True)
-    checkouts = [
-        rules_repo.parent / "axiom-corpus",
-        rules_repo.parent.parent / "axiom-corpus",
-    ]
-    citation = "us/statute/26/1"
-
-    def write_checkout(root: Path, body: str) -> None:
-        selector = root / "manifests/releases/current.json"
-        selector.parent.mkdir(parents=True, exist_ok=True)
-        selector.write_text(
-            json.dumps(
-                {
-                    "name": "current",
-                    "scopes": [
-                        {
-                            "jurisdiction": "us",
-                            "document_class": "statute",
-                            "version": "2026",
-                        }
-                    ],
-                }
-            )
-        )
-        provision = root / "data/corpus/provisions/us/statute/26.jsonl"
-        provision.parent.mkdir(parents=True, exist_ok=True)
-        provision.write_text(
-            json.dumps(
-                {
-                    "id": "26-1",
-                    "citation_path": citation,
-                    "jurisdiction": "us",
-                    "document_class": "statute",
-                    "version": "2026",
-                    "body": body,
-                    "source_path": "sources/us/statute/26.xml",
-                    "source_as_of": "2026-01-01",
-                    "expression_date": "2026-01-01",
-                }
-            )
-            + "\n"
-        )
-
-    write_checkout(checkouts[0], "Same body.")
-    write_checkout(checkouts[1], "Same body.")
-    assert (
-        _local_source_text_for_corpus_path(citation, rules_repo_path=rules_repo)
-        == "Same body."
-    )
-
-    write_checkout(checkouts[1], "Different body.")
-    with pytest.raises(RuntimeError, match="Cross-checkout corpus ambiguity"):
-        _local_source_text_for_corpus_path(citation, rules_repo_path=rules_repo)

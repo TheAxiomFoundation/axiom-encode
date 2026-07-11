@@ -175,7 +175,7 @@ class Iteration:
 class OracleResult:
     """Detailed result from an oracle validator."""
 
-    name: str  # "policyengine" or "taxsim"
+    name: str
     score: Optional[float] = None  # Match rate 0-1
     passed: bool = False
     issues: list[str] = field(default_factory=list)
@@ -204,7 +204,6 @@ class ReviewResults:
 
     reviews: list[ReviewResult] = field(default_factory=list)
     policyengine_match: Optional[float] = None
-    taxsim_match: Optional[float] = None
     oracle_context: dict = field(default_factory=dict)
     lessons: str = ""
 
@@ -510,7 +509,6 @@ class EncodingDB:
                         for r in run.review_results.reviews
                     ],
                     "policyengine_match": run.review_results.policyengine_match,
-                    "taxsim_match": run.review_results.taxsim_match,
                     "oracle_context": run.review_results.oracle_context,
                     "lessons": run.review_results.lessons,
                 }
@@ -633,7 +631,6 @@ class EncodingDB:
                     for r in review_results.reviews
                 ],
                 "policyengine_match": review_results.policyengine_match,
-                "taxsim_match": review_results.taxsim_match,
                 "oracle_context": review_results.oracle_context,
                 "lessons": review_results.lessons,
             }
@@ -753,6 +750,16 @@ class EncodingDB:
         review_results = None
         if review_results_json:
             rr = json.loads(review_results_json)
+            allowed_fields = {
+                "reviews",
+                "policyengine_match",
+                "oracle_context",
+                "lessons",
+            }
+            if not isinstance(rr, dict) or set(rr) - allowed_fields:
+                raise ValueError(
+                    "encoding run review_results_json uses an unsupported schema"
+                )
             review_results = ReviewResults(
                 reviews=[
                     ReviewResult(
@@ -768,7 +775,6 @@ class EncodingDB:
                     for r in rr.get("reviews", [])
                 ],
                 policyengine_match=rr.get("policyengine_match"),
-                taxsim_match=rr.get("taxsim_match"),
                 oracle_context=rr.get("oracle_context", {}),
                 lessons=rr.get("lessons", ""),
             )

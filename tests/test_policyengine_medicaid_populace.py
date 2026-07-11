@@ -1,8 +1,7 @@
 from pathlib import Path
 
 import pytest
-
-from axiom_encode.oracles.policyengine import medicaid_populace
+from axiom_oracles.bridges import medicaid_populace
 
 
 class FakeUSDataset:

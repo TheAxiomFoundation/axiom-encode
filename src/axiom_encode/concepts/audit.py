@@ -1,6 +1,7 @@
 """Corpus-wide producer/consumer drift detection.
 
-Walks one or more rules/rulespec roots, builds a producer→consumer graph, and
+Walks canonical RuleSpec country or jurisdiction roots, builds a
+producer→consumer graph, and
 reports name drift relative to the canonical concept registry. Powers
 `axiom-encode concepts audit` and seeds new entries into concepts/data/*.yaml.
 """
@@ -14,6 +15,13 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
+
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    is_policy_repo_root,
+    iter_jurisdiction_content_dirs,
+)
 
 from .jurisdiction import jurisdiction_prefix
 from .registry import ConceptRegistry
@@ -53,17 +61,10 @@ def build_corpus_graph(
     consumers: dict[str, list[tuple[str, Path, str]]] = defaultdict(list)
     anchored_refs: dict[tuple[str, str], list[Path]] = defaultdict(list)
 
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in root.rglob("*.yaml"):
+    for root in _canonical_jurisdiction_roots(roots):
+        for path, text, doc in _canonical_rulespec_documents(root):
             if path_filter is not None and not path_filter.search(str(path)):
                 continue
-            text = path.read_text()
-            try:
-                doc = yaml.safe_load(text)
-            except Exception:
-                doc = None
             anchor = _anchor_for(path, root)
 
             for m in ANCHORED_REF_RE.finditer(text):
@@ -98,6 +99,74 @@ def build_corpus_graph(
         anchored_refs=dict(anchored_refs),
         file_to_producers=dict(file_to_producers),
     )
+
+
+def _canonical_rulespec_documents(
+    root: Path,
+) -> tuple[tuple[Path, str, object], ...]:
+    """Read every canonical RuleSpec YAML or fail on legacy/malformed input."""
+
+    documents: list[tuple[Path, str, object]] = []
+    for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+        source_root = root / source_root_name
+        if not source_root.exists():
+            continue
+        if source_root.is_symlink() or not source_root.is_dir():
+            raise ValueError(
+                f"Canonical RuleSpec content root must be a real directory: {source_root}"
+            )
+        for path in sorted(source_root.rglob("*")):
+            if path.is_symlink():
+                raise ValueError(f"RuleSpec content symlinks are not allowed: {path}")
+            if path.suffix in {".yaml", ".yml"} and not path.is_file():
+                raise ValueError(f"RuleSpec YAML paths must be regular files: {path}")
+            if not path.is_file():
+                continue
+            if path.suffix == ".yml":
+                raise ValueError(
+                    f"Legacy .yml RuleSpec files are not allowed; use .yaml: {path}"
+                )
+            if path.suffix != ".yaml":
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+                payload = yaml.safe_load(text)
+            except (OSError, UnicodeError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Could not parse canonical RuleSpec YAML {path}: {exc}"
+                ) from exc
+            documents.append((path, text, payload))
+    return tuple(documents)
+
+
+def _canonical_jurisdiction_roots(roots: Iterable[Path]) -> tuple[Path, ...]:
+    """Expand exact country checkouts and reject every legacy root layout."""
+
+    resolved_roots: list[Path] = []
+    for supplied_root in roots:
+        try:
+            root = Path(supplied_root).expanduser().resolve(strict=True)
+        except OSError as exc:
+            raise ValueError(
+                f"RuleSpec audit root does not exist: {supplied_root}"
+            ) from exc
+        if canonical_rulespec_root_identity(root) is not None:
+            candidates = (root,)
+        elif is_policy_repo_root(root):
+            candidates = tuple(
+                content_root
+                for _jurisdiction, content_root in iter_jurisdiction_content_dirs(root)
+            )
+        else:
+            raise ValueError(
+                "RuleSpec audit roots must be exact "
+                "rulespec-<country> checkouts or direct jurisdiction roots: "
+                f"{supplied_root}"
+            )
+        for candidate in candidates:
+            if candidate not in resolved_roots:
+                resolved_roots.append(candidate)
+    return tuple(resolved_roots)
 
 
 def audit_corpus(

@@ -36,6 +36,10 @@ from .metrics import (
     print_calibration_report,
     save_calibration_snapshot,
 )
+from .policyengine_runtime import (
+    PolicyEngineRuntime,
+    PolicyEngineRuntimeError,
+)
 from .proof_validator import (
     ProofValidationResult,
     find_rulespec_proof_issues,
@@ -45,7 +49,6 @@ from .validator_pipeline import (
     PipelineResult,
     ValidationResult,
     ValidatorPipeline,
-    validate_file,
 )
 
 __all__ = [
@@ -62,7 +65,8 @@ __all__ = [
     "ValidatorPipeline",
     "ValidationResult",
     "PipelineResult",
-    "validate_file",
+    "PolicyEngineRuntime",
+    "PolicyEngineRuntimeError",
     "ProofValidationResult",
     "find_rulespec_proof_issues",
     "validate_rulespec_proofs",

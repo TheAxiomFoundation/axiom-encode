@@ -53,10 +53,11 @@ wheels = [
 
 [[package]]
 name = "axiom-encode"
-version = "0.2.1213"
+version = "0.2.1215"
 source = { editable = "." }
 dependencies = [
     { name = "axiom-oracles" },
+    { name = "cryptography" },
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "pyyaml" },
@@ -101,6 +102,7 @@ requires-dist = [
     { name = "axiom-encode", extras = ["api", "dev", "observability"], marker = "extra == 'all'" },
     { name = "axiom-oracles", git = "https://github.com/TheAxiomFoundation/axiom-oracles?rev=4356d73d61339abe92b39c7ace3a0869f401d9c5" },
     { name = "claude-agent-sdk", marker = "extra == 'api'", specifier = ">=0.1.0" },
+    { name = "cryptography", specifier = ">=46.0" },
     { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.28.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'observability'", specifier = ">=1.28.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'observability'", specifier = ">=1.28.0" },

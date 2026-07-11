@@ -6,12 +6,14 @@ import ast
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
@@ -22,6 +24,7 @@ from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
 import requests
 import yaml
 
+from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.codex_cli import resolve_codex_cli
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
@@ -30,20 +33,31 @@ from axiom_encode.concepts.registry import (
     ConceptRegistry,
     load_concept_registry,
 )
-from axiom_encode.constants import DEFAULT_OPENAI_MODEL
+from axiom_encode.constants import (
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_TEST_FILE_SUFFIX,
+)
 from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
+    canonical_rulespec_root_identity,
     find_policy_repo_root,
-    jurisdiction_content_dir,
     jurisdiction_subdir_names,
-    monorepo_alternative_path,
+    monorepo_checkout_name,
 )
+from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
     citation_to_relative_rulespec_path,
     parse_usc_citation,
+)
+from axiom_encode.toolchain import (
+    VALIDATION_WAIVER_SET_PATH,
+    load_rulespec_toolchain,
+    verify_rulespec_validation_waiver_set,
 )
 
 from .dependency_stubs import (
@@ -59,19 +73,30 @@ from .dependency_stubs import (
     validate_rulespec_context_file,
 )
 from .encoding_db import TokenUsage
+from .eval_evidence import (
+    isolated_eval_evidence_signer,
+    scrub_attestation_signing_keys,
+    sign_eval_evidence,
+    verify_eval_evidence_signature,
+)
 from .eval_prompt_surface import (
     render_date_silent_scaffold_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
 )
 from .observability import emit_eval_result, extract_reasoning_output_tokens
+from .policyengine_runtime import (
+    POLICYENGINE_RUNTIME_SCHEMA,
+    PolicyEngineRuntime,
+    PolicyEngineRuntimeError,
+)
 from .pricing import estimate_usage_cost_usd
 from .validator_pipeline import (
-    DEFAULT_AXIOM_SUPABASE_ANON_KEY,
-    DEFAULT_AXIOM_SUPABASE_URL,
     ValidationResult,
     ValidatorPipeline,
     _authoritative_corpus_scope,
+    _authoritative_rulespec_dependency_scope,
+    _normalize_rulespec_dependency_roots,
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _source_text_looks_like_table,
@@ -96,7 +121,7 @@ from .validator_pipeline import (
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
-EvalOracleMode = Literal["none", "policyengine", "all"]
+EvalOracleMode = Literal["none", "policyengine"]
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 TABLE_BOUND_COMPARATOR_NUMBER_PATTERN = re.compile(
     r"(?:(?:<=|>=|<|>|==)\s*(-?[\d,]+(?:\.\d+)?)"
@@ -164,7 +189,6 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
 )
-_LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
 _RULESPEC_SOURCE_ROOT_TOKENS = {
     "form",
     "forms",
@@ -706,9 +730,8 @@ class EvalArtifactMetrics:
     policyengine_pass: bool | None = None
     policyengine_score: float | None = None
     policyengine_issues: list[str] = field(default_factory=list)
-    taxsim_pass: bool | None = None
-    taxsim_score: float | None = None
-    taxsim_issues: list[str] = field(default_factory=list)
+    policyengine_runtime_identity: dict[str, object] | None = None
+    policyengine_runtime_identity_sha256: str | None = None
 
 
 @dataclass
@@ -742,18 +765,9 @@ class CorpusSourceUnit:
     requested: str
     citation_path: str
     body: str
-    source: Literal["local", "supabase"]
-    source_attestation: dict[str, object] | None = None
-    resolved_source: _corpus_resolver.ResolvedCorpusSource | None = None
-
-
-@dataclass(frozen=True)
-class PrimarySourceContinuation:
-    """A context file that explicitly continues the primary source text."""
-
-    source_path: Path
-    corpus_citation_path: str | None
-    body: str
+    source: Literal["local"]
+    source_attestation: dict[str, object]
+    resolved_source: _corpus_resolver.ResolvedCorpusSource
 
 
 @dataclass
@@ -782,6 +796,9 @@ class EvalResult:
     output_file: str
     trace_file: str
     context_manifest_file: str
+    generated_output_sha256: str | None
+    trace_sha256: str | None
+    context_manifest_sha256: str | None
     duration_ms: int
     success: bool
     error: str | None
@@ -798,12 +815,180 @@ class EvalResult:
     generation_prompt_sha256: str | None = None
     retry_count: int = 0
     source_attestation: dict[str, object] | None = None
+    admission: dict[str, object] | None = None
+    verdict_file: str = ""
+    verdict_sha256: str | None = None
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if self.metrics is not None:
             data["metrics"] = asdict(self.metrics)
-        return data
+        return _bind_eval_result_payload(data)
+
+
+_EVAL_RESULT_ARTIFACT_SPECS = (
+    ("output_file", "generated_output_sha256", "generated RuleSpec", 32 * 1024 * 1024),
+    ("trace_file", "trace_sha256", "model trace", 128 * 1024 * 1024),
+    (
+        "context_manifest_file",
+        "context_manifest_sha256",
+        "context manifest",
+        32 * 1024 * 1024,
+    ),
+    (
+        "verdict_file",
+        "verdict_sha256",
+        "validator verdict evidence",
+        32 * 1024 * 1024,
+    ),
+)
+_SHA256_HEX_PATTERN = re.compile(r"[0-9a-f]{64}")
+
+
+def _validate_eval_result_artifact_binding(
+    payload: dict,
+    *,
+    artifact_name: str = "Eval result",
+) -> None:
+    """Require paths and SHA-256 digests to describe the exact result artifacts."""
+
+    for field_name in (
+        "duration_ms",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_creation_tokens",
+        "reasoning_output_tokens",
+        "retry_count",
+    ):
+        value = payload.get(field_name, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"{artifact_name} has invalid nonnegative accounting field "
+                f"'{field_name}'"
+            )
+    for field_name in ("estimated_cost_usd", "actual_cost_usd"):
+        value = payload.get(field_name)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            raise ValueError(
+                f"{artifact_name} has invalid nonnegative finite cost field "
+                f"'{field_name}'"
+            )
+
+    bound_fields: set[str] = set()
+    for path_field, digest_field, label, _max_bytes in _EVAL_RESULT_ARTIFACT_SPECS:
+        if digest_field not in payload:
+            if path_field == "verdict_file" and "verdict_file" not in payload:
+                continue
+            raise ValueError(
+                f"{artifact_name} is missing immutable {label} digest '{digest_field}'"
+            )
+        raw_path = payload.get(path_field)
+        digest = payload.get(digest_field)
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{artifact_name} has a malformed {label} path")
+        if digest is None:
+            if raw_path:
+                raise ValueError(
+                    f"{artifact_name} has a {label} path without its SHA-256 digest"
+                )
+            continue
+        if not isinstance(digest, str) or _SHA256_HEX_PATTERN.fullmatch(digest) is None:
+            raise ValueError(f"{artifact_name} has a malformed {label} SHA-256 digest")
+        if not raw_path:
+            raise ValueError(
+                f"{artifact_name} has a {label} SHA-256 digest without its path"
+            )
+        bound_fields.add(path_field)
+
+    if payload.get("success") is True and "output_file" not in bound_fields:
+        raise ValueError(
+            f"{artifact_name} marks success without a content-bound generated RuleSpec"
+        )
+    if isinstance(payload.get("metrics"), dict) and "output_file" not in bound_fields:
+        raise ValueError(
+            f"{artifact_name} has artifact metrics without a content-bound generated RuleSpec"
+        )
+    generation_bound_fields = bound_fields - {"verdict_file"}
+    if generation_bound_fields and not {
+        "trace_file",
+        "context_manifest_file",
+    }.issubset(bound_fields):
+        raise ValueError(
+            f"{artifact_name} is missing its content-bound trace or context manifest"
+        )
+
+
+def _validate_eval_result_artifacts(
+    result: EvalResult,
+    output_root: Path,
+    *,
+    artifact_name: str,
+) -> dict[str, bytes]:
+    """Safely load and verify every artifact bound by one eval result."""
+
+    payload = result.to_dict()
+    _validate_eval_result_artifact_binding(payload, artifact_name=artifact_name)
+    root = Path(os.path.abspath(output_root))
+    verified: dict[str, bytes] = {}
+    for path_field, digest_field, label, max_bytes in _EVAL_RESULT_ARTIFACT_SPECS:
+        raw_path = payload[path_field]
+        expected_digest = payload[digest_field]
+        if not raw_path:
+            continue
+        candidate = Path(os.path.abspath(raw_path))
+        try:
+            raw = _corpus_resolver.read_bounded_regular_file(
+                root,
+                candidate,
+                label=f"{artifact_name} {label}",
+                max_bytes=max_bytes,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"{artifact_name} could not safely load its {label}: {exc}"
+            ) from exc
+        actual_digest = hashlib.sha256(raw).hexdigest()
+        if actual_digest != expected_digest:
+            raise ValueError(
+                f"{artifact_name} {label} bytes do not match {digest_field}"
+            )
+        verified[path_field] = raw
+    verdict_raw = verified.get("verdict_file")
+    if verdict_raw is not None:
+        try:
+            verdict_payload = json.loads(verdict_raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{artifact_name} has malformed verdict evidence") from exc
+        _validate_signed_eval_result_verdict_evidence(
+            verdict_payload,
+            result,
+            artifact_name=artifact_name,
+        )
+    return verified
+
+
+def _eval_artifact_sha256(
+    path: Path,
+    *,
+    output_root: Path,
+    label: str,
+    max_bytes: int,
+) -> str:
+    """Hash one newly generated artifact through the same safe read boundary."""
+
+    raw = _corpus_resolver.read_bounded_regular_file(
+        Path(os.path.abspath(output_root)),
+        Path(os.path.abspath(path)),
+        label=label,
+        max_bytes=max_bytes,
+    )
+    return hashlib.sha256(raw).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -829,11 +1014,9 @@ class EvalSuiteCase:
     mode: EvalMode
     allow_context: list[Path] = field(default_factory=list)
     citation: str | None = None
-    source_id: str | None = None
     corpus_citation_path: str | None = None
     policyengine_rule_hint: str | None = None
     oracle: EvalOracleMode = "none"
-    policyengine_country: str = "auto"
 
 
 @dataclass
@@ -847,6 +1030,7 @@ class EvalSuiteManifest:
     allow_context: list[Path]
     gates: EvalReadinessGates
     cases: list[EvalSuiteCase]
+    rulespec_dependency_roots: list[Path] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -881,10 +1065,19 @@ class EvalReadinessSummary:
 
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
     """Parse `[name=]backend:model` into a structured runner spec."""
+    if not isinstance(spec, str) or not spec or spec != spec.strip():
+        raise ValueError(
+            f"Invalid runner spec '{spec}'. Expected canonical [name=]backend:model."
+        )
     alias = ""
     target = spec
     if "=" in spec:
         alias, target = spec.split("=", 1)
+        if not alias or alias != alias.strip():
+            raise ValueError(
+                f"Invalid runner spec '{spec}'. Expected canonical "
+                "[name=]backend:model."
+            )
 
     if ":" not in target:
         raise ValueError(
@@ -892,14 +1085,43 @@ def parse_runner_spec(spec: str) -> EvalRunnerSpec:
         )
 
     backend, model = target.split(":", 1)
-    backend = backend.strip()
-    model = model.strip()
-    name = alias.strip() or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
+    if (
+        not backend
+        or not model
+        or backend != backend.strip()
+        or model != model.strip()
+        or any(character.isspace() or ord(character) < 32 for character in model)
+    ):
+        raise ValueError(
+            f"Invalid runner spec '{spec}'. Expected canonical [name=]backend:model."
+        )
+    name = alias or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
 
     if backend not in {"claude", "codex", "openai"}:
         raise ValueError(f"Unsupported backend '{backend}' in runner spec '{spec}'")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None or name in {".", ".."}:
+        raise ValueError(f"Unsafe runner name '{name}' in runner spec '{spec}'")
 
     return EvalRunnerSpec(name=name, backend=backend, model=model)
+
+
+def _validate_eval_oracle_runtime(
+    oracle: str,
+    runtime: PolicyEngineRuntime | None,
+    policy_repo_root: Path,
+) -> None:
+    """Fail before generation when an eval's oracle contract is not explicit."""
+
+    if oracle not in {"none", "policyengine"}:
+        raise ValueError(f"Unsupported eval oracle '{oracle}'")
+    if oracle == "none":
+        return
+    if type(runtime) is not PolicyEngineRuntime:
+        raise PolicyEngineRuntimeError(
+            "PolicyEngine eval requires one explicit admitted runtime"
+        )
+    runtime.assert_matches_rulespec_root(policy_repo_root)
+    runtime.assert_unchanged()
 
 
 def run_model_eval(
@@ -908,96 +1130,101 @@ def run_model_eval(
     output_root: Path,
     policy_path: Path,
     runtime_axiom_rules_path: Path,
-    corpus_path: Path,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    oracle: EvalOracleMode = "none",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     results: list[EvalResult] = []
     runners = [parse_runner_spec(spec) for spec in runner_specs]
     resolved_sources = [
-        (citation, resolve_corpus_source_unit(citation, corpus_path))
+        (citation, resolve_corpus_source_unit(citation, corpus_release))
         for citation in citations
     ]
 
-    for runner in runners:
-        for citation, source_unit in resolved_sources:
-            results.append(
-                _run_single_eval(
-                    citation=citation,
-                    runner=runner,
-                    output_root=output_root,
-                    policy_path=policy_path,
-                    runtime_axiom_rules_path=runtime_axiom_rules_path,
-                    corpus_path=corpus_path,
-                    mode=mode,
-                    extra_context_paths=extra_context_paths or [],
-                    include_tests=include_tests,
-                    skip_reviewers=skip_reviewers,
-                    policyengine_rule_hint=policyengine_rule_hint,
-                    source_unit=source_unit,
+    with _authoritative_rulespec_dependency_scope(rulespec_dependency_roots):
+        for runner in runners:
+            for citation, source_unit in resolved_sources:
+                results.append(
+                    _run_single_eval(
+                        citation=citation,
+                        runner=runner,
+                        output_root=output_root,
+                        policy_path=policy_path,
+                        runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        corpus_release=corpus_release,
+                        mode=mode,
+                        extra_context_paths=extra_context_paths or [],
+                        include_tests=include_tests,
+                        skip_reviewers=skip_reviewers,
+                        oracle=oracle,
+                        policyengine_runtime=policyengine_runtime,
+                        policyengine_rule_hint=policyengine_rule_hint,
+                        source_unit=source_unit,
+                        rulespec_dependency_roots=rulespec_dependency_roots,
+                    )
                 )
-            )
 
     return results
 
 
 def run_source_eval(
-    source_id: str,
-    source_text: str,
+    source_unit: CorpusSourceUnit,
     runner_specs: list[str],
     output_root: Path,
     policy_path: Path,
-    source_metadata_payload: dict[str, object] | None = None,
-    runtime_axiom_rules_path: Path | None = None,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
+    runtime_axiom_rules_path: Path,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
-    local_corpus_root: Path | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one corpus-backed source unit."""
-    results: list[EvalResult] = []
-    continuations = _primary_source_continuations_from_context_paths(
-        extra_context_paths or [],
-        policy_path,
+    _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
+    _validate_corpus_source_unit(source_unit, local_corpus_release)
+    source_identifier = _corpus_resolver.normalize_corpus_identifier(
+        source_unit.requested
     )
-    continuation_paths = {item.source_path for item in continuations}
-    extra_context_paths = [
-        Path(path)
-        for path in extra_context_paths or []
-        if Path(path).resolve(strict=False) not in continuation_paths
-    ]
-    source_text = _append_primary_source_continuations(source_text, continuations)
-    source_metadata_payload = _source_metadata_with_continuations(
-        source_metadata_payload,
-        continuations,
+    results: list[EvalResult] = []
+    extra_context_paths = [Path(path) for path in extra_context_paths or []]
+    source_text = source_unit.body
+    source_metadata_payload = _source_metadata_with_attestation(
+        source_unit,
+        rulespec_root=policy_path,
     )
 
-    for runner in [parse_runner_spec(spec) for spec in runner_specs]:
-        results.append(
-            _run_single_source_eval(
-                source_id=source_id,
-                source_text=source_text,
-                runner=runner,
-                output_root=output_root,
-                policy_path=policy_path,
-                source_metadata_payload=source_metadata_payload,
-                runtime_axiom_rules_path=runtime_axiom_rules_path or policy_path,
-                mode=mode,
-                extra_context_paths=extra_context_paths,
-                oracle=oracle,
-                policyengine_country=policyengine_country,
-                policyengine_rule_hint=policyengine_rule_hint,
-                skip_reviewers=skip_reviewers,
-                local_corpus_root=local_corpus_root,
+    with _authoritative_rulespec_dependency_scope(rulespec_dependency_roots):
+        for runner in [parse_runner_spec(spec) for spec in runner_specs]:
+            results.append(
+                _run_single_source_eval(
+                    source_identifier=source_identifier,
+                    source_text=source_text,
+                    runner=runner,
+                    output_root=output_root,
+                    policy_path=policy_path,
+                    source_metadata_payload=source_metadata_payload,
+                    runtime_axiom_rules_path=runtime_axiom_rules_path,
+                    mode=mode,
+                    extra_context_paths=extra_context_paths,
+                    oracle=oracle,
+                    policyengine_runtime=policyengine_runtime,
+                    policyengine_rule_hint=policyengine_rule_hint,
+                    skip_reviewers=skip_reviewers,
+                    local_corpus_release=local_corpus_release,
+                    rulespec_dependency_roots=rulespec_dependency_roots,
+                )
             )
-        )
 
     return results
 
@@ -1035,115 +1262,42 @@ def _sum_token_usage(
     )
 
 
-_PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN = re.compile(
-    r"^\s*Primary source continuation\b",
-    flags=re.IGNORECASE,
-)
-_CORPUS_CITATION_PATH_LINE_PATTERN = re.compile(
-    r"^\s*Corpus citation path:\s*(?P<path>\S+)\s*$",
-    flags=re.IGNORECASE,
-)
-
-
-def _primary_source_continuations_from_context_paths(
-    extra_context_paths: Sequence[Path],
-    policy_root: Path,
-) -> list[PrimarySourceContinuation]:
-    """Return explicit primary-source continuations supplied as context files."""
-    continuations: list[PrimarySourceContinuation] = []
-    for raw_path in extra_context_paths:
-        path = Path(raw_path)
-        if path.is_symlink():
-            validate_explicit_context_file(path, policy_root)
-        if not path.is_file():
-            continue
-        path = validate_explicit_context_file(path, policy_root)
-        try:
-            raw_text = path.read_text()
-        except (OSError, UnicodeError):
-            continue
-        lines = raw_text.splitlines()
-        first_nonempty = next((line for line in lines if line.strip()), "")
-        if not _PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN.match(first_nonempty):
-            continue
-
-        corpus_citation_path: str | None = None
-        body_lines: list[str] = []
-        for line in lines:
-            if _PRIMARY_SOURCE_CONTINUATION_HEADER_PATTERN.match(line):
-                continue
-            citation_match = _CORPUS_CITATION_PATH_LINE_PATTERN.match(line)
-            if citation_match:
-                corpus_citation_path = citation_match.group("path").strip()
-                continue
-            body_lines.append(line)
-        body = "\n".join(body_lines).strip()
-        if body:
-            continuations.append(
-                PrimarySourceContinuation(
-                    source_path=path,
-                    corpus_citation_path=corpus_citation_path,
-                    body=body,
-                )
-            )
-    return continuations
-
-
-def _append_primary_source_continuations(
-    source_text: str,
-    continuations: Sequence[PrimarySourceContinuation],
-) -> str:
-    if not continuations:
-        return source_text
-    parts = [source_text.strip()]
-    for continuation in continuations:
-        label = continuation.corpus_citation_path or continuation.source_path.as_posix()
-        parts.append(f"[Primary source continuation: {label}]\n{continuation.body}")
-    return "\n\n".join(part for part in parts if part).strip()
-
-
-def _source_metadata_with_continuations(
-    source_metadata_payload: dict[str, object] | None,
-    continuations: Sequence[PrimarySourceContinuation],
-) -> dict[str, object] | None:
-    if not continuations:
-        return source_metadata_payload
-
-    metadata = dict(source_metadata_payload or {})
-    citation_paths: list[str] = []
-    raw_paths = metadata.get("corpus_citation_paths")
-    if isinstance(raw_paths, list):
-        citation_paths.extend(str(item) for item in raw_paths if str(item).strip())
-    raw_path = metadata.get("corpus_citation_path")
-    if isinstance(raw_path, str) and raw_path.strip():
-        citation_paths.append(raw_path.strip())
-
-    continuation_records: list[dict[str, str]] = []
-    for continuation in continuations:
-        record = {"context_path": str(continuation.source_path)}
-        if continuation.corpus_citation_path:
-            citation_paths.append(continuation.corpus_citation_path)
-            record["corpus_citation_path"] = continuation.corpus_citation_path
-        continuation_records.append(record)
-
-    deduped_paths = list(dict.fromkeys(citation_paths))
-    if deduped_paths:
-        metadata["corpus_citation_paths"] = deduped_paths
-    metadata["primary_source_continuations"] = continuation_records
-    return metadata
-
-
 def _source_metadata_with_attestation(
-    source_metadata_payload: dict[str, object],
     source_unit: CorpusSourceUnit,
+    *,
+    rulespec_root: Path,
 ) -> dict[str, object]:
-    """Attach the resolver-owned source binding without trusting model output."""
+    """Return resolver-owned source metadata with no parallel identity fields."""
 
-    metadata = dict(source_metadata_payload)
-    source_attestation = getattr(source_unit, "source_attestation", None)
-    if isinstance(source_attestation, dict):
-        metadata["source_attestation"] = dict(source_attestation)
-    return metadata
+    source_attestation = source_unit.source_attestation
+    if not isinstance(source_attestation, dict):
+        raise TypeError("CorpusSourceUnit.source_attestation must be a mapping")
+    attestation = dict(source_attestation)
+    attestation["rulespec_root"] = str(Path(rulespec_root).resolve())
+    return {"source_attestation": attestation}
+
+
+def _expected_eval_source_attestation(
+    source_unit: CorpusSourceUnit,
+    *,
+    rulespec_root: Path,
+) -> dict[str, object]:
+    """Return the exact attestation persisted after workspace materialization."""
+
+    metadata = _source_metadata_with_attestation(
+        source_unit,
+        rulespec_root=rulespec_root,
+    )
+    attestation = metadata["source_attestation"]
+    if not isinstance(attestation, dict):  # pragma: no cover - construction invariant
+        raise TypeError("Eval source attestation must be a mapping")
+    normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
+    return {
+        **attestation,
+        "generation_input_sha256": hashlib.sha256(
+            normalized_source.encode("utf-8")
+        ).hexdigest(),
+    }
 
 
 def _source_metadata_attestation(
@@ -1155,27 +1309,24 @@ def _source_metadata_attestation(
     return dict(attestation) if isinstance(attestation, dict) else None
 
 
-def _source_metadata_citation_paths(
+def _source_metadata_citation_path(
     source_metadata_payload: dict[str, object] | None,
-) -> tuple[str, ...] | None:
-    """Return trusted source paths supplied by the corpus resolver/workspace."""
+) -> str | None:
+    """Return the exact trusted source path supplied by the corpus resolver."""
 
     if not isinstance(source_metadata_payload, dict):
         return None
-    paths: list[str] = []
-    raw_path = source_metadata_payload.get("corpus_citation_path")
-    if isinstance(raw_path, str) and raw_path.strip().strip("/"):
-        paths.append(raw_path.strip().strip("/"))
-    raw_paths = source_metadata_payload.get("corpus_citation_paths")
-    if isinstance(raw_paths, list):
-        for item in raw_paths:
-            if not isinstance(item, str):
-                continue
-            normalized = item.strip().strip("/")
-            if normalized:
-                paths.append(normalized)
-    deduped = tuple(dict.fromkeys(paths))
-    return deduped or None
+    attestation = source_metadata_payload.get("source_attestation")
+    if not isinstance(attestation, dict):
+        return None
+    requested = attestation.get("requested_corpus_citation_path")
+    if requested is None:
+        return None
+    if not isinstance(requested, str):
+        raise _corpus_resolver.InvalidCorpusCitationError(
+            "Source attestation requested_corpus_citation_path must be a string"
+        )
+    return _corpus_resolver.require_canonical_corpus_citation_path(requested)
 
 
 def _combine_retry_response(
@@ -1218,41 +1369,182 @@ def _response_allows_empty_artifact_retry(response: EvalPromptResponse) -> bool:
     return not response.text.strip() and "timed out" in response.error.lower()
 
 
+_EVAL_SUITE_MANIFEST_KEYS = frozenset(
+    {
+        "name",
+        "runners",
+        "mode",
+        "allow_context",
+        "gates",
+        "cases",
+        "rulespec_dependency_roots",
+    }
+)
+_EVAL_SUITE_CASE_KEYS = frozenset(
+    {
+        "kind",
+        "name",
+        "mode",
+        "allow_context",
+        "citation",
+        "corpus_citation_path",
+        "policyengine_rule_hint",
+        "oracle",
+        "source_id",
+        "source_file",
+        "metadata_file",
+    }
+)
+_EVAL_SUITE_GATE_KEYS = frozenset(
+    {
+        "min_cases",
+        "min_success_rate",
+        "min_compile_pass_rate",
+        "min_ci_pass_rate",
+        "min_zero_ungrounded_rate",
+        "min_generalist_review_pass_rate",
+        "min_policyengine_pass_rate",
+        "max_mean_estimated_cost_usd",
+    }
+)
+_REQUIRED_EVAL_SUITE_RATE_GATES = (
+    "min_success_rate",
+    "min_compile_pass_rate",
+    "min_ci_pass_rate",
+    "min_zero_ungrounded_rate",
+    "min_generalist_review_pass_rate",
+)
+
+
+def _unexpected_mapping_keys(raw: dict, allowed: frozenset[str]) -> list[object]:
+    return sorted((key for key in raw if key not in allowed), key=str)
+
+
+def _strict_eval_gate_rate(raw: dict, name: str, *, required: bool) -> float | None:
+    if name not in raw:
+        if required:
+            raise ValueError(f"Eval suite gates must declare non-null '{name}'")
+        return None
+    value = raw[name]
+    try:
+        finite = type(value) in {int, float} and math.isfinite(value)
+    except OverflowError:
+        finite = False
+    if not finite:
+        raise ValueError(f"Eval suite gate '{name}' must be a finite number")
+    numeric = float(value)
+    if not 0 <= numeric <= 1:
+        raise ValueError(f"Eval suite gate '{name}' must be between 0 and 1")
+    return numeric
+
+
+def _parse_eval_readiness_gates(
+    raw: object,
+    *,
+    requires_policyengine: bool,
+) -> EvalReadinessGates:
+    """Parse gates without coercions or omission-based readiness bypasses."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("Eval suite gates must be a mapping")
+    unexpected = _unexpected_mapping_keys(raw, _EVAL_SUITE_GATE_KEYS)
+    if unexpected:
+        raise ValueError(f"Eval suite gates contain unsupported keys: {unexpected}")
+    min_cases = raw.get("min_cases")
+    if type(min_cases) is not int or min_cases < 1:
+        raise ValueError("Eval suite gate 'min_cases' must be an integer >= 1")
+    rates = {
+        name: _strict_eval_gate_rate(raw, name, required=True)
+        for name in _REQUIRED_EVAL_SUITE_RATE_GATES
+    }
+    policyengine_rate = _strict_eval_gate_rate(
+        raw,
+        "min_policyengine_pass_rate",
+        required=requires_policyengine,
+    )
+    max_cost: float | None = None
+    if "max_mean_estimated_cost_usd" in raw:
+        value = raw["max_mean_estimated_cost_usd"]
+        try:
+            finite = type(value) in {int, float} and math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if not finite or value < 0:
+            raise ValueError(
+                "Eval suite gate 'max_mean_estimated_cost_usd' must be a finite "
+                "nonnegative number"
+            )
+        max_cost = float(value)
+    return EvalReadinessGates(
+        min_cases=min_cases,
+        min_success_rate=rates["min_success_rate"],
+        min_compile_pass_rate=rates["min_compile_pass_rate"],
+        min_ci_pass_rate=rates["min_ci_pass_rate"],
+        min_zero_ungrounded_rate=rates["min_zero_ungrounded_rate"],
+        min_generalist_review_pass_rate=rates["min_generalist_review_pass_rate"],
+        min_policyengine_pass_rate=policyengine_rate,
+        max_mean_estimated_cost_usd=max_cost,
+    )
+
+
 def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
     """Load a manifest describing a benchmark suite and readiness gates."""
-    raw = yaml.safe_load(Path(path).read_text()) or {}
+    loaded = yaml.safe_load(Path(path).read_text())
+    raw = {} if loaded is None else loaded
     if not isinstance(raw, dict):
         raise ValueError(f"Eval suite manifest must be a mapping: {path}")
+    unexpected = _unexpected_mapping_keys(raw, _EVAL_SUITE_MANIFEST_KEYS)
+    if unexpected:
+        raise ValueError(f"Eval suite manifest contains unsupported keys: {unexpected}")
 
+    raw_name = raw.get("name")
+    if "name" in raw and (
+        not isinstance(raw_name, str) or not raw_name or raw_name != raw_name.strip()
+    ):
+        raise ValueError("Eval suite name must be a canonical nonempty string")
     base_dir = Path(path).resolve().parent
     default_mode = _coerce_eval_mode(raw.get("mode", "repo-augmented"))
+    raw_default_context = raw.get("allow_context", [])
+    if not isinstance(raw_default_context, list) or any(
+        not isinstance(entry, str) or not entry or entry != entry.strip()
+        for entry in raw_default_context
+    ):
+        raise ValueError(
+            "Eval suite allow_context must be a list of canonical nonempty strings"
+        )
     default_context = [
-        _resolve_manifest_path(base_dir, entry)
-        for entry in raw.get("allow_context", []) or []
+        _resolve_manifest_path(base_dir, entry) for entry in raw_default_context
     ]
-    runners = [
-        str(item) for item in (raw.get("runners") or [f"codex:{DEFAULT_OPENAI_MODEL}"])
-    ]
-
-    gates_raw = raw.get("gates") or {}
-    gates = EvalReadinessGates(
-        min_cases=int(gates_raw.get("min_cases", 1)),
-        min_success_rate=_optional_float(gates_raw.get("min_success_rate")),
-        min_compile_pass_rate=_optional_float(gates_raw.get("min_compile_pass_rate")),
-        min_ci_pass_rate=_optional_float(gates_raw.get("min_ci_pass_rate")),
-        min_zero_ungrounded_rate=_optional_float(
-            gates_raw.get("min_zero_ungrounded_rate")
-        ),
-        min_generalist_review_pass_rate=_optional_float(
-            gates_raw.get("min_generalist_review_pass_rate", 1.0)
-        ),
-        min_policyengine_pass_rate=_optional_float(
-            gates_raw.get("min_policyengine_pass_rate")
-        ),
-        max_mean_estimated_cost_usd=_optional_float(
-            gates_raw.get("max_mean_estimated_cost_usd")
-        ),
+    raw_dependency_roots = raw.get("rulespec_dependency_roots", [])
+    if not isinstance(raw_dependency_roots, list) or any(
+        not isinstance(entry, str) or not entry or entry != entry.strip()
+        for entry in raw_dependency_roots
+    ):
+        raise ValueError(
+            "Eval suite rulespec_dependency_roots must be a list of non-empty paths"
+        )
+    dependency_roots = list(
+        _normalize_rulespec_dependency_roots(
+            _resolve_manifest_path(base_dir, entry) for entry in raw_dependency_roots
+        )
     )
+    raw_runners = raw.get("runners")
+    if (
+        not isinstance(raw_runners, list)
+        or not raw_runners
+        or any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in raw_runners
+        )
+    ):
+        raise ValueError(
+            "Eval suite runners must be a nonempty list of canonical nonempty strings"
+        )
+    runners = list(raw_runners)
+    parsed_runners = [parse_runner_spec(spec) for spec in runners]
+    _expected_eval_suite_runners(parsed_runners)
+
+    gates_raw = raw.get("gates")
 
     cases_raw = raw.get("cases") or []
     if not isinstance(cases_raw, list) or not cases_raw:
@@ -1262,14 +1554,41 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
     for index, item in enumerate(cases_raw, start=1):
         if not isinstance(item, dict):
             raise ValueError(f"Eval suite case #{index} must be a mapping")
-        kind = str(item.get("kind", "")).strip()
+        unexpected = _unexpected_mapping_keys(item, _EVAL_SUITE_CASE_KEYS)
+        if unexpected:
+            raise ValueError(
+                f"Eval suite case #{index} contains unsupported keys: {unexpected}"
+            )
+        kind = item.get("kind")
         if kind not in {"citation", "source"}:
             raise ValueError(f"Unsupported eval suite case kind '{kind}'")
 
         case_mode = _coerce_eval_mode(item.get("mode", default_mode))
-        name = str(item.get("name", "")).strip() or str(
-            item.get("citation") or item.get("source_id") or f"case-{index}"
+        raw_case_name = item.get("name")
+        if "name" in item and (
+            not isinstance(raw_case_name, str)
+            or not raw_case_name
+            or raw_case_name != raw_case_name.strip()
+        ):
+            raise ValueError(
+                f"Eval suite case #{index} name must be a canonical nonempty string"
+            )
+        name_source = (
+            raw_case_name
+            or item.get("citation")
+            or item.get("corpus_citation_path")
+            or f"case-{index}"
         )
+        if not isinstance(name_source, str):
+            raise ValueError(
+                f"Eval suite case #{index} identity must be a nonempty string"
+            )
+        name = name_source
+        if "source_id" in item:
+            raise ValueError(
+                "Eval suite cases must use 'corpus_citation_path' as their sole "
+                f"source identity; 'source_id' is not supported in {path}"
+            )
         if "source_file" in item:
             raise ValueError(
                 "Eval suite source cases must use 'corpus_citation_path'; "
@@ -1281,40 +1600,66 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
                 f"'metadata_file' is no longer supported in {path}"
             )
 
+        raw_case_context = item.get("allow_context", [])
+        if not isinstance(raw_case_context, list) or any(
+            not isinstance(entry, str) or not entry or entry != entry.strip()
+            for entry in raw_case_context
+        ):
+            raise ValueError(
+                f"Eval suite case #{index} allow_context must be a list of "
+                "canonical nonempty strings"
+            )
+        for field_name in (
+            "citation",
+            "corpus_citation_path",
+            "policyengine_rule_hint",
+            "oracle",
+        ):
+            value = item.get(field_name)
+            if field_name in item and (
+                not isinstance(value, str) or not value or value != value.strip()
+            ):
+                raise ValueError(
+                    f"Eval suite case #{index} field '{field_name}' must be a "
+                    "canonical nonempty string"
+                )
         case = EvalSuiteCase(
             kind=kind,
             name=name,
             mode=case_mode,
             allow_context=[
-                _resolve_manifest_path(base_dir, entry)
-                for entry in item.get("allow_context", []) or []
+                _resolve_manifest_path(base_dir, entry) for entry in raw_case_context
             ],
             citation=item.get("citation"),
-            source_id=item.get("source_id"),
             corpus_citation_path=(
-                str(item.get("corpus_citation_path")).strip()
+                item.get("corpus_citation_path")
                 if item.get("corpus_citation_path") is not None
                 else None
             ),
             policyengine_rule_hint=(
-                str(item.get("policyengine_rule_hint")).strip()
+                item.get("policyengine_rule_hint")
                 if item.get("policyengine_rule_hint") is not None
                 else None
             ),
-            oracle=str(item.get("oracle", "none")),
-            policyengine_country=str(item.get("policyengine_country", "auto")),
+            oracle=item.get("oracle", "none"),
         )
         _validate_eval_suite_case(case, index)
         cases.append(case)
 
+    gates = _parse_eval_readiness_gates(
+        gates_raw,
+        requires_policyengine=any(case.oracle == "policyengine" for case in cases),
+    )
+
     return EvalSuiteManifest(
-        name=str(raw.get("name") or Path(path).stem),
+        name=raw_name or Path(path).stem,
         path=Path(path).resolve(),
         runners=runners,
         mode=default_mode,
         allow_context=default_context,
         gates=gates,
         cases=cases,
+        rulespec_dependency_roots=dependency_roots,
     )
 
 
@@ -1322,17 +1667,78 @@ def run_eval_suite(
     manifest: EvalSuiteManifest,
     output_root: Path,
     axiom_rules_path: Path,
-    corpus_path: Path | None = None,
-    runner_specs: list[str] | None = None,
+    policy_repo_path: Path,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     suite_retry_attempts: int = 2,
     resume_existing: bool = False,
 ) -> list[EvalResult]:
-    """Run every case in a benchmark suite manifest."""
-    output_root = Path(output_root)
+    """Run a suite while keeping its evidence signer out of child environments."""
+
+    with isolated_eval_evidence_signer() as evidence_signing_key:
+        return _run_eval_suite_with_signer(
+            manifest=manifest,
+            output_root=output_root,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            corpus_release=corpus_release,
+            policyengine_runtime=policyengine_runtime,
+            suite_retry_attempts=suite_retry_attempts,
+            resume_existing=resume_existing,
+            evidence_signing_key=evidence_signing_key,
+        )
+
+
+def _run_eval_suite_with_signer(
+    manifest: EvalSuiteManifest,
+    output_root: Path,
+    axiom_rules_path: Path,
+    policy_repo_path: Path,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    policyengine_runtime: PolicyEngineRuntime | None,
+    suite_retry_attempts: int,
+    resume_existing: bool,
+    evidence_signing_key: SigningBroker,
+) -> list[EvalResult]:
+    """Run every case using a parent-memory-only evidence signer."""
+
+    if not isinstance(corpus_release, _corpus_resolver.LocalCorpusRelease):
+        raise TypeError("corpus_release must be a validated LocalCorpusRelease")
+    policyengine_cases = [
+        case for case in manifest.cases if case.oracle == "policyengine"
+    ]
+    if policyengine_cases:
+        if type(policyengine_runtime) is not PolicyEngineRuntime:
+            raise PolicyEngineRuntimeError(
+                "Eval suite selects PolicyEngine but has no explicit admitted runtime"
+            )
+        for case in policyengine_cases:
+            policyengine_runtime.assert_matches_rulespec_root(
+                _eval_suite_case_policy_repo_root(case, policy_repo_path)
+            )
+        policyengine_runtime.assert_unchanged()
+    output_root = Path(output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    resolved_runners = runner_specs or manifest.runners
+    if not resume_existing:
+        _require_fresh_eval_suite_output(output_root)
+    resolved_runners = list(manifest.runners)
+    if not resolved_runners:
+        raise ValueError("Eval suite manifest must declare at least one runner")
     parsed_runners = [parse_runner_spec(spec) for spec in resolved_runners]
+    _expected_eval_suite_runners(parsed_runners)
+    manifest_identity = _build_eval_suite_manifest_identity(manifest)
+    rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
+    execution_identity = (
+        _build_eval_suite_execution_identity(
+            axiom_rules_path,
+            rulespec_roots,
+            policyengine_runtime=policyengine_runtime,
+        )
+        if policyengine_cases
+        else _build_eval_suite_execution_identity(axiom_rules_path, rulespec_roots)
+    )
     results: list[EvalResult] = []
+    run_id = str(uuid.uuid4())
     started_at = _utc_now_iso()
     completed_case_indexes: set[int] = set()
     completed_cases = 0
@@ -1343,6 +1749,7 @@ def run_eval_suite(
     active_case_output_root: Path | None = None
     if resume_existing:
         (
+            run_id,
             started_at,
             results,
             completed_case_indexes,
@@ -1350,17 +1757,31 @@ def run_eval_suite(
             output_root=output_root,
             manifest=manifest,
             resolved_runners=resolved_runners,
-            runner_count=len(parsed_runners),
+            parsed_runners=parsed_runners,
+            corpus_release=corpus_release,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path,
+            rulespec_roots=rulespec_roots,
+            manifest_identity=manifest_identity,
+            execution_identity=execution_identity,
+            policyengine_runtime=policyengine_runtime,
         )
         completed_cases = _contiguous_completed_case_count(
             completed_case_indexes, len(manifest.cases)
         )
         if completed_cases > 0:
             last_case_name = manifest.cases[completed_cases - 1].name
+    if policyengine_cases and policyengine_runtime is not None:
+        policyengine_runtime.assert_unchanged()
     _write_eval_suite_run_state(
         output_root=output_root,
         manifest=manifest,
         resolved_runners=resolved_runners,
+        corpus_release=corpus_release,
+        rulespec_roots=rulespec_roots,
+        manifest_identity=manifest_identity,
+        execution_identity=execution_identity,
+        run_id=run_id,
         status="running",
         started_at=started_at,
         completed_cases=completed_cases,
@@ -1371,8 +1792,23 @@ def run_eval_suite(
         for index, case in enumerate(manifest.cases, start=1):
             if index in completed_case_indexes:
                 continue
+            policy_repo_root = _eval_suite_case_policy_repo_root(
+                case,
+                policy_repo_path,
+            )
             case_output_root = output_root / f"{index:02d}-{_slugify(case.name)}"
             extra_context = [*manifest.allow_context, *case.allow_context]
+            case_source_unit: CorpusSourceUnit | None = None
+            expected_source_attestation: dict[str, object] | None = None
+            if case.kind == "source":
+                case_source_unit = resolve_corpus_source_unit(
+                    case.corpus_citation_path or "",
+                    corpus_release,
+                )
+                expected_source_attestation = _expected_eval_source_attestation(
+                    case_source_unit,
+                    rulespec_root=policy_repo_root,
+                )
             attempts = max(suite_retry_attempts, 0) + 1
             active_case_index = index
             active_case_name = case.name
@@ -1382,6 +1818,11 @@ def run_eval_suite(
                 output_root=output_root,
                 manifest=manifest,
                 resolved_runners=resolved_runners,
+                corpus_release=corpus_release,
+                rulespec_roots=rulespec_roots,
+                manifest_identity=manifest_identity,
+                execution_identity=execution_identity,
+                run_id=run_id,
                 status="running",
                 started_at=started_at,
                 completed_cases=completed_cases,
@@ -1395,60 +1836,42 @@ def run_eval_suite(
             for attempt_index in range(attempts):
                 try:
                     if case.kind == "citation":
-                        if corpus_path is None:
-                            raise ValueError(
-                                "corpus_path is required for citation eval suite cases"
-                            )
                         case_results = run_model_eval(
                             citations=[case.citation or ""],
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
-                            policy_path=(
-                                axiom_rules_path.parent / "rulespec-us"
-                                if axiom_rules_path.name == "axiom-rules-engine"
-                                else axiom_rules_path
-                            ),
+                            policy_path=policy_repo_root,
                             runtime_axiom_rules_path=axiom_rules_path,
-                            corpus_path=corpus_path,
+                            corpus_release=corpus_release,
                             mode=case.mode,
                             extra_context_paths=extra_context,
+                            oracle=case.oracle,
+                            policyengine_runtime=policyengine_runtime,
+                            policyengine_rule_hint=case.policyengine_rule_hint,
+                            rulespec_dependency_roots=(
+                                manifest.rulespec_dependency_roots
+                            ),
                         )
                     elif case.kind == "source":
-                        if corpus_path is None:
-                            raise ValueError(
-                                "corpus_path is required for corpus-backed "
-                                "source eval suite cases"
-                            )
-                        source_unit = resolve_corpus_source_unit(
-                            case.corpus_citation_path or "",
-                            corpus_path,
-                        )
-                        source_text = source_unit.body
-                        policy_repo_root = _policy_repo_root_for_corpus_source(
-                            source_unit.citation_path,
-                            axiom_rules_path,
-                        )
-                        source_metadata_payload = _source_metadata_with_attestation(
-                            {
-                                "corpus_citation_path": source_unit.citation_path,
-                                "corpus_source": source_unit.source,
-                                "requested_source": source_unit.requested,
-                            },
-                            source_unit,
-                        )
+                        if (
+                            case_source_unit is None
+                        ):  # pragma: no cover - branch invariant
+                            raise ValueError("Source eval case was not resolved")
                         case_results = run_source_eval(
-                            source_id=case.source_id or case.name,
-                            source_text=source_text,
+                            source_unit=case_source_unit,
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
                             policy_path=policy_repo_root,
-                            source_metadata_payload=source_metadata_payload,
+                            local_corpus_release=corpus_release,
                             runtime_axiom_rules_path=axiom_rules_path,
                             mode=case.mode,
                             extra_context_paths=extra_context,
                             oracle=case.oracle,
-                            policyengine_country=case.policyengine_country,
+                            policyengine_runtime=policyengine_runtime,
                             policyengine_rule_hint=case.policyengine_rule_hint,
+                            rulespec_dependency_roots=(
+                                manifest.rulespec_dependency_roots
+                            ),
                         )
                     else:
                         raise ValueError(
@@ -1456,7 +1879,10 @@ def run_eval_suite(
                         )
                 except Exception as exc:
                     case_results = _suite_case_failure_results(
-                        case, parsed_runners, exc
+                        case,
+                        parsed_runners,
+                        exc,
+                        source_attestation=expected_source_attestation,
                     )
 
                 if (
@@ -1465,9 +1891,27 @@ def run_eval_suite(
                 ):
                     break
 
-            for result in case_results:
-                if case.name and case.name != result.citation:
-                    result.citation = f"{case.name} ({result.citation})"
+            _validate_new_eval_suite_case_results(
+                case,
+                case_results,
+                parsed_runners,
+                expected_source_attestation=expected_source_attestation,
+            )
+            _append_eval_suite_case_results(
+                output_root,
+                index,
+                case,
+                case_results,
+                evidence_signing_key=evidence_signing_key,
+                corpus_release=corpus_release,
+                policy_repo_root=policy_repo_root,
+                manifest=manifest,
+                manifest_identity=manifest_identity,
+                execution_identity=execution_identity,
+                parsed_runners=parsed_runners,
+                run_id=run_id,
+                started_at=started_at,
+            )
             results.extend(case_results)
             completed_case_indexes.add(index)
             completed_cases = index
@@ -1476,12 +1920,16 @@ def run_eval_suite(
             active_case_name = None
             active_case_started_at = None
             active_case_output_root = None
-            _append_eval_suite_case_results(output_root, index, case, case_results)
             if _suite_case_results_hit_usage_limit(case_results):
                 _write_eval_suite_run_state(
                     output_root=output_root,
                     manifest=manifest,
                     resolved_runners=resolved_runners,
+                    corpus_release=corpus_release,
+                    rulespec_roots=rulespec_roots,
+                    manifest_identity=manifest_identity,
+                    execution_identity=execution_identity,
+                    run_id=run_id,
                     status="failed",
                     started_at=started_at,
                     completed_cases=completed_cases,
@@ -1497,6 +1945,11 @@ def run_eval_suite(
                 output_root=output_root,
                 manifest=manifest,
                 resolved_runners=resolved_runners,
+                corpus_release=corpus_release,
+                rulespec_roots=rulespec_roots,
+                manifest_identity=manifest_identity,
+                execution_identity=execution_identity,
+                run_id=run_id,
                 status="running",
                 started_at=started_at,
                 completed_cases=completed_cases,
@@ -1508,6 +1961,11 @@ def run_eval_suite(
             output_root=output_root,
             manifest=manifest,
             resolved_runners=resolved_runners,
+            corpus_release=corpus_release,
+            rulespec_roots=rulespec_roots,
+            manifest_identity=manifest_identity,
+            execution_identity=execution_identity,
+            run_id=run_id,
             status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
             started_at=started_at,
             completed_cases=completed_cases,
@@ -1521,10 +1979,17 @@ def run_eval_suite(
         )
         raise
 
+    if policyengine_cases and policyengine_runtime is not None:
+        policyengine_runtime.assert_unchanged()
     _write_eval_suite_run_state(
         output_root=output_root,
         manifest=manifest,
         resolved_runners=resolved_runners,
+        corpus_release=corpus_release,
+        rulespec_roots=rulespec_roots,
+        manifest_identity=manifest_identity,
+        execution_identity=execution_identity,
+        run_id=run_id,
         status="completed",
         started_at=started_at,
         completed_cases=completed_cases,
@@ -1558,63 +2023,1451 @@ def _format_suite_exception(exc: BaseException) -> str:
     return message or exc.__class__.__name__
 
 
+def _canonical_json_sha256(payload: object) -> str:
+    """Hash one JSON-compatible identity payload deterministically."""
+
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+_EVAL_RESULT_SHA256_FIELD = "result_sha256"
+_EVAL_RESULT_VERDICT_SCHEMA = "axiom-encode/eval-result-verdict/v5"
+_EVAL_RESULT_ADMISSION_SCHEMA = "axiom-encode/eval-result-admission/v2"
+
+
+def _eval_result_payload_sha256(payload: dict) -> str:
+    """Hash every persisted result field except its own binding digest."""
+
+    unsigned = dict(payload)
+    unsigned.pop(_EVAL_RESULT_SHA256_FIELD, None)
+    return _canonical_json_sha256(unsigned)
+
+
+def _bind_eval_result_payload(payload: dict) -> dict:
+    """Return one result payload bound to its complete persisted verdict."""
+
+    bound = dict(payload)
+    bound[_EVAL_RESULT_SHA256_FIELD] = _eval_result_payload_sha256(bound)
+    return bound
+
+
+def _validate_eval_result_payload_binding(
+    payload: dict,
+    *,
+    artifact_name: str,
+) -> None:
+    """Reject persisted success, metrics, cost, or identity that was edited later."""
+
+    persisted = payload.get(_EVAL_RESULT_SHA256_FIELD)
+    if (
+        not isinstance(persisted, str)
+        or _SHA256_HEX_PATTERN.fullmatch(persisted) is None
+    ):
+        raise ValueError(
+            f"{artifact_name} is missing immutable result digest "
+            f"'{_EVAL_RESULT_SHA256_FIELD}'"
+        )
+    if persisted != _eval_result_payload_sha256(payload):
+        raise ValueError(
+            f"{artifact_name} success, metrics, or other result evidence does not "
+            f"match {_EVAL_RESULT_SHA256_FIELD}"
+        )
+
+
+def _eval_result_verdict_evidence_payload(
+    result: EvalResult,
+    admission_context: dict[str, object],
+) -> dict:
+    """Return immutable generation and validation evidence for one suite result."""
+
+    result_payload = result.to_dict()
+    if result_payload.get("admission") != admission_context:
+        raise ValueError(
+            "Eval result admission does not match the context being authenticated"
+        )
+    return {
+        "schema": _EVAL_RESULT_VERDICT_SCHEMA,
+        "admission": admission_context,
+        "identity": {
+            "citation": result_payload.get("citation"),
+            "runner": result_payload.get("runner"),
+            "backend": result_payload.get("backend"),
+            "model": result_payload.get("model"),
+            "mode": result_payload.get("mode"),
+        },
+        "artifacts": {
+            "generated_output_sha256": result_payload.get("generated_output_sha256"),
+            "trace_sha256": result_payload.get("trace_sha256"),
+            "context_manifest_sha256": result_payload.get("context_manifest_sha256"),
+        },
+        "generation": {
+            "duration_ms": result_payload.get("duration_ms"),
+            "generation_prompt_sha256": result_payload.get("generation_prompt_sha256"),
+            "input_tokens": result_payload.get("input_tokens"),
+            "output_tokens": result_payload.get("output_tokens"),
+            "cache_read_tokens": result_payload.get("cache_read_tokens"),
+            "cache_creation_tokens": result_payload.get("cache_creation_tokens"),
+            "reasoning_output_tokens": result_payload.get("reasoning_output_tokens"),
+            "estimated_cost_usd": result_payload.get("estimated_cost_usd"),
+            "actual_cost_usd": result_payload.get("actual_cost_usd"),
+            "retry_count": result_payload.get("retry_count"),
+            "retrieved_files": result_payload.get("retrieved_files"),
+            "unexpected_accesses": result_payload.get("unexpected_accesses"),
+        },
+        "source_attestation": result_payload.get("source_attestation"),
+        "validation": {
+            "success": result_payload.get("success"),
+            "error": result_payload.get("error"),
+            "metrics": result_payload.get("metrics"),
+        },
+    }
+
+
+_EVAL_SUITE_MANAGED_ROOT_NAMES = frozenset(
+    {
+        "suite-run.json",
+        "suite-results.jsonl",
+        "results.json",
+        "summary.json",
+        "verdicts",
+        ".eval-suite-revalidation.json",
+    }
+)
+
+
+def _require_fresh_eval_suite_output(output_root: Path) -> None:
+    """Refuse to mix a fresh run with any prior suite-managed artifacts."""
+
+    try:
+        children = list(output_root.iterdir())
+    except OSError as exc:
+        raise ValueError(
+            f"Could not inspect eval-suite output root: {output_root}"
+        ) from exc
+    managed: list[str] = []
+    temporary_prefixes = tuple(f".{name}." for name in _EVAL_SUITE_MANAGED_ROOT_NAMES)
+    for child in children:
+        name = child.name
+        if (
+            name in _EVAL_SUITE_MANAGED_ROOT_NAMES
+            or re.fullmatch(r"[0-9]{2,}-[A-Za-z0-9._-]+", name) is not None
+            or (name.endswith(".tmp") and name.startswith(temporary_prefixes))
+        ):
+            managed.append(name)
+    if managed:
+        raise ValueError(
+            "Refusing to start a fresh eval suite in an output directory that "
+            "already contains managed artifacts: "
+            + ", ".join(sorted(managed))
+            + ". Pass --resume for that exact run or choose a new empty --output."
+        )
+
+
+def _signed_eval_result_verdict_evidence_payload(
+    result: EvalResult,
+    admission_context: dict[str, object],
+    signer: SigningBroker,
+) -> dict:
+    """Return generation evidence authenticated outside the mutable output tree."""
+
+    payload = _eval_result_verdict_evidence_payload(result, admission_context)
+    payload["signature"] = sign_eval_evidence(payload, signer)
+    return payload
+
+
+def _validate_signed_eval_result_verdict_evidence(
+    payload: object,
+    result: EvalResult,
+    *,
+    artifact_name: str,
+) -> None:
+    """Require a valid signature and exact result/evidence correspondence."""
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"{artifact_name} has malformed verdict evidence")
+    if payload.get("schema") != _EVAL_RESULT_VERDICT_SCHEMA:
+        raise ValueError(
+            f"{artifact_name} uses unsupported authenticated verdict evidence schema"
+        )
+    try:
+        verify_eval_evidence_signature(payload, payload.get("signature"))
+    except ValueError as exc:
+        raise ValueError(
+            f"{artifact_name} has invalid authenticated evidence: {exc}"
+        ) from exc
+    unsigned = dict(payload)
+    unsigned.pop("signature", None)
+    admission_context = result.admission
+    if not isinstance(admission_context, dict):
+        raise ValueError(f"{artifact_name} is missing its authenticated admission")
+    if unsigned != _eval_result_verdict_evidence_payload(result, admission_context):
+        raise ValueError(
+            f"{artifact_name} does not match its authenticated generation and "
+            "validation evidence"
+        )
+
+
+def _canonical_eval_suite_case_payload(case: EvalSuiteCase) -> dict[str, object]:
+    """Return every case field that can affect generation or validation."""
+
+    return {
+        "kind": case.kind,
+        "name": case.name,
+        "mode": case.mode,
+        "allow_context": [str(Path(path).resolve()) for path in case.allow_context],
+        "citation": case.citation,
+        "corpus_citation_path": case.corpus_citation_path,
+        "policyengine_rule_hint": case.policyengine_rule_hint,
+        "oracle": case.oracle,
+    }
+
+
+def _eval_suite_case_identities(
+    manifest: EvalSuiteManifest,
+) -> tuple[dict[str, object], ...]:
+    """Return ordered, content-addressed identities for every manifest case."""
+
+    return tuple(
+        {
+            "index": index,
+            "name": case.name,
+            "kind": case.kind,
+            "corpus_citation_path": _eval_suite_case_corpus_citation_path(case),
+            "sha256": _canonical_json_sha256(_canonical_eval_suite_case_payload(case)),
+        }
+        for index, case in enumerate(manifest.cases, start=1)
+    )
+
+
+def _canonical_eval_suite_manifest_payload(
+    manifest: EvalSuiteManifest,
+) -> dict[str, object]:
+    """Return a semantic fallback when a programmatic manifest has no file."""
+
+    return {
+        "name": manifest.name,
+        "runners": list(manifest.runners),
+        "mode": manifest.mode,
+        "allow_context": [str(Path(path).resolve()) for path in manifest.allow_context],
+        "gates": asdict(manifest.gates),
+        "cases": [_canonical_eval_suite_case_payload(case) for case in manifest.cases],
+    }
+
+
+def _build_eval_suite_manifest_identity(
+    manifest: EvalSuiteManifest,
+) -> dict[str, object]:
+    """Bind a suite to manifest bytes and ordered canonical case identities."""
+
+    manifest_path = Path(manifest.path)
+    if manifest_path.exists():
+        if not manifest_path.is_file():
+            raise ValueError(
+                f"Eval suite manifest is not a regular file: {manifest_path}"
+            )
+        try:
+            manifest_bytes = manifest_path.read_bytes()
+        except OSError as exc:
+            raise ValueError(
+                f"Could not read eval suite manifest for identity: {manifest_path}"
+            ) from exc
+    else:
+        manifest_bytes = json.dumps(
+            _canonical_eval_suite_manifest_payload(manifest),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    return {
+        "content_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "case_identities": list(_eval_suite_case_identities(manifest)),
+    }
+
+
+def _validate_eval_suite_manifest_identity(
+    manifest_payload: dict,
+    expected_identity: dict[str, object],
+    *,
+    artifact_name: str = "suite-run.json",
+) -> None:
+    """Reject same-path manifests whose bytes or canonical cases changed."""
+
+    content_sha256 = manifest_payload.get("content_sha256")
+    case_identities = manifest_payload.get("case_identities")
+    if not isinstance(content_sha256, str) or not isinstance(case_identities, list):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} is missing immutable "
+            "manifest content identity"
+        )
+    if {
+        "content_sha256": content_sha256,
+        "case_identities": case_identities,
+    } != expected_identity:
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses different manifest "
+            "content or canonical case identities"
+        )
+
+
+def _update_tree_hash(
+    hasher: Any,
+    relative_path: str,
+    raw: bytes,
+) -> None:
+    """Add one framed path/content pair to a deterministic tree digest."""
+
+    relative_bytes = relative_path.encode("utf-8")
+    hasher.update(len(relative_bytes).to_bytes(8, "big"))
+    hasher.update(relative_bytes)
+    hasher.update(len(raw).to_bytes(8, "big"))
+    hasher.update(raw)
+
+
+def _deterministic_tree_identity(
+    raw_root: Path,
+    *,
+    excluded_directory_names: frozenset[str] = frozenset(),
+) -> dict[str, object]:
+    """Hash every regular file below a root without following symlinks."""
+
+    root = Path(raw_root).resolve()
+    hasher = hashlib.sha256(b"axiom-eval-tree-v1\0")
+    if not root.exists():
+        hasher.update(b"missing")
+        return {
+            "path": str(root),
+            "state": "missing",
+            "tree_sha256": hasher.hexdigest(),
+            "file_count": 0,
+        }
+    if root.is_symlink():
+        raise ValueError(f"Identity root must not be a symlink: {root}")
+    if root.is_file():
+        try:
+            raw = root.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"Could not read identity file: {root}") from exc
+        _update_tree_hash(hasher, root.name, raw)
+        return {
+            "path": str(root),
+            "state": "file",
+            "tree_sha256": hasher.hexdigest(),
+            "file_count": 1,
+        }
+    if not root.is_dir():
+        raise ValueError(f"Identity root is not a regular file or directory: {root}")
+
+    file_count = 0
+    for directory, directory_names, file_names in os.walk(root, followlinks=False):
+        directory_path = Path(directory)
+        retained_directories: list[str] = []
+        for name in sorted(directory_names):
+            candidate = directory_path / name
+            if name in excluded_directory_names:
+                continue
+            if candidate.is_symlink():
+                raise ValueError(
+                    f"Identity tree must not contain directory symlinks: {candidate}"
+                )
+            retained_directories.append(name)
+        directory_names[:] = retained_directories
+        for name in sorted(file_names):
+            path = directory_path / name
+            if path.is_symlink():
+                raise ValueError(
+                    f"Identity tree must not contain file symlinks: {path}"
+                )
+            if not path.is_file():
+                raise ValueError(f"Identity tree contains a non-regular file: {path}")
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                raise ValueError(f"Could not read identity file: {path}") from exc
+            _update_tree_hash(hasher, path.relative_to(root).as_posix(), raw)
+            file_count += 1
+    return {
+        "path": str(root),
+        "state": "directory",
+        "tree_sha256": hasher.hexdigest(),
+        "file_count": file_count,
+    }
+
+
+def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
+    """Return git stdout for one read-only identity query, if available."""
+
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [git_executable, "-C", str(checkout), *args],
+            check=False,
+            capture_output=True,
+            env=scrub_attestation_signing_keys(),
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
+def _github_repository_identity(remote_url: str) -> str | None:
+    """Return a credential-free canonical GitHub repository identity."""
+
+    value = remote_url.strip()
+    patterns = (
+        r"https://github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
+        r"git@github\.com:(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?$",
+        r"ssh://git@github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
+    )
+    for pattern in patterns:
+        match = re.fullmatch(pattern, value)
+        if match is not None:
+            return f"github.com/{match.group('slug')}"
+    return None
+
+
+def _git_checkout_execution_identity(
+    raw_checkout: Path,
+    *,
+    pathspecs: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Bind a checkout to HEAD plus all tracked and untracked working changes."""
+
+    checkout = Path(raw_checkout).resolve()
+    top_level_raw = _git_command_bytes(checkout, "rev-parse", "--show-toplevel")
+    head_raw = _git_command_bytes(checkout, "rev-parse", "--verify", "HEAD")
+    if top_level_raw is None or head_raw is None:
+        return {
+            "kind": "tree",
+            **_deterministic_tree_identity(
+                checkout,
+                excluded_directory_names=frozenset(
+                    {".git", ".pytest_cache", "__pycache__", "target"}
+                ),
+            ),
+        }
+
+    top_level = Path(os.fsdecode(top_level_raw).strip()).resolve()
+    head = os.fsdecode(head_raw).strip()
+    tracked_diff = _git_command_bytes(
+        top_level,
+        "diff",
+        "--binary",
+        "HEAD",
+        "--",
+        *pathspecs,
+    )
+    untracked_raw = _git_command_bytes(
+        top_level,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        *pathspecs,
+    )
+    if tracked_diff is None or untracked_raw is None:
+        raise ValueError(f"Could not inspect git working tree identity: {top_level}")
+    origin_raw = _git_command_bytes(top_level, "remote", "get-url", "origin")
+    origin_repository = (
+        _github_repository_identity(os.fsdecode(origin_raw).strip())
+        if origin_raw is not None
+        else None
+    )
+
+    working_hasher = hashlib.sha256(b"axiom-eval-git-working-tree-v1\0")
+    working_hasher.update(tracked_diff)
+    untracked_paths = sorted(path for path in untracked_raw.split(b"\0") if path)
+    for raw_relative_path in untracked_paths:
+        relative_path = os.fsdecode(raw_relative_path)
+        path = top_level / relative_path
+        if path.is_symlink():
+            raw = os.readlink(path).encode("utf-8")
+        elif path.is_file():
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                raise ValueError(
+                    f"Could not read untracked identity file: {path}"
+                ) from exc
+        else:
+            raise ValueError(
+                f"Git identity contains a non-regular untracked path: {path}"
+            )
+        _update_tree_hash(working_hasher, relative_path, raw)
+    identity: dict[str, object] = {
+        "kind": "git",
+        "path": str(top_level),
+        "commit": head,
+        "origin_repository": origin_repository,
+        "dirty": bool(tracked_diff or untracked_paths),
+        "working_tree_sha256": working_hasher.hexdigest(),
+    }
+    if pathspecs:
+        identity["pathspecs"] = list(pathspecs)
+    return identity
+
+
+def _rulespec_root_execution_identity(raw_root: Path) -> dict[str, object]:
+    """Bind RuleSpec content, checkout state, and its verified contracts."""
+
+    content_root = Path(raw_root).resolve()
+    toolchain = load_rulespec_toolchain(content_root)
+    waiver_digest = verify_rulespec_validation_waiver_set(content_root)
+    contract_path = toolchain.root / ".axiom" / "toolchain.toml"
+    try:
+        contract_digest = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ValueError(
+            f"Could not read RuleSpec toolchain contract: {contract_path}"
+        ) from exc
+    tree_identity = _deterministic_tree_identity(content_root)
+    try:
+        content_pathspec = content_root.relative_to(toolchain.root).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f"RuleSpec content root is outside its toolchain root: {content_root}"
+        ) from exc
+    checkout_pathspecs = tuple(
+        dict.fromkeys(
+            (
+                content_pathspec,
+                ".axiom/toolchain.toml",
+                VALIDATION_WAIVER_SET_PATH,
+            )
+        )
+    )
+    return {
+        "path": str(content_root),
+        "content_state": tree_identity["state"],
+        "content_sha256": tree_identity["tree_sha256"],
+        "file_count": tree_identity["file_count"],
+        "toolchain_root": str(toolchain.root),
+        "checkout_identity": _git_checkout_execution_identity(
+            toolchain.root,
+            pathspecs=checkout_pathspecs,
+        ),
+        "toolchain_contract_sha256": contract_digest,
+        "validation_waiver_set_sha256": waiver_digest,
+    }
+
+
+def _build_eval_suite_execution_identity(
+    axiom_rules_path: Path,
+    rulespec_roots: tuple[str, ...],
+    *,
+    policyengine_runtime: PolicyEngineRuntime | None = None,
+) -> dict[str, object]:
+    """Return every executable and RuleSpec input identity used by a suite."""
+
+    encoder_checkout = Path(__file__).resolve().parents[3]
+    encoder_identity = _git_checkout_execution_identity(
+        encoder_checkout,
+        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
+    )
+    encoder_identity["version"] = __version__
+    return {
+        "schema": "axiom-encode/eval-execution-identity/v2",
+        "axiom_encode": encoder_identity,
+        "axiom_rules_engine": _git_checkout_execution_identity(axiom_rules_path),
+        "policyengine_runtime": (
+            {
+                "identity": policyengine_runtime.canonical_identity(),
+                "sha256": policyengine_runtime.identity_sha256,
+            }
+            if policyengine_runtime is not None
+            else None
+        ),
+        "rulespec_roots": [
+            _rulespec_root_execution_identity(Path(root)) for root in rulespec_roots
+        ],
+    }
+
+
+def _eval_suite_execution_identity_sha256(identity: dict[str, object]) -> str:
+    """Return the suite-wide digest copied into every durable ledger row."""
+
+    return _canonical_json_sha256(identity)
+
+
+def _validate_eval_suite_execution_identity(
+    payload: dict,
+    expected_identity: dict[str, object],
+    *,
+    artifact_name: str = "suite-run.json",
+) -> None:
+    """Reject resume across encoder, engine, RuleSpec, or waiver changes."""
+
+    persisted = payload.get("execution_identity")
+    persisted_digest = payload.get("execution_identity_sha256")
+    expected_digest = _eval_suite_execution_identity_sha256(expected_identity)
+    if not isinstance(persisted, dict) or not isinstance(persisted_digest, str):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} is missing executable "
+            "toolchain identity"
+        )
+    if persisted_digest != _canonical_json_sha256(persisted):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} has an inconsistent "
+            "executable toolchain identity digest"
+        )
+    if persisted.get("axiom_encode") != expected_identity.get("axiom_encode"):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses a different "
+            "axiom-encode execution identity"
+        )
+    if persisted.get("axiom_rules_engine") != expected_identity.get(
+        "axiom_rules_engine"
+    ):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses a different "
+            "axiom-rules-engine execution identity"
+        )
+    if persisted.get("policyengine_runtime") != expected_identity.get(
+        "policyengine_runtime"
+    ):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses a different "
+            "PolicyEngine runtime identity"
+        )
+    if persisted.get("rulespec_roots") != expected_identity.get("rulespec_roots"):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses different RuleSpec "
+            "content, toolchain contract, or validation waiver-set identity"
+        )
+    if persisted != expected_identity or persisted_digest != expected_digest:
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses a different "
+            "executable toolchain identity"
+        )
+
+
+def _expected_eval_suite_runners(
+    parsed_runners: Sequence[EvalRunnerSpec],
+) -> dict[str, EvalRunnerSpec]:
+    """Return runner identities, rejecting aliases that would collide."""
+
+    expected: dict[str, EvalRunnerSpec] = {}
+    for runner in parsed_runners:
+        if runner.name in expected:
+            raise ValueError(
+                "Eval suite effective runner names must be unique; duplicate "
+                f"runner '{runner.name}'"
+            )
+        expected[runner.name] = runner
+    return expected
+
+
+def _validate_new_eval_suite_case_results(
+    case: EvalSuiteCase,
+    case_results: Sequence[EvalResult],
+    parsed_runners: Sequence[EvalRunnerSpec],
+    *,
+    expected_source_attestation: dict[str, object] | None = None,
+) -> None:
+    """Refuse to persist an incomplete, duplicate, or mislabelled result group."""
+
+    expected = _expected_eval_suite_runners(parsed_runners)
+    expected_citation = _eval_suite_case_result_citation(case)
+    seen: set[str] = set()
+    for result in case_results:
+        runner = expected.get(result.runner)
+        if runner is None:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned unknown runner "
+                f"'{result.runner}'"
+            )
+        if result.runner in seen:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned duplicate runner "
+                f"'{result.runner}'"
+            )
+        if result.backend != runner.backend or result.model != runner.model:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned runner '{result.runner}' "
+                "with a different backend or model"
+            )
+        if result.mode != case.mode:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned runner '{result.runner}' "
+                f"with mode '{result.mode}' instead of '{case.mode}'"
+            )
+        if result.citation != expected_citation:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned citation "
+                f"'{result.citation}' instead of '{expected_citation}'"
+            )
+        if case.kind == "source" and result.source_attestation != (
+            expected_source_attestation
+        ):
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned a source attestation "
+                "that does not match its live signed corpus source"
+            )
+        seen.add(result.runner)
+    missing = [name for name in expected if name not in seen]
+    if missing:
+        raise ValueError(
+            f"Eval suite case '{case.name}' returned an incomplete runner group; "
+            f"missing: {', '.join(missing)}"
+        )
+
+
+def _state_nonnegative_int(state: dict, field_name: str) -> int:
+    value = state.get(field_name, 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(
+            f"Cannot resume eval suite: suite-run.json has invalid {field_name}"
+        )
+    return value
+
+
+def _eval_suite_state_indicates_progress(state: dict) -> bool:
+    """Return whether state claims any case work that needs a durable ledger."""
+
+    return bool(
+        _state_nonnegative_int(state, "completed_cases")
+        or _state_nonnegative_int(state, "result_count")
+        or state.get("last_case_name")
+        or state.get("active_case")
+    )
+
+
+def _rulespec_execution_identity_for_path(
+    execution_identity: dict[str, object],
+    policy_repo_root: Path,
+) -> dict[str, object]:
+    expected_path = str(Path(policy_repo_root).resolve())
+    raw_roots = execution_identity.get("rulespec_roots")
+    if not isinstance(raw_roots, list):
+        raise ValueError("Eval execution identity has malformed RuleSpec roots")
+    matches = [
+        root
+        for root in raw_roots
+        if isinstance(root, dict) and root.get("path") == expected_path
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "Eval execution identity does not contain exactly one identity for "
+            f"RuleSpec root {expected_path}"
+        )
+    return matches[0]
+
+
+def _validate_eval_suite_run_identity(
+    run_id: object,
+    started_at: object,
+    *,
+    artifact_name: str,
+) -> tuple[str, str]:
+    """Require a canonical UUIDv4 and timezone-aware original start time."""
+
+    if not isinstance(run_id, str):
+        raise ValueError(f"{artifact_name} is missing its immutable run_id")
+    try:
+        parsed_run_id = uuid.UUID(run_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(f"{artifact_name} has a malformed run_id") from exc
+    if parsed_run_id.version != 4 or str(parsed_run_id) != run_id:
+        raise ValueError(f"{artifact_name} has a malformed run_id")
+    if not isinstance(started_at, str) or not started_at:
+        raise ValueError(f"{artifact_name} is missing its immutable started_at")
+    try:
+        parsed_started_at = datetime.fromisoformat(started_at)
+    except ValueError as exc:
+        raise ValueError(f"{artifact_name} has a malformed started_at") from exc
+    if parsed_started_at.tzinfo is None or parsed_started_at.utcoffset() is None:
+        raise ValueError(f"{artifact_name} has a malformed started_at")
+    return run_id, started_at
+
+
+def _eval_suite_result_admission_context(
+    *,
+    manifest: EvalSuiteManifest,
+    manifest_identity: dict[str, object],
+    case_index: int,
+    case: EvalSuiteCase,
+    parsed_runners: Sequence[EvalRunnerSpec],
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    policy_repo_root: Path,
+    execution_identity: dict[str, object],
+    run_id: str,
+    started_at: str,
+) -> dict[str, object]:
+    """Build the exact suite/run/toolchain context admitted with one result."""
+
+    _validate_eval_suite_run_identity(
+        run_id,
+        started_at,
+        artifact_name="Eval suite admission",
+    )
+    case_identities = manifest_identity.get("case_identities")
+    if not isinstance(case_identities, list) or not 1 <= case_index <= len(
+        case_identities
+    ):
+        raise ValueError("Eval manifest case identity is missing")
+    case_identity = case_identities[case_index - 1]
+    if not isinstance(case_identity, dict):
+        raise ValueError("Eval manifest case identity is malformed")
+    if case_identity != {
+        "index": case_index,
+        "name": case.name,
+        "kind": case.kind,
+        "corpus_citation_path": _eval_suite_case_corpus_citation_path(case),
+        "sha256": _canonical_json_sha256(_canonical_eval_suite_case_payload(case)),
+    }:
+        raise ValueError("Eval manifest case identity is inconsistent")
+    root_identity = _rulespec_execution_identity_for_path(
+        execution_identity,
+        policy_repo_root,
+    )
+    execution_identity_sha256 = _eval_suite_execution_identity_sha256(
+        execution_identity
+    )
+    return {
+        "schema": _EVAL_RESULT_ADMISSION_SCHEMA,
+        "run": {
+            "id": run_id,
+            "started_at": started_at,
+        },
+        "suite": {
+            "name": manifest.name,
+            "manifest_path": str(manifest.path),
+            "manifest_content_sha256": manifest_identity["content_sha256"],
+            "manifest_case_identities": case_identities,
+            "effective_runner_identities": [
+                {
+                    "name": runner.name,
+                    "backend": runner.backend,
+                    "model": runner.model,
+                }
+                for runner in parsed_runners
+            ],
+        },
+        "case": dict(case_identity),
+        "corpus": _eval_suite_corpus_release_identity(corpus_release),
+        "execution": {
+            "identity": execution_identity,
+            "sha256": execution_identity_sha256,
+        },
+        "rulespec": {
+            "policy_repo_root": str(Path(policy_repo_root).resolve()),
+            "root_content_sha256": root_identity["content_sha256"],
+            "toolchain_contract_sha256": root_identity["toolchain_contract_sha256"],
+            "validation_waiver_set_sha256": root_identity[
+                "validation_waiver_set_sha256"
+            ],
+        },
+    }
+
+
+def _validate_eval_suite_ledger_identity(
+    payload: dict,
+    *,
+    manifest: EvalSuiteManifest,
+    manifest_identity: dict[str, object],
+    case_identity: dict[str, object],
+    case_index: int,
+    case: EvalSuiteCase,
+    parsed_runners: Sequence[EvalRunnerSpec],
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    execution_identity: dict[str, object],
+    policy_repo_root: Path,
+    run_id: str,
+    started_at: str,
+) -> None:
+    """Validate the signed result admission against the live suite context."""
+
+    if case_identity != manifest_identity["case_identities"][case_index - 1]:
+        raise ValueError("Eval manifest case identity is inconsistent")
+    result_payload = payload.get("result")
+    if not isinstance(result_payload, dict):
+        raise ValueError(
+            "Cannot resume eval suite: suite-results.jsonl row has a malformed "
+            "result payload"
+        )
+    persisted = result_payload.get("admission")
+    if not isinstance(persisted, dict):
+        raise ValueError(
+            "Cannot resume eval suite: suite-results.jsonl row is missing its "
+            "signed admission context"
+        )
+    expected = _eval_suite_result_admission_context(
+        manifest=manifest,
+        manifest_identity=manifest_identity,
+        case_index=case_index,
+        case=case,
+        parsed_runners=parsed_runners,
+        corpus_release=corpus_release,
+        policy_repo_root=policy_repo_root,
+        execution_identity=execution_identity,
+        run_id=run_id,
+        started_at=started_at,
+    )
+    if persisted != expected:
+        raise ValueError(
+            "Cannot resume eval suite: suite-results.jsonl row uses different "
+            "run, manifest, case, corpus, runner, executable, RuleSpec, or waiver "
+            "admission identity"
+        )
+
+
+def _validate_eval_suite_result_artifact_ownership(
+    result: EvalResult,
+    *,
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    seen_paths: set[Path],
+) -> None:
+    """Require each result to retain unique, runner-owned suite artifacts."""
+
+    _validate_eval_suite_result_generation_artifact_ownership(
+        result,
+        output_root=output_root,
+        case_index=case_index,
+        case=case,
+        seen_paths=seen_paths,
+    )
+    _validate_eval_suite_result_verdict_artifact_ownership(
+        result,
+        output_root=output_root,
+        case_index=case_index,
+        case=case,
+        seen_paths=seen_paths,
+    )
+
+
+def _validate_eval_result_policyengine_binding(
+    case: EvalSuiteCase,
+    result: EvalResult,
+    execution_identity: dict[str, object],
+) -> None:
+    """Bind oracle metrics to the suite's exact admitted PolicyEngine runtime."""
+
+    expected_runtime = execution_identity.get("policyengine_runtime")
+    metrics = result.metrics
+    if case.oracle == "none":
+        if metrics is not None and (
+            metrics.policyengine_pass is not None
+            or metrics.policyengine_score is not None
+            or metrics.policyengine_runtime_identity is not None
+            or metrics.policyengine_runtime_identity_sha256 is not None
+        ):
+            raise ValueError(
+                f"Eval suite case '{case.name}' has undeclared PolicyEngine evidence"
+            )
+        return
+    if not isinstance(expected_runtime, dict):
+        raise ValueError(
+            f"Eval suite case '{case.name}' is missing its PolicyEngine runtime admission"
+        )
+    if metrics is None:
+        if result.success:
+            raise ValueError(
+                f"Eval suite case '{case.name}' succeeded without PolicyEngine evidence"
+            )
+        return
+    if (
+        metrics.policyengine_pass is None
+        or metrics.policyengine_runtime_identity != expected_runtime.get("identity")
+        or metrics.policyengine_runtime_identity_sha256
+        != expected_runtime.get("sha256")
+    ):
+        raise ValueError(
+            f"Eval suite case '{case.name}' has missing or mismatched PolicyEngine evidence"
+        )
+
+
+def _validate_eval_suite_result_generation_artifact_ownership(
+    result: EvalResult,
+    *,
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    seen_paths: set[Path],
+) -> None:
+    """Require unsigned generation artifacts to remain runner-owned and unique."""
+
+    suite_root = Path(os.path.abspath(output_root))
+    case_root = suite_root / f"{case_index:02d}-{_slugify(case.name)}"
+    owned_roots = {
+        "output_file": case_root / result.runner,
+        "trace_file": case_root / "traces" / result.runner,
+        "context_manifest_file": (case_root / "_eval_workspaces" / result.runner),
+    }
+    for field_name, owned_root in owned_roots.items():
+        raw_path = getattr(result, field_name)
+        if not raw_path:
+            continue
+        artifact_path = Path(os.path.abspath(raw_path))
+        try:
+            artifact_path.relative_to(owned_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Eval suite result for case '{case.name}' runner "
+                f"'{result.runner}' uses {field_name} outside its runner-owned "
+                "artifact directory"
+            ) from exc
+        if artifact_path in seen_paths:
+            raise ValueError(
+                f"Eval suite result for case '{case.name}' reuses artifact path "
+                f"{artifact_path} across runners or artifact roles"
+            )
+        seen_paths.add(artifact_path)
+
+
+def _validate_eval_suite_result_verdict_artifact_ownership(
+    result: EvalResult,
+    *,
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    seen_paths: set[Path],
+) -> None:
+    """Require the newly signed verdict to use its one canonical owned path."""
+
+    suite_root = Path(os.path.abspath(output_root))
+    expected_verdict = (
+        suite_root
+        / "verdicts"
+        / f"{case_index:04d}-{_slugify(case.name)}"
+        / f"{_slugify(result.runner)}.json"
+    )
+    verdict_path = Path(os.path.abspath(result.verdict_file))
+    if verdict_path != expected_verdict:
+        raise ValueError(
+            f"Eval suite result for case '{case.name}' runner '{result.runner}' "
+            "uses a non-canonical verdict artifact path"
+        )
+    if verdict_path in seen_paths:
+        raise ValueError(
+            f"Eval suite result for case '{case.name}' reuses verdict artifact "
+            f"path {verdict_path}"
+        )
+    seen_paths.add(verdict_path)
+
+
+def _validate_persisted_eval_suite_case_group(
+    case: EvalSuiteCase,
+    rows: Sequence[dict],
+    parsed_runners: Sequence[EvalRunnerSpec],
+    *,
+    output_root: Path,
+    case_index: int,
+    execution_identity: dict[str, object] | None = None,
+    expected_source_attestation: dict[str, object] | None = None,
+) -> list[EvalResult]:
+    """Require exactly one correctly labelled ledger row per effective runner."""
+
+    expected = _expected_eval_suite_runners(parsed_runners)
+    expected_citation = _eval_suite_case_result_citation(case)
+    results_by_runner: dict[str, EvalResult] = {}
+    seen_artifact_paths: set[Path] = set()
+    for payload in rows:
+        if (
+            payload.get("case_name") != case.name
+            or payload.get("case_kind") != case.kind
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses the wrong "
+                f"case identity for '{case.name}'"
+            )
+        result_payload = payload.get("result")
+        if not isinstance(result_payload, dict):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row has a malformed "
+                "result payload"
+            )
+        runner_name = result_payload.get("runner")
+        if not isinstance(runner_name, str) or runner_name not in expected:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses unknown "
+                f"runner '{runner_name}'"
+            )
+        if runner_name in results_by_runner:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl contains duplicate "
+                f"runner '{runner_name}' for case '{case.name}'"
+            )
+        runner = expected[runner_name]
+        if (
+            result_payload.get("backend") != runner.backend
+            or result_payload.get("model") != runner.model
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses runner "
+                f"'{runner_name}' with a different backend or model"
+            )
+        result = _eval_result_from_payload(
+            result_payload,
+            artifact_name="Cannot resume eval suite: suite-results.jsonl row",
+            require_verdict_evidence=True,
+        )
+        if execution_identity is not None:
+            _validate_eval_result_policyengine_binding(
+                case,
+                result,
+                execution_identity,
+            )
+        if result.mode != case.mode:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses a "
+                f"different mode for case '{case.name}' runner '{runner_name}'"
+            )
+        _validate_eval_result_artifacts(
+            result,
+            output_root,
+            artifact_name="Cannot resume eval suite: suite-results.jsonl row",
+        )
+        _validate_eval_suite_result_artifact_ownership(
+            result,
+            output_root=output_root,
+            case_index=case_index,
+            case=case,
+            seen_paths=seen_artifact_paths,
+        )
+        if result.citation != expected_citation:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses a "
+                f"different citation path for case '{case.name}'"
+            )
+        if case.kind == "source" and result.source_attestation != (
+            expected_source_attestation
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row source "
+                f"attestation does not match the live signed source for '{case.name}'"
+            )
+        results_by_runner[runner_name] = result
+    missing = [name for name in expected if name not in results_by_runner]
+    if missing:
+        raise ValueError(
+            "Cannot resume eval suite: suite-results.jsonl contains an incomplete "
+            f"runner group for case '{case.name}'; missing: {', '.join(missing)}"
+        )
+    return [results_by_runner[runner.name] for runner in parsed_runners]
+
+
+def _revalidate_persisted_eval_suite_case_results(
+    case: EvalSuiteCase,
+    results: Sequence[EvalResult],
+    *,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    policyengine_runtime: PolicyEngineRuntime | None,
+    rulespec_dependency_roots: Sequence[Path],
+) -> None:
+    """Recompute persisted verdicts from exact artifacts before admitting them."""
+
+    identifier = case.corpus_citation_path or case.citation or ""
+    source_unit = resolve_corpus_source_unit(identifier, corpus_release)
+    source_metadata = _source_metadata_with_attestation(
+        source_unit,
+        rulespec_root=policy_repo_root,
+    )
+    source_citation_path = _source_metadata_citation_path(source_metadata)
+    for result in results:
+        fresh_metrics: EvalArtifactMetrics | None = None
+        if result.output_file:
+            fresh_metrics = evaluate_artifact(
+                rulespec_file=Path(result.output_file),
+                policy_repo_root=policy_repo_root,
+                axiom_rules_path=axiom_rules_path,
+                source_text=source_unit.body,
+                local_corpus_release=corpus_release,
+                oracle=case.oracle,
+                policyengine_runtime=policyengine_runtime,
+                policyengine_rule_hint=case.policyengine_rule_hint,
+                skip_reviewers=False,
+                source_metadata=source_metadata,
+                source_citation_path=source_citation_path,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+            )
+        fresh_success = bool(
+            fresh_metrics is not None
+            and _eval_artifact_validation_error(
+                fresh_metrics,
+                require_policyengine=case.oracle == "policyengine",
+            )
+            is None
+        )
+        fresh_error = (
+            _eval_artifact_validation_error(
+                fresh_metrics,
+                require_policyengine=case.oracle == "policyengine",
+            )
+            if result.output_file
+            else None
+        )
+        persisted_metrics = (
+            asdict(result.metrics) if result.metrics is not None else None
+        )
+        recomputed_metrics = (
+            asdict(fresh_metrics) if fresh_metrics is not None else None
+        )
+        if (
+            result.success is not fresh_success
+            or persisted_metrics != recomputed_metrics
+            or (result.output_file and result.error != fresh_error)
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: persisted success, error, or metrics do "
+                "not match fresh validation of the bound artifact for case "
+                f"'{case.name}' runner '{result.runner}'"
+            )
+
+
 def _load_eval_suite_resume_state(
     output_root: Path,
     manifest: EvalSuiteManifest,
     resolved_runners: list[str],
-    runner_count: int,
-) -> tuple[str, list[EvalResult], set[int]]:
-    """Load prior suite state and completed case results for resumption."""
+    parsed_runners: list[EvalRunnerSpec],
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    axiom_rules_path: Path,
+    policy_repo_path: Path,
+    rulespec_roots: tuple[str, ...],
+    manifest_identity: dict[str, object],
+    execution_identity: dict[str, object],
+    policyengine_runtime: PolicyEngineRuntime | None = None,
+    revalidate_persisted_results: bool = True,
+) -> tuple[str, str, list[EvalResult], set[int]]:
+    """Load only a complete, content-identical suite ledger for resumption."""
     state_path = output_root / "suite-run.json"
     ledger_path = output_root / "suite-results.jsonl"
-    started_at = _utc_now_iso()
-    if state_path.exists():
+    if not state_path.exists():
+        if not ledger_path.exists():
+            raise ValueError(
+                "Cannot resume eval suite: suite-run.json does not exist; "
+                "refusing to silently start a fresh run"
+            )
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json is required when "
+            "suite-results.jsonl exists"
+        )
+    try:
         state = json.loads(state_path.read_text())
-        manifest_payload = state.get("manifest") or {}
-        existing_path = manifest_payload.get("path")
-        if existing_path and existing_path != str(manifest.path):
-            raise ValueError(
-                "Cannot resume eval suite with a different manifest path: "
-                f"{existing_path}"
-            )
-        existing_runners = manifest_payload.get("effective_runners")
-        if existing_runners and list(existing_runners) != list(resolved_runners):
-            raise ValueError(
-                "Cannot resume eval suite with different effective runners: "
-                f"{existing_runners}"
-            )
-        started_at = state.get("started_at") or started_at
-
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json is malformed"
+        ) from exc
+    if not isinstance(state, dict):
+        raise ValueError("Cannot resume eval suite: suite-run.json is malformed")
+    run_id, started_at = _validate_eval_suite_run_identity(
+        state.get("run_id"),
+        state.get("started_at"),
+        artifact_name="Cannot resume eval suite: suite-run.json",
+    )
+    _validate_eval_suite_corpus_release_identity(
+        state,
+        corpus_release,
+        artifact_name="suite-run.json",
+    )
+    _validate_eval_suite_rulespec_roots(state, rulespec_roots)
+    _validate_eval_suite_execution_identity(state, execution_identity)
+    manifest_payload = state.get("manifest")
+    if not isinstance(manifest_payload, dict):
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json is missing manifest identity"
+        )
+    existing_path = manifest_payload.get("path")
+    if existing_path != str(manifest.path):
+        raise ValueError(
+            f"Cannot resume eval suite with a different manifest path: {existing_path}"
+        )
+    _validate_eval_suite_manifest_identity(manifest_payload, manifest_identity)
+    if list(resolved_runners) != list(manifest.runners):
+        raise ValueError(
+            "Cannot resume eval suite with runners that differ from the signed "
+            "manifest declaration"
+        )
+    existing_runners = manifest_payload.get("effective_runners")
+    if not isinstance(existing_runners, list) or list(existing_runners) != list(
+        resolved_runners
+    ):
+        raise ValueError(
+            "Cannot resume eval suite with different effective runners: "
+            f"{existing_runners}"
+        )
+    expected_runner_identities = [
+        {"name": runner.name, "backend": runner.backend, "model": runner.model}
+        for runner in parsed_runners
+    ]
+    if (
+        manifest_payload.get("effective_runner_identities")
+        != expected_runner_identities
+    ):
+        raise ValueError(
+            "Cannot resume eval suite with different effective runner identities"
+        )
+    if state.get("total_cases") != len(manifest.cases):
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json has a different total_cases"
+        )
+    state_has_progress = _eval_suite_state_indicates_progress(state)
     if not ledger_path.exists():
-        return started_at, [], set()
+        if state_has_progress:
+            raise ValueError(
+                "Cannot resume eval suite: suite-run.json indicates progress but "
+                "suite-results.jsonl is missing"
+            )
+        return run_id, started_at, [], set()
 
     rows_by_case: dict[int, list[dict]] = defaultdict(list)
-    for line in ledger_path.read_text().splitlines():
+    try:
+        ledger_lines = ledger_path.read_text().splitlines()
+    except OSError as exc:
+        raise ValueError(
+            "Cannot resume eval suite: could not read results ledger"
+        ) from exc
+    for line_number, line in enumerate(ledger_lines, start=1):
         if not line.strip():
             continue
-        payload = json.loads(line)
-        case_index = int(payload.get("case_index", 0) or 0)
-        if case_index <= 0:
-            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl contains a "
+                f"malformed row at line {line_number}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl contains a malformed row"
+            )
+        raw_case_index = payload.get("case_index")
+        if isinstance(raw_case_index, bool) or not isinstance(raw_case_index, int):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl contains an invalid "
+                f"case index {raw_case_index}"
+            )
+        case_index = raw_case_index
+        if not 1 <= case_index <= len(manifest.cases):
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl contains an "
+                f"invalid case index {case_index}"
+            )
+        case = manifest.cases[case_index - 1]
+        policy_repo_root = _eval_suite_case_policy_repo_root(case, policy_repo_path)
+        case_identities = manifest_identity.get("case_identities")
+        if not isinstance(case_identities, list):
+            raise ValueError("Eval manifest case identities are malformed")
+        case_identity = case_identities[case_index - 1]
+        if not isinstance(case_identity, dict):
+            raise ValueError("Eval manifest case identity is malformed")
+        _validate_eval_suite_ledger_identity(
+            payload,
+            manifest=manifest,
+            manifest_identity=manifest_identity,
+            case_identity=case_identity,
+            case_index=case_index,
+            case=case,
+            parsed_runners=parsed_runners,
+            corpus_release=corpus_release,
+            execution_identity=execution_identity,
+            policy_repo_root=policy_repo_root,
+            run_id=run_id,
+            started_at=started_at,
+        )
         rows_by_case[case_index].append(payload)
+
+    if not rows_by_case:
+        if state_has_progress:
+            raise ValueError(
+                "Cannot resume eval suite: suite-run.json indicates progress but "
+                "suite-results.jsonl has no result rows"
+            )
+        return run_id, started_at, [], set()
+
+    case_indexes = sorted(rows_by_case)
+    expected_prefix = list(range(1, case_indexes[-1] + 1))
+    if case_indexes != expected_prefix:
+        raise ValueError(
+            "Cannot resume eval suite: suite-results.jsonl contains non-contiguous "
+            "completed case groups"
+        )
 
     completed_case_indexes: set[int] = set()
     results: list[EvalResult] = []
-    for case_index in sorted(rows_by_case):
-        rows = rows_by_case[case_index]
-        if len(rows) < runner_count:
-            continue
+    for case_index in case_indexes:
+        case = manifest.cases[case_index - 1]
+        expected_source_attestation: dict[str, object] | None = None
+        if case.kind == "source":
+            live_source_unit = resolve_corpus_source_unit(
+                case.corpus_citation_path or "",
+                corpus_release,
+            )
+            expected_source_attestation = _expected_eval_source_attestation(
+                live_source_unit,
+                rulespec_root=_eval_suite_case_policy_repo_root(
+                    case,
+                    policy_repo_path,
+                ),
+            )
+        case_results = _validate_persisted_eval_suite_case_group(
+            case,
+            rows_by_case[case_index],
+            parsed_runners,
+            output_root=output_root,
+            case_index=case_index,
+            execution_identity=execution_identity,
+            expected_source_attestation=expected_source_attestation,
+        )
+        if revalidate_persisted_results:
+            _revalidate_persisted_eval_suite_case_results(
+                case,
+                case_results,
+                policy_repo_root=_eval_suite_case_policy_repo_root(
+                    case,
+                    policy_repo_path,
+                ),
+                axiom_rules_path=axiom_rules_path,
+                corpus_release=corpus_release,
+                policyengine_runtime=policyengine_runtime,
+                rulespec_dependency_roots=manifest.rulespec_dependency_roots,
+            )
         completed_case_indexes.add(case_index)
-        for payload in rows[:runner_count]:
-            results.append(_eval_result_from_payload(payload.get("result") or {}))
+        results.extend(case_results)
 
-    return started_at, results, completed_case_indexes
+    state_completed_cases = _state_nonnegative_int(state, "completed_cases")
+    state_result_count = _state_nonnegative_int(state, "result_count")
+    if state_completed_cases > len(completed_case_indexes):
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json claims more completed cases "
+            "than the durable results ledger"
+        )
+    if state_result_count > len(results):
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json claims more results than the "
+            "durable results ledger"
+        )
+    if state.get("status") == "completed" and len(completed_case_indexes) != len(
+        manifest.cases
+    ):
+        raise ValueError(
+            "Cannot resume eval suite: completed suite-run.json has incomplete "
+            "ledger groups"
+        )
+    return run_id, started_at, results, completed_case_indexes
 
 
 def _write_eval_suite_run_state(
     output_root: Path,
     manifest: EvalSuiteManifest,
     resolved_runners: list[str],
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    rulespec_roots: tuple[str, ...],
+    manifest_identity: dict[str, object],
+    execution_identity: dict[str, object],
+    run_id: str,
     status: str,
     started_at: str,
     completed_cases: int,
@@ -1627,14 +3480,47 @@ def _write_eval_suite_run_state(
     active_case_output_root: Path | None = None,
 ) -> None:
     """Persist suite lifecycle state so interrupted runs remain inspectable."""
+    _validate_eval_suite_run_identity(
+        run_id,
+        started_at,
+        artifact_name="Eval suite run state",
+    )
+    raw_rulespec_identities = execution_identity.get("rulespec_roots")
+    if not isinstance(raw_rulespec_identities, list):
+        raise ValueError("Eval execution identity has malformed RuleSpec roots")
+    validation_waiver_sets = [
+        {
+            "rulespec_root": root["path"],
+            "validation_waiver_set_sha256": root["validation_waiver_set_sha256"],
+        }
+        for root in raw_rulespec_identities
+        if isinstance(root, dict)
+    ]
     payload = {
         "manifest": {
             "name": manifest.name,
             "path": str(manifest.path),
             "runners": manifest.runners,
             "effective_runners": resolved_runners,
+            "effective_runner_identities": [
+                {
+                    "name": runner.name,
+                    "backend": runner.backend,
+                    "model": runner.model,
+                }
+                for runner in [parse_runner_spec(spec) for spec in resolved_runners]
+            ],
+            **manifest_identity,
         },
         "status": status,
+        **_eval_suite_corpus_release_identity(corpus_release),
+        "rulespec_roots": list(rulespec_roots),
+        "execution_identity": execution_identity,
+        "execution_identity_sha256": _eval_suite_execution_identity_sha256(
+            execution_identity
+        ),
+        "validation_waiver_sets": validation_waiver_sets,
+        "run_id": run_id,
         "started_at": started_at,
         "updated_at": _utc_now_iso(),
         "total_cases": len(manifest.cases),
@@ -1656,9 +3542,116 @@ def _write_eval_suite_run_state(
         }
     if status != "running":
         payload["finished_at"] = payload["updated_at"]
-    (output_root / "suite-run.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    state_path = output_root / "suite-run.json"
+    if state_path.is_symlink():
+        raise ValueError(f"Eval suite run state must not be a symlink: {state_path}")
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=state_path.parent,
+            prefix=f".{state_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, state_path)
+        temporary_path = None
+        directory_fd = os.open(state_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _write_eval_result_verdict_evidence(
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    result: EvalResult,
+    *,
+    admission_context: dict[str, object],
+    evidence_signing_key: SigningBroker,
+) -> None:
+    """Persist the original reviewer/validator verdict as a bound artifact."""
+
+    verdict_path, raw = _render_eval_result_verdict_evidence(
+        output_root,
+        case_index,
+        case,
+        result,
+        admission_context=admission_context,
+        evidence_signing_key=evidence_signing_key,
     )
+    verdict_root = verdict_path.parents[1]
+    if verdict_root.is_symlink():
+        raise ValueError(f"Eval verdict root must not be a symlink: {verdict_root}")
+    verdict_dir = verdict_path.parent
+    verdict_dir.mkdir(parents=True, exist_ok=True)
+    if verdict_dir.is_symlink():
+        raise ValueError(f"Eval verdict directory must not be a symlink: {verdict_dir}")
+    if verdict_path.is_symlink():
+        raise ValueError(f"Eval verdict artifact must not be a symlink: {verdict_path}")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=verdict_dir,
+            prefix=f".{verdict_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, verdict_path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _render_eval_result_verdict_evidence(
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    result: EvalResult,
+    *,
+    admission_context: dict[str, object],
+    evidence_signing_key: SigningBroker,
+) -> tuple[Path, bytes]:
+    """Render signed verdict bytes and bind their canonical destination."""
+
+    verdict_path = (
+        Path(output_root)
+        / "verdicts"
+        / f"{case_index:04d}-{_slugify(case.name)}"
+        / f"{_slugify(result.runner)}.json"
+    )
+    result.verdict_file = str(verdict_path)
+    raw = (
+        json.dumps(
+            _signed_eval_result_verdict_evidence_payload(
+                result,
+                admission_context,
+                evidence_signing_key,
+            ),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    result.verdict_sha256 = hashlib.sha256(raw).hexdigest()
+    return verdict_path, raw
 
 
 def _append_eval_suite_case_results(
@@ -1666,25 +3659,281 @@ def _append_eval_suite_case_results(
     case_index: int,
     case: EvalSuiteCase,
     case_results: list[EvalResult],
+    *,
+    evidence_signing_key: SigningBroker,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    policy_repo_root: Path,
+    manifest: EvalSuiteManifest,
+    manifest_identity: dict[str, object],
+    execution_identity: dict[str, object],
+    parsed_runners: Sequence[EvalRunnerSpec],
+    run_id: str,
+    started_at: str,
 ) -> None:
     """Append finalized case results to a durable JSONL ledger."""
     ledger_path = output_root / "suite-results.jsonl"
-    with ledger_path.open("a", encoding="utf-8") as handle:
-        for result in case_results:
-            payload = {
-                "case_index": case_index,
-                "case_name": case.name,
-                "case_kind": case.kind,
-                "result": result.to_dict(),
-            }
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    admission_context = _eval_suite_result_admission_context(
+        manifest=manifest,
+        manifest_identity=manifest_identity,
+        case_index=case_index,
+        case=case,
+        parsed_runners=parsed_runners,
+        corpus_release=corpus_release,
+        policy_repo_root=policy_repo_root,
+        execution_identity=execution_identity,
+        run_id=run_id,
+        started_at=started_at,
+    )
+    serialized_rows = []
+    seen_artifact_paths: set[Path] = set()
+    for result in case_results:
+        result.admission = admission_context
+        _validate_eval_result_policyengine_binding(
+            case,
+            result,
+            execution_identity,
+        )
+        _validate_eval_suite_result_generation_artifact_ownership(
+            result,
+            output_root=output_root,
+            case_index=case_index,
+            case=case,
+            seen_paths=seen_artifact_paths,
+        )
+        _validate_eval_result_artifacts(
+            result,
+            output_root,
+            artifact_name=(
+                f"Eval suite result for case '{case.name}' runner '{result.runner}'"
+            ),
+        )
+        _write_eval_result_verdict_evidence(
+            output_root,
+            case_index,
+            case,
+            result,
+            admission_context=admission_context,
+            evidence_signing_key=evidence_signing_key,
+        )
+        _validate_eval_suite_result_verdict_artifact_ownership(
+            result,
+            output_root=output_root,
+            case_index=case_index,
+            case=case,
+            seen_paths=seen_artifact_paths,
+        )
+        _validate_eval_result_artifacts(
+            result,
+            output_root,
+            artifact_name=(
+                f"Signed eval suite result for case '{case.name}' runner "
+                f"'{result.runner}'"
+            ),
+        )
+        payload = {
+            "case_index": case_index,
+            "case_name": case.name,
+            "case_kind": case.kind,
+            "result": result.to_dict(),
+        }
+        serialized_rows.append(json.dumps(payload, sort_keys=True) + "\n")
+    if ledger_path.is_symlink():
+        raise ValueError(
+            f"Eval suite results ledger must not be a symlink: {ledger_path}"
+        )
+    try:
+        existing = ledger_path.read_bytes() if ledger_path.exists() else b""
+    except OSError as exc:
+        raise ValueError(
+            f"Could not read eval suite results ledger: {ledger_path}"
+        ) from exc
+    new_content = existing + "".join(serialized_rows).encode("utf-8")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=ledger_path.parent,
+            prefix=f".{ledger_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(new_content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, ledger_path)
+        temporary_path = None
+        directory_fd = os.open(ledger_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
-def _eval_result_from_payload(payload: dict) -> EvalResult:
+def _eval_suite_corpus_release_identity(
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+) -> dict[str, str]:
+    """Return the immutable semantic corpus identity persisted by eval suites."""
+    if not isinstance(corpus_release, _corpus_resolver.LocalCorpusRelease):
+        raise TypeError("corpus_release must be a validated LocalCorpusRelease")
+    return {
+        "corpus_release": corpus_release.name,
+        "corpus_release_content_sha256": corpus_release.content_sha256,
+        "corpus_release_selector_sha256": corpus_release.selector_sha256,
+    }
+
+
+def _validate_eval_suite_corpus_release_identity(
+    payload: dict,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    *,
+    artifact_name: str,
+) -> None:
+    """Reject persisted suite data that is not bound to the active release."""
+    expected = _eval_suite_corpus_release_identity(corpus_release)
+    persisted = {
+        key: payload.get(key)
+        for key in (
+            "corpus_release",
+            "corpus_release_content_sha256",
+            "corpus_release_selector_sha256",
+        )
+    }
+    if not all(isinstance(value, str) and value for value in persisted.values()):
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} is missing corpus "
+            "release identity"
+        )
+    if persisted != expected:
+        raise ValueError(
+            f"Cannot resume eval suite: {artifact_name} uses a different "
+            "corpus release identity"
+        )
+
+
+def _eval_suite_rulespec_roots(
+    manifest: EvalSuiteManifest,
+    policy_repo_path: Path,
+) -> tuple[str, ...]:
+    """Return every jurisdiction root exposed by active and dependency checkouts."""
+
+    active_roots = {
+        _eval_suite_case_policy_repo_root(case, policy_repo_path)
+        for case in manifest.cases
+    }
+    checkouts = {root.parent for root in active_roots}
+    checkouts.update(
+        _normalize_rulespec_dependency_roots(manifest.rulespec_dependency_roots)
+    )
+    exposed_roots = {
+        checkout / jurisdiction
+        for checkout in checkouts
+        for jurisdiction in jurisdiction_subdir_names(checkout)
+    }
+    if not active_roots.issubset(exposed_roots):
+        raise ValueError("Eval suite could not identify every active RuleSpec root")
+    return tuple(sorted(str(root.resolve()) for root in exposed_roots))
+
+
+def _validate_eval_suite_rulespec_roots(
+    payload: dict,
+    expected_roots: tuple[str, ...],
+) -> None:
+    """Reject resume state that is not bound to the active RuleSpec roots."""
+
+    persisted = payload.get("rulespec_roots")
+    if not isinstance(persisted, list) or any(
+        not isinstance(root, str) or not root for root in persisted
+    ):
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json is missing canonical "
+            "RuleSpec root identity"
+        )
+    if tuple(persisted) != expected_roots:
+        raise ValueError(
+            "Cannot resume eval suite: suite-run.json uses a different canonical "
+            "RuleSpec root identity"
+        )
+
+
+def _eval_suite_case_policy_repo_root(
+    case: EvalSuiteCase,
+    policy_repo_path: Path,
+) -> Path:
+    """Resolve one suite case to its canonical jurisdiction content root."""
+    corpus_citation_path = _eval_suite_case_corpus_citation_path(case)
+    return _policy_repo_root_for_corpus_source(
+        corpus_citation_path,
+        policy_repo_path,
+    ).resolve()
+
+
+def _eval_suite_case_corpus_citation_path(case: EvalSuiteCase) -> str:
+    """Return the canonical corpus path that identifies one suite case."""
+
+    if case.kind == "source":
+        return _corpus_resolver.require_canonical_corpus_citation_path(
+            case.corpus_citation_path or ""
+        )
+    return _corpus_resolver.normalize_corpus_identifier(case.citation or "")
+
+
+def _eval_suite_case_result_citation(case: EvalSuiteCase) -> str:
+    """Return the exact citation value allowed in a persisted result."""
+
+    return _eval_suite_case_corpus_citation_path(case)
+
+
+def _eval_result_from_payload(
+    payload: dict,
+    *,
+    artifact_name: str = "Persisted eval result",
+    require_verdict_evidence: bool = False,
+) -> EvalResult:
     """Rehydrate an EvalResult from a persisted JSON payload."""
+    _validate_eval_result_payload_binding(payload, artifact_name=artifact_name)
+    _validate_eval_result_artifact_binding(payload, artifact_name=artifact_name)
+    if require_verdict_evidence and (
+        not payload.get("verdict_file") or not payload.get("verdict_sha256")
+    ):
+        raise ValueError(
+            f"{artifact_name} is missing content-bound validator verdict evidence"
+        )
+    if require_verdict_evidence and not isinstance(payload.get("admission"), dict):
+        raise ValueError(
+            f"{artifact_name} is missing its signed suite admission context"
+        )
     metrics_payload = payload.get("metrics")
     metrics = None
     if isinstance(metrics_payload, dict):
+        runtime_identity = metrics_payload.get("policyengine_runtime_identity")
+        runtime_digest = metrics_payload.get("policyengine_runtime_identity_sha256")
+        has_policyengine_evidence = (
+            metrics_payload.get("policyengine_pass") is not None
+            or metrics_payload.get("policyengine_score") is not None
+        )
+        if has_policyengine_evidence:
+            if not isinstance(runtime_identity, dict) or not isinstance(
+                runtime_digest, str
+            ):
+                raise ValueError(
+                    f"{artifact_name} has PolicyEngine evidence without its runtime identity"
+                )
+            if runtime_identity.get("schema") != POLICYENGINE_RUNTIME_SCHEMA:
+                raise ValueError(
+                    f"{artifact_name} has unsupported PolicyEngine runtime identity"
+                )
+            if runtime_digest != _canonical_json_sha256(runtime_identity):
+                raise ValueError(
+                    f"{artifact_name} has inconsistent PolicyEngine runtime identity"
+                )
+        elif runtime_identity is not None or runtime_digest is not None:
+            raise ValueError(
+                f"{artifact_name} has a PolicyEngine runtime identity without oracle evidence"
+            )
         grounding = [
             GroundingMetric(
                 line=int(item.get("line", 0) or 0),
@@ -1732,9 +3981,16 @@ def _eval_result_from_payload(payload: dict) -> EvalResult:
             policyengine_pass=metrics_payload.get("policyengine_pass"),
             policyengine_score=metrics_payload.get("policyengine_score"),
             policyengine_issues=list(metrics_payload.get("policyengine_issues") or []),
-            taxsim_pass=metrics_payload.get("taxsim_pass"),
-            taxsim_score=metrics_payload.get("taxsim_score"),
-            taxsim_issues=list(metrics_payload.get("taxsim_issues") or []),
+            policyengine_runtime_identity=(
+                dict(metrics_payload["policyengine_runtime_identity"])
+                if isinstance(
+                    metrics_payload.get("policyengine_runtime_identity"), dict
+                )
+                else None
+            ),
+            policyengine_runtime_identity_sha256=metrics_payload.get(
+                "policyengine_runtime_identity_sha256"
+            ),
         )
 
     return EvalResult(
@@ -1746,6 +4002,9 @@ def _eval_result_from_payload(payload: dict) -> EvalResult:
         output_file=str(payload.get("output_file", "")),
         trace_file=str(payload.get("trace_file", "")),
         context_manifest_file=str(payload.get("context_manifest_file", "")),
+        generated_output_sha256=payload.get("generated_output_sha256"),
+        trace_sha256=payload.get("trace_sha256"),
+        context_manifest_sha256=payload.get("context_manifest_sha256"),
         duration_ms=int(payload.get("duration_ms", 0) or 0),
         success=bool(payload.get("success", False)),
         error=payload.get("error"),
@@ -1766,6 +4025,13 @@ def _eval_result_from_payload(payload: dict) -> EvalResult:
             if isinstance(payload.get("source_attestation"), dict)
             else None
         ),
+        admission=(
+            dict(payload["admission"])
+            if isinstance(payload.get("admission"), dict)
+            else None
+        ),
+        verdict_file=str(payload.get("verdict_file", "")),
+        verdict_sha256=payload.get("verdict_sha256"),
     )
 
 
@@ -1773,11 +4039,13 @@ def _suite_case_failure_results(
     case: EvalSuiteCase,
     runners: list[EvalRunnerSpec],
     exc: Exception,
+    *,
+    source_attestation: dict[str, object] | None = None,
 ) -> list[EvalResult]:
     """Convert an exception into explicit failed results for each runner."""
     return [
         EvalResult(
-            citation=case.name,
+            citation=_eval_suite_case_result_citation(case),
             runner=runner.name,
             backend=runner.backend,
             model=runner.model,
@@ -1785,6 +4053,9 @@ def _suite_case_failure_results(
             output_file="",
             trace_file="",
             context_manifest_file="",
+            generated_output_sha256=None,
+            trace_sha256=None,
+            context_manifest_sha256=None,
             duration_ms=0,
             success=False,
             error=str(exc),
@@ -1799,6 +4070,9 @@ def _suite_case_failure_results(
             retrieved_files=[],
             unexpected_accesses=[],
             metrics=None,
+            source_attestation=(
+                dict(source_attestation) if source_attestation is not None else None
+            ),
         )
         for runner in runners
     ]
@@ -1831,7 +4105,6 @@ def _eval_result_indicates_usage_limit(result: EvalResult) -> bool:
         texts.extend(result.metrics.ci_issues)
         texts.extend(result.metrics.generalist_review_issues)
         texts.extend(result.metrics.policyengine_issues)
-        texts.extend(result.metrics.taxsim_issues)
 
     return any("usage limit" in text.lower() for text in texts)
 
@@ -1846,7 +4119,6 @@ def _eval_result_indicates_retryable_timeout(result: EvalResult) -> bool:
         texts.extend(result.metrics.ci_issues)
         texts.extend(result.metrics.generalist_review_issues)
         texts.extend(result.metrics.policyengine_issues)
-        texts.extend(result.metrics.taxsim_issues)
 
     lowered = [text.lower() for text in texts]
     return any("timeout after" in text or "timed out" in text for text in lowered)
@@ -1907,7 +4179,11 @@ def summarize_readiness(
     policyengine_results = [
         result
         for result in results
-        if result.metrics is not None and result.metrics.policyengine_score is not None
+        if result.metrics is not None
+        and (
+            result.metrics.policyengine_pass is not None
+            or result.metrics.policyengine_score is not None
+        )
     ]
     policyengine_case_count = len(policyengine_results)
     policyengine_pass_rate = (
@@ -1922,26 +4198,30 @@ def summarize_readiness(
         if policyengine_case_count
         else None
     )
+    policyengine_scores = [
+        result.metrics.policyengine_score
+        for result in policyengine_results
+        if result.metrics is not None and result.metrics.policyengine_score is not None
+    ]
     mean_policyengine_score = (
-        round(
-            mean(
-                result.metrics.policyengine_score
-                for result in policyengine_results
-                if result.metrics is not None
-                and result.metrics.policyengine_score is not None
-            ),
-            6,
-        )
-        if policyengine_case_count
-        else None
+        round(mean(policyengine_scores), 6) if policyengine_scores else None
     )
 
     costs = [
-        result.estimated_cost_usd
+        float(result.estimated_cost_usd)
         for result in results
-        if result.estimated_cost_usd is not None
+        if isinstance(result.estimated_cost_usd, (int, float))
+        and not isinstance(result.estimated_cost_usd, bool)
+        and math.isfinite(result.estimated_cost_usd)
+        and result.estimated_cost_usd >= 0
     ]
-    mean_estimated_cost_usd = round(mean(costs), 6) if costs else None
+    complete_cost_evidence = len(costs) == total_cases
+    mean_estimated_cost_usd = (
+        round(mean(costs), 6)
+        if costs
+        and (gates.max_mean_estimated_cost_usd is None or complete_cost_evidence)
+        else None
+    )
 
     gate_results: list[EvalReadinessGateResult] = [
         _min_gate("min_cases", total_cases, gates.min_cases),
@@ -2012,52 +4292,53 @@ def summarize_readiness(
     )
 
 
-def _coerce_eval_mode(value: str) -> EvalMode:
+def _coerce_eval_mode(value: object) -> EvalMode:
     """Validate a manifest eval mode."""
-    normalized = str(value).strip()
-    if normalized not in {"cold", "repo-augmented"}:
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or value not in {"cold", "repo-augmented"}
+    ):
         raise ValueError(f"Unsupported eval mode '{value}'")
-    return normalized  # type: ignore[return-value]
-
-
-def _optional_float(value: object) -> float | None:
-    """Convert optional numeric manifest values to float."""
-    if value is None:
-        return None
-    return float(value)
+    return value  # type: ignore[return-value]
 
 
 def _resolve_manifest_path(base_dir: Path, value: object) -> Path:
-    """Resolve a manifest path entry relative to the manifest file.
-
-    Manifest entries are written against the legacy sibling-checkout layout
-    (``../rulespec-us-co/...``). When the literal path is missing but the
-    content has moved into a country monorepo
-    (``../rulespec-us/us-co/...``), the monorepo equivalent resolves instead
-    — benchmark YAML stays unchanged across the consolidation.
-    """
+    """Resolve exactly the path declared by the suite manifest."""
     path = Path(str(value))
-    path = Path(os.path.abspath(path if path.is_absolute() else base_dir / path))
-    if path.is_symlink():
-        return path
-    if not path.exists():
-        monorepo_path = monorepo_alternative_path(path)
-        if monorepo_path is not None and monorepo_path.exists():
-            return monorepo_path
-    return path
+    return Path(os.path.abspath(path if path.is_absolute() else base_dir / path))
 
 
 def _validate_eval_suite_case(case: EvalSuiteCase, index: int) -> None:
     """Validate one suite case after parsing."""
+    if case.oracle not in {"none", "policyengine"}:
+        raise ValueError(
+            f"Eval suite case #{index} has unsupported oracle '{case.oracle}'"
+        )
     if case.kind == "citation" and not case.citation:
         raise ValueError(f"Eval suite case #{index} is missing 'citation'")
+    if case.kind == "citation" and case.corpus_citation_path is not None:
+        raise ValueError(
+            f"Eval suite case #{index} citation cases cannot declare "
+            "'corpus_citation_path'"
+        )
     if case.kind == "source":
-        if not case.source_id:
-            raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
         if not case.corpus_citation_path:
             raise ValueError(
                 f"Eval suite case #{index} is missing 'corpus_citation_path'"
             )
+        if case.citation is not None:
+            raise ValueError(
+                f"Eval suite case #{index} source cases cannot declare 'citation'"
+            )
+        try:
+            _corpus_resolver.require_canonical_corpus_citation_path(
+                case.corpus_citation_path
+            )
+        except _corpus_resolver.InvalidCorpusCitationError as exc:
+            raise ValueError(
+                f"Eval suite case #{index} corpus_citation_path is not canonical: {exc}"
+            ) from exc
 
 
 def _fraction(numerator: int, denominator: int) -> float:
@@ -2190,6 +4471,18 @@ def prepare_eval_workspace(
     source_text_file.write_text(generation_input)
     generation_input_bytes = source_text_file.read_bytes()
     source_metadata = dict(source_metadata_payload or {})
+    forbidden_identity_fields = {
+        "corpus_citation_path",
+        "corpus_citation_paths",
+        "corpus_source",
+        "requested_source",
+        "resolved_corpus_citation_path",
+    }.intersection(source_metadata)
+    if forbidden_identity_fields:
+        raise ValueError(
+            "Eval source identity must appear only in source_attestation; remove "
+            + ", ".join(sorted(forbidden_identity_fields))
+        )
     attestation = source_metadata.get("source_attestation")
     if isinstance(attestation, dict):
         attestation["generation_input_sha256"] = hashlib.sha256(
@@ -2264,6 +4557,7 @@ def prepare_eval_workspace(
                 validate_explicit_context_file(path, context_corpus_root)
             if path.exists():
                 path = validate_explicit_context_file(path, context_corpus_root)
+                _reject_composition_spec_eval_context(path)
                 selected.append(path)
                 explicit_context_paths.add(path)
 
@@ -2326,10 +4620,7 @@ def prepare_eval_workspace(
 
 def resolve_corpus_source_unit(
     identifier: str,
-    corpus_path: Path,
-    *,
-    local_only: bool = False,
-    require_release: bool = True,
+    release: _corpus_resolver.LocalCorpusRelease,
 ) -> CorpusSourceUnit:
     """Resolve an encode target to normalized corpus.provisions text.
 
@@ -2339,40 +4630,75 @@ def resolve_corpus_source_unit(
     and slices that body to the requested fragment when the parent text carries
     structural markers such as ``(a)``, ``(2)``, or ``(C)``.
 
-    Production resolution requires the current release selector.  The explicit
-    ``require_release=False`` option is retained for legacy fixture callers.
+    Resolution is always local and bound to the caller's named release.
     """
     citation_path = _corpus_resolver.normalize_corpus_identifier(identifier)
     local_text = _fetch_local_corpus_source_text_from_repo(
         citation_path,
-        corpus_path,
-        require_release=require_release,
+        release,
     )
     if local_text is not None:
         resolved = local_text.resolved_source
         return CorpusSourceUnit(
-            requested=identifier,
+            requested=resolved.requested,
             citation_path=resolved.citation_path,
             body=resolved.body,
             source=resolved.source,
             source_attestation=resolved.to_attestation(),
             resolved_source=resolved,
         )
-    if not local_only:
-        supabase_text = _fetch_supabase_corpus_source_text(citation_path)
-        if supabase_text is not None:
-            resolved = supabase_text.resolved_source
-            return CorpusSourceUnit(
-                requested=identifier,
-                citation_path=resolved.citation_path,
-                body=resolved.body,
-                source=resolved.source,
-                source_attestation=resolved.to_attestation(),
-                resolved_source=resolved,
-            )
+    raise ValueError(f"No local corpus source text found for {identifier!r}")
 
-    scope = "local corpus.provisions" if local_only else "corpus.provisions"
-    raise ValueError(f"No {scope} source text found for {identifier!r}")
+
+def _validate_corpus_source_unit(
+    source_unit: CorpusSourceUnit,
+    release: _corpus_resolver.LocalCorpusRelease,
+    *,
+    target_identifier: str | None = None,
+) -> None:
+    """Require a source unit to be exactly resolver-owned by ``release``."""
+
+    if not isinstance(release, _corpus_resolver.LocalCorpusRelease):
+        raise TypeError("local_corpus_release must be a validated LocalCorpusRelease")
+    if not isinstance(source_unit, CorpusSourceUnit):
+        raise TypeError("source_unit must be a resolver-owned CorpusSourceUnit")
+    resolved = source_unit.resolved_source
+    if not isinstance(resolved, _corpus_resolver.ResolvedCorpusSource):
+        raise TypeError("CorpusSourceUnit.resolved_source must be resolver-owned")
+    if (
+        resolved.release_name != release.name
+        or resolved.release_content_sha256 != release.content_sha256
+    ):
+        raise ValueError("CorpusSourceUnit uses a different named corpus release")
+    if source_unit.source != "local" or resolved.source != "local":
+        raise ValueError("CorpusSourceUnit must use a local resolved source")
+    if source_unit.source_attestation != resolved.to_attestation():
+        raise ValueError(
+            "CorpusSourceUnit attestation does not match its resolved source"
+        )
+    if (
+        source_unit.requested != resolved.requested
+        or source_unit.citation_path != resolved.citation_path
+        or source_unit.body != resolved.body
+    ):
+        raise ValueError("CorpusSourceUnit wrapper does not match its resolved source")
+    normalized_target: str | None = None
+    if target_identifier:
+        try:
+            normalized_target = _corpus_resolver.normalize_corpus_identifier(
+                target_identifier
+            )
+        except _corpus_resolver.CorpusResolutionError:
+            pass
+    trusted_source_unit = resolve_corpus_source_unit(
+        normalized_target or resolved.requested,
+        release,
+    )
+    if source_unit != trusted_source_unit:
+        raise ValueError(
+            "CorpusSourceUnit does not match a fresh resolution from the named "
+            "corpus release"
+        )
 
 
 def _numeric_sibling_parenthetical_marker(fragment: str) -> str:
@@ -2460,6 +4786,11 @@ _CFR_CITATION_RE = re.compile(
     r"(?P<tail>(?:\([^)]+\))*)$",
     re.IGNORECASE,
 )
+_USC_CITATION_RE = re.compile(
+    r"^\d+\s+U\.?\s*S\.?\s*C\.?\s+(?:§+\s*)?"
+    r"[0-9A-Za-z.-]+(?:\([^)]+\))*$",
+    re.IGNORECASE,
+)
 
 
 def _citation_to_corpus_citation_path(citation: str) -> str:
@@ -2469,6 +4800,8 @@ def _citation_to_corpus_citation_path(citation: str) -> str:
         return cfr_path
     if re.search(r"\bC\.?\s*F\.?\s*R\.?\b", citation, flags=re.IGNORECASE):
         raise ValueError(f"Could not parse CFR citation: {citation}")
+    if _USC_CITATION_RE.fullmatch(citation.strip()) is None:
+        raise ValueError(f"Could not parse USC citation: {citation}")
     return citation_to_citation_path(citation)
 
 
@@ -2529,21 +4862,13 @@ class _ResolvedCorpusText(str):
 
 def _fetch_local_corpus_source_text_from_repo(
     citation_path: str,
-    corpus_path: Path,
-    *,
-    require_release: bool = True,
+    release: _corpus_resolver.LocalCorpusRelease,
 ) -> _ResolvedCorpusText | None:
-    """Resolve local source text through the selected corpus release.
-
-    Production callers require ``manifests/releases/current.json``.  The
-    explicit ``require_release=False`` escape hatch exists only for callers
-    reading legacy, unversioned fixtures.
-    """
+    """Resolve local source text through one validated corpus release."""
     try:
         resolved = _corpus_resolver.resolve_local_corpus_source(
             citation_path,
-            corpus_path,
-            require_release=require_release,
+            release,
         )
     except (
         _corpus_resolver.CorpusSourceNotFoundError,
@@ -2551,59 +4876,6 @@ def _fetch_local_corpus_source_text_from_repo(
     ):
         return None
     return _ResolvedCorpusText(resolved)
-
-
-def _resolve_supabase_corpus_source(
-    citation_path: str,
-) -> _corpus_resolver.ResolvedCorpusSource | None:
-    """Resolve one remote row while retaining its attested provenance."""
-
-    resolver = getattr(_corpus_resolver, "resolve_supabase_corpus_source", None)
-    if resolver is None:
-        return None
-    try:
-        return resolver(
-            citation_path,
-            supabase_url=os.environ.get(
-                "AXIOM_SUPABASE_URL",
-                DEFAULT_AXIOM_SUPABASE_URL,
-            ),
-            anon_key=(
-                os.environ.get("SUPABASE_ANON_KEY")
-                or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-                or DEFAULT_AXIOM_SUPABASE_ANON_KEY
-            ),
-        )
-    except _corpus_resolver.CorpusSourceNotFoundError:
-        return None
-
-
-def _fetch_supabase_corpus_source_text(
-    citation_path: str,
-) -> _ResolvedCorpusText | None:
-    """Compatibility wrapper for callers that only consume remote text."""
-
-    resolved = _resolve_supabase_corpus_source(citation_path)
-    return _ResolvedCorpusText(resolved) if resolved is not None else None
-
-
-def _corpus_provisions_root(corpus_path: Path) -> Path | None:
-    root = Path(corpus_path).expanduser()
-    candidates = (
-        root / "data" / "corpus" / "provisions",
-        root / "data" / "corpus",
-        root / "provisions",
-        root,
-    )
-    for candidate in candidates:
-        provisions_root = (
-            candidate if candidate.name == "provisions" else candidate / "provisions"
-        )
-        with contextlib.suppress(OSError):
-            resolved = provisions_root.resolve()
-            if resolved.is_dir():
-                return resolved
-    return None
 
 
 def _materialize_resolved_definition_stub(
@@ -3091,13 +5363,15 @@ def _select_child_fragment_context_files(
 
 
 def _repo_augmented_context_root(policy_path: Path) -> Path:
-    """Resolve the corpus root used for automatic repo-augmented context selection."""
-    resolved = Path(policy_path).resolve()
-    if resolved.name == "axiom-rules-engine":
-        fallback = resolved.parent / "rulespec-us"
-        if fallback.exists():
-            return jurisdiction_content_dir(fallback, jurisdiction_prefix(fallback))
-    return jurisdiction_content_dir(resolved, jurisdiction_prefix(resolved))
+    """Require the caller-selected canonical jurisdiction content root."""
+
+    if canonical_rulespec_root_identity(policy_path) is None:
+        raise UnsafeRulespecContextPath(
+            "Repo-augmented generation requires an exact direct jurisdiction "
+            "child of a canonical rulespec-<country> checkout: "
+            f"{policy_path}"
+        )
+    return Path(policy_path).resolve()
 
 
 def _context_import_relative_target(source_path: Path, policy_path: Path) -> Path:
@@ -3119,20 +5393,12 @@ def _context_import_relative_target(source_path: Path, policy_path: Path) -> Pat
                     return Path(source_repo) / relative
             return relative
 
-    repo_parent = policy_path.parent.resolve()
-    for candidate in sorted(repo_parent.glob("rulespec-*")):
-        if not candidate.is_dir():
-            continue
-        resolved_candidate = candidate.resolve()
-        with contextlib.suppress(ValueError):
-            relative = resolved_source.relative_to(resolved_candidate)
-            return relative
-
     return Path("external") / resolved_source.name
 
 
 def _context_import_target(source_path: Path, relative_target: Path) -> str:
     """Return the canonical RuleSpec import target for a copied context file."""
+    _reject_composition_spec_eval_context(source_path)
     prefix = _rulespec_repo_import_prefix(source_path)
     source_policy_root = find_policy_repo_root(source_path)
     import_relative = relative_target
@@ -3142,6 +5408,22 @@ def _context_import_target(source_path: Path, relative_target: Path) -> str:
                 source_policy_root.resolve()
             )
     return _relative_rulespec_path_to_import_target(import_relative, prefix=prefix)
+
+
+def _reject_composition_spec_eval_context(path: Path) -> None:
+    """Keep axiom-compose ProgramSpecs out of atomic eval context/imports."""
+
+    content_root = find_policy_repo_root(path)
+    if content_root is None:
+        return
+    try:
+        relative = path.resolve().relative_to(content_root.resolve())
+    except ValueError:
+        return
+    if relative.parts and relative.parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
+        raise UnsafeRulespecContextPath(
+            f"Eval RuleSpec context cannot include axiom-compose ProgramSpecs: {path}"
+        )
 
 
 def _rulespec_repo_import_prefix(source_path: Path) -> str | None:
@@ -3158,7 +5440,7 @@ def _relative_rulespec_path_to_import_target(
     prefix: str | None = None,
 ) -> str:
     """Convert a relative RuleSpec file path into an import target."""
-    normalized = path.with_suffix("") if path.suffix in {".yaml", ".yml"} else path
+    normalized = path.with_suffix("") if path.suffix == RULESPEC_FILE_SUFFIX else path
     target = normalized.as_posix()
     return f"{prefix}:{target}" if prefix else target
 
@@ -3184,15 +5466,50 @@ def _target_rel_for_eval_identifier(citation: str) -> Path | None:
 
 def _policy_repo_root_for_corpus_source(
     corpus_citation_path: str,
-    axiom_rules_path: Path,
+    authorized_root: Path,
 ) -> Path:
-    """Choose the jurisdiction RuleSpec repo for a corpus citation path."""
+    """Return a canonical content root inside one caller-authorized checkout."""
+
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
-    repo_name = "rulespec-us" if jurisdiction == "us" else f"rulespec-{jurisdiction}"
-    if axiom_rules_path.name == repo_name:
-        return axiom_rules_path
-    candidate = axiom_rules_path.parent / repo_name
-    return candidate if candidate.exists() else axiom_rules_path
+    raw_root = Path(os.path.abspath(Path(authorized_root).expanduser()))
+    cursor = Path(raw_root.anchor)
+    for part in raw_root.parts[1:]:
+        cursor /= part
+        if cursor.is_symlink():
+            raise ValueError(f"RuleSpec checkout path contains a symlink: {raw_root}")
+    try:
+        root = raw_root.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"RuleSpec checkout path does not exist: {raw_root}") from exc
+    if not root.is_dir():
+        raise ValueError(f"RuleSpec checkout path is not a directory: {raw_root}")
+
+    expected_checkout = monorepo_checkout_name(jurisdiction)
+    if root.name != expected_checkout:
+        raise ValueError(
+            f"Explicit RuleSpec checkout for {jurisdiction!r} must be the "
+            f"canonical country checkout named {expected_checkout!r}; got "
+            f"{root.name!r}"
+        )
+    raw_candidate = root / jurisdiction
+    if raw_candidate.is_symlink():
+        raise ValueError(
+            f"RuleSpec jurisdiction content path contains a symlink: {raw_candidate}"
+        )
+    if not raw_candidate.is_dir():
+        raise ValueError(
+            f"Explicit RuleSpec checkout {root} does not contain the canonical "
+            f"{jurisdiction!r} content root"
+        )
+    candidate = raw_candidate.resolve(strict=True)
+    if canonical_rulespec_root_identity(candidate) != (
+        f"{expected_checkout}/{jurisdiction}"
+    ):
+        raise ValueError(
+            f"Explicit RuleSpec checkout {root} does not expose {jurisdiction!r} "
+            "as a direct canonical jurisdiction child"
+        )
+    return candidate
 
 
 def evaluate_artifact(
@@ -3200,27 +5517,43 @@ def evaluate_artifact(
     policy_repo_root: Path,
     axiom_rules_path: Path,
     source_text: str,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
-    local_corpus_root: Path | None = None,
-    source_citation_paths: tuple[str, ...] | None = None,
+    source_metadata: dict[str, object] | None = None,
+    source_citation_path: str | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> EvalArtifactMetrics:
-    """Evaluate an artifact while preserving any local-only corpus boundary."""
+    """Evaluate an artifact inside one exact named corpus release."""
 
-    with _authoritative_corpus_scope(local_corpus_root):
+    if oracle not in {"none", "policyengine"}:
+        raise ValueError(f"Unsupported eval oracle '{oracle}'")
+    if oracle == "policyengine":
+        if type(policyengine_runtime) is not PolicyEngineRuntime:
+            raise PolicyEngineRuntimeError(
+                "PolicyEngine eval requires one explicit admitted runtime"
+            )
+        policyengine_runtime.assert_matches_rulespec_root(policy_repo_root)
+
+    with (
+        _authoritative_corpus_scope(local_corpus_release),
+        _authoritative_rulespec_dependency_scope(rulespec_dependency_roots),
+    ):
         return _evaluate_artifact_in_scope(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             source_text=source_text,
             oracle=oracle,
-            policyengine_country=policyengine_country,
+            policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
-            local_corpus_root=local_corpus_root,
-            source_citation_paths=source_citation_paths,
+            source_metadata=source_metadata,
+            local_corpus_release=local_corpus_release,
+            source_citation_path=source_citation_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
 
 
@@ -3229,37 +5562,47 @@ def _evaluate_artifact_in_scope(
     policy_repo_root: Path,
     axiom_rules_path: Path,
     source_text: str,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
-    local_corpus_root: Path | None = None,
-    source_citation_paths: tuple[str, ...] | None = None,
+    source_metadata: dict[str, object] | None = None,
+    source_citation_path: str | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     with _rulespec_validation_target(
-        rulespec_file, policy_repo_root
+        rulespec_file,
+        policy_repo_root,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     ) as validation_file:
         validation_policy_repo_root = _validation_policy_repo_root(
             validation_file, policy_repo_root
+        )
+        validation_dependency_roots = _validation_rulespec_dependency_roots(
+            validation_file=validation_file,
+            policy_repo_root=policy_repo_root,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             enable_oracles=oracle != "none",
-            policyengine_country=policyengine_country,
+            policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             require_policy_proofs=True,
             source_text=source_text,
-            local_corpus_root=local_corpus_root,
-            source_citation_paths=source_citation_paths,
+            source_metadata=source_metadata,
+            local_corpus_release=local_corpus_release,
+            source_citation_path=source_citation_path,
+            rulespec_dependency_roots=validation_dependency_roots,
         )
         compile_result = pipeline._run_compile_check(validation_file)
         ci_result = pipeline._run_ci(validation_file)
 
         policyengine_result = None
-        taxsim_result = None
-        if oracle in ("policyengine", "all"):
+        if oracle == "policyengine":
             try:
                 policyengine_result = pipeline._run_policyengine(validation_file)
             except Exception as exc:
@@ -3269,17 +5612,6 @@ def _evaluate_artifact_in_scope(
                     error=str(exc),
                     issues=[str(exc)],
                 )
-        if oracle == "all":
-            try:
-                taxsim_result = pipeline._run_taxsim(validation_file)
-            except Exception as exc:
-                taxsim_result = ValidationResult(
-                    validator_name="taxsim",
-                    passed=False,
-                    error=str(exc),
-                    issues=[str(exc)],
-                )
-
         oracle_context: dict[str, dict[str, object]] = {}
         if policyengine_result is not None:
             oracle_context["policyengine"] = {
@@ -3287,13 +5619,6 @@ def _evaluate_artifact_in_scope(
                 "passed": policyengine_result.passed,
                 "issues": policyengine_result.issues,
                 "duration_ms": policyengine_result.duration_ms,
-            }
-        if taxsim_result is not None:
-            oracle_context["taxsim"] = {
-                "score": taxsim_result.score,
-                "passed": taxsim_result.passed,
-                "issues": taxsim_result.issues,
-                "duration_ms": taxsim_result.duration_ms,
             }
         review_context = (
             "This review is running inside an eval-suite benchmark workspace. "
@@ -3470,9 +5795,16 @@ def _evaluate_artifact_in_scope(
         policyengine_issues=(
             policyengine_result.issues if policyengine_result is not None else []
         ),
-        taxsim_pass=taxsim_result.passed if taxsim_result is not None else None,
-        taxsim_score=taxsim_result.score if taxsim_result is not None else None,
-        taxsim_issues=taxsim_result.issues if taxsim_result is not None else [],
+        policyengine_runtime_identity=(
+            policyengine_runtime.canonical_identity()
+            if policyengine_result is not None and policyengine_runtime is not None
+            else None
+        ),
+        policyengine_runtime_identity_sha256=(
+            policyengine_runtime.identity_sha256
+            if policyengine_result is not None and policyengine_runtime is not None
+            else None
+        ),
     )
 
 
@@ -3481,12 +5813,14 @@ def _evaluate_generated_artifact_with_repairs(
     policy_repo_root: Path,
     axiom_rules_path: Path,
     source_text: str,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
-    local_corpus_root: Path | None = None,
-    source_citation_paths: tuple[str, ...] | None = None,
+    source_metadata: dict[str, object] | None = None,
+    source_citation_path: str | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> EvalArtifactMetrics | None:
     metrics = evaluate_artifact(
         rulespec_file=rulespec_file,
@@ -3494,11 +5828,13 @@ def _evaluate_generated_artifact_with_repairs(
         axiom_rules_path=axiom_rules_path,
         source_text=source_text,
         oracle=oracle,
-        policyengine_country=policyengine_country,
+        policyengine_runtime=policyengine_runtime,
         policyengine_rule_hint=policyengine_rule_hint,
         skip_reviewers=skip_reviewers,
-        local_corpus_root=local_corpus_root,
-        source_citation_paths=source_citation_paths,
+        source_metadata=source_metadata,
+        local_corpus_release=local_corpus_release,
+        source_citation_path=source_citation_path,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     )
     if metrics is None:
         return None
@@ -3516,11 +5852,13 @@ def _evaluate_generated_artifact_with_repairs(
         axiom_rules_path=axiom_rules_path,
         source_text=source_text,
         oracle=oracle,
-        policyengine_country=policyengine_country,
+        policyengine_runtime=policyengine_runtime,
         policyengine_rule_hint=policyengine_rule_hint,
         skip_reviewers=skip_reviewers,
-        local_corpus_root=local_corpus_root,
-        source_citation_paths=source_citation_paths,
+        source_metadata=source_metadata,
+        local_corpus_release=local_corpus_release,
+        source_citation_path=source_citation_path,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     )
 
 
@@ -3630,26 +5968,61 @@ def _apply_generated_eval_repairs(
 
 
 def _validation_policy_repo_root(validation_file: Path, policy_repo_root: Path) -> Path:
-    """Return the repo root that contains the validation copy."""
-    repo_names = {
-        name
-        for name in (
-            policy_repo_root.name,
-            canonical_rulespec_repo_name(policy_repo_root),
+    """Return the explicit canonical content root holding a validation file."""
+
+    source_identity = canonical_rulespec_root_identity(policy_repo_root)
+    if source_identity is None:
+        raise UnsafeRulespecContextPath(
+            "Validation requires an exact direct jurisdiction child of a "
+            f"canonical rulespec-<country> checkout: {policy_repo_root}"
         )
-        if name
-    }
-    jurisdiction = jurisdiction_prefix(policy_repo_root)
-    for parent in validation_file.parents:
-        if parent.name in repo_names:
-            content_root = jurisdiction_content_dir(parent, jurisdiction)
-            if _is_under_root(validation_file, content_root):
-                return content_root
-            return parent
-    discovered = find_policy_repo_root(validation_file)
-    if discovered is not None:
-        return discovered
-    return policy_repo_root
+    source_root = Path(policy_repo_root).resolve()
+    if _is_under_root(validation_file, source_root):
+        return source_root
+
+    relative = _relative_rulespec_source_path(validation_file)
+    if relative is None:
+        raise UnsafeRulespecContextPath(
+            f"Validation file has no canonical RuleSpec source path: {validation_file}"
+        )
+    validation_root = validation_file.resolve().parents[len(relative.parts) - 1]
+    if canonical_rulespec_root_identity(validation_root) != source_identity:
+        raise UnsafeRulespecContextPath(
+            "Validation file is not under the explicitly authorized canonical "
+            f"RuleSpec root {source_identity}: {validation_file}"
+        )
+    return validation_root
+
+
+def _validation_rulespec_dependency_roots(
+    *,
+    validation_file: Path,
+    policy_repo_root: Path,
+    rulespec_dependency_roots: Sequence[Path],
+) -> tuple[Path, ...]:
+    """Map explicit dependencies to copies beside a validation overlay."""
+
+    normalized = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
+    if not normalized:
+        return ()
+    validation_root = _validation_policy_repo_root(
+        validation_file,
+        policy_repo_root,
+    )
+    source_root = Path(policy_repo_root).resolve()
+    if source_root == validation_root:
+        return normalized
+
+    validation_checkout = validation_root.parent
+    staged: list[Path] = []
+    for root in normalized:
+        candidate = validation_checkout.parent / root.name
+        if not candidate.is_dir() or candidate.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"Validation overlay is missing explicit dependency root: {root}"
+            )
+        staged.append(candidate)
+    return tuple(staged)
 
 
 def _imported_named_scalar_occurrences(
@@ -3725,6 +6098,10 @@ def _candidate_import_rule_files(
 ) -> list[Path]:
     """Return existing validated files for an import target."""
     target_path = _import_target_to_path(import_target)
+    if target_path.is_absolute() or ".." in target_path.parts:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_target}"
+        )
     import_prefix = _import_target_prefix(import_target)
     if import_prefix:
         target_ref = _parse_rulespec_target(import_target)
@@ -3734,6 +6111,12 @@ def _candidate_import_rule_files(
                 return [resolved]
         if canonical_rulespec_repo_name(policy_repo_root) is not None:
             return []
+
+    if (
+        not target_path.parts
+        or target_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return []
 
     candidate = policy_repo_root / target_path
     if not candidate.exists() and not candidate.is_symlink():
@@ -3783,80 +6166,65 @@ def _copy_validation_overlay_tree(
 
 @contextlib.contextmanager
 def _rulespec_validation_target(
-    rulespec_file: Path, policy_repo_root: Path
+    rulespec_file: Path,
+    policy_repo_root: Path,
+    *,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> Iterator[Path]:
-    """Yield a validation path whose ancestors expose canonical repo identity."""
-    if _is_under_root(rulespec_file, policy_repo_root):
-        yield validate_rulespec_context_file(rulespec_file, policy_repo_root)
+    """Yield a validation file under the exact authorized canonical layout."""
+
+    identity = canonical_rulespec_root_identity(policy_repo_root)
+    if identity is None:
+        raise UnsafeRulespecContextPath(
+            "Validation requires an exact direct jurisdiction child of a "
+            f"canonical rulespec-<country> checkout: {policy_repo_root}"
+        )
+    policy_root = Path(policy_repo_root).resolve()
+    if _is_under_root(rulespec_file, policy_root):
+        yield validate_rulespec_context_file(rulespec_file, policy_root)
         return
     relative = _relative_rulespec_source_path(rulespec_file)
     if relative is None:
-        yield validate_explicit_context_file(rulespec_file, rulespec_file.parent)
-        return
+        raise UnsafeRulespecContextPath(
+            "Generated RuleSpec validation requires a canonical source-relative "
+            f"path under a canonical RuleSpec content root: {rulespec_file}"
+        )
     generated_root = rulespec_file.parents[len(relative.parts) - 1]
     if generated_root.is_symlink():
         raise UnsafeRulespecContextPath(
             f"Validation generated-artifact root is a symlink: {generated_root}"
         )
 
-    source_repo_root = policy_repo_root
-    if not source_repo_root.name.startswith("rulespec-"):
-        maybe_monorepo_root = source_repo_root.parent
-        if maybe_monorepo_root.name.startswith(
-            "rulespec-"
-        ) and source_repo_root.name in jurisdiction_subdir_names(maybe_monorepo_root):
-            source_repo_root = maybe_monorepo_root
-        else:
-            yield validate_explicit_context_file(rulespec_file, generated_root)
-            return
+    source_checkout = policy_root.parent
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        overlay_parent = Path(tmpdir)
-        overlay_repo_name = (
-            canonical_rulespec_repo_name(source_repo_root) or source_repo_root.name
-        )
-        for sibling in source_repo_root.parent.glob("rulespec-*"):
-            if (
-                sibling.resolve() == source_repo_root.resolve()
-                or sibling.name == overlay_repo_name
-                or not sibling.is_dir()
-            ):
+        overlay_parent = Path(tmpdir).resolve()
+        overlay_repo_name = source_checkout.name
+        for dependency_root in _normalize_rulespec_dependency_roots(
+            rulespec_dependency_roots
+        ):
+            if dependency_root.resolve() == source_checkout.resolve():
                 continue
-            if sibling.is_symlink():
+            if dependency_root.name == overlay_repo_name:
                 raise UnsafeRulespecContextPath(
-                    f"Validation overlay sibling checkout is a symlink: {sibling}"
+                    "Validation overlay dependency collides with the active "
+                    f"RuleSpec checkout name: {dependency_root}"
                 )
-            sibling_target = overlay_parent / sibling.name
             _copy_validation_overlay_tree(
-                sibling,
-                sibling_target,
-                dirs_exist_ok=True,
+                dependency_root,
+                overlay_parent / dependency_root.name,
             )
         overlay_repo = overlay_parent / overlay_repo_name
         _copy_validation_overlay_tree(
-            source_repo_root,
+            source_checkout,
             overlay_repo,
         )
-        eval_workspaces_root = _nearby_eval_workspaces_root(rulespec_file)
-        if eval_workspaces_root is not None:
-            safe_eval_workspaces_root = validate_rulespec_context_directory(
-                eval_workspaces_root,
-                eval_workspaces_root,
+        validation_content_root = overlay_repo / policy_root.name
+        if canonical_rulespec_root_identity(validation_content_root) != identity:
+            raise UnsafeRulespecContextPath(
+                "Validation overlay did not preserve the canonical RuleSpec root "
+                f"identity {identity}"
             )
-            if safe_eval_workspaces_root is None:
-                raise UnsafeRulespecContextPath(
-                    "Validation eval-workspaces directory does not exist: "
-                    f"{eval_workspaces_root}"
-                )
-            eval_overlay = overlay_parent / "_eval_workspaces"
-            _copy_validation_overlay_tree(
-                safe_eval_workspaces_root,
-                eval_overlay,
-            )
-        validation_content_root = jurisdiction_content_dir(
-            overlay_repo,
-            jurisdiction_prefix(policy_repo_root),
-        )
         validation_file = validation_content_root / relative
         validation_file.parent.mkdir(parents=True, exist_ok=True)
         safe_rulespec_file = validate_explicit_context_file(
@@ -3879,19 +6247,11 @@ def _rulespec_validation_target(
         yield validation_file
 
 
-def _nearby_eval_workspaces_root(path: Path) -> Path | None:
-    for ancestor in path.parents:
-        candidate = ancestor / "_eval_workspaces"
-        if candidate.exists() and candidate.is_dir():
-            return candidate
-    return None
-
-
 def _relative_rulespec_source_path(path: Path) -> Path | None:
     """Return the path beginning at the RuleSpec source-root directory."""
     parts = path.parts
     for index, part in enumerate(parts):
-        if part in {"policies", "regulations", "statutes"}:
+        if part in RULESPEC_ATOMIC_MODULE_ROOTS:
             return Path(*parts[index:])
     return None
 
@@ -4032,40 +6392,28 @@ def _run_single_eval(
     output_root: Path,
     policy_path: Path,
     runtime_axiom_rules_path: Path,
-    corpus_path: Path,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
     mode: EvalMode,
     extra_context_paths: list[Path],
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    oracle: EvalOracleMode = "none",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     source_unit: CorpusSourceUnit | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> EvalResult:
     if source_unit is None:
-        source_unit = resolve_corpus_source_unit(citation, corpus_path)
-    continuations = _primary_source_continuations_from_context_paths(
-        extra_context_paths,
-        policy_path,
+        source_unit = resolve_corpus_source_unit(citation, corpus_release)
+    _validate_corpus_source_unit(
+        source_unit,
+        corpus_release,
+        target_identifier=citation,
     )
-    continuation_paths = {item.source_path for item in continuations}
-    extra_context_paths = [
-        Path(path)
-        for path in extra_context_paths
-        if Path(path).resolve(strict=False) not in continuation_paths
-    ]
     source_text = source_unit.body
-    source_text = _append_primary_source_continuations(source_text, continuations)
-    prompt_corpus_citation_path = _prompt_corpus_citation_path(source_unit)
-    source_metadata_payload = _source_metadata_with_continuations(
-        _source_metadata_with_attestation(
-            {
-                "corpus_citation_path": prompt_corpus_citation_path,
-                "corpus_source": source_unit.source,
-                "requested_source": source_unit.requested,
-                "resolved_corpus_citation_path": source_unit.citation_path,
-            },
-            source_unit,
-        ),
-        continuations,
+    source_metadata_payload = _source_metadata_with_attestation(
+        source_unit,
+        rulespec_root=policy_path,
     )
 
     workspace = prepare_eval_workspace(
@@ -4086,15 +6434,9 @@ def _run_single_eval(
     # the parent's output file. Issue #71 documents the observable bug; using
     # the requested identifier keeps each subsection in its own file.
     #
-    # When the benchmark uses a free-text ``source_id`` ("USDA SNAP FY2026
-    # maximum asset limits") alongside a path-like ``corpus_citation_path``,
-    # the citation alone can't be parsed as a path — fall through to
-    # ``source_unit.requested`` so the artifact lands inside a rulespec
-    # source-root directory instead of ``source/<slug>.yaml``.
     is_corpus_path = _looks_like_corpus_citation_path(citation)
     relative_output = _resolve_eval_output_path(
         citation,
-        requested_source=source_unit.requested,
         fallback=citation_to_relative_rulespec_path,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
@@ -4143,24 +6485,55 @@ def _run_single_eval(
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
+            oracle=oracle,
+            policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
-            source_citation_paths=_source_metadata_citation_paths(
+            source_metadata=source_metadata_payload,
+            local_corpus_release=corpus_release,
+            source_citation_path=_source_metadata_citation_path(
                 source_metadata_payload
             ),
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
-    validation_error = _eval_artifact_validation_error(metrics)
+    validation_error = _eval_artifact_validation_error(
+        metrics,
+        require_policyengine=oracle == "policyengine",
+    )
 
     tokens = response.tokens
+    generated_output_sha256 = (
+        _eval_artifact_sha256(
+            output_file,
+            output_root=output_root,
+            label="generated eval RuleSpec",
+            max_bytes=32 * 1024 * 1024,
+        )
+        if output_file.exists() or output_file.is_symlink()
+        else None
+    )
     result = EvalResult(
-        citation=citation,
+        citation=_corpus_resolver.normalize_corpus_identifier(source_unit.requested),
         runner=runner.name,
         backend=runner.backend,
         model=runner.model,
         mode=mode,
-        output_file=str(output_file),
+        output_file=str(output_file) if generated_output_sha256 is not None else "",
         trace_file=str(trace_file),
         context_manifest_file=str(workspace.manifest_file),
+        generated_output_sha256=generated_output_sha256,
+        trace_sha256=_eval_artifact_sha256(
+            trace_file,
+            output_root=output_root,
+            label="eval model trace",
+            max_bytes=128 * 1024 * 1024,
+        ),
+        context_manifest_sha256=_eval_artifact_sha256(
+            workspace.manifest_file,
+            output_root=output_root,
+            label="eval context manifest",
+            max_bytes=32 * 1024 * 1024,
+        ),
         duration_ms=response.duration_ms,
         success=wrote_artifact and response.error is None and validation_error is None,
         error=response.error
@@ -4184,18 +6557,26 @@ def _run_single_eval(
     return result
 
 
-def _eval_artifact_validation_error(metrics: EvalArtifactMetrics | None) -> str | None:
+def _eval_artifact_validation_error(
+    metrics: EvalArtifactMetrics | None,
+    *,
+    require_policyengine: bool = False,
+) -> str | None:
     if metrics is None:
         return None
     if not metrics.compile_pass:
         return "Generated RuleSpec failed compile validation"
     if not metrics.ci_pass:
         return "Generated RuleSpec failed CI validation"
+    if require_policyengine and (
+        metrics.policyengine_pass is not True or metrics.policyengine_score is None
+    ):
+        return "Generated RuleSpec failed PolicyEngine oracle validation"
     return None
 
 
 def _run_single_source_eval(
-    source_id: str,
+    source_identifier: str,
     source_text: str,
     runner: EvalRunnerSpec,
     output_root: Path,
@@ -4205,14 +6586,15 @@ def _run_single_source_eval(
     mode: EvalMode,
     extra_context_paths: list[Path],
     oracle: EvalOracleMode,
-    policyengine_country: str,
+    policyengine_runtime: PolicyEngineRuntime | None,
     policyengine_rule_hint: str | None,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     skip_reviewers: bool = False,
-    local_corpus_root: Path | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> EvalResult:
     """Run one eval on a corpus-backed source unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
-        citation=source_id,
+        citation=source_identifier,
         runner=runner,
         output_root=output_root,
         source_text=source_text,
@@ -4222,33 +6604,15 @@ def _run_single_source_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    # Source-kind benchmarks often pass a human-readable source_id
-    # ("USDA SNAP FY2026 maximum asset limits") alongside a path-like
-    # corpus_citation_path in source_metadata_payload. Without consulting
-    # the requested target, free-text source_ids land the artifact at
-    # ``source/<slug>.yaml`` — outside the rulespec source-root, so the
-    # compile validator can't find it. `_resolve_eval_output_path` falls
-    # through to the metadata's `requested_source` when the source_id
-    # isn't itself path-like.
-    requested_source = None
-    if isinstance(source_metadata_payload, dict):
-        candidate = source_metadata_payload.get("requested_source")
-        if isinstance(candidate, str) and candidate:
-            requested_source = candidate
-    relative_output = _resolve_eval_output_path(
-        source_id, requested_source=requested_source
-    )
-    target_ref_source = _resolve_eval_reference_source_id(
-        source_id, requested_source=requested_source
-    )
+    relative_output = _resolve_eval_output_path(source_identifier)
     prompt = _build_eval_prompt(
-        source_id,
+        source_identifier,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
         target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source,
+            source_identifier,
             relative_output,
             policy_repo_path=policy_path,
         ),
@@ -4274,7 +6638,10 @@ def _run_single_source_eval(
         _hydrate_eval_root(eval_root, workspace)
 
     trace_file = (
-        Path(output_root) / "traces" / runner.name / f"{_slugify(source_id)}.json"
+        Path(output_root)
+        / "traces"
+        / runner.name
+        / f"{_slugify(source_identifier)}.json"
     )
     trace_file.parent.mkdir(parents=True, exist_ok=True)
     trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
@@ -4287,26 +6654,54 @@ def _run_single_source_eval(
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
             oracle=oracle,
-            policyengine_country=policyengine_country,
+            policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
-            local_corpus_root=local_corpus_root,
-            source_citation_paths=_source_metadata_citation_paths(
+            source_metadata=source_metadata_payload,
+            local_corpus_release=local_corpus_release,
+            source_citation_path=_source_metadata_citation_path(
                 source_metadata_payload
             ),
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
-    validation_error = _eval_artifact_validation_error(metrics)
+    validation_error = _eval_artifact_validation_error(
+        metrics,
+        require_policyengine=oracle == "policyengine",
+    )
 
     tokens = response.tokens
+    generated_output_sha256 = (
+        _eval_artifact_sha256(
+            output_file,
+            output_root=output_root,
+            label="generated eval RuleSpec",
+            max_bytes=32 * 1024 * 1024,
+        )
+        if output_file.exists() or output_file.is_symlink()
+        else None
+    )
     result = EvalResult(
-        citation=source_id,
+        citation=source_identifier,
         runner=runner.name,
         backend=runner.backend,
         model=runner.model,
         mode=mode,
-        output_file=str(output_file),
+        output_file=str(output_file) if generated_output_sha256 is not None else "",
         trace_file=str(trace_file),
         context_manifest_file=str(workspace.manifest_file),
+        generated_output_sha256=generated_output_sha256,
+        trace_sha256=_eval_artifact_sha256(
+            trace_file,
+            output_root=output_root,
+            label="eval model trace",
+            max_bytes=128 * 1024 * 1024,
+        ),
+        context_manifest_sha256=_eval_artifact_sha256(
+            workspace.manifest_file,
+            output_root=output_root,
+            label="eval context manifest",
+            max_bytes=32 * 1024 * 1024,
+        ),
         duration_ms=response.duration_ms,
         success=wrote_artifact and response.error is None and validation_error is None,
         error=response.error
@@ -4333,34 +6728,16 @@ def _run_single_source_eval(
 def _resolve_eval_output_path(
     citation: str,
     *,
-    requested_source: str | None = None,
     fallback: Callable[[str], Path] | None = None,
 ) -> Path:
     """Resolve the rulespec-relative output path for an encode target.
 
-    Strategy:
-      1. If ``citation`` already looks like a corpus citation path, use it
-         directly (preserves subsection identity per issue #71).
-      2. Otherwise, if ``requested_source`` is supplied AND looks like a
-         corpus citation path, use that. Handles benchmarks that supply
-         a free-text ``source_id`` ("USDA SNAP FY2026 maximum asset
-         limits") alongside a path-like ``corpus_citation_path`` —
-         without this branch, free-text source_ids land at
-         ``source/<slug>.yaml`` outside any rulespec source root and
-         the compile validator can't find them.
-      3. Otherwise, defer to ``fallback`` (the caller decides whether
-         the existing site's USC-citation parser or the path-identifier
-         helper is appropriate). Defaults to the path-identifier helper,
-         which preserves prior behaviour for source-kind eval call
-         sites that always rendered free-text source_ids to
-         ``source/<slug>.yaml``.
+    Corpus-backed source evals pass their canonical requested citation path.
+    Citation evals may additionally pass a strict citation parser as ``fallback``.
+    Arbitrary free-text identifiers are not translated into source identities.
     """
-    source_identifier = _resolve_eval_reference_source_id(
-        citation,
-        requested_source=requested_source,
-    )
-    if source_identifier != citation or _looks_like_corpus_citation_path(citation):
-        return _source_identifier_to_relative_rulespec_path(source_identifier)
+    if _looks_like_corpus_citation_path(citation):
+        return _source_identifier_to_relative_rulespec_path(citation)
     try:
         return _source_identifier_to_relative_rulespec_path(
             _citation_to_corpus_citation_path(citation)
@@ -4369,51 +6746,19 @@ def _resolve_eval_output_path(
         pass
     if fallback is not None:
         return fallback(citation)
-    return _source_identifier_to_relative_rulespec_path(citation)
+    raise ValueError(
+        f"Eval source identity is not a canonical citation path: {citation}"
+    )
 
 
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
-    """Return the citation path the prompt should ask RuleSpec to verify.
+    """Return the canonical requested path bound by the resolver attestation."""
 
-    `CorpusSourceUnit.citation_path` intentionally records the row that supplied
-    text. For child-fragment requests resolved by slicing a parent row, prompts
-    and validators should use the requested child path so source coverage is
-    scoped to the encoded subtree instead of the whole parent section.
-    """
-
-    resolved = source_unit.citation_path.strip().strip("/")
-    requested = source_unit.requested.strip().strip("/")
-    if not resolved or not requested:
-        return resolved
-    try:
-        primary_requested = _corpus_resolver.normalize_corpus_identifier(requested)
-    except _corpus_resolver.CorpusResolutionError:
-        return resolved
-    primary_requested = primary_requested.strip().strip("/")
-    if (
-        primary_requested
-        and primary_requested != resolved
-        and primary_requested.startswith(f"{resolved}/")
-    ):
-        return primary_requested
-    return resolved
-
-
-def _resolve_eval_reference_source_id(
-    citation: str,
-    *,
-    requested_source: str | None = None,
-) -> str:
-    """Return the source identifier that should anchor output and test refs."""
-    if _looks_like_corpus_citation_path(citation):
-        return citation
-    if requested_source and _looks_like_corpus_citation_path(requested_source):
-        return requested_source
-    return citation
+    return _corpus_resolver.normalize_corpus_identifier(source_unit.requested)
 
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
-    """Map an arbitrary source identifier to a stable eval artifact path.
+    """Map a canonical source identifier to its RuleSpec artifact path.
 
     Each path segment is treated as a directory and a dot inside the leaf
     segment is treated as a further nesting separator (CDSS-style numbering
@@ -4463,7 +6808,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
                 if _preserve_state_statute_dotted_leaf(parts[0], root, tail):
                     return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
                 return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    return Path("source") / f"{_slugify(source_id)}.yaml"
+    raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
 
 
 def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
@@ -4561,7 +6906,10 @@ def _canonical_target_ref_jurisdiction(
     if ":" in source_id_parts[0]:
         return first
     if first in _RULESPEC_SOURCE_ROOT_TOKENS:
-        return jurisdiction_prefix(policy_repo_path) if policy_repo_path else None
+        if policy_repo_path is None:
+            return None
+        identity = canonical_rulespec_root_identity(policy_repo_path)
+        return identity.rsplit("/", 1)[-1] if identity is not None else None
     return first
 
 
@@ -5074,27 +7422,16 @@ RuleSpec requirements:
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
 {corpus_rulespec_requirement.rstrip()}
-- If the corpus source path is below statute/regulation authority (for example
-  a `policy`, `manual`, `guidance`, `form`, table, CMS summary, or state plan),
-  do not treat it as adequate by default. First check statute/regulation
-  authority when provided in context. If the lower source remains the correct
-  source for the encoded value or rule, include
-  `module.source_verification.upstream_source_check` with `status`
-  (`checked_higher_authority`, `official_parameter_source`,
-  `delegated_parameter_source`, or `no_higher_authority_found`),
-  `checked_paths` listing at least one statute/regulation corpus path or
-  RuleSpec target that was checked, and `rationale` explaining why the lower
-  source is still used. If no higher-authority check is available, stop and
-  emit a typed request `upstream_source_check_required` instead of encoding.
-- When higher-authority context is supplied through copied JSONL, inventory, or
-  ingest-run files, cite the embedded corpus `citation_path` values in
-  `checked_paths` and proof atoms. Do not cite the copied `external/...`
-  workspace filename as legal authority.
+- Prefer the most authoritative supplied legal source for each atomic rule. If
+  another source is needed, encode it as its own corpus-bound atomic module and
+  import that module, or emit a typed deferral. Do not add source-audit metadata
+  to `module.source_verification`; its only fields are the singular
+  `corpus_citation_path` and optional `source_sha256` pin.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
-  `derived_relation` rule. Each atom
-  must point to the corpus source, an accepted claim, or an explicit imported
-  RuleSpec export supporting that rule's formula/value.
+  `derived_relation` rule. Each atom must point to release-bound corpus source
+  text or an explicit imported RuleSpec export supporting that rule's
+  formula/value.
 - For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
@@ -5696,7 +8033,7 @@ RuleSpec requirements:
 - When the cost/expense fact only matters after exclusion predicates, exported amount/quantity formulas consumed by dependent modules must guard the exclusions before referencing the branch-specific fact, so excluded cases do not require that fact as an input. For example, the amount should use `if other_allowance_eligible: 0 else: if household_has_telephone_cost: amount else: 0` rather than `if telephone_eligible: amount else: 0` when `telephone_eligible` itself references the branch-specific telephone-cost input.
 - Phrases like `consists of the cost for X` or `available to households with X costs` require a positive fact for that cost/service. For example, a telephone allowance must depend on a fact for the household having or incurring the basic telephone-service cost before applying exclusions for other allowances.
 - In a jurisdiction-specific repo, phrases that merely identify the target jurisdiction usually describe the document's scope, not a new input variable. Do not add a state-residency input unless the provision itself is encoding a residency eligibility test.
-- If an encoded child paragraph depends on an operative parent condition, include the parent condition in `module.summary` and include both child and parent corpus paths under `module.source_verification.corpus_citation_paths` when those corpus paths are available.
+- If an encoded child paragraph depends on an operative parent condition, include the parent condition in `module.summary` only when it is part of the resolver-supplied canonical source unit; otherwise import a separately attested parent RuleSpec or defer the affected executable surface. Emit exactly one `module.source_verification.corpus_citation_path` and never emit `corpus_citation_paths`.
 - Do not create scalar variables for citation numbers, paragraph numbers, branch numbers, or source line labels.
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
@@ -5772,7 +8109,7 @@ RuleSpec requirements:
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
-     outputs as test inputs; imported programs are computed. If the downstream
+     outputs as test inputs; imported derived outputs are computed. If the downstream
      rule depends on an imported output, assign all current upstream factual
      inputs and relations needed by that imported output, including false facts.
      This does not override no-input guardrails: never assign prohibited derived
@@ -5784,8 +8121,7 @@ RuleSpec requirements:
      sources first.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
-     textual claim support is either direct corpus source support or a claim ID
-     listed under `module.source_claims`.
+     textual support uses direct release-bound corpus source text.
   4. Import inventory: every `imports:` entry is an exact copied/importable
      RuleSpec target. Top-level `imports:` entries must be scalar strings; never
      map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
@@ -5874,7 +8210,10 @@ def _workspace_corpus_citation_path(workspace: EvalWorkspace) -> str | None:
     source_metadata = workspace.source_metadata
     if not isinstance(source_metadata, dict):
         return None
-    raw_value = source_metadata.get("corpus_citation_path")
+    attestation = source_metadata.get("source_attestation")
+    if not isinstance(attestation, dict):
+        return None
+    raw_value = attestation.get("requested_corpus_citation_path")
     if not isinstance(raw_value, str):
         return None
     citation_path = raw_value.strip()
@@ -6353,13 +8692,15 @@ def _first_existing_context_import_file(
 
 
 def _rulespec_repo_root_for_context_path(path: Path) -> Path:
-    """Infer the nearest `rulespec-*` checkout root containing a context file."""
-    resolved = path.resolve()
-    start = resolved if resolved.is_dir() else resolved.parent
-    for parent in (start, *start.parents):
-        if parent.name.startswith("rulespec-"):
-            return parent
-    return start
+    """Require the canonical content root containing an explicit context file."""
+
+    content_root = find_policy_repo_root(path)
+    if content_root is None:
+        raise UnsafeRulespecContextPath(
+            "RuleSpec context file must be inside an exact canonical "
+            f"rulespec-<country>/<jurisdiction> content root: {path}"
+        )
+    return content_root
 
 
 def _format_existing_target_valid_input_guidance(
@@ -7441,7 +9782,7 @@ def _import_target_to_statute_citation(import_path: str) -> _StatuteCitation | N
         maybe_prefix, rest = normalized.split(":", 1)
         if re.fullmatch(r"[a-z][a-z0-9-]*", maybe_prefix) and rest:
             normalized = rest.strip("/")
-    if normalized.endswith((".yaml", ".yml")):
+    if normalized.endswith(RULESPEC_FILE_SUFFIX):
         normalized = normalized.rsplit(".", 1)[0]
     parts = [part for part in normalized.split("/") if part]
     try:
@@ -7649,7 +9990,7 @@ def _context_import_path_key(import_path: str) -> tuple[str | None, str] | None:
         if re.fullmatch(r"[a-z][a-z0-9-]*", maybe_prefix) and rest:
             prefix = maybe_prefix
             normalized = rest.strip("/")
-    if normalized.endswith((".yaml", ".yml")):
+    if normalized.endswith(RULESPEC_FILE_SUFFIX):
         normalized = normalized.rsplit(".", 1)[0]
     normalized = normalized.strip("/")
     return (prefix, normalized) if normalized else None
@@ -8287,8 +10628,8 @@ def _expand_context_files(
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
-        if source_path.suffix in {".yaml", ".yml"} and not source_path.name.endswith(
-            ".test.yaml"
+        if source_path.suffix == RULESPEC_FILE_SUFFIX and not source_path.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
         ):
             test_path = _rulespec_test_path(source_path)
             if test_path.is_symlink():
@@ -8320,16 +10661,7 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
     """Resolve canonical import targets for one copied precedent file."""
     dependencies: list[Path] = []
     for import_target in _extract_import_targets(source_path.read_text()):
-        import_prefix = _import_target_prefix(import_target)
-        target_path = _import_target_to_path(import_target)
         candidates = _candidate_import_rule_files(import_target, policy_root)
-        if not import_prefix and target_path.parts:
-            first = target_path.parts[0]
-            if first == policy_root.name:
-                candidates.append(policy_root / Path(*target_path.parts[1:]))
-            if first in _LOCAL_IMPORT_ROOT_TOKENS:
-                candidates.append(policy_root.parent / target_path)
-
         for candidate in candidates:
             if not candidate.exists() and not candidate.is_symlink():
                 continue
@@ -8384,7 +10716,7 @@ def _import_target_to_path(import_target: str) -> Path:
         prefix, rest = normalized.split(":", 1)
         if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and rest:
             normalized = rest
-    if normalized.endswith((".yaml", ".yml")):
+    if normalized.endswith(RULESPEC_FILE_SUFFIX):
         return Path(normalized)
     return Path(f"{normalized}.yaml")
 
@@ -8439,13 +10771,11 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
         target_relative = _import_target_to_path(item.import_path)
         source = workspace.root / workspace_path
         prefix = _import_target_prefix(item.import_path)
-        if prefix:
-            canonical_target = (
-                eval_root / "_axiom" / f"rulespec-{prefix}" / target_relative
-            )
-            copy_context(source, canonical_target)
-            if prefix != workspace.policy_prefix:
-                continue
+        if prefix and prefix != workspace.policy_prefix:
+            # Cross-authority imports resolve only through explicitly declared
+            # canonical dependency roots. Never materialize a hidden `_axiom`
+            # checkout inside generated output.
+            continue
         copy_context(source, eval_root / target_relative)
 
 
@@ -8476,7 +10806,18 @@ def _run_claude_prompt_eval(
         "--output-format",
         "json",
         "--permission-mode",
-        "bypassPermissions",
+        "dontAsk",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--no-chrome",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{}",
+        "--tools",
+        "",
+        "--allowed-tools",
+        "",
         "--model",
         runner.model,
         "-p",
@@ -8490,6 +10831,7 @@ def _run_claude_prompt_eval(
         text=True,
         cwd=workspace.root,
         timeout=600,
+        env=scrub_attestation_signing_keys(),
     )
     duration_ms = int((time.time() - start) * 1000)
 
@@ -8584,7 +10926,7 @@ def _run_codex_prompt_eval(
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
         codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
-        codex_env = os.environ.copy()
+        codex_env = scrub_attestation_signing_keys()
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
@@ -9095,8 +11437,8 @@ def _normalize_main_eval_content(
     source_text: str | None = None,
 ) -> str:
     """Normalize generated main artifacts according to their format."""
-    if target_path.suffix not in {".yaml", ".yml"}:
-        raise ValueError("RuleSpec artifacts must use .yaml or .yml paths")
+    if target_path.suffix != RULESPEC_FILE_SUFFIX:
+        raise ValueError("RuleSpec artifacts must use canonical .yaml paths")
     content = _clean_generated_file_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
@@ -10063,27 +12405,26 @@ def _rulespec_declares_rule(
 def _canonical_rulespec_target_for_path(rulespec_path: Path | None) -> str | None:
     if rulespec_path is None:
         return None
-    components = [
-        str(component)
-        for component in rulespec_path.expanduser().resolve(strict=False).parts
-    ]
-    repo_index = next(
-        (
-            index
-            for index in range(len(components) - 1, -1, -1)
-            if components[index].startswith("rulespec-")
-        ),
-        None,
-    )
-    if repo_index is None or repo_index + 1 >= len(components):
+    content_root = find_policy_repo_root(rulespec_path)
+    if content_root is None:
         return None
-    prefix = components[repo_index].removeprefix("rulespec-")
-    if not prefix:
+    try:
+        relative = (
+            rulespec_path.expanduser()
+            .resolve(strict=False)
+            .relative_to(content_root.resolve())
+        )
+    except ValueError:
         return None
-    relative = Path(*components[repo_index + 1 :])
-    if relative.suffix in {".yaml", ".yml"}:
+    if not relative.parts or relative.parts[0] not in {
+        "policies",
+        "regulations",
+        "statutes",
+    }:
+        return None
+    if relative.suffix == RULESPEC_FILE_SUFFIX:
         relative = relative.with_suffix("")
-    return f"{prefix}:{relative.as_posix()}"
+    return f"{content_root.name}:{relative.as_posix()}"
 
 
 def _policyengine_hint_upstream_composition_issues(
@@ -10276,7 +12617,7 @@ def _materialize_eval_artifact(
             generated_main_names = [
                 Path(file_name).name
                 for file_name in bundle
-                if Path(file_name).suffix in {".yaml", ".yml"}
+                if Path(file_name).suffix == RULESPEC_FILE_SUFFIX
                 and not Path(file_name).name.endswith(".test.yaml")
             ]
             if len(generated_main_names) == 1:

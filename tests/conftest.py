@@ -19,7 +19,36 @@ from axiom_encode import (
     ReviewResult,
     ReviewResults,
     ValidationResult,
+    __version__,
 )
+from axiom_encode import signing_broker as _signing_broker
+from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
+from tests.signing_broker_fixtures import SigningBrokerFixture
+
+
+@pytest.fixture(autouse=True)
+def _trusted_test_corpus_release_broker(monkeypatch):
+    """Install the verification broker used by signed corpus fixtures."""
+
+    broker = SigningBrokerFixture(
+        corpus_release_public_key=TEST_RELEASE_PUBLIC_KEY,
+    )
+    monkeypatch.setattr(_signing_broker, "_active_broker", broker)
+    monkeypatch.setattr(_signing_broker, "_active_broker_pid", None)
+
+
+@pytest.fixture(autouse=True)
+def _pinned_test_encoder_execution_identity(monkeypatch):
+    """Keep signed-manifest fixtures independent of the dirty test checkout."""
+
+    monkeypatch.setattr(
+        "axiom_encode.cli._current_guard_encoder_execution_identity",
+        lambda: {
+            "repository": "github.com/TheAxiomFoundation/axiom-encode",
+            "commit": "a" * 40,
+            "version": __version__,
+        },
+    )
 
 
 @pytest.fixture
@@ -66,7 +95,6 @@ def sample_review_results():
             ),
         ],
         policyengine_match=0.90,
-        taxsim_match=0.85,
     )
 
 
@@ -130,13 +158,6 @@ def mock_validation_result():
                 validator_name="policyengine",
                 passed=True,
                 score=0.95,
-                issues=[],
-                duration_ms=1000,
-            ),
-            "taxsim": ValidationResult(
-                validator_name="taxsim",
-                passed=True,
-                score=0.92,
                 issues=[],
                 duration_ms=1000,
             ),

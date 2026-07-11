@@ -12,16 +12,18 @@ import json
 import os
 import re
 import stat
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
 
+from axiom_encode.corpus_release import (
+    CorpusReleaseObjectError,
+    VerifiedReleaseArtifact,
+    verify_release_object,
+)
 from axiom_encode.statute import citation_to_citation_path
 
 MAX_CORPUS_PROVISION_BYTES = 64 * 1024 * 1024
@@ -31,12 +33,8 @@ MAX_LOCAL_CORPUS_ROWS = 1_000_000
 MAX_COMPOSED_CORPUS_BYTES = 64 * 1024 * 1024
 MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
-MAX_REMOTE_CORPUS_AGGREGATE_BYTES = 256 * 1024 * 1024
-MAX_REMOTE_CORPUS_REQUESTS = 32
-MAX_RELEASE_SELECTOR_BYTES = 4 * 1024 * 1024
-MAX_SUPABASE_DESCENDANT_ROWS = 10_000
-MAX_SUPABASE_PAGE_ROWS = 1_000
-MAX_SUPABASE_RELEASE_SCOPES = 10_000
+MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
+MAX_CORPUS_DESCENDANT_ROWS = 10_000
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
 MAX_CORPUS_CITATION_SEGMENTS = 64
 MAX_CORPUS_CITATION_LENGTH = 4_096
@@ -44,6 +42,7 @@ MAX_LEGAL_MARKER_TOKEN_LENGTH = 32
 MAX_GENERIC_PARENT_SLICE_CHARACTER_WORK = 64 * 1024 * 1024
 _MAX_INTERNAL_MARK_EVIDENCE_CHARS = 64
 _MAX_DELIMITER_REPLAY_TOKENS = 1_000_000
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _DOCUMENT_CLASSES = frozenset(
     {
@@ -108,8 +107,8 @@ class AmbiguousCorpusSourceError(CorpusResolutionError):
         )
 
 
-class InvalidReleaseSelectorError(CorpusResolutionError):
-    """The active-release selector is absent or violates its schema."""
+class InvalidCorpusReleaseError(CorpusResolutionError):
+    """The configured corpus release is absent or violates its contract."""
 
 
 class UnsafeCorpusPathError(CorpusResolutionError):
@@ -118,10 +117,6 @@ class UnsafeCorpusPathError(CorpusResolutionError):
 
 class CorpusSourceSliceError(CorpusResolutionError):
     """A requested child could not be isolated from a parent provision."""
-
-
-class CorpusRemoteError(CorpusResolutionError):
-    """A bounded Supabase corpus request failed or returned invalid data."""
 
 
 _CFR_IDENTIFIER_RE = re.compile(
@@ -178,23 +173,54 @@ def normalize_corpus_identifier(identifier: str) -> str:
         ) from exc
 
 
+def require_canonical_corpus_citation_path(identifier: str) -> str:
+    """Return one exact canonical corpus citation path or reject aliases.
+
+    Human-facing citation arguments may use :func:`normalize_corpus_identifier`.
+    Persisted and explicitly named ``corpus_citation_path`` fields are machine
+    identities, so accepting import-style identifiers or normalizing whitespace
+    would retain a second spelling for the same source.
+    """
+
+    try:
+        citation_path = _normalize_citation_path(identifier)
+    except InvalidCorpusCitationError as exc:
+        raise InvalidCorpusCitationError(
+            "Corpus citation path must be an exact canonical "
+            f"<jurisdiction>/<document-class>/... path: {identifier!r}"
+        ) from exc
+    if citation_path != identifier:
+        raise InvalidCorpusCitationError(
+            "Corpus citation path must be an exact canonical path; expected "
+            f"{citation_path!r}, got {identifier!r}"
+        )
+    return citation_path
+
+
 def scope_resolved_corpus_source(
     source: ResolvedCorpusSource, target_identifier: str
 ) -> ResolvedCorpusSource:
     """Fail-closed resolver-owned slicing for the exact generation target."""
 
+    target = normalize_corpus_identifier(target_identifier)
     body = slice_corpus_source_text(
         source.body,
-        target_identifier=target_identifier,
-        resolved_identifier=source.requested,
+        target_identifier=target,
+        resolved_identifier=source.citation_path,
     )
-    return replace(source, body=body, resolved_text_sha256=_sha256_text(body))
+    return replace(
+        source,
+        requested=target,
+        body=body,
+        resolved_text_sha256=_sha256_text(body),
+        slice_required=target != source.citation_path,
+    )
 
 
 def resolve_scoped_local_corpus_source(
     source: ResolvedCorpusSource,
     normalized_target_identifier: str,
-    corpus_root: Path,
+    release: LocalCorpusRelease,
 ) -> ResolvedCorpusSource:
     """Resolve an exact child before considering a slice of ``source``.
 
@@ -211,12 +237,17 @@ def resolve_scoped_local_corpus_source(
         raise InvalidCorpusCitationError(
             "Scoped corpus target must be a normalized corpus citation path"
         )
+    if (
+        source.release_name != release.name
+        or source.release_content_sha256 != release.content_sha256
+    ):
+        raise InvalidCorpusReleaseError(
+            "Scoped source and local corpus release identities do not match"
+        )
     try:
         exact = resolve_local_corpus_source(
             target,
-            corpus_root,
-            release_name=source.release_name or "current",
-            require_release=source.release_name is not None,
+            release,
             _exact_only=True,
         )
     except CorpusSourceNotFoundError:
@@ -267,13 +298,83 @@ class ReleaseScope:
 
 
 @dataclass(frozen=True)
-class ReleaseSelector:
-    """Validated semantic identity of an active corpus selector."""
+class LocalCorpusRelease:
+    """One local checkout bound to one verified immutable release object."""
 
+    root: Path
     name: str
-    scopes: tuple[ReleaseScope, ...]
-    sha256: str
-    path: str | None = None
+    content_sha256: str
+    public_key: str = field(repr=False, compare=False)
+    provisions_root: Path = field(init=False)
+    selector_sha256: str = field(init=False)
+    scopes: tuple[ReleaseScope, ...] = field(init=False)
+    artifacts: tuple[VerifiedReleaseArtifact, ...] = field(init=False)
+    release_object_path: Path = field(init=False)
+
+    def __post_init__(self) -> None:
+        name = validate_corpus_release_name(self.name)
+        if _SHA256_RE.fullmatch(self.content_sha256) is None:
+            raise InvalidCorpusReleaseError(
+                "Corpus release content_sha256 must be a lowercase sha256 digest"
+            )
+        root, provisions_root, repository_root = _resolve_corpus_layout(self.root)
+        if repository_root != root:
+            raise CorpusLayoutError(
+                "Local corpus releases require the canonical repository root"
+            )
+        release_object_path = root / "releases" / name / f"{self.content_sha256}.json"
+        release_object_file = _safe_file(
+            root,
+            release_object_path,
+            label="corpus release object",
+            max_bytes=MAX_RELEASE_OBJECT_BYTES,
+        )
+        if release_object_file is None:
+            raise InvalidCorpusReleaseError(
+                f"Corpus release object not found: {release_object_path}"
+            )
+        try:
+            raw = read_bounded_regular_file(
+                root,
+                release_object_file,
+                label="corpus release object",
+                max_bytes=MAX_RELEASE_OBJECT_BYTES,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise InvalidCorpusReleaseError(
+                f"Corpus release object is not valid UTF-8 JSON: {release_object_file}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise InvalidCorpusReleaseError(
+                "Corpus release object must be a JSON object"
+            )
+        try:
+            verified = verify_release_object(payload, public_key=self.public_key)
+        except CorpusReleaseObjectError as exc:
+            raise InvalidCorpusReleaseError(str(exc)) from exc
+        if verified.name != name or verified.content_sha256 != self.content_sha256:
+            raise InvalidCorpusReleaseError(
+                "Corpus release object does not match its configured name and content digest"
+            )
+        object.__setattr__(self, "root", root)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "provisions_root", provisions_root)
+        object.__setattr__(self, "selector_sha256", verified.selector_sha256)
+        object.__setattr__(
+            self,
+            "scopes",
+            tuple(
+                ReleaseScope(
+                    scope.jurisdiction,
+                    scope.document_class,
+                    scope.version,
+                )
+                for scope in verified.scopes
+            ),
+        )
+        object.__setattr__(self, "artifacts", verified.artifacts)
+        object.__setattr__(self, "release_object_path", release_object_file)
 
 
 @dataclass(frozen=True)
@@ -281,7 +382,7 @@ class CorpusRowIdentity:
     """Stable location and source metadata for one stored provision row."""
 
     provision_file: str
-    provision_file_sha256: str | None
+    provision_file_sha256: str
     line_number: int
     record_id: str
     citation_path: str
@@ -303,6 +404,9 @@ class ActiveCorpusBodyRow:
     heading: str | None
     citation_label: str | None
     metadata: Mapping[str, Any]
+    release_name: str
+    release_content_sha256: str
+    release_selector_sha256: str
 
 
 @dataclass(frozen=True)
@@ -314,13 +418,14 @@ class ResolvedCorpusSource:
     body: str
     stored_body_sha256: str
     resolved_text_sha256: str
-    source: Literal["local", "supabase"]
+    source: Literal["local"]
     provision_file: str
-    provision_file_sha256: str | None
+    provision_file_sha256: str
     row: CorpusRowIdentity
     component_rows: tuple[CorpusRowIdentity, ...]
-    release_name: str | None
-    release_selector_sha256: str | None
+    release_name: str
+    release_content_sha256: str
+    release_selector_sha256: str
     slice_required: bool = False
 
     def to_attestation(self) -> dict[str, Any]:
@@ -331,6 +436,7 @@ class ResolvedCorpusSource:
             "resolved_corpus_citation_path": self.citation_path,
             "corpus_source": self.source,
             "corpus_release": self.release_name,
+            "corpus_release_content_sha256": self.release_content_sha256,
             "corpus_release_selector_sha256": self.release_selector_sha256,
             "provision_file": self.provision_file,
             "provision_file_sha256": self.provision_file_sha256,
@@ -379,12 +485,6 @@ class _LocalCorpusReadBudget:
 
 
 @dataclass
-class _RemoteCorpusReadBudget:
-    byte_count: int = 0
-    request_count: int = 0
-
-
-@dataclass
 class _ParentheticalSliceBudget:
     """Cumulative character work for generic parent-body fallback slicing."""
 
@@ -424,167 +524,39 @@ class _IndexedDelimiterStack(list[_DelimiterFrame]):
         raise AssertionError("Delimiter replay stack must not be scanned")
 
 
-def canonical_release_selector_sha256(
-    name: str, scopes: tuple[ReleaseScope, ...]
-) -> str:
-    """Hash the selector's semantic identity independent of JSON formatting."""
-
-    payload = {
-        "name": name,
-        "scopes": [asdict(scope) for scope in sorted(scopes)],
-    }
-    canonical = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode()
-    return hashlib.sha256(canonical).hexdigest()
-
-
-def load_release_selector(
-    path: Path,
-    *,
-    expected_name: str = "current",
-    repository_root: Path | None = None,
-) -> ReleaseSelector:
-    """Load and strictly validate ``manifests/releases/current.json``."""
-
-    if repository_root is not None:
-        containment_root = repository_root
-    elif path.parent.name == "releases" and path.parent.parent.name == "manifests":
-        containment_root = path.parent.parent.parent
-    else:
-        containment_root = path.parent
-    selector_file = _safe_file(
-        containment_root,
-        path,
-        label="corpus release selector",
-        max_bytes=MAX_RELEASE_SELECTOR_BYTES,
-    )
-    if selector_file is None:
-        raise InvalidReleaseSelectorError(f"Release selector not found: {path}")
-    try:
-        raw = _read_bounded_regular_file(
-            containment_root,
-            selector_file,
-            label="corpus release selector",
-            max_bytes=MAX_RELEASE_SELECTOR_BYTES,
-        )
-        payload = json.loads(raw)
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise InvalidReleaseSelectorError(
-            f"Release selector is not valid UTF-8 JSON: {selector_file}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise InvalidReleaseSelectorError("Release selector must be a JSON object")
-    unknown = set(payload) - {"name", "description", "scopes"}
-    if unknown:
-        raise InvalidReleaseSelectorError(
-            "Release selector contains unknown fields: " + ", ".join(sorted(unknown))
-        )
-    name = _required_clean_string(payload, "name", label="release selector")
-    if name != expected_name:
-        raise InvalidReleaseSelectorError(
-            f"Release selector name {name!r} does not match {expected_name!r}"
-        )
-    description = payload.get("description")
-    if description is not None and not isinstance(description, str):
-        raise InvalidReleaseSelectorError(
-            "Release selector description must be a string when present"
-        )
-    raw_scopes = payload.get("scopes")
-    if not isinstance(raw_scopes, list):
-        raise InvalidReleaseSelectorError("Release selector scopes must be a list")
-    if not raw_scopes:
-        raise InvalidReleaseSelectorError(
-            "Release selector scopes must contain at least one active scope"
-        )
-    if len(raw_scopes) > MAX_SUPABASE_RELEASE_SCOPES:
-        raise InvalidReleaseSelectorError(
-            "Release selector exceeds the "
-            f"{MAX_SUPABASE_RELEASE_SCOPES}-scope safety limit"
-        )
-    scopes: list[ReleaseScope] = []
-    seen: set[ReleaseScope] = set()
-    for index, raw_scope in enumerate(raw_scopes):
-        scope = _parse_release_scope(raw_scope, index=index)
-        if scope in seen:
-            raise InvalidReleaseSelectorError(
-                "Release selector contains duplicate scope "
-                f"{scope.jurisdiction}/{scope.document_class}/{scope.version}"
-            )
-        seen.add(scope)
-        scopes.append(scope)
-    scope_tuple = tuple(scopes)
-    return ReleaseSelector(
-        name=name,
-        scopes=scope_tuple,
-        sha256=canonical_release_selector_sha256(name, scope_tuple),
-        path=selector_file.as_posix(),
-    )
-
-
 def resolve_local_corpus_source(
     identifier: str,
-    corpus_root: Path,
+    release: LocalCorpusRelease,
     *,
-    release_name: str = "current",
-    require_release: bool = True,
     _exact_only: bool = False,
 ) -> ResolvedCorpusSource:
     """Resolve exactly one active local provision row, or fail closed."""
 
     citation_path = _normalize_citation_path(identifier)
-    release_name = _validated_release_name(release_name)
-    root, provisions_root, repository_root = _resolve_corpus_layout(corpus_root)
-    selector_path = repository_root / "manifests" / "releases" / f"{release_name}.json"
-    selector_file = _safe_file(
-        repository_root,
-        selector_path,
-        label="corpus release selector",
-        max_bytes=MAX_RELEASE_SELECTOR_BYTES,
-    )
-    selector = (
-        load_release_selector(
-            selector_file,
-            expected_name=release_name,
-            repository_root=repository_root,
-        )
-        if selector_file is not None
-        else None
-    )
-    if selector is None and require_release:
-        raise InvalidReleaseSelectorError(
-            f"Release selector not found: {selector_path}"
-        )
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    provisions_root = release.provisions_root
 
     parts = citation_path.split("/")
     jurisdiction, document_class = parts[0], parts[1]
-    if selector is not None:
-        scopes = tuple(
-            scope
-            for scope in selector.scopes
-            if scope.jurisdiction == jurisdiction
-            and scope.document_class == document_class
-        )
-    else:
-        scopes = ()
+    scopes = tuple(
+        scope
+        for scope in release.scopes
+        if scope.jurisdiction == jurisdiction and scope.document_class == document_class
+    )
 
     files = _candidate_provision_files(
-        root=root,
-        provisions_root=provisions_root,
+        release=release,
         jurisdiction=jurisdiction,
         document_class=document_class,
         scopes=scopes,
-        release_scoped=selector is not None,
     )
     artifacts = _read_corpus_artifacts(
         files,
-        containment_root=root,
+        release=release,
         budget=_LocalCorpusReadBudget(),
     )
-    active_scopes = frozenset(scopes) if selector is not None else None
+    active_scopes = frozenset(scopes)
     inactive_match = False
     lookup_groups = _citation_lookup_groups(citation_path)
     if _exact_only:
@@ -634,10 +606,10 @@ def resolve_local_corpus_source(
                         provisions_root=provisions_root,
                     )
                 )
-                if len(descendants) > MAX_SUPABASE_DESCENDANT_ROWS:
+                if len(descendants) > MAX_CORPUS_DESCENDANT_ROWS:
                     raise CorpusDescendantStructureError(
                         f"Local descendants for {selected.row.citation_path!r} "
-                        f"exceed the {MAX_SUPABASE_DESCENDANT_ROWS}-row safety limit"
+                        f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety limit"
                     )
             stored_body, component_rows = _compose_descendant_text(
                 selected.row.citation_path,
@@ -657,7 +629,7 @@ def resolve_local_corpus_source(
             body=body,
             stored_body=stored_body,
             selected=selected,
-            selector=selector,
+            release=release,
             component_rows=component_rows,
             slice_required=candidate.slice_required,
         )
@@ -672,9 +644,7 @@ def resolve_local_corpus_source(
 
 def resolve_local_corpus_dependency_artifacts(
     identifier: str,
-    corpus_root: Path,
-    *,
-    release_name: str = "current",
+    release: LocalCorpusRelease,
 ) -> tuple[Path, ...]:
     """Resolve one dependency source and return its attested local artifacts.
 
@@ -684,11 +654,10 @@ def resolve_local_corpus_dependency_artifacts(
 
     source = resolve_local_corpus_source(
         identifier,
-        corpus_root,
-        release_name=release_name,
-        require_release=True,
+        release,
     )
-    root, _provisions_root, repository_root = _resolve_corpus_layout(corpus_root)
+    root = release.root
+    repository_root = release.root
     artifacts: list[Path] = []
     seen: set[Path] = set()
     for row in (source.row, *source.component_rows):
@@ -707,11 +676,17 @@ def resolve_local_corpus_dependency_artifacts(
             label="resolved corpus provision",
             max_bytes=MAX_CORPUS_PROVISION_BYTES,
         )
-        if (
-            artifact is None
-            or hashlib.sha256(artifact.read_bytes()).hexdigest()
-            != row.provision_file_sha256
-        ):
+        if artifact is None:
+            raise CorpusResolutionError(
+                f"Resolved corpus artifact changed after resolution: {row.provision_file}"
+            )
+        artifact_bytes = read_bounded_regular_file(
+            root,
+            artifact,
+            label="resolved corpus provision",
+            max_bytes=MAX_CORPUS_PROVISION_BYTES,
+        )
+        if hashlib.sha256(artifact_bytes).hexdigest() != row.provision_file_sha256:
             raise CorpusResolutionError(
                 f"Resolved corpus artifact changed after resolution: {row.provision_file}"
             )
@@ -722,9 +697,8 @@ def resolve_local_corpus_dependency_artifacts(
 
 
 def iter_active_local_corpus_rows(
-    corpus_root: Path,
+    release: LocalCorpusRelease,
     *,
-    release_name: str = "current",
     jurisdiction: str | None = None,
     document_class: str | None = None,
 ) -> Iterator[ActiveCorpusBodyRow]:
@@ -735,7 +709,6 @@ def iter_active_local_corpus_rows(
     malformed active row fails closed.
     """
 
-    release_name = _validated_release_name(release_name)
     if jurisdiction is not None:
         jurisdiction = _clean_string_value(
             jurisdiction, label="corpus jurisdiction filter"
@@ -746,16 +719,12 @@ def iter_active_local_corpus_rows(
             f"Unsupported corpus document class filter {document_class!r}"
         )
 
-    root, provisions_root, repository_root = _resolve_corpus_layout(corpus_root)
-    selector_path = repository_root / "manifests" / "releases" / f"{release_name}.json"
-    selector = load_release_selector(
-        selector_path,
-        expected_name=release_name,
-        repository_root=repository_root,
-    )
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    provisions_root = release.provisions_root
     selected_scopes = tuple(
         scope
-        for scope in selector.scopes
+        for scope in release.scopes
         if (jurisdiction is None or scope.jurisdiction == jurisdiction)
         and (document_class is None or scope.document_class == document_class)
     )
@@ -773,42 +742,24 @@ def iter_active_local_corpus_rows(
     ):
         active_scopes = frozenset(bucket_scopes)
         files = _candidate_provision_files(
-            root=root,
-            provisions_root=provisions_root,
+            release=release,
             jurisdiction=scope_jurisdiction,
             document_class=scope_document_class,
             scopes=tuple(bucket_scopes),
-            release_scoped=True,
         )
         for artifact in _read_corpus_artifacts(
             files,
-            containment_root=root,
+            release=release,
             budget=read_budget,
         ):
-            path = artifact.path
             for line_number, record in artifact.rows:
-                fallback_scope = ReleaseScope(
-                    scope_jurisdiction,
-                    scope_document_class,
-                    path.stem,
-                )
                 row_scope = _record_scope(
                     record,
                     path=artifact.path,
                     line_number=line_number,
-                    fallback=fallback_scope,
                 )
                 if row_scope not in active_scopes:
                     continue
-                # Fallback metadata is sufficient to identify an inactive
-                # legacy artifact, but every selected release row must carry
-                # its own exact scope.
-                row_scope = _record_scope(
-                    record,
-                    path=artifact.path,
-                    line_number=line_number,
-                    fallback=None,
-                )
                 if (
                     row_scope.jurisdiction != scope_jurisdiction
                     or row_scope.document_class != scope_document_class
@@ -817,7 +768,7 @@ def iter_active_local_corpus_rows(
                         f"Active corpus row is stored in the wrong scope bucket: "
                         f"{artifact.path}:{line_number}"
                     )
-                _require_release_row_metadata(
+                _validate_release_row_metadata(
                     record, path=artifact.path, line_number=line_number
                 )
                 raw_citation_path = _clean_string_value(
@@ -839,7 +790,11 @@ def iter_active_local_corpus_rows(
                         f"Active corpus citation does not match its scope at "
                         f"{artifact.path}:{line_number}"
                     )
-                body = _record_body(record)
+                body = _record_body(
+                    record,
+                    path=artifact.path,
+                    line_number=line_number,
+                )
                 artifact_root = _repository_root_for_provisions(provisions_root)
                 relative_file = artifact.path.relative_to(artifact_root).as_posix()
                 identity = CorpusRowIdentity(
@@ -868,6 +823,9 @@ def iter_active_local_corpus_rows(
                         heading=_optional_string(record.get("heading")),
                         citation_label=_optional_string(record.get("citation_label")),
                         metadata=MappingProxyType(dict(metadata)),
+                        release_name=release.name,
+                        release_content_sha256=release.content_sha256,
+                        release_selector_sha256=release.selector_sha256,
                     )
                 )
 
@@ -892,101 +850,6 @@ def iter_active_local_corpus_rows(
     return iter(tuple(body_rows))
 
 
-def resolve_supabase_corpus_source(
-    identifier: str,
-    *,
-    supabase_url: str,
-    anon_key: str,
-    release_name: str = "current",
-    timeout: float = 20.0,
-    urlopen: Any = urllib.request.urlopen,
-) -> ResolvedCorpusSource:
-    """Resolve one active Supabase row and bind its release-selector identity."""
-
-    citation_path = _normalize_citation_path(identifier)
-    release_name = _validated_release_name(release_name)
-    read_budget = _RemoteCorpusReadBudget()
-    selector = _fetch_supabase_release_selector(
-        supabase_url=supabase_url,
-        anon_key=anon_key,
-        release_name=release_name,
-        timeout=timeout,
-        urlopen=urlopen,
-        budget=read_budget,
-    )
-    for group in _citation_lookup_groups(citation_path):
-        records: list[_StoredRecord] = []
-        by_path = {candidate.citation_path: candidate for candidate in group}
-        for candidate in group:
-            records.extend(
-                _fetch_supabase_exact_records(
-                    candidate.citation_path,
-                    selector=selector,
-                    supabase_url=supabase_url,
-                    anon_key=anon_key,
-                    timeout=timeout,
-                    urlopen=urlopen,
-                    budget=read_budget,
-                )
-            )
-        if not records:
-            continue
-        if len(records) > 1:
-            raise AmbiguousCorpusSourceError(
-                citation_path, tuple(record.row for record in records)
-            )
-        selected = records[0]
-        component_rows: tuple[CorpusRowIdentity, ...] = ()
-        stored_body = selected.body
-        if stored_body is None:
-            selected_scope = ReleaseScope(
-                selected.row.jurisdiction,
-                selected.row.document_class,
-                selected.row.version,
-            )
-            descendants = _fetch_supabase_descendant_records(
-                selected.row.citation_path,
-                selector=selector,
-                expected_scope=selected_scope,
-                supabase_url=supabase_url,
-                anon_key=anon_key,
-                timeout=timeout,
-                urlopen=urlopen,
-                budget=read_budget,
-            )
-            stored_body, component_rows = _compose_descendant_text(
-                selected.row.citation_path,
-                descendants,
-                expected_scope=selected_scope,
-            )
-        candidate = by_path[selected.row.citation_path]
-        body = stored_body
-        if candidate.slice_required:
-            body = _slice_parent_body(
-                stored_body,
-                requested_path=candidate.requested_path,
-                resolved_path=candidate.citation_path,
-            )
-        return ResolvedCorpusSource(
-            requested=identifier,
-            citation_path=selected.row.citation_path,
-            body=body,
-            stored_body_sha256=_sha256_text(stored_body),
-            resolved_text_sha256=_sha256_text(body),
-            source="supabase",
-            provision_file=selected.row.provision_file,
-            provision_file_sha256=None,
-            row=selected.row,
-            component_rows=component_rows,
-            release_name=selector.name,
-            release_selector_sha256=selector.sha256,
-            slice_required=candidate.slice_required,
-        )
-    raise CorpusSourceNotFoundError(
-        f"No active Supabase corpus source found for {citation_path!r}"
-    )
-
-
 def _resolved_source(
     *,
     requested: str,
@@ -994,7 +857,7 @@ def _resolved_source(
     body: str,
     stored_body: str,
     selected: _StoredRecord,
-    selector: ReleaseSelector | None,
+    release: LocalCorpusRelease,
     component_rows: tuple[CorpusRowIdentity, ...] = (),
     slice_required: bool = False,
 ) -> ResolvedCorpusSource:
@@ -1009,354 +872,11 @@ def _resolved_source(
         provision_file_sha256=selected.file_sha256,
         row=selected.row,
         component_rows=component_rows,
-        release_name=selector.name if selector is not None else None,
-        release_selector_sha256=selector.sha256 if selector is not None else None,
+        release_name=release.name,
+        release_content_sha256=release.content_sha256,
+        release_selector_sha256=release.selector_sha256,
         slice_required=slice_required,
     )
-
-
-def _fetch_supabase_release_selector(
-    *,
-    supabase_url: str,
-    anon_key: str,
-    release_name: str,
-    timeout: float,
-    urlopen: Any,
-    budget: _RemoteCorpusReadBudget,
-) -> ReleaseSelector:
-    rows: list[Any] = []
-    while True:
-        remaining_with_sentinel = MAX_SUPABASE_RELEASE_SCOPES + 1 - len(rows)
-        page_limit = min(MAX_SUPABASE_PAGE_ROWS, remaining_with_sentinel)
-        params = urllib.parse.urlencode(
-            {
-                "select": "release_name,jurisdiction,document_class,version",
-                "release_name": f"eq.{release_name}",
-                "order": "jurisdiction.asc,document_class.asc,version.asc",
-                "limit": str(page_limit),
-                "offset": str(len(rows)),
-            }
-        )
-        page = _fetch_supabase_json(
-            f"{supabase_url.rstrip('/')}/rest/v1/current_release_scopes?{params}",
-            anon_key=anon_key,
-            timeout=timeout,
-            urlopen=urlopen,
-            budget=budget,
-        )
-        if not isinstance(page, list):
-            raise InvalidReleaseSelectorError(
-                "Supabase release selector response must be a list"
-            )
-        if len(page) > page_limit:
-            raise InvalidReleaseSelectorError(
-                "Supabase release selector returned more rows than requested"
-            )
-        rows.extend(page)
-        if len(rows) > MAX_SUPABASE_RELEASE_SCOPES:
-            raise InvalidReleaseSelectorError(
-                "Supabase release selector exceeds the "
-                f"{MAX_SUPABASE_RELEASE_SCOPES}-scope safety limit"
-            )
-        if not page:
-            break
-    if not rows:
-        raise InvalidReleaseSelectorError(
-            f"Supabase has no active {release_name!r} release scopes"
-        )
-    scopes: list[ReleaseScope] = []
-    seen: set[ReleaseScope] = set()
-    for index, raw in enumerate(rows):
-        if not isinstance(raw, dict):
-            raise InvalidReleaseSelectorError(
-                f"Supabase release scope #{index} must be an object"
-            )
-        if raw.get("release_name") != release_name:
-            raise InvalidReleaseSelectorError(
-                f"Supabase release scope #{index} has the wrong release name"
-            )
-        scope = _parse_release_scope(
-            {
-                "jurisdiction": raw.get("jurisdiction"),
-                "document_class": raw.get("document_class"),
-                "version": raw.get("version"),
-            },
-            index=index,
-        )
-        if scope in seen:
-            raise InvalidReleaseSelectorError(
-                f"Supabase release selector contains duplicate scope {scope}"
-            )
-        seen.add(scope)
-        scopes.append(scope)
-    scope_tuple = tuple(scopes)
-    return ReleaseSelector(
-        name=release_name,
-        scopes=scope_tuple,
-        sha256=canonical_release_selector_sha256(release_name, scope_tuple),
-        path="supabase:current_release_scopes",
-    )
-
-
-def _fetch_supabase_exact_records(
-    citation_path: str,
-    *,
-    selector: ReleaseSelector,
-    supabase_url: str,
-    anon_key: str,
-    timeout: float,
-    urlopen: Any,
-    budget: _RemoteCorpusReadBudget,
-) -> list[_StoredRecord]:
-    rows: list[Any] = []
-    while len(rows) < 2:
-        page_limit = 2 - len(rows)
-        params = urllib.parse.urlencode(
-            {
-                "select": (
-                    "id,citation_path,body,jurisdiction,doc_type,version,"
-                    "source_path,source_as_of,expression_date,heading,level,ordinal"
-                ),
-                "citation_path": f"eq.{citation_path}",
-                "order": "id.asc",
-                "limit": str(page_limit),
-                "offset": str(len(rows)),
-            }
-        )
-        page = _fetch_supabase_json(
-            f"{supabase_url.rstrip('/')}/rest/v1/current_provisions?{params}",
-            anon_key=anon_key,
-            timeout=timeout,
-            urlopen=urlopen,
-            budget=budget,
-        )
-        if not isinstance(page, list):
-            raise CorpusRemoteError(
-                "Supabase current_provisions response must be a list"
-            )
-        if len(page) > page_limit:
-            raise CorpusRemoteError(
-                "Supabase current_provisions returned more rows than requested"
-            )
-        rows.extend(page)
-        if not page:
-            break
-    records = _parse_supabase_records(
-        rows,
-        selector=selector,
-        exact_citation_path=citation_path,
-    )
-    if len(records) > 1:
-        raise AmbiguousCorpusSourceError(
-            citation_path, tuple(record.row for record in records)
-        )
-    return records
-
-
-def _fetch_supabase_descendant_records(
-    citation_path: str,
-    *,
-    selector: ReleaseSelector,
-    expected_scope: ReleaseScope,
-    supabase_url: str,
-    anon_key: str,
-    timeout: float,
-    urlopen: Any,
-    budget: _RemoteCorpusReadBudget,
-) -> list[_StoredRecord]:
-    # Use an indexable half-open prefix range instead of PostgREST ``like``.
-    # ``current_provisions`` can time out while planning/executing a LIKE prefix
-    # scan, even for a small descendant set. Citation segments cannot contain
-    # ``/``, so replacing the trailing ``/`` lower-bound separator with ``0``
-    # gives the exclusive upper bound for every path below this citation.
-    rows: list[Any] = []
-    while True:
-        remaining_with_sentinel = MAX_SUPABASE_DESCENDANT_ROWS + 1 - len(rows)
-        page_limit = min(MAX_SUPABASE_PAGE_ROWS, remaining_with_sentinel)
-        params = urllib.parse.urlencode(
-            {
-                "select": (
-                    "id,citation_path,body,jurisdiction,doc_type,version,"
-                    "source_path,source_as_of,expression_date,heading,level,ordinal"
-                ),
-                "citation_path": f"gte.{citation_path}/",
-                "and": f"(citation_path.lt.{citation_path}0)",
-                "order": "level.asc,ordinal.asc,citation_path.asc,id.asc",
-                "limit": str(page_limit),
-                "offset": str(len(rows)),
-            }
-        )
-        page = _fetch_supabase_json(
-            f"{supabase_url.rstrip('/')}/rest/v1/current_provisions?{params}",
-            anon_key=anon_key,
-            timeout=timeout,
-            urlopen=urlopen,
-            budget=budget,
-        )
-        if not isinstance(page, list):
-            raise CorpusRemoteError(
-                "Supabase current_provisions response must be a list"
-            )
-        if len(page) > page_limit:
-            raise CorpusRemoteError(
-                "Supabase current_provisions returned more rows than requested"
-            )
-        rows.extend(page)
-        if len(rows) > MAX_SUPABASE_DESCENDANT_ROWS:
-            raise CorpusDescendantStructureError(
-                f"Supabase descendant query for {citation_path!r} exceeds the "
-                f"{MAX_SUPABASE_DESCENDANT_ROWS}-row safety limit"
-            )
-        if not page:
-            break
-    records = _parse_supabase_records(
-        rows,
-        selector=selector,
-        descendant_of=citation_path,
-    )
-    if any(
-        ReleaseScope(
-            record.row.jurisdiction,
-            record.row.document_class,
-            record.row.version,
-        )
-        != expected_scope
-        for record in records
-    ):
-        raise CorpusResolutionError(
-            f"Supabase descendants for {citation_path!r} cross active release scopes"
-        )
-    return records
-
-
-def _parse_supabase_records(
-    rows: list[Any],
-    *,
-    selector: ReleaseSelector,
-    exact_citation_path: str | None = None,
-    descendant_of: str | None = None,
-) -> list[_StoredRecord]:
-    if (exact_citation_path is None) == (descendant_of is None):
-        raise AssertionError("Supabase rows require one citation constraint")
-    source_identity = "supabase:current_provisions"
-    records: list[_StoredRecord] = []
-    for index, raw in enumerate(rows, start=1):
-        if not isinstance(raw, dict):
-            raise CorpusRemoteError(
-                f"Supabase current_provisions row #{index} must be an object"
-            )
-        raw_citation_path = raw.get("citation_path")
-        if not isinstance(raw_citation_path, str):
-            raise CorpusRemoteError(
-                f"Supabase current_provisions row #{index} has no citation_path"
-            )
-        try:
-            citation_path = _normalize_citation_path(raw_citation_path)
-        except InvalidCorpusCitationError as exc:
-            raise CorpusRemoteError(
-                f"Supabase returned an invalid citation {raw_citation_path!r}"
-            ) from exc
-        if citation_path != raw_citation_path:
-            raise CorpusRemoteError(
-                f"Supabase returned a non-normalized citation {raw_citation_path!r}"
-            )
-        if exact_citation_path is not None and citation_path != exact_citation_path:
-            raise CorpusRemoteError(
-                f"Supabase returned a mismatched citation for {exact_citation_path!r}"
-            )
-        if descendant_of is not None and not citation_path.startswith(
-            f"{descendant_of}/"
-        ):
-            raise CorpusRemoteError(
-                f"Supabase returned a non-descendant for {descendant_of!r}"
-            )
-        pseudo_path = Path(source_identity)
-        row_scope = _record_scope(
-            raw,
-            path=pseudo_path,
-            line_number=index,
-            fallback=None,
-        )
-        if row_scope not in selector.scopes:
-            raise CorpusRemoteError(
-                f"Supabase returned non-active scope {row_scope} for {citation_path!r}"
-            )
-        if citation_path.split("/")[:2] != [
-            row_scope.jurisdiction,
-            row_scope.document_class,
-        ]:
-            raise CorpusRemoteError(
-                f"Supabase citation {citation_path!r} does not match its scope"
-            )
-        _require_release_row_metadata(raw, path=pseudo_path, line_number=index)
-        body = _record_body(raw)
-        row = CorpusRowIdentity(
-            provision_file=source_identity,
-            provision_file_sha256=None,
-            line_number=0,
-            record_id=str(raw["id"]),
-            citation_path=citation_path,
-            jurisdiction=row_scope.jurisdiction,
-            document_class=row_scope.document_class,
-            version=row_scope.version,
-            source_path=str(raw["source_path"]),
-            source_as_of=str(raw["source_as_of"]),
-            expression_date=str(raw["expression_date"]),
-            body_sha256=_sha256_text(body) if body is not None else None,
-        )
-        records.append(
-            _StoredRecord(
-                row=row,
-                body=body,
-                heading=_optional_string(raw.get("heading")),
-                level=_optional_int(raw.get("level")),
-                ordinal=_optional_int(raw.get("ordinal")),
-                file_path=pseudo_path,
-                file_sha256="",
-            )
-        )
-    return records
-
-
-def _fetch_supabase_json(
-    url: str,
-    *,
-    anon_key: str,
-    timeout: float,
-    urlopen: Any,
-    budget: _RemoteCorpusReadBudget,
-) -> Any:
-    if budget.request_count >= MAX_REMOTE_CORPUS_REQUESTS:
-        raise CorpusRemoteError(
-            "Supabase corpus resolution exceeds the cumulative request safety "
-            f"limit of {MAX_REMOTE_CORPUS_REQUESTS}"
-        )
-    budget.request_count += 1
-    request = urllib.request.Request(
-        url,
-        headers={
-            "apikey": anon_key,
-            "Authorization": f"Bearer {anon_key}",
-            "Accept-Profile": "corpus",
-        },
-    )
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            raw = response.read(MAX_CORPUS_PROVISION_BYTES + 1)
-    except (TimeoutError, urllib.error.HTTPError, urllib.error.URLError) as exc:
-        raise CorpusRemoteError(f"Supabase corpus request failed: {url}") from exc
-    if len(raw) > MAX_CORPUS_PROVISION_BYTES:
-        raise CorpusRemoteError("Supabase corpus response exceeds the 64 MiB limit")
-    budget.byte_count += len(raw)
-    if budget.byte_count > MAX_REMOTE_CORPUS_AGGREGATE_BYTES:
-        raise CorpusRemoteError(
-            "Supabase corpus responses exceed the "
-            f"{MAX_REMOTE_CORPUS_AGGREGATE_BYTES}-byte aggregate safety limit"
-        )
-    try:
-        return json.loads(raw)
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise CorpusRemoteError("Supabase corpus response is not valid JSON") from exc
 
 
 def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
@@ -1369,78 +889,89 @@ def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
         raise CorpusLayoutError(f"corpus root does not exist: {raw_root}") from exc
     if not root.is_dir():
         raise UnsafeCorpusPathError(f"corpus root is not a directory: {raw_root}")
-    if root.name == "provisions":
-        candidates = (root,)
-    else:
-        candidates = (root / "data" / "corpus" / "provisions", root / "provisions")
-    provisions_root = next(
-        (
-            candidate
-            for candidate in candidates
-            if _safe_directory(root, candidate, label="corpus provisions root")
-            is not None
-        ),
-        None,
+    provisions_root = _safe_directory(
+        root,
+        root / "data" / "corpus" / "provisions",
+        label="corpus provisions root",
     )
     if provisions_root is None:
-        raise CorpusLayoutError(f"No provisions directory under {root}")
+        raise CorpusLayoutError(
+            f"Canonical data/corpus/provisions directory not found under {root}"
+        )
     provisions_root = provisions_root.resolve(strict=True)
-    repository_root = _repository_root_for_provisions(provisions_root)
-    return root, provisions_root, repository_root
+    return root, provisions_root, root
 
 
 def _candidate_provision_files(
     *,
-    root: Path,
-    provisions_root: Path,
+    release: LocalCorpusRelease,
     jurisdiction: str,
     document_class: str,
     scopes: tuple[ReleaseScope, ...],
-    release_scoped: bool,
 ) -> tuple[Path, ...]:
-    base = _safe_directory(
-        root,
-        provisions_root / jurisdiction / document_class,
-        label="corpus provision directory",
-    )
-    if base is None:
+    if not scopes:
         return ()
-    if release_scoped and not scopes:
-        return ()
+    versions = {scope.version for scope in scopes}
     candidates: list[Path] = []
-    # Release versions are row metadata, not filenames. One active scope can be
-    # split across several descriptively named artifacts, so safely scan the
-    # whole jurisdiction/class bucket and filter exact matching rows below.
-    raw_candidates = tuple(islice(base.glob("*.jsonl"), MAX_LOCAL_CORPUS_FILES + 1))
-    if len(raw_candidates) > MAX_LOCAL_CORPUS_FILES:
-        raise CorpusResolutionError(
-            "Corpus provision directory exceeds the "
-            f"{MAX_LOCAL_CORPUS_FILES}-file safety limit: {base}"
-        )
-    for raw_candidate in sorted(raw_candidates):
+    for artifact in release.artifacts:
+        if artifact.artifact_class != "provisions":
+            continue
+        parts = artifact.path.split("/")
+        if (
+            len(parts) != 6
+            or parts[:3] != ["data", "corpus", "provisions"]
+            or parts[3] != jurisdiction
+            or parts[4] != document_class
+            or not parts[5].endswith(".jsonl")
+            or parts[5].removesuffix(".jsonl") not in versions
+        ):
+            continue
         candidate = _safe_file(
-            root,
-            raw_candidate,
+            release.root,
+            release.root / artifact.path,
             label="corpus provision file",
             max_bytes=MAX_CORPUS_PROVISION_BYTES,
         )
-        if candidate is not None:
-            candidates.append(candidate)
+        if candidate is None:
+            raise CorpusResolutionError(
+                f"Verified corpus release artifact is missing: {artifact.path}"
+            )
+        candidates.append(candidate)
+    if len(candidates) != len(scopes):
+        raise CorpusResolutionError(
+            "Verified corpus release does not provide exactly one provisions "
+            f"artifact per requested scope: {jurisdiction}/{document_class}"
+        )
     return tuple(candidates)
 
 
 def _read_corpus_artifact(
-    path: Path, *, containment_root: Path
+    path: Path,
+    *,
+    release: LocalCorpusRelease,
 ) -> _ParsedCorpusArtifact:
     """Read, hash, decode, and parse an artifact from one byte snapshot."""
 
-    raw = _read_bounded_regular_file(
-        containment_root,
+    raw = read_bounded_regular_file(
+        release.root,
         path,
         label="corpus provision file",
         max_bytes=MAX_CORPUS_PROVISION_BYTES,
     )
     file_sha256 = hashlib.sha256(raw).hexdigest()
+    relative_path = path.relative_to(release.root).as_posix()
+    expected = next(
+        (artifact for artifact in release.artifacts if artifact.path == relative_path),
+        None,
+    )
+    if expected is None or expected.artifact_class != "provisions":
+        raise CorpusResolutionError(
+            f"Corpus provision is outside the verified release inventory: {relative_path}"
+        )
+    if expected.sha256 != file_sha256 or expected.byte_count != len(raw):
+        raise CorpusResolutionError(
+            f"Corpus provision bytes do not match the verified release: {relative_path}"
+        )
     try:
         text = raw.decode("utf-8")
     except UnicodeError as exc:
@@ -1478,7 +1009,7 @@ def _read_corpus_artifact(
 def _read_corpus_artifacts(
     paths: tuple[Path, ...],
     *,
-    containment_root: Path,
+    release: LocalCorpusRelease,
     budget: _LocalCorpusReadBudget,
 ) -> tuple[_ParsedCorpusArtifact, ...]:
     if budget.file_count + len(paths) > MAX_LOCAL_CORPUS_FILES:
@@ -1488,7 +1019,7 @@ def _read_corpus_artifacts(
         )
     artifacts: list[_ParsedCorpusArtifact] = []
     for path in paths:
-        artifact = _read_corpus_artifact(path, containment_root=containment_root)
+        artifact = _read_corpus_artifact(path, release=release)
         budget.file_count += 1
         budget.byte_count += artifact.byte_size
         budget.row_count += len(artifact.rows)
@@ -1510,7 +1041,7 @@ def _read_matching_records(
     artifact: _ParsedCorpusArtifact,
     *,
     citation_path: str,
-    active_scopes: frozenset[ReleaseScope] | None,
+    active_scopes: frozenset[ReleaseScope],
     provisions_root: Path,
 ) -> list[_StoredRecord]:
     path = artifact.path
@@ -1519,17 +1050,14 @@ def _read_matching_records(
         if record.get("citation_path") != citation_path:
             continue
         citation_parts = citation_path.split("/")
-        fallback_scope = ReleaseScope(citation_parts[0], citation_parts[1], path.stem)
         row_scope = _record_scope(
             record,
             path=path,
             line_number=line_number,
-            fallback=None if active_scopes is not None else fallback_scope,
         )
-        if active_scopes is not None and row_scope not in active_scopes:
+        if row_scope not in active_scopes:
             continue
-        if active_scopes is not None:
-            _require_release_row_metadata(record, path=path, line_number=line_number)
+        _validate_release_row_metadata(record, path=path, line_number=line_number)
         if citation_parts[:2] != [
             row_scope.jurisdiction,
             row_scope.document_class,
@@ -1538,7 +1066,7 @@ def _read_matching_records(
                 f"Active corpus citation does not match its scope at "
                 f"{path}:{line_number}"
             )
-        body = _record_body(record)
+        body = _record_body(record, path=path, line_number=line_number)
         artifact_root = _repository_root_for_provisions(provisions_root)
         relative_file = path.relative_to(artifact_root).as_posix()
         row = CorpusRowIdentity(
@@ -1573,7 +1101,7 @@ def _read_descendant_records(
     artifact: _ParsedCorpusArtifact,
     *,
     citation_path: str,
-    active_scopes: frozenset[ReleaseScope] | None,
+    active_scopes: frozenset[ReleaseScope],
     provisions_root: Path,
 ) -> list[_StoredRecord]:
     path = artifact.path
@@ -1583,18 +1111,12 @@ def _read_descendant_records(
         record_path = record.get("citation_path")
         if not isinstance(record_path, str) or not record_path.startswith(prefix):
             continue
-        fallback_scope = ReleaseScope(
-            citation_path.split("/", 2)[0],
-            citation_path.split("/", 2)[1],
-            path.stem,
-        )
         row_scope = _record_scope(
             record,
             path=path,
             line_number=line_number,
-            fallback=None if active_scopes is not None else fallback_scope,
         )
-        if active_scopes is not None and row_scope not in active_scopes:
+        if row_scope not in active_scopes:
             continue
         try:
             normalized_record_path = _normalize_citation_path(record_path)
@@ -1616,9 +1138,8 @@ def _read_descendant_records(
                 f"Active corpus descendant does not match its scope at "
                 f"{path}:{line_number}"
             )
-        if active_scopes is not None:
-            _require_release_row_metadata(record, path=path, line_number=line_number)
-        body = _record_body(record)
+        _validate_release_row_metadata(record, path=path, line_number=line_number)
+        body = _record_body(record, path=path, line_number=line_number)
         artifact_root = _repository_root_for_provisions(provisions_root)
         relative_file = path.relative_to(artifact_root).as_posix()
         row = CorpusRowIdentity(
@@ -1808,16 +1329,11 @@ def _canonical_us_descendant_ordinal(path: str) -> int | None:
 def _citation_lookup_groups(
     citation_path: str,
 ) -> tuple[tuple[_LookupCandidate, ...], ...]:
-    exact_paths = (citation_path, *_uk_source_path_aliases(citation_path))
-    deduped_exact = tuple(dict.fromkeys(exact_paths))
     groups: list[tuple[_LookupCandidate, ...]] = [
-        tuple(_LookupCandidate(path, path, False) for path in deduped_exact)
+        (_LookupCandidate(citation_path, citation_path, False),)
     ]
-    seen = set(deduped_exact)
-    parent_paths = tuple(
-        (requested_path, _parent_citation_paths(requested_path))
-        for requested_path in deduped_exact
-    )
+    seen = {citation_path}
+    parent_paths = ((citation_path, _parent_citation_paths(citation_path)),)
     max_parent_depth = max((len(paths) for _, paths in parent_paths), default=0)
     for parent_index in range(max_parent_depth):
         group: list[_LookupCandidate] = []
@@ -1832,32 +1348,6 @@ def _citation_lookup_groups(
         if group:
             groups.append(tuple(group))
     return tuple(groups)
-
-
-def _uk_source_path_aliases(citation_path: str) -> tuple[str, ...]:
-    parts = citation_path.split("/")
-    if (
-        len(parts) >= 6
-        and parts[0] == "uk"
-        and parts[1] in {"statute", "regulation", "legislation"}
-        and parts[2] != "legislation.gov.uk"
-    ):
-        source_type, year, chapter, *section_parts = parts[2:]
-        prefix = (
-            "uk",
-            parts[1],
-            "legislation.gov.uk",
-            source_type,
-            year,
-            chapter,
-            "section",
-        )
-        aliases = ["/".join((*prefix, *section_parts))]
-        lowered = [part.lower() for part in section_parts]
-        if lowered != section_parts:
-            aliases.append("/".join((*prefix, *lowered)))
-        return tuple(aliases)
-    return ()
 
 
 def _parent_citation_paths(citation_path: str) -> tuple[str, ...]:
@@ -4001,46 +3491,37 @@ def _record_scope(
     *,
     path: Path,
     line_number: int,
-    fallback: ReleaseScope | None,
 ) -> ReleaseScope:
     jurisdiction = _row_string(
         record,
         "jurisdiction",
         path,
         line_number,
-        fallback=fallback.jurisdiction if fallback is not None else None,
     )
-    document_class_value = record.get("document_class")
-    doc_type_value = record.get("doc_type")
-    if document_class_value is not None and doc_type_value is not None:
-        if document_class_value != doc_type_value:
-            raise CorpusResolutionError(
-                f"Conflicting document class fields at {path}:{line_number}"
-            )
-    raw_document_class = (
-        document_class_value if document_class_value is not None else doc_type_value
-    )
-    if raw_document_class is None and fallback is not None:
-        document_class = fallback.document_class
-    else:
-        try:
-            document_class = _clean_string_value(
-                raw_document_class,
-                label=f"document_class at {path}:{line_number}",
-            )
-        except CorpusResolutionError as exc:
-            raise CorpusRowStructureError("missing-document-class", str(exc)) from exc
+    if "doc_type" in record:
+        raise CorpusRowStructureError(
+            "legacy-document-class",
+            f"Legacy doc_type is not allowed at {path}:{line_number}; "
+            "use document_class",
+        )
+    raw_document_class = record.get("document_class")
+    try:
+        document_class = _clean_string_value(
+            raw_document_class,
+            label=f"document_class at {path}:{line_number}",
+        )
+    except CorpusResolutionError as exc:
+        raise CorpusRowStructureError("missing-document-class", str(exc)) from exc
     version = _row_string(
         record,
         "version",
         path,
         line_number,
-        fallback=fallback.version if fallback is not None else None,
     )
     return ReleaseScope(jurisdiction, document_class, version)
 
 
-def _require_release_row_metadata(
+def _validate_release_row_metadata(
     record: dict[str, Any], *, path: Path, line_number: int
 ) -> None:
     for key in ("id", "source_path", "source_as_of", "expression_date"):
@@ -4060,35 +3541,6 @@ def _repository_root_for_provisions(provisions_root: Path) -> Path:
     ):
         return provisions_root.parent.parent.parent
     return provisions_root.parent
-
-
-def _parse_release_scope(raw_scope: Any, *, index: int) -> ReleaseScope:
-    if not isinstance(raw_scope, dict):
-        raise InvalidReleaseSelectorError(
-            f"Release selector scope #{index} must be an object"
-        )
-    if set(raw_scope) != {"jurisdiction", "document_class", "version"}:
-        raise InvalidReleaseSelectorError(
-            f"Release selector scope #{index} must contain exactly "
-            "jurisdiction, document_class, and version"
-        )
-    jurisdiction = _required_clean_string(
-        raw_scope, "jurisdiction", label=f"release selector scope #{index}"
-    )
-    document_class = _required_clean_string(
-        raw_scope, "document_class", label=f"release selector scope #{index}"
-    )
-    if document_class not in _DOCUMENT_CLASSES:
-        raise InvalidReleaseSelectorError(
-            f"Release selector scope #{index} has invalid document_class "
-            f"{document_class!r}"
-        )
-    version = _required_clean_string(
-        raw_scope, "version", label=f"release selector scope #{index}"
-    )
-    for label, value in (("jurisdiction", jurisdiction), ("version", version)):
-        _validate_safe_segment(value, label=f"scope {label}")
-    return ReleaseScope(jurisdiction, document_class, version)
 
 
 def _normalize_citation_path(identifier: str) -> str:
@@ -4135,12 +3587,27 @@ def _validate_safe_segment(value: str, *, label: str) -> None:
         raise CorpusResolutionError(f"Unsafe {label}: {value!r}")
 
 
-def _validated_release_name(value: Any) -> str:
+def validate_corpus_release_name(value: Any) -> str:
+    """Return one canonical immutable release name or reject it."""
+
     try:
         release_name = _clean_string_value(value, label="corpus release name")
         _validate_safe_segment(release_name, label="corpus release name")
     except CorpusResolutionError as exc:
-        raise InvalidReleaseSelectorError(str(exc)) from exc
+        raise InvalidCorpusReleaseError(str(exc)) from exc
+    if (
+        len(release_name) > 128
+        or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", release_name) is None
+    ):
+        raise InvalidCorpusReleaseError(
+            "Corpus release names must be at most 128 characters and contain "
+            "lowercase alphanumeric segments separated by single hyphens"
+        )
+    if release_name == "current":
+        raise InvalidCorpusReleaseError(
+            "Corpus release name 'current' is reserved; configure an immutable "
+            "named release"
+        )
     return release_name
 
 
@@ -4207,7 +3674,7 @@ def _safe_file(
     return resolved
 
 
-def _read_bounded_regular_file(
+def read_bounded_regular_file(
     root: Path,
     candidate: Path,
     *,
@@ -4289,21 +3756,21 @@ def _read_bounded_regular_file(
             os.close(descriptor)
 
 
-def _record_body(record: dict[str, Any]) -> str | None:
-    for key in ("body", "text"):
-        value = record.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
+def _record_body(
+    record: dict[str, Any],
+    *,
+    path: Path,
+    line_number: int,
+) -> str | None:
+    if "text" in record:
+        raise CorpusRowStructureError(
+            "legacy-body-field",
+            f"Legacy text body is not allowed at {path}:{line_number}; use body",
+        )
+    value = record.get("body")
+    if isinstance(value, str) and value.strip():
+        return value
     return None
-
-
-def _required_clean_string(payload: dict[str, Any], key: str, *, label: str) -> str:
-    if key not in payload:
-        raise InvalidReleaseSelectorError(f"{label} is missing {key}")
-    try:
-        return _clean_string_value(payload[key], label=f"{label}.{key}")
-    except CorpusResolutionError as exc:
-        raise InvalidReleaseSelectorError(str(exc)) from exc
 
 
 def _clean_string_value(value: Any, *, label: str) -> str:
@@ -4317,11 +3784,7 @@ def _row_string(
     key: str,
     path: Path,
     line_number: int,
-    *,
-    fallback: str | None = None,
 ) -> str:
-    if record.get(key) is None and fallback is not None:
-        return fallback
     try:
         return _clean_string_value(
             record.get(key), label=f"{key} at {path}:{line_number}"

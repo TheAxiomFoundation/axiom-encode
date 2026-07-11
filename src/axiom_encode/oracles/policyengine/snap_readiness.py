@@ -1,21 +1,32 @@
-"""SNAP encoding readiness report for rulespec-us-* repositories."""
+"""SNAP encoding readiness report for the canonical rulespec-us monorepo."""
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+from axiom_oracles.bridges.snap_populace import JURISDICTION_CONFIGS
 
+from axiom_encode.constants import (
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_TEST_FILE_SUFFIX,
+)
 from axiom_encode.corpus_resolver import (
     ActiveCorpusBodyRow,
-    CorpusSourceNotFoundError,
+    LocalCorpusRelease,
     iter_active_local_corpus_rows,
 )
-
-from .ecps_snap import JURISDICTION_CONFIGS
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    is_policy_repo_root,
+)
+from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
 SNAP_MARKERS = (
@@ -24,13 +35,18 @@ SNAP_MARKERS = (
     "food stamp",
     "food stamps",
 )
+STATE_MODULE_PATTERN = re.compile(r"us-[a-z]{2}")
+
+
+class SnapReadinessConfigurationError(ValueError):
+    """The canonical US RuleSpec checkout is absent or malformed."""
 
 
 @dataclass(frozen=True)
 class SnapReadinessItem:
     jurisdiction: str
-    repo: str
-    repo_path: str
+    module: str
+    module_path: str
     rulespec_files: int
     companion_test_files: int
     executable_outputs: int
@@ -44,8 +60,8 @@ class SnapReadinessItem:
     def as_dict(self) -> dict[str, Any]:
         return {
             "jurisdiction": self.jurisdiction,
-            "repo": self.repo,
-            "repo_path": self.repo_path,
+            "module": self.module,
+            "module_path": self.module_path,
             "rulespec_files": self.rulespec_files,
             "companion_test_files": self.companion_test_files,
             "executable_outputs": self.executable_outputs,
@@ -61,40 +77,47 @@ class SnapReadinessItem:
 def build_snap_readiness_report(
     root: Path,
     *,
-    corpus_root: Path | None = None,
+    corpus_root: Path,
 ) -> dict[str, Any]:
-    """Report whether each state rules repo is ready for SNAP encoding/oracles."""
-    root = Path(root).expanduser().resolve()
-    resolved_corpus_root = (
-        Path(corpus_root).expanduser().resolve()
-        if corpus_root
-        else root / "axiom-corpus"
+    """Report whether each state module is ready for SNAP encoding/oracles."""
+    rulespec_repo = _resolve_rulespec_us_repo(Path(root).expanduser())
+    resolved_corpus_root = Path(corpus_root).expanduser().resolve()
+    state_modules = _iter_state_rules_modules(rulespec_repo)
+    corpus_release = load_rulespec_local_corpus_release(
+        rulespec_repo,
+        resolved_corpus_root,
     )
     items = [
-        build_snap_readiness_item(repo, corpus_root=resolved_corpus_root)
-        for repo in _iter_state_rules_repos(root)
+        build_snap_readiness_item(module, corpus_release=corpus_release)
+        for module in state_modules
     ]
     status_counts = Counter(item.status for item in items)
     return {
         "program": "snap",
-        "root": str(root),
+        "root": str(rulespec_repo),
+        "rulespec_repo": str(rulespec_repo),
         "corpus_root": str(resolved_corpus_root),
-        "total_repos": len(items),
+        "total_modules": len(items),
         "status_counts": dict(sorted(status_counts.items())),
         "items": [item.as_dict() for item in items],
     }
 
 
 def build_snap_readiness_item(
-    repo: Path,
+    module: Path,
     *,
-    corpus_root: Path,
+    corpus_release: LocalCorpusRelease,
 ) -> SnapReadinessItem:
-    repo = Path(repo).expanduser().resolve()
-    jurisdiction = repo.name.removeprefix("rulespec-")
+    module = Path(module).expanduser().resolve()
+    jurisdiction = module.name
+    if STATE_MODULE_PATTERN.fullmatch(jurisdiction) is None:
+        raise SnapReadinessConfigurationError(
+            f"Invalid rulespec-us state module name: {module}"
+        )
+    rulespec_repo = module.parent
     rulespec_payloads = [
         (rulespec_file, payload)
-        for rulespec_file, payload in _iter_snap_rulespec_payloads(repo)
+        for rulespec_file, payload in _iter_snap_rulespec_payloads(module)
     ]
     rulespec_files = len(rulespec_payloads)
     executable_outputs = sum(
@@ -104,11 +127,11 @@ def build_snap_readiness_item(
         1
         for rulespec_file, _ in rulespec_payloads
         if rulespec_file.with_name(
-            rulespec_file.name.removesuffix(".yaml").removesuffix(".yml") + ".test.yaml"
+            rulespec_file.name.removesuffix(".yaml") + ".test.yaml"
         ).exists()
     )
     corpus_snap_provisions = count_snap_corpus_provisions(
-        corpus_root,
+        corpus_release,
         jurisdiction=jurisdiction,
     )
     populace_config = JURISDICTION_CONFIGS.get(jurisdiction)
@@ -117,7 +140,7 @@ def build_snap_readiness_item(
     )
     program_module_exists = (
         bool(populace_config)
-        and (repo / populace_config.program_relative_path).exists()
+        and (module / populace_config.program_relative_path).exists()
     )
     status, blockers = _classify_status(
         rulespec_files=rulespec_files,
@@ -127,8 +150,8 @@ def build_snap_readiness_item(
     )
     return SnapReadinessItem(
         jurisdiction=jurisdiction,
-        repo=repo.name,
-        repo_path=str(repo),
+        module=f"{rulespec_repo.name}/{module.name}",
+        module_path=str(module),
         rulespec_files=rulespec_files,
         companion_test_files=companion_test_files,
         executable_outputs=executable_outputs,
@@ -141,48 +164,94 @@ def build_snap_readiness_item(
     )
 
 
-def count_snap_corpus_provisions(corpus_root: Path, *, jurisdiction: str) -> int:
+def count_snap_corpus_provisions(
+    corpus_release: LocalCorpusRelease,
+    *,
+    jurisdiction: str,
+) -> int:
     """Count active, unambiguous corpus rows that appear to be SNAP sources."""
-    corpus_root = Path(corpus_root).expanduser()
-    if not corpus_root.exists():
-        return 0
-    try:
-        rows = iter_active_local_corpus_rows(
-            corpus_root,
-            jurisdiction=jurisdiction,
-        )
-    except CorpusSourceNotFoundError:
-        return 0
+    rows = iter_active_local_corpus_rows(
+        corpus_release,
+        jurisdiction=jurisdiction,
+    )
     return sum(1 for row in rows if _corpus_row_is_snap(row))
 
 
-def _iter_state_rules_repos(root: Path) -> list[Path]:
-    return [
-        repo
-        for repo in sorted(root.glob("rulespec-us-*"))
-        if repo.is_dir() and repo.name != "rulespec-us"
-    ]
+def _resolve_rulespec_us_repo(root: Path) -> Path:
+    if root.name != "rulespec-us" or not is_policy_repo_root(root):
+        raise SnapReadinessConfigurationError(
+            f"SNAP readiness requires the exact canonical rulespec-us checkout: {root}"
+        )
+    return root.resolve(strict=True)
+
+
+def _iter_state_rules_modules(rulespec_repo: Path) -> list[Path]:
+    modules: list[Path] = []
+    for candidate in sorted(rulespec_repo.iterdir()):
+        if STATE_MODULE_PATTERN.fullmatch(candidate.name) is None:
+            continue
+        if candidate.is_symlink() or not candidate.is_dir():
+            raise SnapReadinessConfigurationError(
+                f"rulespec-us state modules must be regular directories: {candidate}"
+            )
+        resolved = candidate.resolve(strict=True)
+        if canonical_rulespec_root_identity(resolved) is None:
+            raise SnapReadinessConfigurationError(
+                f"Noncanonical rulespec-us state module: {candidate}"
+            )
+        modules.append(resolved)
+    if not modules:
+        raise SnapReadinessConfigurationError(
+            f"Canonical rulespec-us checkout contains no us-xx state modules: "
+            f"{rulespec_repo}"
+        )
+    return modules
 
 
 def _iter_snap_rulespec_payloads(repo: Path) -> list[tuple[Path, dict[str, Any]]]:
     payloads: list[tuple[Path, dict[str, Any]]] = []
-    for rulespec_file in sorted(repo.rglob("*.y*ml")):
-        if rulespec_file.name.endswith(".test.yaml"):
+    for rulespec_file in sorted(repo.rglob("*")):
+        relative = rulespec_file.relative_to(repo)
+        if relative.parts and relative.parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
             continue
-        if ".axiom" in rulespec_file.relative_to(repo).parts:
+        if rulespec_file.is_symlink():
+            raise SnapReadinessConfigurationError(
+                f"RuleSpec content must not contain symlinks: {rulespec_file}"
+            )
+        if not rulespec_file.is_file():
+            continue
+        if rulespec_file.suffix == ".yml":
+            raise SnapReadinessConfigurationError(
+                "RuleSpec modules must use the canonical .yaml extension: "
+                f"{rulespec_file}"
+            )
+        if rulespec_file.suffix != RULESPEC_FILE_SUFFIX:
+            continue
+        if not relative.parts or relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+            raise SnapReadinessConfigurationError(
+                "Atomic RuleSpec YAML must be under one canonical module root "
+                f"{sorted(RULESPEC_ATOMIC_MODULE_ROOTS)}: {rulespec_file}"
+            )
+        if rulespec_file.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
             continue
         payload = _load_yaml_mapping(rulespec_file)
-        if payload and _is_snap_rulespec(rulespec_file, repo=repo, payload=payload):
+        if _is_snap_rulespec(rulespec_file, repo=repo, payload=payload):
             payloads.append((rulespec_file, payload))
     return payloads
 
 
-def _load_yaml_mapping(path: Path) -> dict[str, Any] | None:
+def _load_yaml_mapping(path: Path) -> dict[str, Any]:
     try:
         payload = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise SnapReadinessConfigurationError(
+            f"Could not read canonical RuleSpec YAML {path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise SnapReadinessConfigurationError(
+            f"Canonical RuleSpec YAML must be a mapping: {path}"
+        )
+    return payload
 
 
 def _is_snap_rulespec(

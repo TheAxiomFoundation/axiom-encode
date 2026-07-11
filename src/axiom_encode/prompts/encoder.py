@@ -163,8 +163,8 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly
-  supported by the supplied source text, an explicit imported RuleSpec export,
-  or an accepted source claim listed in `module.source_claims`.
+  supported by the supplied release-bound corpus text or an explicit imported
+  RuleSpec export.
 - Downstream convenience booleans that collapse a legal process into one
   answer are not federal/source outputs unless the supplied source text itself
   defines that collapsed test. Keep process simplifications out of RuleSpec
@@ -196,34 +196,21 @@ Hard requirements:
   source text when the source is more than a short paragraph. Corpus-backed
   validation reads the authoritative source from `corpus.provisions`; use the
   summary only to orient reviewers to the encoded provisions.
-- If the source has an ingested corpus provision, include
-  `module.source_verification.corpus_citation_path` or
-  `module.source_verification.corpus_citation_paths`.
-- If the corpus source path is below statute/regulation authority (for example
-  a `policy`, `manual`, `guidance`, `form`, table, CMS summary, or state plan),
-  do not treat it as adequate by default. First check statute/regulation
-  authority when provided in context. If the lower source remains the correct
-  source for the encoded value or rule, include
-  `module.source_verification.upstream_source_check` with:
-  `status` (`checked_higher_authority`, `official_parameter_source`,
-  `delegated_parameter_source`, or `no_higher_authority_found`),
-  `checked_paths` listing at least one statute/regulation corpus path or
-  RuleSpec target that was checked, and `rationale` explaining why the lower
-  source is still used. If no higher-authority check is available, stop and
-  emit a typed request `upstream_source_check_required` instead of encoding.
-- When higher-authority context is supplied through copied JSONL, inventory, or
-  ingest-run files, cite the embedded corpus `citation_path` values in
-  `checked_paths` and proof atoms. Do not cite the copied `external/...`
-  workspace filename as legal authority.
-- If accepted source claims are supplied, include their IDs under
-  `module.source_claims`; do not inline claim bodies, values, formulas,
-  evidence, or review metadata in RuleSpec.
+- If the source has an ingested corpus provision, include exactly one
+  `module.source_verification.corpus_citation_path`: the resolver-attested
+  requested path. Never emit `corpus_citation_paths`. If executable logic needs
+  another legal source, import a separately attested RuleSpec or defer it.
+- Prefer the most authoritative supplied legal source for each atomic rule. If
+  another source is needed, encode it as its own corpus-bound atomic module and
+  import that module, or emit a typed deferral. Do not add source-audit metadata
+  to `module.source_verification`; its only fields are the singular
+  `corpus_citation_path` and optional `source_sha256` pin.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to each policy-bearing rule. Each proof atom must point
-  to direct corpus source text, a claim listed in `module.source_claims`, or an
-  explicit imported RuleSpec export. If you cannot build that proof, stop and
-  emit a typed request such as `missing_claim`, `bundle_expansion_request`,
-  `corpus_defect`, `segmentation_fix`, `stale_claim`, or `conflicting_claims`.
+  to direct release-bound corpus source text or an explicit imported RuleSpec
+  export. If you cannot build that proof, stop and emit a typed request such as
+  `missing_source`, `bundle_expansion_request`, `corpus_defect`, or
+  `segmentation_fix`.
 - For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
@@ -1147,8 +1134,9 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   conditional on billed, paid, incurred, anticipated, or other cost/expense
   facts, encode a positive fact predicate for that source-stated condition.
   Do not model availability solely as `not` other categories. If the condition
-  lives in a parent paragraph needed to understand a child paragraph, include
-  the parent corpus path in `module.source_verification.corpus_citation_paths`.
+  lives in a parent paragraph needed to understand a child paragraph, it must be
+  part of the resolver-supplied canonical source unit or a separately attested
+  RuleSpec import; do not add another corpus path to this module.
 - When the cost/expense fact only matters after exclusion predicates, exported
   amount/quantity formulas consumed by dependent modules must guard the
   exclusions before referencing the branch-specific fact, so excluded cases do
@@ -1373,7 +1361,7 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
-     outputs as test inputs; imported programs are computed. If the downstream
+     outputs as test inputs; imported derived outputs are computed. If the downstream
      rule depends on an imported output, assign all current upstream factual
      inputs and relations needed by that imported output, including false facts.
      This does not override no-input guardrails: never assign prohibited derived
@@ -1385,8 +1373,7 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
      sources first.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
-     textual claim support is either direct corpus source support or a claim ID
-     listed under `module.source_claims`.
+     textual support uses direct release-bound corpus source text.
   4. Import inventory: every `imports:` entry is an exact copied/importable
      RuleSpec target. Top-level `imports:` entries must be scalar strings; never
      map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
@@ -1639,12 +1626,12 @@ def get_encoder_prompt(
         corpus_section = f"""
 Corpus source path: {corpus_citation_path}
 Include `{corpus_citation_path}` in `module.source_verification`.
-Use `module.source_verification.corpus_citation_path: {corpus_citation_path}`
-when the primary corpus row fully states the encoded source slice. If the
-primary row is split by a page break or otherwise continues in supplied
-adjacent source context for the same legal provision, use
-`module.source_verification.corpus_citation_paths` and include both the primary
-path and each continuation corpus path that grounds executable rules.
+Use exactly
+`module.source_verification.corpus_citation_path: {corpus_citation_path}`.
+Never emit `corpus_citation_paths`. A provision split across storage rows must
+be composed by the corpus resolver under this one canonical path. If another
+legal source is required, import its separately attested RuleSpec or defer the
+affected executable surface.
 """
 
     return f"""{ENCODER_PROMPT}

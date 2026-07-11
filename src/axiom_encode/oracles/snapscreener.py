@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from axiom_encode.harness.eval_evidence import scrub_attestation_signing_keys
+
 SNAPSCREENER_API_JS_URL = "https://tools.snapscreener.com/api.js"
 
 
@@ -189,6 +191,7 @@ def run_payloads(
         text=True,
         capture_output=True,
         check=False,
+        env=scrub_attestation_signing_keys(),
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
