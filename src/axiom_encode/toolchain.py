@@ -6,10 +6,10 @@ import hashlib
 import os
 import re
 import tomllib
+from base64 import b64encode
 from dataclasses import dataclass
 from pathlib import Path
 
-from .corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from .corpus_resolver import (
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
@@ -18,6 +18,7 @@ from .corpus_resolver import (
     validate_corpus_release_name,
 )
 from .repo_routing import is_policy_repo_root
+from .signing_broker import SigningBrokerError, get_signing_broker
 
 MAX_RULESPEC_TOOLCHAIN_BYTES = 64 * 1024
 MAX_VALIDATION_WAIVER_SET_BYTES = 2_000_000
@@ -247,12 +248,19 @@ def load_rulespec_local_corpus_release(
 
     toolchain = load_rulespec_toolchain(rulespec_root)
     _verify_rulespec_validation_waiver_set(toolchain)
-    public_key = os.environ.get(RELEASE_OBJECT_PUBLIC_KEY_ENV, "")
-    if not public_key:
+    try:
+        broker = get_signing_broker()
+    except SigningBrokerError as exc:
         raise RuleSpecToolchainError(
-            f"{RELEASE_OBJECT_PUBLIC_KEY_ENV} is required to verify the pinned "
+            "A protected signing broker is required to verify the pinned "
             "corpus release object"
+        ) from exc
+    public_key_raw = broker.corpus_release_public_key_raw
+    if public_key_raw is None or len(public_key_raw) != 32:
+        raise RuleSpecToolchainError(
+            "The protected signing broker has no valid corpus release public key"
         )
+    public_key = b64encode(public_key_raw).decode("ascii")
     return LocalCorpusRelease(
         corpus_root,
         toolchain.corpus_release,

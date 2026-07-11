@@ -46,8 +46,9 @@ pin one signed release object in `.axiom/toolchain.toml` through
 `[toolchain].axiom_corpus_release_content_sha256`, and bind the exact raw bytes of the
 canonical `known-validation-gaps.yaml` through
 `[toolchain].validation_waiver_set_sha256`. Corpus-backed commands require an
-explicit canonical local `axiom-corpus` checkout and
-`AXIOM_CORPUS_RELEASE_PUBLIC_KEY`. They verify
+explicit canonical local `axiom-corpus` checkout and an authenticated signing
+broker initialized from the protected three-root config. The corpus-release
+root comes only from that broker, never from the environment. Commands verify
 `releases/<name>/<content_sha256>.json` and authorize artifacts only through its
 signed `content.artifacts` inventory; there is no mutable `current` release,
 directory-scan authorization, legacy layout, ambient checkout discovery, or
@@ -111,7 +112,7 @@ applied encodings. Reconcile Supabase with them at any time — the sync is
 idempotent (rows are keyed by the manifest's original run id) and uses
 `data_source=apply_manifest`:
 
-Run `sync-applied-runs` under the same protected signing supervisor and dual-root
+Run `sync-applied-runs` under the same protected signing supervisor and three-root
 configuration used by apply. Verification-only invocations omit signer
 descriptors. Add `--dry-run` to preview.
 
@@ -146,10 +147,11 @@ not match the RuleSpec source path.
 Apply and retire commands must be launched by a trusted supervisor that attaches
 the signing-broker socket before Python starts. The broker holds the Ed25519
 signing capability out of process while the private key remains in an external
-signer; the CLI receives only the broker capability. Both distinct public roots
-come from one root-owned, caller-nonwritable JSON config; environment values do
-not define signing trust. Without an attached broker initialized from that
-protected config, the encoder refuses to install or retire RuleSpec.
+signer; the CLI receives only the broker capability. All three pairwise-distinct
+apply, eval, and corpus-release public roots come from one root-owned,
+caller-nonwritable JSON config; environment values do not define signing trust.
+Without an attached broker initialized from that protected config, the encoder
+refuses to install or retire RuleSpec.
 
 The trusted supervisor is a separate Go-standard-library deployment artifact;
 installing the Python package alone does not install it. Build it reproducibly
@@ -179,7 +181,7 @@ build/axiom-encode-signing-supervisor \
 ```
 
 Use `--eval-signer-fd 4` with the distinct eval signer selected by the protected
-dual-root config for
+three-root config for
 evaluation signing, or pass both signer options when both capabilities are
 required. Raw private keys are never accepted by the supervisor, broker, or
 Python process.
@@ -378,7 +380,7 @@ null thresholds are rejected.
 
 Fresh `eval-suite` runs, resumed runs, and `eval-suite-revalidate` require an
 externally attached broker with the eval-signing capability initialized from
-the protected dual-root config. Each config key accepts Ed25519 PKIX PEM or
+the protected three-root config. Each config key accepts Ed25519 PKIX PEM or
 exactly 32 raw bytes encoded with base64.
 As with apply signing, run these mutation paths through the compiled trusted
 supervisor with an operation-scoped external signer socket. The external signer

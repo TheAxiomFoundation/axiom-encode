@@ -86,9 +86,10 @@ def main():
     trust.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/signing-trust-roots/v1",
+                "schema": "axiom-encode/signing-trust-roots/v2",
                 "apply_ed25519_public_key": _public(b"\xab" * 32),
                 "eval_ed25519_public_key": _public(b"\xcd" * 32),
+                "corpus_release_ed25519_public_key": _public(b"\x17" * 32),
             },
             sort_keys=True,
         )

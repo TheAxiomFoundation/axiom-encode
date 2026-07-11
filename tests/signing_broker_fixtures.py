@@ -85,6 +85,7 @@ class SigningBrokerFixture:
         apply_public_key: str | None = None,
         eval_private_key: str | None = None,
         eval_public_key: str | None = None,
+        corpus_release_public_key: str | None = None,
     ):
         self._apply_private_key = (
             _private_key(apply_private_key, label="Apply manifest")
@@ -105,6 +106,11 @@ class SigningBrokerFixture:
             label="Eval evidence",
             private_key=self._eval_private_key,
             public_text=eval_public_key,
+        )
+        self._corpus_release_public = self._validate_pair(
+            label="Corpus release",
+            private_key=None,
+            public_text=corpus_release_public_key,
         )
 
     @staticmethod
@@ -145,6 +151,10 @@ class SigningBrokerFixture:
     @property
     def eval_public_key_raw(self) -> bytes | None:
         return self._eval_public
+
+    @property
+    def corpus_release_public_key_raw(self) -> bytes | None:
+        return self._corpus_release_public
 
     def apply_ed25519_sign(self, payload: bytes) -> bytes:
         if self._apply_private_key is None:

@@ -18,7 +18,7 @@ func framed(raw string) []byte {
 func TestReceiveFrameRejectsTrailingJSONValue(t *testing.T) {
 	var request brokerRequest
 	err := receiveFrame(
-		bytes.NewReader(framed(`{"version":3,"id":1,"op":"status"} {}`)),
+		bytes.NewReader(framed(`{"version":4,"id":1,"op":"status"} {}`)),
 		&request,
 	)
 	if err == nil || !strings.Contains(err.Error(), "trailing JSON") {
@@ -29,7 +29,7 @@ func TestReceiveFrameRejectsTrailingJSONValue(t *testing.T) {
 func TestReceiveFrameRejectsUnknownField(t *testing.T) {
 	var request brokerRequest
 	err := receiveFrame(
-		bytes.NewReader(framed(`{"version":3,"id":1,"op":"status","legacy_key":"no"}`)),
+		bytes.NewReader(framed(`{"version":4,"id":1,"op":"status","legacy_key":"no"}`)),
 		&request,
 	)
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
@@ -39,9 +39,9 @@ func TestReceiveFrameRejectsUnknownField(t *testing.T) {
 
 func TestReceiveFrameRejectsDuplicateKeysAtEveryDepth(t *testing.T) {
 	for _, raw := range []string{
-		`{"version":3,"id":1,"id":2,"op":"status"}`,
-		`{"version":3,"\u0069d":1,"id":2,"op":"status"}`,
-		`{"version":3,"id":1,"op":"status","payload":{"x":1,"x":2}}`,
+		`{"version":4,"id":1,"id":2,"op":"status"}`,
+		`{"version":4,"\u0069d":1,"id":2,"op":"status"}`,
+		`{"version":4,"id":1,"op":"status","payload":{"x":1,"x":2}}`,
 	} {
 		var request brokerRequest
 		err := receiveFrame(bytes.NewReader(framed(raw)), &request)
@@ -61,7 +61,7 @@ func TestReceiveFrameRejectsOversizedObjectKey(t *testing.T) {
 }
 
 func TestReceiveFrameRejectsExcessiveJSONNesting(t *testing.T) {
-	raw := `{"version":3,"id":1,"op":"status","payload":` +
+	raw := `{"version":4,"id":1,"op":"status","payload":` +
 		strings.Repeat("[", maxJSONDepth+2) + `null` +
 		strings.Repeat("]", maxJSONDepth+2) + `}`
 	var request brokerRequest
@@ -88,22 +88,22 @@ func TestBrokerRequestRequiresExactOperationFields(t *testing.T) {
 	}{
 		{
 			name:  "empty payload on status",
-			raw:   `{"version":3,"id":1,"op":"status","payload":""}`,
+			raw:   `{"version":4,"id":1,"op":"status","payload":""}`,
 			error: "status request is malformed",
 		},
 		{
 			name:  "null payload on sign",
-			raw:   `{"version":3,"id":1,"op":"apply_ed25519_sign","payload":null}`,
+			raw:   `{"version":4,"id":1,"op":"apply_ed25519_sign","payload":null}`,
 			error: "signing request is malformed",
 		},
 		{
 			name:  "missing payload on sign",
-			raw:   `{"version":3,"id":1,"op":"apply_ed25519_sign"}`,
+			raw:   `{"version":4,"id":1,"op":"apply_ed25519_sign"}`,
 			error: "signing request is malformed",
 		},
 		{
 			name:  "empty forbidden initialization field",
-			raw:   `{"version":3,"id":1,"op":"status","apply_public_key":""}`,
+			raw:   `{"version":4,"id":1,"op":"status","apply_public_key":""}`,
 			error: "forbidden initialization fields",
 		},
 	}
@@ -119,7 +119,7 @@ func TestBrokerRequestRequiresExactOperationFields(t *testing.T) {
 
 	request := decodedRequest(
 		t,
-		`{"version":3,"id":1,"op":"apply_ed25519_sign","payload":""}`,
+		`{"version":4,"id":1,"op":"apply_ed25519_sign","payload":""}`,
 	)
 	if err := validateBrokerRequestOperation(&request); err != nil {
 		t.Fatalf("explicit empty signing payload should be valid: %v", err)
@@ -128,14 +128,14 @@ func TestBrokerRequestRequiresExactOperationFields(t *testing.T) {
 
 func TestBrokerRequestIDsArePositiveAndStrictlyIncreasing(t *testing.T) {
 	lastRequestID := int64(0)
-	first := decodedRequest(t, `{"version":3,"id":1,"op":"status"}`)
+	first := decodedRequest(t, `{"version":4,"id":1,"op":"status"}`)
 	if err := validateBrokerRequestEnvelope(&first, &lastRequestID); err != nil {
 		t.Fatalf("first request should be valid: %v", err)
 	}
 	for _, raw := range []string{
-		`{"version":3,"id":1,"op":"status"}`,
-		`{"version":3,"id":0,"op":"status"}`,
-		`{"version":3,"id":-1,"op":"status"}`,
+		`{"version":4,"id":1,"op":"status"}`,
+		`{"version":4,"id":0,"op":"status"}`,
+		`{"version":4,"id":-1,"op":"status"}`,
 	} {
 		request := decodedRequest(t, raw)
 		err := validateBrokerRequestEnvelope(&request, &lastRequestID)
@@ -143,14 +143,14 @@ func TestBrokerRequestIDsArePositiveAndStrictlyIncreasing(t *testing.T) {
 			t.Fatalf("expected request ID rejection for %s, got %v", raw, err)
 		}
 	}
-	third := decodedRequest(t, `{"version":3,"id":3,"op":"status"}`)
+	third := decodedRequest(t, `{"version":4,"id":3,"op":"status"}`)
 	if err := validateBrokerRequestEnvelope(&third, &lastRequestID); err != nil {
 		t.Fatalf("later increasing request should be valid: %v", err)
 	}
 }
 
-func TestBrokerRejectsRemovedV2Protocol(t *testing.T) {
-	request := decodedRequest(t, `{"version":2,"id":1,"op":"status"}`)
+func TestBrokerRejectsRemovedV3Protocol(t *testing.T) {
+	request := decodedRequest(t, `{"version":3,"id":1,"op":"status"}`)
 	lastRequestID := int64(0)
 	err := validateBrokerRequestEnvelope(&request, &lastRequestID)
 	if err == nil || !strings.Contains(err.Error(), "malformed") {
@@ -160,14 +160,30 @@ func TestBrokerRejectsRemovedV2Protocol(t *testing.T) {
 
 func TestBrokerInitializationRejectsEmptyOrExtraFields(t *testing.T) {
 	for _, raw := range []string{
-		`{"version":3,"id":0,"op":"initialize","apply_public_key":""}`,
-		`{"version":3,"id":0,"op":"initialize","apply_public_key":"q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=","payload":""}`,
-		`{"version":3,"id":0,"op":"initialize"}`,
+		`{"version":4,"id":0,"op":"initialize","apply_public_key":""}`,
+		`{"version":4,"id":0,"op":"initialize","apply_public_key":"q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=","payload":""}`,
+		`{"version":4,"id":0,"op":"initialize"}`,
 	} {
 		request := decodedRequest(t, raw)
 		if request.hasValidInitializationShape() {
 			t.Fatalf("expected initialization shape rejection for %s", raw)
 		}
+	}
+}
+
+func TestBrokerInitializationRequiresThreeDistinctRoots(t *testing.T) {
+	valid := decodedRequest(
+		t,
+		`{"version":4,"id":0,"op":"initialize","apply_public_key":"q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=","eval_public_key":"zc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc0=","corpus_release_public_key":"FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc="}`,
+	)
+	if !valid.hasValidInitializationShape() {
+		t.Fatal("expected three distinct initialization roots to be valid")
+	}
+
+	aliased := valid
+	aliased.CorpusReleasePublicKey = append([]byte(nil), valid.ApplyPublicKey...)
+	if aliased.hasValidInitializationShape() {
+		t.Fatal("expected aliased corpus release root to be rejected")
 	}
 }
 

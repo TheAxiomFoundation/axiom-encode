@@ -8,13 +8,18 @@ repository ships monetary parameters with no proof atoms at all.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import subprocess
 import sys
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from axiom_encode import entrypoint
 from axiom_encode.harness.proof_validator import (
     MoneyAtomRatchet,
     emit_money_atom_ratchet,
@@ -419,10 +424,29 @@ def _write_test_toolchain(checkout_root: Path, *, content_sha256: str) -> None:
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "axiom_encode.cli", *args],
-        capture_output=True,
-        text=True,
+    """Drive the public entrypoint with the non-inheritable test broker attached."""
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    returncode = 0
+    with (
+        patch.object(sys, "argv", ["axiom-encode", *args]),
+        redirect_stdout(stdout),
+        redirect_stderr(stderr),
+    ):
+        try:
+            result = entrypoint.main()
+            returncode = int(result or 0)
+        except SystemExit as exc:
+            returncode = int(exc.code or 0)
+        except Exception:
+            traceback.print_exc(file=stderr)
+            returncode = 1
+    return subprocess.CompletedProcess(
+        [sys.executable, "-m", "axiom_encode.entrypoint", *args],
+        returncode,
+        stdout.getvalue(),
+        stderr.getvalue(),
     )
 
 

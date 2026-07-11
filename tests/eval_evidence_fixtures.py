@@ -11,6 +11,7 @@ from axiom_encode.harness.eval_evidence import (
 from axiom_encode.signing_broker import (
     APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
 )
+from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLY_MANIFEST_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -52,6 +53,7 @@ def make_test_eval_signing_broker(
         apply_public_key=apply_public_key,
         eval_private_key=TEST_EVAL_PRIVATE_KEY_B64,
         eval_public_key=TEST_EVAL_PUBLIC_KEY_B64,
+        corpus_release_public_key=TEST_RELEASE_PUBLIC_KEY,
     )
 
 

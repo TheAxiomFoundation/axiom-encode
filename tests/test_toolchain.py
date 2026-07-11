@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from axiom_encode import signing_broker
+from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from axiom_encode.corpus_resolver import InvalidCorpusReleaseError
 from axiom_encode.toolchain import (
     RuleSpecToolchainError,
@@ -16,7 +18,10 @@ from axiom_encode.toolchain import (
     load_rulespec_local_corpus_release,
     verify_rulespec_validation_waiver_set,
 )
-from tests.release_object_fixtures import bind_test_corpus_release
+from tests.release_object_fixtures import (
+    TEST_RELEASE_PUBLIC_KEY,
+    bind_test_corpus_release,
+)
 
 RELEASE_NAME = "test-rulespec-release"
 WAIVER_TEXT = "validate_failures: {}\n"
@@ -89,6 +94,21 @@ def test_load_rulespec_local_corpus_release_binds_exact_named_selector(tmp_path)
     assert (
         release.provisions_root == (corpus / "data" / "corpus" / "provisions").resolve()
     )
+
+
+def test_environment_corpus_key_cannot_replace_protected_broker(
+    tmp_path,
+    monkeypatch,
+):
+    rulespec = tmp_path / "rulespec-us"
+    corpus = tmp_path / "corpus"
+    release = _write_corpus_release(corpus)
+    _write_toolchain(rulespec, content_sha256=release.content_sha256)
+    monkeypatch.setattr(signing_broker, "_active_broker", None)
+    monkeypatch.setenv(RELEASE_OBJECT_PUBLIC_KEY_ENV, TEST_RELEASE_PUBLIC_KEY)
+
+    with pytest.raises(RuleSpecToolchainError, match="protected signing broker"):
+        load_rulespec_local_corpus_release(rulespec, corpus)
 
 
 def test_nested_rulespec_path_rejects_multiple_toolchains(tmp_path):

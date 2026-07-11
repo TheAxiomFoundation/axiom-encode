@@ -38,7 +38,7 @@ _PRIVATE_ENV_NAMES: Final = (
     EVAL_EVIDENCE_PRIVATE_KEY_ENV,
 )
 _BROKER_ENV_NAMES: Final = (BROKER_FD_ENV, BROKER_PID_ENV, BROKER_MARKER_ENV)
-_PROTOCOL_VERSION: Final = 3
+_PROTOCOL_VERSION: Final = 4
 _MAX_FRAME_BYTES: Final = 64 * 1024 * 1024
 _SIGNATURE_DOMAIN_PREFIX: Final = b"axiom-encode/external-signer-sign/v2\x00"
 _SIGNING_SCOPES: Final = frozenset({"apply_ed25519", "eval_ed25519"})
@@ -91,6 +91,9 @@ class SigningBroker(Protocol):
     @property
     def eval_public_key_raw(self) -> bytes | None: ...
 
+    @property
+    def corpus_release_public_key_raw(self) -> bytes | None: ...
+
     def apply_ed25519_sign(self, payload: bytes) -> bytes: ...
 
     def eval_ed25519_sign(self, payload: bytes) -> bytes: ...
@@ -103,6 +106,7 @@ class BrokerStatus:
     capabilities: frozenset[str]
     apply_public_key_raw: bytes | None
     eval_public_key_raw: bytes | None
+    corpus_release_public_key_raw: bytes | None
 
 
 def scrub_private_signing_environment(
@@ -176,6 +180,7 @@ class SigningBrokerClient:
             "capabilities",
             "apply_public_key",
             "eval_public_key",
+            "corpus_release_public_key",
         }:
             raise SigningBrokerError("Signing broker returned malformed status")
         raw_capabilities = status.get("capabilities")
@@ -195,18 +200,25 @@ class SigningBrokerClient:
             status.get("eval_public_key"),
             label="eval",
         )
-        if (
-            apply_public_key_raw is None
-            or eval_public_key_raw is None
-            or apply_public_key_raw == eval_public_key_raw
-        ):
+        corpus_release_public_key_raw = self._decode_status_public_key(
+            status.get("corpus_release_public_key"),
+            label="corpus release",
+        )
+        protected_roots = {
+            apply_public_key_raw,
+            eval_public_key_raw,
+            corpus_release_public_key_raw,
+        }
+        if None in protected_roots or len(protected_roots) != 3:
             raise SigningBrokerError(
-                "Signing broker must expose distinct protected apply/eval trust roots"
+                "Signing broker must expose three distinct protected apply, eval, "
+                "and corpus release trust roots"
             )
         self._status = BrokerStatus(
             frozenset(raw_capabilities),
             apply_public_key_raw,
             eval_public_key_raw,
+            corpus_release_public_key_raw,
         )
 
     @staticmethod
@@ -247,6 +259,10 @@ class SigningBrokerClient:
     @property
     def eval_public_key_raw(self) -> bytes | None:
         return self._status.eval_public_key_raw
+
+    @property
+    def corpus_release_public_key_raw(self) -> bytes | None:
+        return self._status.corpus_release_public_key_raw
 
     @property
     def broker_pid(self) -> int | None:

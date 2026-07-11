@@ -21,15 +21,20 @@ from axiom_encode import (
     ValidationResult,
     __version__,
 )
-from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
+from axiom_encode import signing_broker as _signing_broker
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
+from tests.signing_broker_fixtures import SigningBrokerFixture
 
 
 @pytest.fixture(autouse=True)
-def _trusted_test_corpus_release_key(monkeypatch):
-    """Give tests the one public key used by signed corpus fixtures."""
+def _trusted_test_corpus_release_broker(monkeypatch):
+    """Install the verification broker used by signed corpus fixtures."""
 
-    monkeypatch.setenv(RELEASE_OBJECT_PUBLIC_KEY_ENV, TEST_RELEASE_PUBLIC_KEY)
+    broker = SigningBrokerFixture(
+        corpus_release_public_key=TEST_RELEASE_PUBLIC_KEY,
+    )
+    monkeypatch.setattr(_signing_broker, "_active_broker", broker)
+    monkeypatch.setattr(_signing_broker, "_active_broker_pid", None)
 
 
 @pytest.fixture(autouse=True)

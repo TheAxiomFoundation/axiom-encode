@@ -101,8 +101,8 @@ requirements, while every other command fails closed when a pending journal is
 present. Overlapping or inconsistently grouped retire manifests are rejected.
 
 Replace shared-secret apply-manifest HMACs with scope-domain-bound Ed25519
-signatures. Verification uses the apply root from one protected config that
-also contains a distinct eval root; environment values cannot define trust.
+signatures. Verification uses pairwise-distinct apply, eval, and corpus-release
+roots from one protected config; environment values cannot define trust.
 Signing requires the externally attached broker capability. The model-capable
 Python CLI rejects all legacy/current private-key environment inputs, and there
 is no shared-secret, in-process private-key, or old-schema fallback.

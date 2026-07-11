@@ -66,6 +66,7 @@ from tests.signing_broker_fixtures import SigningBrokerFixture
 TEST_APPLY_SIGNING_BROKER = SigningBrokerFixture(
     apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
     apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
+    corpus_release_public_key=TEST_RELEASE_PUBLIC_KEY,
 )
 
 
@@ -74,6 +75,10 @@ def _apply_manifest_signing_key(monkeypatch):
     monkeypatch.setenv(
         "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY",
         TEST_APPLY_PUBLIC_KEY_B64,
+    )
+    monkeypatch.setenv(
+        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY",
+        TEST_RELEASE_PUBLIC_KEY,
     )
     monkeypatch.setattr(
         "axiom_encode.signing_broker._active_broker",

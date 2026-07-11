@@ -17218,7 +17218,7 @@ def _load_verified_applied_encoding_manifest_payload(
             root_prefix,
             None,
             [
-                "A protected signing broker initialized from the dual-root "
+                "A protected signing broker initialized from the three-root "
                 "trust config is required to verify encoder apply manifests"
             ],
         )
@@ -17469,7 +17469,7 @@ def _load_applied_encoding_manifest_entries(
         return (
             entries,
             [
-                "A protected signing broker initialized from the dual-root "
+                "A protected signing broker initialized from the three-root "
                 "trust config is required to verify encoder apply manifests"
             ],
         )
@@ -17577,7 +17577,7 @@ def _require_applied_encoding_manifest_signer() -> SigningBroker:
         raise RuntimeError(
             "Apply-manifest signing must be provisioned through an externally "
             "attached trusted signing broker initialized from the protected "
-            "apply/eval trust-root configuration"
+            "apply/eval/corpus-release trust-root configuration"
         )
     return signer
 

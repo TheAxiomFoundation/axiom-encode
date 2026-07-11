@@ -15,6 +15,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from axiom_encode.signing_broker import (
     APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
     BROKER_FD_ENV,
@@ -49,11 +50,13 @@ def _keypair(seed: bytes) -> tuple[str, str, Ed25519PrivateKey]:
 def test_typed_apply_and_eval_operations() -> None:
     apply_private, apply_public, apply_private_key = _keypair(b"\xab" * 32)
     eval_private, eval_public, eval_private_key = _keypair(b"\xcd" * 32)
+    corpus_release_public = b64encode(b"\x17" * 32).decode("ascii")
     broker = SigningBrokerFixture(
         apply_private_key=apply_private,
         apply_public_key=apply_public,
         eval_private_key=eval_private,
         eval_public_key=eval_public,
+        corpus_release_public_key=corpus_release_public,
     )
     payload = b"typed broker payload"
 
@@ -66,6 +69,7 @@ def test_typed_apply_and_eval_operations() -> None:
         canonical_signing_message("eval_ed25519", payload),
     )
     assert broker.capabilities == frozenset({"apply_ed25519", "eval_ed25519"})
+    assert broker.corpus_release_public_key_raw == b"\x17" * 32
 
 
 def test_apply_and_eval_signatures_are_not_cross_usable_even_with_one_test_key() -> (
@@ -152,9 +156,16 @@ def test_console_entrypoint_rejects_private_environment_before_cli_dispatch(
 ) -> None:
     environment = scrub_private_signing_environment()
     environment[APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV] = "must-not-enter-cli"
+    source_root = Path(__file__).parents[1] / "src"
+    dispatch_current_checkout = (
+        "import sys; "
+        f"sys.path.insert(0, {str(source_root)!r}); "
+        "from axiom_encode.entrypoint import main; "
+        "raise SystemExit(main())"
+    )
 
     completed = subprocess.run(
-        [sys.executable, "-m", "axiom_encode.entrypoint", "--help"],
+        [sys.executable, "-I", "-c", dispatch_current_checkout, "--help"],
         cwd=tmp_path,
         env=environment,
         capture_output=True,
@@ -182,6 +193,7 @@ def test_scrub_removes_private_keys_and_broker_handles() -> None:
         APPLY_MANIFEST_SIGNING_PUBLIC_KEY_ENV: "apply-public",
         EVAL_EVIDENCE_PRIVATE_KEY_ENV: "eval-private",
         EVAL_EVIDENCE_PUBLIC_KEY_ENV: "eval-public",
+        RELEASE_OBJECT_PUBLIC_KEY_ENV: "corpus-release-public",
         BROKER_MARKER_ENV: "1",
         BROKER_FD_ENV: "7",
         BROKER_PID_ENV: "123",

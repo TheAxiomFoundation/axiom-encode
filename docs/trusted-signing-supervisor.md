@@ -44,20 +44,22 @@ Only then does it authenticate and attach the anonymous broker socket.
 
 ## Protected trust roots
 
-Every invocation requires one protected JSON file containing both distinct
-public roots, even when the command uses only one signing capability:
+Every invocation requires one protected JSON file containing three pairwise
+distinct public roots, even when the command uses no signing capability:
 
 ```json
 {
-  "schema": "axiom-encode/signing-trust-roots/v1",
+  "schema": "axiom-encode/signing-trust-roots/v2",
   "apply_ed25519_public_key": "BASE64_RAW_32_BYTES",
-  "eval_ed25519_public_key": "DISTINCT_BASE64_RAW_32_BYTES"
+  "eval_ed25519_public_key": "DISTINCT_BASE64_RAW_32_BYTES",
+  "corpus_release_ed25519_public_key": "THIRD_DISTINCT_BASE64_RAW_32_BYTES"
 }
 ```
 
 PKIX public-key PEM is also accepted. Environment public-key values never
-define trust and are rejected. These three legacy/current private-key
-environment names are fatal when present, including with an empty value:
+define trust and are rejected, including `AXIOM_CORPUS_RELEASE_PUBLIC_KEY`.
+These three legacy/current private-key environment names are fatal when
+present, including with an empty value:
 
 ```text
 AXIOM_ENCODE_APPLY_SIGNING_KEY
@@ -86,7 +88,8 @@ build/axiom-encode-signing-supervisor \
 
 Use `--eval-signer-fd` for eval evidence and both flags only when both
 capabilities are needed. Verification-only invocations omit both signer flags;
-the broker still exposes both protected public roots but no signing capability.
+the broker still exposes all three protected public roots but no signing
+capability.
 The launcher is validated but never executed; the
 supervisor executes the validated interpreter and protected bootstrap directly.
 
@@ -111,14 +114,14 @@ rather than trusting the environment PID marker or socket-creation credentials.
 
 ## Protocols and signature domains
 
-External signer protocol v2 and internal broker protocol v3 use unsigned
+External signer protocol v2 and internal broker protocol v4 use unsigned
 32-bit big-endian length-prefixed JSON with exact schemas. They enforce bounded frames,
 exact fields, no duplicate/unknown keys, positive increasing IDs, fixed scopes,
 and ten-second external-signer deadlines.
 
 The supervisor completes the broker's private initialization frame before
 Python starts. On Linux, the post-fork broker then answers a one-byte pre-frame
-challenge while `SO_PASSCRED` is enabled; Python admits v3 traffic only when the
+challenge while `SO_PASSCRED` is enabled; Python admits v4 traffic only when the
 attached `SCM_CREDENTIALS` PID/euid/egid matches the expected broker. This avoids
 the stale creator credentials returned by `SO_PEERCRED` for a pre-fork
 socketpair.
@@ -138,7 +141,8 @@ persisted-signature bytes:
 
 The only scopes are `apply_ed25519` and `eval_ed25519`. Apply signatures cannot
 verify as eval signatures or vice versa, even if the same test key is used.
-Production also rejects equal roots before connecting either signer.
+Production also rejects any equal pair among the three roots before connecting
+either signer.
 
 This breaking cut emits only apply manifest
 `axiom-encode/applied-rulespec/v5`, eval verdict
