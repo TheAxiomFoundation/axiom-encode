@@ -68,6 +68,8 @@ var publicEnvironmentNames = map[string]struct{}{
 }
 
 var parentOnlyEnvironmentNames = []string{
+	"OPENAI_API_KEY",
+	"ANTHROPIC_API_KEY",
 	"AXIOM_ENCODE_SUPABASE_URL",
 	"AXIOM_ENCODE_SUPABASE_SECRET_KEY",
 	"AXIOM_ENCODE_SUPABASE_ANON_KEY",

@@ -865,6 +865,8 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
     sentinels = {
+        "OPENAI_API_KEY": "openai-sentinel",
+        "ANTHROPIC_API_KEY": "anthropic-sentinel",
         "PATH": "/hostile/bin",
         "PYTHONPATH": "/hostile/python",
         "GIT_CONFIG_GLOBAL": "/hostile/gitconfig",
@@ -902,6 +904,8 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
         for path in result["sys_path"]
     )
     parent_only = {
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "AXIOM_ENCODE_SUPABASE_SECRET_KEY",
         "OTEL_EXPORTER_OTLP_HEADERS",
     }
@@ -935,6 +939,19 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
             b64decode(result["apply_signature"]),
             SIGNATURE_DOMAIN + b"eval_ed25519\0compiled-apply-boundary",
         )
+
+
+def test_python_startup_rejects_corpus_public_root_environment() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "src/axiom_encode/_trusted_signing_bootstrap.py")],
+        env={"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": "counterfeit"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "authenticated broker" in completed.stderr
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in completed.stderr
 
 
 def test_verification_only_invocation_exposes_roots_without_signing_capability(

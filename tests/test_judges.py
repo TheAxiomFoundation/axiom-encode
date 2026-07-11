@@ -648,6 +648,32 @@ def test_fidelity_command_binds_named_release_attestation(
 # -- drift ----------------------------------------------------------------
 
 
+def _verification_supervisor_fixture(
+    tmp_path: Path,
+) -> regeneration.VerificationSupervisorConfig:
+    protected = tmp_path / "verification"
+    runtime = protected / "runtime"
+    imports = runtime / "site-packages"
+    package = imports / "axiom_encode"
+    package.mkdir(parents=True, exist_ok=True)
+    supervisor = protected / "axiom-encode-signing-supervisor"
+    supervisor.write_bytes(b"fixture")
+    supervisor.chmod(0o700)
+    roots = protected / "roots.json"
+    roots.write_text("{}\n")
+    launcher = protected / "axiom-encode"
+    launcher.write_text("#!/bin/sh\nexit 1\n")
+    launcher.chmod(0o700)
+    return regeneration.VerificationSupervisorConfig(
+        executable=supervisor.resolve(),
+        trusted_roots=roots.resolve(),
+        runtime_roots=(runtime.resolve(),),
+        import_roots=(imports.resolve(),),
+        package_root=package.resolve(),
+        launcher=launcher.resolve(),
+    )
+
+
 def _regeneration_fixture(
     tmp_path: Path,
     *,
@@ -956,17 +982,15 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
         root=root,
         corpus_path=corpus,
         axiom_rules_path=_engine_fixture(tmp_path),
+        verification_supervisor=_verification_supervisor_fixture(tmp_path),
         backend="openai",
     )
 
     command = captured["command"]
     kwargs = captured["kwargs"]
-    assert command[:4] == [
-        sys.executable,
-        "-m",
-        "axiom_encode.cli",
-        "encode",
-    ]
+    assert command[0].endswith("axiom-encode-signing-supervisor")
+    assert command[command.index("--") + 1].endswith("axiom-encode")
+    assert command[command.index("--") + 2] == "encode"
     assert "--source-id" not in command
     assert Path(command[command.index("--corpus-path") + 1]) == corpus
     assert Path(command[command.index("--axiom-rules-engine-path") + 1]) == (
@@ -977,7 +1001,7 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
     assert kwargs["shell"] is False
     assert kwargs["timeout"] == regeneration.REGENERATION_TIMEOUT_SECONDS
     assert kwargs["env"]["OPENAI_API_KEY"] == "openai-test-key"
-    assert kwargs["env"]["AXIOM_CORPUS_RELEASE_PUBLIC_KEY"] == TEST_RELEASE_PUBLIC_KEY
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in kwargs["env"]
     assert "ANTHROPIC_API_KEY" not in kwargs["env"]
     assert "GH_TOKEN" not in kwargs["env"]
     assert "GITHUB_TOKEN" not in kwargs["env"]
@@ -1001,7 +1025,8 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
         )
 
     monkeypatch.setattr(encode_cli, "cmd_encode", resolve_only)
-    monkeypatch.setattr(sys, "argv", ["axiom-encode", *command[3:]])
+    encode_start = command.index("--") + 2
+    monkeypatch.setattr(sys, "argv", ["axiom-encode", *command[encode_start:]])
     encode_cli.main()
 
     assert parsed == {"checkout": root, "content_root": root / "us"}
@@ -1038,6 +1063,7 @@ def test_drift_regenerator_rejects_module_at_noncanonical_citation_path(
             root=root,
             corpus_path=corpus,
             axiom_rules_path=_engine_fixture(tmp_path),
+            verification_supervisor=_verification_supervisor_fixture(tmp_path),
         )
 
     assert called is False
@@ -1066,6 +1092,7 @@ def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monke
             root=root,
             corpus_path=corpus,
             axiom_rules_path=_engine_fixture(tmp_path),
+            verification_supervisor=_verification_supervisor_fixture(tmp_path),
         ),
     )
     report = drift.DriftReport(checked=[result])
@@ -1263,6 +1290,7 @@ def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, mo
             root=root,
             corpus_path=corpus,
             axiom_rules_path=_engine_fixture(tmp_path),
+            verification_supervisor=_verification_supervisor_fixture(tmp_path),
         )
 
     assert called is False
@@ -1341,6 +1369,7 @@ def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeyp
             root=root,
             corpus_path=corpus,
             axiom_rules_path=_engine_fixture(tmp_path),
+            verification_supervisor=_verification_supervisor_fixture(tmp_path),
         )
 
     assert called is False
@@ -1519,12 +1548,13 @@ def test_drift_regeneration_is_openai_only(monkeypatch):
         regeneration.child_environment("codex")
 
 
-def test_drift_child_environment_requires_release_public_key(monkeypatch):
+def test_drift_child_environment_rejects_release_public_key_forwarding(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
-    monkeypatch.delenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY")
+    monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", "counterfeit")
 
-    with pytest.raises(RuntimeError, match="AXIOM_CORPUS_RELEASE_PUBLIC_KEY"):
-        regeneration.child_environment("openai")
+    env = regeneration.child_environment("openai")
+
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in env
 
 
 def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
@@ -1652,6 +1682,39 @@ def test_live_drift_cli_requires_explicit_engine_root(capsys):
     assert "--axiom-rules-engine-path" in capsys.readouterr().err
 
 
+def test_live_drift_cli_requires_verification_delegation_before_loading(
+    tmp_path, monkeypatch, capsys
+):
+    called = False
+
+    def fail_if_loaded(_args):
+        nonlocal called
+        called = True
+        raise AssertionError("module loading must not precede delegation validation")
+
+    monkeypatch.setattr(cli_commands, "_load_drift_modules", fail_if_loaded)
+    status = cli_commands.cmd_drift_check(
+        argparse.Namespace(
+            regenerate=True,
+            dry_run=False,
+            root=tmp_path,
+            corpus_path=tmp_path,
+            axiom_rules_path=tmp_path,
+            modules_file=None,
+            verification_supervisor=None,
+            verification_trusted_roots=None,
+            verification_runtime_root=[],
+            verification_import_root=[],
+            verification_package_root=None,
+            verification_launcher=None,
+        )
+    )
+
+    assert status == 2
+    assert called is False
+    assert "verification-supervisor" in capsys.readouterr().err
+
+
 def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     workflow_path = (
         Path(__file__).parents[1] / ".github" / "workflows" / "golden-regeneration.yml"
@@ -1713,8 +1776,10 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     assert "OPENAI_API_KEY" in live_step["env"]
     assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in live_step["env"]
     assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in dry_run_step["env"]
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in live_step["env"]
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in dry_run_step["env"]
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in live_step["env"]
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in dry_run_step["env"]
+    assert "axiom-encode-signing-supervisor" in live_step["run"]
+    assert "--verification-trusted-roots" in live_step["run"]
     assert "--axiom-rules-engine-path" in live_step["run"]
     assert "AXIOM_RULES_ENGINE_ROOT" in live_step["run"]
     assert "GH_TOKEN" not in live_step["env"]
@@ -1725,7 +1790,7 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
         "38b5f646165f18f64307f1eef226c7a6f2d4936e"
     )
     assert all(
-        step["run"] == "uv sync --locked --python 3.13 --extra api"
+        "uv sync --locked --python 3.13 --extra api" in step["run"]
         for step in install_steps
     )
     assert all(
@@ -1748,7 +1813,9 @@ def test_bulk_worklist_workflow_has_no_legacy_generation_lane():
     assert "source_text" not in raw
     assert "--root external/rulespec" in raw
     assert "--corpus-path external/axiom-corpus" in raw
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in raw
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY:" not in raw
+    assert "axiom-encode-signing-supervisor" in raw
+    assert "sudo chown -R 0:0 /opt/axiom-verification" in raw
     checkout_steps = [
         step
         for step in workflow["jobs"]["preclassify"]["steps"]

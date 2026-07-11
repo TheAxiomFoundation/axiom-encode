@@ -41,11 +41,13 @@ from .regeneration import (
     NoReplayableManifestError,
     RegenerationInputError,
     UnsafeRegenerationPath,
+    VerificationSupervisorConfig,
     read_citation,
     read_resolvable_citation,
     redact_sensitive_text,
     require_citation_derived_output_path,
     validate_module_path,
+    verification_supervisor_command,
 )
 
 _MAX_DRIFT_REPORT_BYTES = 20 * 1024 * 1024
@@ -163,6 +165,16 @@ def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         help="exact canonical rulespec-<country> checkout to sample modules from",
     )
+    drift.add_argument("--verification-supervisor", type=Path)
+    drift.add_argument("--verification-trusted-roots", type=Path)
+    drift.add_argument(
+        "--verification-runtime-root", type=Path, action="append", default=[]
+    )
+    drift.add_argument(
+        "--verification-import-root", type=Path, action="append", default=[]
+    )
+    drift.add_argument("--verification-package-root", type=Path)
+    drift.add_argument("--verification-launcher", type=Path)
     drift.add_argument(
         "--corpus-path",
         type=Path,
@@ -346,18 +358,43 @@ def cmd_judge_disposition(args: argparse.Namespace) -> int:
 def cmd_drift_check(args: argparse.Namespace) -> int:
     from . import drift
 
+    delegation_values = (
+        getattr(args, "verification_supervisor", None),
+        getattr(args, "verification_trusted_roots", None),
+        tuple(getattr(args, "verification_runtime_root", ())),
+        tuple(getattr(args, "verification_import_root", ())),
+        getattr(args, "verification_package_root", None),
+        getattr(args, "verification_launcher", None),
+    )
     if args.regenerate and (
         args.root is None
         or args.modules_file is not None
         or args.corpus_path is None
         or getattr(args, "axiom_rules_path", None) is None
+        or not all(delegation_values)
     ):
         print(
             "live drift regeneration requires --root, --corpus-path, and "
-            "--axiom-rules-engine-path and does not accept --modules-file",
+            "--axiom-rules-engine-path, and complete verification-supervisor "
+            "delegation paths and does not accept --modules-file",
             file=sys.stderr,
         )
         return 2
+    verification_supervisor = None
+    if args.regenerate:
+        verification_supervisor = VerificationSupervisorConfig(
+            executable=args.verification_supervisor,
+            trusted_roots=args.verification_trusted_roots,
+            runtime_roots=tuple(args.verification_runtime_root),
+            import_roots=tuple(args.verification_import_root),
+            package_root=args.verification_package_root,
+            launcher=args.verification_launcher,
+        )
+        try:
+            verification_supervisor_command(verification_supervisor, [])
+        except RegenerationInputError as exc:
+            print(f"invalid verification-supervisor delegation: {exc}", file=sys.stderr)
+            return 2
     modules = _load_drift_modules(args)
     if modules is None:
         return 2
@@ -381,6 +418,7 @@ def cmd_drift_check(args: argparse.Namespace) -> int:
                 root=args.root,
                 corpus_path=args.corpus_path,
                 axiom_rules_path=args.axiom_rules_path,
+                verification_supervisor=verification_supervisor,
                 backend=args.regenerate_backend,
             )
 

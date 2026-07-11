@@ -9,6 +9,19 @@ from __future__ import annotations
 import os
 import sys
 
+_FORBIDDEN_PUBLIC_ROOT_ENVIRONMENT = (
+    "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY",
+    "AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY",
+    "AXIOM_CORPUS_RELEASE_PUBLIC_KEY",
+)
+
+for _name in _FORBIDDEN_PUBLIC_ROOT_ENVIRONMENT:
+    if _name in os.environ:
+        raise RuntimeError(
+            "public signing roots must come from the authenticated broker, "
+            f"not environment variable {_name}"
+        )
+
 if os.__spec__ is None or os.__spec__.origin != "frozen":
     raise RuntimeError("trusted bootstrap requires CPython's frozen os module")
 if sys.__spec__ is None or sys.__spec__.origin != "built-in":

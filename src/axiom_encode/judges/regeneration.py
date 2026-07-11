@@ -14,13 +14,12 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
-from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from axiom_encode.corpus_resolver import LocalCorpusRelease
 from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
@@ -410,6 +409,87 @@ def read_resolvable_citation(
     return citation
 
 
+@dataclass(frozen=True, slots=True)
+class VerificationSupervisorConfig:
+    """Explicit protected execution chain for a nested verification broker."""
+
+    executable: Path
+    trusted_roots: Path
+    runtime_roots: tuple[Path, ...]
+    import_roots: tuple[Path, ...]
+    package_root: Path
+    launcher: Path
+
+
+def _canonical_existing_path(path: Path, *, label: str, directory: bool) -> Path:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise RegenerationInputError(f"{label} must be absolute")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise RegenerationInputError(f"invalid {label}: {exc}") from exc
+    if resolved != candidate:
+        raise RegenerationInputError(
+            f"{label} must be canonical and contain no symlink"
+        )
+    if directory != resolved.is_dir():
+        kind = "directory" if directory else "file"
+        raise RegenerationInputError(f"{label} must be a {kind}: {resolved}")
+    return resolved
+
+
+def verification_supervisor_command(
+    config: VerificationSupervisorConfig,
+    encode_arguments: list[str],
+) -> list[str]:
+    """Validate explicit delegation paths and build one fixed supervisor argv."""
+
+    executable = _canonical_existing_path(
+        config.executable, label="verification supervisor executable", directory=False
+    )
+    if not os.access(executable, os.X_OK):
+        raise RegenerationInputError(
+            f"verification supervisor executable is not executable: {executable}"
+        )
+    trusted_roots = _canonical_existing_path(
+        config.trusted_roots, label="verification trusted-roots file", directory=False
+    )
+    runtime_roots = tuple(
+        _canonical_existing_path(
+            path, label="verification runtime root", directory=True
+        )
+        for path in config.runtime_roots
+    )
+    import_roots = tuple(
+        _canonical_existing_path(path, label="verification import root", directory=True)
+        for path in config.import_roots
+    )
+    if not runtime_roots or not import_roots:
+        raise RegenerationInputError(
+            "verification supervisor requires explicit runtime and import roots"
+        )
+    package_root = _canonical_existing_path(
+        config.package_root, label="verification package root", directory=True
+    )
+    launcher = _canonical_existing_path(
+        config.launcher, label="verification launcher", directory=False
+    )
+    if launcher.name != "axiom-encode" or not os.access(launcher, os.X_OK):
+        raise RegenerationInputError(
+            "verification launcher must be an executable named axiom-encode"
+        )
+    command = [str(executable), "--trusted-signing-roots", str(trusted_roots)]
+    for root in runtime_roots:
+        command.extend(("--trusted-python-runtime-root", str(root)))
+    for root in import_roots:
+        command.extend(("--trusted-python-import-root", str(root)))
+    command.extend(
+        ("--trusted-python-package-root", str(package_root), "--", str(launcher))
+    )
+    return [*command, *encode_arguments]
+
+
 def child_environment(backend: str) -> dict[str, str]:
     """Build a secret-minimized environment for the encoder child process."""
 
@@ -418,16 +498,9 @@ def child_environment(backend: str) -> dict[str, str]:
     credential = os.environ.get("OPENAI_API_KEY")
     if not credential:
         raise RuntimeError("OPENAI_API_KEY is required for drift regeneration")
-    release_public_key = os.environ.get(RELEASE_OBJECT_PUBLIC_KEY_ENV)
-    if not release_public_key:
-        raise RuntimeError(
-            f"{RELEASE_OBJECT_PUBLIC_KEY_ENV} is required for drift regeneration"
-        )
-
     env = {name: os.environ[name] for name in _SAFE_CHILD_ENV if name in os.environ}
     env.setdefault("PATH", os.defpath)
     env["OPENAI_API_KEY"] = credential
-    env[RELEASE_OBJECT_PUBLIC_KEY_ENV] = release_public_key
     return env
 
 
@@ -460,10 +533,16 @@ def regenerate_module(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    verification_supervisor: VerificationSupervisorConfig | None = None,
     backend: str = "openai",
 ) -> str:
     """Regenerate one merged module with a fixed argv and isolated secrets."""
 
+    if verification_supervisor is None:
+        raise RegenerationInputError(
+            "verification-supervisor delegation configuration is required"
+        )
+    supervisor_command = verification_supervisor_command(verification_supervisor, [])
     resolved_root = Path(root).resolve(strict=True)
     relative = validate_module_path(resolved_root, module)
     corpus_release = load_rulespec_local_corpus_release(
@@ -483,10 +562,7 @@ def regenerate_module(
             f"axiom-rules-engine path is not a directory: {resolved_axiom_rules_path}"
         )
     with tempfile.TemporaryDirectory() as tmp:
-        command = [
-            sys.executable,
-            "-m",
-            "axiom_encode.cli",
+        encode_arguments = [
             "encode",
             "--output",
             tmp,
@@ -503,6 +579,7 @@ def regenerate_module(
             "--",
             citation,
         ]
+        command = [*supervisor_command, *encode_arguments]
         process = subprocess.run(
             command,
             capture_output=True,
