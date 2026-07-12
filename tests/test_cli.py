@@ -160,6 +160,7 @@ from axiom_encode.cli import (
     _stage_apply_overlay_dependency_roots,
     _stamp_generated_source_attestation_for_apply,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _translate_rulespec_engine_envelope_error,
     _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
     _try_repair_generated_admin_agency_aggregate_entities_for_apply,
     _try_repair_generated_bare_snapunit_entity_for_apply,
@@ -5290,6 +5291,163 @@ rules:
             {"kind": "decimal", "value": Decimal("19.99")},
             20,
         )
+
+    def _execute_period_fixture(self, tmp_path, monkeypatch, *, period_kind):
+        content_root = tmp_path / "rulespec-us/us"
+        program = content_root / "statutes/1/example.yaml"
+        program.parent.mkdir(parents=True)
+        program.write_text("format: rulespec/v1\nrules: []\n")
+        companion = program.with_name("example.test.yaml")
+        companion.write_text(
+            f"""- name: {period_kind}_period
+  period:
+    period_kind: {period_kind}
+    start: '2026-01-01'
+    end: '2026-12-31'
+  output:
+    us:statutes/1/example#benefit: 6
+"""
+        )
+        compiled_path = tmp_path / "compiled.json"
+        artifact = {
+            "program": {
+                "derived": [
+                    {
+                        "id": "us:statutes/1/example#benefit",
+                        "entity": "Case",
+                    }
+                ]
+            }
+        }
+        run = MagicMock(
+            return_value=subprocess.CompletedProcess(
+                ["axiom-rules-engine", "run-compiled"],
+                0,
+                stdout=json.dumps(
+                    {
+                        "results": [
+                            {
+                                "outputs": {
+                                    "us:statutes/1/example#benefit": {
+                                        "kind": "scalar",
+                                        "value": {"kind": "integer", "value": 6},
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        )
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", run)
+
+        result = _execute_rulespec_test_file(
+            companion,
+            binary=tmp_path / "axiom-rules-engine",
+            axiom_rules_path=tmp_path,
+            env={},
+            rulespec_roots=(tmp_path / "rulespec-us",),
+            tmp_path=tmp_path,
+            compiled_cache={program: (compiled_path, artifact)},
+            policy_repo_path=content_root,
+        )
+        return result, run
+
+    def test_invalid_period_kind_names_fixture_field_before_engine_dispatch(
+        self, monkeypatch, tmp_path
+    ):
+        result, run = self._execute_period_fixture(
+            tmp_path, monkeypatch, period_kind="year"
+        )
+
+        assert result == {
+            "cases": 1,
+            "compiled": 0,
+            "failures": [
+                {
+                    "file": str(
+                        tmp_path / "rulespec-us/us/statutes/1/example.test.yaml"
+                    ),
+                    "case": "year_period",
+                    "message": (
+                        "period.period_kind: 'year' is not one of "
+                        "month|benefit_week|tax_year|custom"
+                    ),
+                }
+            ],
+        }
+        run.assert_not_called()
+
+    def test_tax_year_period_fixture_is_unaffected(self, monkeypatch, tmp_path):
+        result, run = self._execute_period_fixture(
+            tmp_path, monkeypatch, period_kind="tax_year"
+        )
+
+        assert result == {"cases": 1, "compiled": 0, "failures": []}
+        run.assert_called_once()
+
+    def test_translates_serde_envelope_error_coordinates(self):
+        message = (
+            "unknown variant `fortnight`, expected one of `month`, `benefit_week`, "
+            "`tax_year`, `custom` at line 1 column 987"
+        )
+
+        assert _translate_rulespec_engine_envelope_error(message) == (
+            "unknown variant `fortnight`, expected one of `month`, `benefit_week`, "
+            "`tax_year`, `custom` (the engine envelope is generated; check the "
+            "companion fixture fields)"
+        )
+
+    def test_preserves_runtime_invalid_value_error_without_serde_signature(self):
+        message = "missing field data in output table at line 3 column 7"
+
+        assert _translate_rulespec_engine_envelope_error(message) == message
+
+    def test_translates_serde_invalid_value_error_coordinates(self):
+        message = "invalid value: integer `3`, expected a string at line 1 column 42"
+
+        translated = _translate_rulespec_engine_envelope_error(message)
+
+        assert translated == (
+            "invalid value: integer `3`, expected a string (the engine envelope is "
+            "generated; check the companion fixture fields)"
+        )
+        assert "at line" not in translated
+        assert translated.count("check the companion fixture fields") == 1
+
+    def test_translates_serde_duplicate_field_error_coordinates(self):
+        message = "duplicate field `foo` at line 1 column 7"
+
+        translated = _translate_rulespec_engine_envelope_error(message)
+
+        assert translated == (
+            "duplicate field `foo` (the engine envelope is generated; check the "
+            "companion fixture fields)"
+        )
+        assert "at line" not in translated
+        assert translated.count("check the companion fixture fields") == 1
+
+    def test_strips_all_serde_coordinates_and_appends_fixture_hint_once(self):
+        message = (
+            "missing field `period_kind` at line 2 column 17\n"
+            "unknown variant `fortnight` at line 5 column 29"
+        )
+
+        translated = _translate_rulespec_engine_envelope_error(message)
+
+        assert translated == (
+            "missing field `period_kind`\n"
+            "unknown variant `fortnight` (the engine envelope is generated; "
+            "check the companion fixture fields)"
+        )
+        assert "at line" not in translated
+        assert translated.count("check the companion fixture fields") == 1
+
+    def test_preserves_unknown_engine_error_shape(self):
+        message = "engine terminated while evaluating the compiled program"
+
+        assert _translate_rulespec_engine_envelope_error(message) == message
 
     def test_rejects_country_checkout_as_test_root(self, tmp_path):
         checkout = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
