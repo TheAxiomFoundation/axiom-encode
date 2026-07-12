@@ -52,6 +52,7 @@ from axiom_encode.cli import (
     _complete_missing_imported_test_inputs,
     _convert_indexed_parameter_values_to_derived_formulas,
     _convert_versioned_boolean_parameters_to_indicators,
+    _current_guard_encoder_execution_identity,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -82,6 +83,7 @@ from axiom_encode.cli import (
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
+    _read_only_guard_encoder_execution_identity,
     _record_successful_apply_validation,
     _recover_apply_transaction,
     _relative_generated_output_path,
@@ -1126,6 +1128,85 @@ def _init_test_git_repo(repo: Path) -> None:
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test User")
+
+
+def _init_encoder_identity_checkout(
+    repo: Path,
+    *,
+    version: str = AXIOM_ENCODE_TEST_VERSION,
+) -> str:
+    _init_test_git_repo(repo)
+    source_root = Path(__file__).resolve().parents[1]
+    version_files = (
+        "pyproject.toml",
+        "src/axiom_encode/__init__.py",
+        "uv.lock",
+    )
+    for relative in version_files:
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = (source_root / relative).read_text()
+        if version != AXIOM_ENCODE_TEST_VERSION:
+            content = content.replace(AXIOM_ENCODE_TEST_VERSION, version)
+        target.write_text(content)
+    _git(repo, "add", *version_files)
+    _git(repo, "commit", "-m", "test encoder identity")
+    return _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def test_expected_encoder_checkout_resolves_clean_matching_identity(tmp_path):
+    checkout = tmp_path / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+
+    identity = _read_only_guard_encoder_execution_identity(checkout)
+
+    assert identity == {
+        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+        "commit": commit,
+        "version": AXIOM_ENCODE_TEST_VERSION,
+    }
+
+
+def test_expected_encoder_checkout_rejects_dirty_checkout(tmp_path):
+    checkout = tmp_path / "axiom-encode"
+    _init_encoder_identity_checkout(checkout)
+    (checkout / "untracked.txt").write_text("dirty\n")
+
+    with pytest.raises(
+        RuntimeError,
+        match="running axiom-encode must be a clean Git checkout at a full commit",
+    ):
+        _read_only_guard_encoder_execution_identity(checkout)
+
+
+def test_expected_encoder_checkout_rejects_runtime_version_mismatch(tmp_path):
+    checkout = tmp_path / "axiom-encode"
+    _init_encoder_identity_checkout(checkout, version="999.0.0")
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            rf"provisioned runtime version {re.escape(AXIOM_ENCODE_TEST_VERSION)} "
+            r"does not match expected encoder checkout version 999\.0\.0"
+        ),
+    ):
+        _read_only_guard_encoder_execution_identity(checkout)
+
+
+def test_running_encoder_identity_default_preserves_non_git_error(
+    tmp_path, monkeypatch
+):
+    package_root = tmp_path / "frozen-runtime"
+    package_root.mkdir()
+    monkeypatch.setattr(
+        "axiom_encode.cli._axiom_encode_repo_root", lambda: package_root
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="running axiom-encode must be a clean Git checkout at a full commit",
+    ):
+        _current_guard_encoder_execution_identity()
 
 
 def _write_active_corpus_row(
