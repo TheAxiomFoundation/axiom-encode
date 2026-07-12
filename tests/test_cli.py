@@ -6865,6 +6865,7 @@ class TestCmdEncode:
         args.skip_reviewers = overrides.get("skip_reviewers", False)
         args.apply = overrides.get("apply", False)
         args.apply_target_only = overrides.get("apply_target_only", False)
+        args.allow_shrink = overrides.get("allow_shrink", False)
         return args
 
     def _make_eval_result(self, success=True):
@@ -7037,6 +7038,63 @@ class TestCmdEncode:
         out = capsys.readouterr().out
         assert "Codex backend requires authentication" in out
         assert "auth.json" in out
+
+    def test_encode_apply_without_signer_fails_preflight_before_backend(self, tmp_path):
+        args = self._make_args(tmp_path, apply=True)
+        signing_error = (
+            "Apply-manifest signing must be provisioned through an externally "
+            "attached trusted signing broker"
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as mock_run,
+            patch(
+                "axiom_encode.cli._require_applied_encoding_manifest_signer",
+                side_effect=RuntimeError(signing_error),
+            ),
+            pytest.raises(RuntimeError, match=r"trusted signing broker.*\(preflight\)"),
+        ):
+            cmd_encode(args)
+
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize("allow_shrink", [False, True])
+    def test_encode_apply_propagates_allow_shrink_to_apply_guard(
+        self, tmp_path, allow_shrink
+    ):
+        args = self._make_args(
+            tmp_path,
+            apply=True,
+            sync=False,
+            allow_shrink=allow_shrink,
+        )
+        result = self._make_eval_result(True)
+        output_file = args.output / "codex-test-model/statutes/26/1.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+
+        def apply_guard(_result, **kwargs):
+            if not kwargs["allow_shrink"]:
+                raise RuntimeError("Refusing synthetic manifest shrink")
+            return [args.policy_repo_path / "us/statutes/26/1.yaml"]
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                side_effect=apply_guard,
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == (0 if allow_shrink else 1)
+        assert mock_apply.call_args.kwargs["allow_shrink"] is allow_shrink
 
     def test_encode_codex_backend_with_auth_runs(self, capsys, tmp_path):
         """Positive: a passing preflight lets the codex-default encode proceed."""
@@ -32217,6 +32275,294 @@ class TestManifestCurrentState:
             )
             is None
         )
+
+
+class TestAppliedManifestShrinkGuard:
+    def _write_manifest(self, path: Path, applied_files: list[str]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": item, "sha256": "a" * 64} for item in applied_files
+                    ]
+                }
+            )
+        )
+
+    def test_shrink_is_refused_and_names_dropped_files(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "manifest.json"
+        self._write_manifest(manifest, ["be/rule.yaml", "be/rule.test.yaml"])
+
+        with pytest.raises(RuntimeError) as exc_info:
+            _require_applied_manifest_not_shrunk(
+                manifest,
+                new_applied_files={"be/rule.yaml"},
+            )
+
+        assert "be/rule.test.yaml" in str(exc_info.value)
+        assert "--allow-shrink" in str(exc_info.value)
+        assert "origin/main" in str(exc_info.value)
+
+    def test_partial_overlap_is_refused_and_names_dropped_files(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "manifest.json"
+        self._write_manifest(manifest, ["a.yaml", "b.yaml"])
+
+        with pytest.raises(RuntimeError) as exc_info:
+            _require_applied_manifest_not_shrunk(
+                manifest,
+                new_applied_files={"a.yaml", "x.yaml"},
+            )
+
+        message = str(exc_info.value)
+        assert "b.yaml" in message
+        assert "a.yaml" not in message
+        assert "x.yaml" not in message
+
+    def test_shrink_is_permitted_with_flag(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "manifest.json"
+        self._write_manifest(manifest, ["be/rule.yaml", "be/rule.test.yaml"])
+
+        _require_applied_manifest_not_shrunk(
+            manifest,
+            new_applied_files={"be/rule.yaml"},
+            allow_shrink=True,
+        )
+
+    def test_equal_set_passes(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "manifest.json"
+        files = {"be/rule.yaml", "be/rule.test.yaml"}
+        self._write_manifest(manifest, sorted(files))
+
+        _require_applied_manifest_not_shrunk(manifest, new_applied_files=files)
+
+    def test_pure_extension_passes(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "manifest.json"
+        self._write_manifest(manifest, ["be/rule.yaml"])
+
+        _require_applied_manifest_not_shrunk(
+            manifest,
+            new_applied_files={"be/rule.yaml", "be/rule.test.yaml"},
+        )
+
+    def test_fresh_manifest_path_passes(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        _require_applied_manifest_not_shrunk(
+            tmp_path / "new.json",
+            new_applied_files={"be/rule.yaml"},
+        )
+
+    @pytest.mark.parametrize(
+        ("raw", "problem"),
+        [
+            ("not json\n", "invalid JSON"),
+            (json.dumps([]), "JSON object"),
+            (json.dumps({"applied_files": [{"sha256": "a" * 64}]}), "applied_files[0]"),
+        ],
+    )
+    def test_malformed_existing_manifest_requires_allow_shrink(
+        self, tmp_path, raw, problem
+    ):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "broken-manifest.json"
+        manifest.write_text(raw)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            _require_applied_manifest_not_shrunk(
+                manifest,
+                new_applied_files={"dk/statutes/composed/x.yaml"},
+            )
+
+        message = str(exc_info.value)
+        assert str(manifest) in message
+        assert problem in message
+        assert "prior apply-manifest coverage" in message
+        assert "--allow-shrink" in message
+        _require_applied_manifest_not_shrunk(
+            manifest,
+            new_applied_files={"dk/statutes/composed/x.yaml"},
+            allow_shrink=True,
+        )
+
+    def test_unreadable_existing_manifest_requires_allow_shrink(self, tmp_path):
+        from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+        manifest = tmp_path / "unreadable-manifest.json"
+        manifest.write_text("{}\n")
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("permission denied")),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            _require_applied_manifest_not_shrunk(
+                manifest,
+                new_applied_files={"dk/statutes/composed/x.yaml"},
+            )
+
+        message = str(exc_info.value)
+        assert str(manifest) in message
+        assert "unreadable" in message
+        assert "permission denied" in message
+        assert "--allow-shrink" in message
+
+    def test_stage_normalizes_content_relative_files_to_checkout_manifest_paths(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _stage_signed_apply_manifest
+
+        checkout = tmp_path / "rulespec-dk"
+        content_root = checkout / "dk"
+        (checkout / ".axiom").mkdir(parents=True)
+        (checkout / ".axiom/toolchain.toml").write_text("[toolchain]\n")
+        (checkout / "known-validation-gaps.yaml").write_text("[]\n")
+        manifest = checkout / ".axiom/encoding-manifests/dk/statutes/composed/x.json"
+        self._write_manifest(
+            manifest,
+            [
+                "dk/statutes/composed/x.yaml",
+                "dk/statutes/composed/x.test.yaml",
+            ],
+        )
+        planned = {
+            Path("statutes/composed/x.yaml"): b"format: rulespec/v1\nrules: []\n",
+            Path("statutes/composed/x.test.yaml"): b"[]\n",
+        }
+
+        def write_staged(_result, **kwargs):
+            staged_root = kwargs["policy_repo_path"].parent
+            applied = {
+                path.relative_to(staged_root).as_posix()
+                for path in kwargs["applied_files"]
+            }
+            from axiom_encode.cli import _require_applied_manifest_not_shrunk
+
+            _require_applied_manifest_not_shrunk(
+                kwargs["existing_manifest_path"],
+                new_applied_files=applied,
+                allow_shrink=kwargs["allow_shrink"],
+            )
+            staged_manifest = (
+                staged_root / ".axiom/encoding-manifests/dk/statutes/composed/x.json"
+            )
+            staged_manifest.parent.mkdir(parents=True)
+            staged_manifest.write_text("{}\n")
+            return staged_manifest
+
+        with (
+            patch(
+                "axiom_encode.cli._rulespec_checkout_root",
+                return_value=checkout,
+            ),
+            patch(
+                "axiom_encode.cli.load_rulespec_toolchain",
+                return_value=SimpleNamespace(root=checkout),
+            ),
+            patch(
+                "axiom_encode.cli._write_applied_encoding_manifest",
+                side_effect=write_staged,
+            ),
+        ):
+            relative, _raw = _stage_signed_apply_manifest(
+                object(),
+                output_root=tmp_path / "out",
+                content_root=content_root,
+                corpus_path=tmp_path / "corpus",
+                relative_output=Path("statutes/composed/x.yaml"),
+                planned=planned,
+                run_id=None,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                axiom_encode_git={},
+            )
+
+        assert relative == Path(".axiom/encoding-manifests/dk/statutes/composed/x.json")
+
+    def test_locked_recheck_refuses_manifest_expanded_after_staging(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-dk"
+        content_root = checkout / "dk"
+        generated = output_root / "codex-test-model/statutes/composed/x.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        content_root.mkdir(parents=True)
+        manifest = checkout / ".axiom/encoding-manifests/dk/statutes/composed/x.json"
+        manifest.parent.mkdir(parents=True)
+        self._write_manifest(manifest, ["dk/statutes/composed/x.yaml"])
+        result = SimpleNamespace(output_file=str(generated), backend="codex")
+        setattr(
+            result,
+            _APPLY_VALIDATION_SNAPSHOT_ATTR,
+            {"validation_execution": {"policy_content_files": {}}},
+        )
+
+        def install_after_expansion(_files, *, pre_install_check, **_kwargs):
+            self._write_manifest(
+                manifest,
+                [
+                    "dk/statutes/composed/x.yaml",
+                    "dk/statutes/composed/x.test.yaml",
+                ],
+            )
+            pre_install_check()
+
+        with (
+            patch("axiom_encode.cli._recover_apply_transaction"),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={},
+            ),
+            patch("axiom_encode.cli._stamp_generated_source_attestation_for_apply"),
+            patch("axiom_encode.cli._enforce_canonical_concept_registry"),
+            patch(
+                "axiom_encode.cli.load_rulespec_local_corpus_release",
+                return_value=object(),
+            ),
+            patch("axiom_encode.cli._require_unchanged_successful_apply_validation"),
+            patch("axiom_encode.cli._enforce_no_apply_collision"),
+            patch(
+                "axiom_encode.cli._planned_apply_file_bytes",
+                return_value=(
+                    {Path("statutes/composed/x.yaml"): generated.read_bytes()},
+                    False,
+                ),
+            ),
+            patch(
+                "axiom_encode.cli._require_planned_apply_bytes_match_validation_snapshot"
+            ),
+            patch(
+                "axiom_encode.cli._stage_signed_apply_manifest",
+                return_value=(
+                    Path(".axiom/encoding-manifests/dk/statutes/composed/x.json"),
+                    b"{}\n",
+                ),
+            ),
+            patch(
+                "axiom_encode.cli._require_staged_manifest_matches_validation_snapshot"
+            ),
+            patch("axiom_encode.cli._ensure_safe_apply_target"),
+            patch(
+                "axiom_encode.cli._install_apply_transaction",
+                side_effect=install_after_expansion,
+            ),
+            pytest.raises(RuntimeError, match="x.test.yaml"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=tmp_path / "corpus",
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+            )
 
 
 class TestManifestCensus:

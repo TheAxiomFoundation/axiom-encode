@@ -1716,6 +1716,14 @@ def main():
         ),
     )
     encode_parser.add_argument(
+        "--allow-shrink",
+        action="store_true",
+        help=(
+            "With --apply, explicitly allow replacing an existing apply manifest "
+            "with one that covers fewer files."
+        ),
+    )
+    encode_parser.add_argument(
         "--apply-target-only",
         action="store_true",
         help=(
@@ -17616,10 +17624,16 @@ def _require_applied_encoding_manifest_signer() -> SigningBroker:
 
 
 @contextlib.contextmanager
-def _isolated_apply_manifest_signer():
+def _isolated_apply_manifest_signer(*, preflight: bool = False):
     """Yield the dedicated signer process; no private bytes enter this process."""
 
-    yield _require_applied_encoding_manifest_signer()
+    try:
+        signer = _require_applied_encoding_manifest_signer()
+    except RuntimeError as exc:
+        if preflight:
+            raise RuntimeError(f"{exc} (preflight)") from exc
+        raise
+    yield signer
 
 
 def _unsigned_applied_encoding_manifest_bytes(payload: dict) -> bytes:
@@ -18058,7 +18072,7 @@ def cmd_encode(args):
             # Recovery needs no signing capability and must happen before any
             # model, corpus, or live-checkout preflight consumes partial state.
             _recover_apply_transaction(policy_checkout_path)
-            with _isolated_apply_manifest_signer() as signing_broker:
+            with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
                 return _cmd_encode_with_authoritative_rulespec_roots(
                     args,
                     apply_signing_broker=signing_broker,
@@ -20826,6 +20840,7 @@ def _cmd_encode_with_authoritative_rulespec_roots(
                             run_id=logged_run.id,
                             supplemental_files=supplemental_files,
                             signing_broker=apply_signing_broker,
+                            allow_shrink=(getattr(args, "allow_shrink", False) is True),
                         )
                     except (RuntimeError, ValueError) as exc:
                         outcome["status"] = "apply_blocked_manifest"
@@ -36374,6 +36389,7 @@ def _stage_signed_apply_manifest(
     run_id: str | None,
     signing_broker: SigningBroker,
     axiom_encode_git: dict[str, object],
+    allow_shrink: bool = False,
 ) -> tuple[Path, bytes]:
     """Build and sign the complete manifest in an isolated canonical checkout."""
 
@@ -36421,6 +36437,13 @@ def _stage_signed_apply_manifest(
             run_id=run_id,
             signing_broker=signing_broker,
             axiom_encode_git=axiom_encode_git,
+            existing_manifest_path=(
+                checkout_root
+                / _applied_encoding_manifest_path(
+                    Path(content_root.name) / relative_output
+                )
+            ),
+            allow_shrink=allow_shrink,
         )
         manifest_relative = staged_manifest.relative_to(staged_checkout)
         return manifest_relative, staged_manifest.read_bytes()
@@ -37591,6 +37614,7 @@ def _apply_generated_encoding_result(
     run_id: str | None = None,
     supplemental_files: dict[Path, str] | None = None,
     signing_broker: SigningBroker | None = None,
+    allow_shrink: bool = False,
 ) -> list[Path]:
     """Validate, pre-sign, and transactionally install one generated encoding."""
     output_file = Path(str(getattr(result, "output_file", "") or ""))
@@ -37660,6 +37684,7 @@ def _apply_generated_encoding_result(
         run_id=run_id,
         signing_broker=signing_broker,
         axiom_encode_git=axiom_encode_git,
+        allow_shrink=allow_shrink,
     )
     # Re-open the live toolchain and every evidence artifact after manifest
     # construction so a concurrent mutation cannot be smuggled into install.
@@ -37717,8 +37742,19 @@ def _apply_generated_encoding_result(
         for relative_path in planned
     }
     expected_originals[manifest_path] = _apply_transaction_file_digest(manifest_path)
+    new_manifest_applied_files = {
+        (Path(content_root.name) / relative_path).as_posix()
+        for relative_path in planned
+    }
 
     def pre_install_check() -> None:
+        # The transaction lock is now held. Recheck the live destination so a
+        # concurrent manifest expansion after staging cannot be overwritten.
+        _require_applied_manifest_not_shrunk(
+            manifest_path,
+            new_applied_files=new_manifest_applied_files,
+            allow_shrink=allow_shrink,
+        )
         locked_release = load_rulespec_local_corpus_release(
             content_root,
             corpus_path,
@@ -37982,6 +38018,8 @@ def _write_applied_encoding_manifest(
     axiom_encode_git: dict[str, object],
     signing_broker: SigningBroker,
     run_id: str | None = None,
+    existing_manifest_path: Path | None = None,
+    allow_shrink: bool = False,
 ) -> Path:
     """Record that live RuleSpec files were installed by the encoder."""
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
@@ -38025,6 +38063,11 @@ def _write_applied_encoding_manifest(
             continue
         seen_applied_paths.add(relative_path)
         unique_applied_files.append(path)
+    _require_applied_manifest_not_shrunk(
+        existing_manifest_path or manifest_path,
+        new_applied_files=seen_applied_paths,
+        allow_shrink=allow_shrink,
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     local_corpus_release = load_rulespec_local_corpus_release(
         policy_repo_path,
@@ -38098,6 +38141,73 @@ def _write_applied_encoding_manifest(
     _sign_applied_encoding_manifest(payload, signing_broker)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return manifest_path
+
+
+def _require_applied_manifest_not_shrunk(
+    manifest_path: Path,
+    *,
+    new_applied_files: set[str],
+    allow_shrink: bool = False,
+) -> None:
+    """Refuse to silently drop files from an existing manifest's coverage."""
+
+    manifest_path = Path(manifest_path)
+    if allow_shrink or not manifest_path.is_file():
+        return
+    try:
+        raw = manifest_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        problem = f"is unreadable ({exc})"
+        raise RuntimeError(
+            f"Cannot determine prior apply-manifest coverage because {manifest_path} "
+            f"{problem}. Refusing to replace it; pass --allow-shrink to acknowledge "
+            "deliberate recovery."
+        ) from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Cannot determine prior apply-manifest coverage because {manifest_path} "
+            f"contains invalid JSON ({exc}). Refusing to replace it; pass "
+            "--allow-shrink to acknowledge deliberate recovery."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"Cannot determine prior apply-manifest coverage because {manifest_path} "
+            "does not contain a JSON object. Refusing to replace it; pass "
+            "--allow-shrink to acknowledge deliberate recovery."
+        )
+    entries = payload.get("applied_files")
+    if not isinstance(entries, list):
+        raise RuntimeError(
+            f"Cannot determine prior apply-manifest coverage because {manifest_path} "
+            "has malformed applied_files (expected a list). Refusing to replace it; "
+            "pass --allow-shrink to acknowledge deliberate recovery."
+        )
+    existing_applied_files: set[str] = set()
+    for index, entry in enumerate(entries):
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("path"), str)
+            or not entry["path"].strip()
+        ):
+            raise RuntimeError(
+                f"Cannot determine prior apply-manifest coverage because {manifest_path} "
+                f"has malformed applied_files[{index}] (expected an object with a "
+                "non-empty string path). Refusing to replace it; pass --allow-shrink "
+                "to acknowledge deliberate recovery."
+            )
+        if entry.get("deleted") is not True:
+            existing_applied_files.add(entry["path"])
+    dropped = sorted(existing_applied_files - new_applied_files)
+    if not dropped:
+        return
+    raise RuntimeError(
+        "Refusing to shrink existing apply manifest coverage; dropped files: "
+        + ", ".join(dropped)
+        + ". Re-run the signing workflow against the full branch diff using "
+        "base ref origin/main, or pass --allow-shrink to confirm this removal."
+    )
 
 
 def _applied_encoding_manifest_path(relative_output: Path) -> Path:
