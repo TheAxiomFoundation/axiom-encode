@@ -16155,3 +16155,111 @@ def _fake_eval_result(
             ),
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("issue", "expected"),
+    [
+        (
+            "Derived rule missing companion output coverage: `us:x#amount` is not asserted by the companion `.test.yaml` file.",
+            "companion_coverage",
+        ),
+        (
+            "Proof atom missing path: rule `amount` proof atom 0 must declare `path`.",
+            "proof_atoms",
+        ),
+        (
+            "Proof import hash mismatch: rule `amount` proof atom 0 declares sha256 `abc` but resolved import has sha256 `def`.",
+            "proof_atoms",
+        ),
+        (
+            "Ungrounded generated numeric literal: 0.15 does not appear as a substantive numeric value in the source text.",
+            "ungrounded_literal",
+        ),
+        (
+            "Test case `basic` output `amount` expected decimal 10, got decimal 9.",
+            "fixture_execution",
+        ),
+        (
+            "PolicyEngine produced zero comparable oracle evidence",
+            "oracle_coverage",
+        ),
+        ("PE=10.00, RuleSpec expects=9.00", "oracle_coverage"),
+        ("No PolicyEngine-comparable tests found", "oracle_coverage"),
+        (
+            "Import `us:statutes/26/1` does not resolve to a RuleSpec file in the clean policy repository.",
+            "import_resolution",
+        ),
+        ("rules.test.yaml YAML parse failed: mapping values are not allowed", "schema"),
+        (
+            "Canonical concept import missing: `household_income` uniquely resolves nearby.",
+            "concept_registry",
+        ),
+        (
+            "Numeric source required: RuleSpec defines policy numeric literals but does not provide source text.",
+            "embedded_source",
+        ),
+        ("Axiom rules engine compile failed: unknown rule kind", "compile"),
+        (
+            "Axiom rules engine compile did not return an artifact payload.",
+            "compile",
+        ),
+    ],
+)
+def test_classify_validation_issue_known_families(issue, expected):
+    from axiom_encode.harness.evals import classify_validation_issue
+
+    assert classify_validation_issue(issue) == expected
+
+
+def test_classify_validation_issue_fallback_is_deterministic_and_bounded():
+    from axiom_encode.harness.evals import classify_validation_issue
+
+    issue = 'Unexpected 123 item at /tmp/build/thing.yaml named "private value" remains wrong'
+    assert classify_validation_issue(issue) == "unexpected_item_at_named_remains_wrong"
+    assert classify_validation_issue(issue) == classify_validation_issue(issue)
+    assert len(classify_validation_issue("word " * 100)) <= 60
+    assert classify_validation_issue("123 '/tmp/x'") == "unclassified"
+
+
+def test_classify_validation_issue_fallback_collapses_filenames_and_lines():
+    from axiom_encode.harness.evals import classify_validation_issue
+
+    first = classify_validation_issue(
+        "Unexpected validator failure at alpha.yaml line 12"
+    )
+    second = classify_validation_issue(
+        "Unexpected validator failure at beta.yaml line 98"
+    )
+
+    assert first == second == "unexpected_validator_failure_at_line"
+
+
+def test_classify_validation_issue_handles_pathological_text():
+    from axiom_encode.harness.evals import classify_validation_issue
+
+    result = classify_validation_issue(("\udcff" * 100_000) + " 123")
+    assert result == "unclassified"
+
+
+def test_summarize_validation_failures_empty():
+    from axiom_encode.harness.evals import summarize_validation_failures
+
+    assert summarize_validation_failures([]) == {}
+
+
+def test_summarize_validation_failures_deduplicates_caps_and_counts_before_cap():
+    from axiom_encode.harness.evals import summarize_validation_failures
+
+    issues = [f"Novel validator issue {index}" for index in range(41)]
+    summary = summarize_validation_failures(
+        [("ci", [issues[0], issues[0], *issues[1:]]), ("compile", ["x" * 300])]
+    )
+
+    assert len(summary["validation_failures"]) == 40
+    assert summary["validation_failures_truncated"] == 2
+    assert summary["validation_failures"][0]["detail"] == issues[0]
+    assert summary["validation_failures"][1]["detail"] == issues[1]
+    assert sum(summary["validation_failure_counts"].values()) == 42
+    assert summary["validation_failure_counts"][f"compile:{'x' * 60}"] == 1
+    assert all(len(item["detail"]) <= 240 for item in summary["validation_failures"])
