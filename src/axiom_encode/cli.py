@@ -506,6 +506,20 @@ def _add_required_corpus_path_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_expected_encoder_checkout_argument(
+    parser: argparse.ArgumentParser,
+) -> None:
+    parser.add_argument(
+        "--expected-encoder-checkout",
+        type=Path,
+        default=None,
+        help=(
+            "Clean axiom-encode checkout whose HEAD identity must match manifests "
+            "and the running package version"
+        ),
+    )
+
+
 def _require_existing_parser_option(
     parser: argparse.ArgumentParser,
     option: str,
@@ -1421,6 +1435,7 @@ def main():
         help="Verify every existing RuleSpec YAML file, not only git changes",
     )
     _add_required_corpus_path_argument(guard_generated_parser)
+    _add_expected_encoder_checkout_argument(guard_generated_parser)
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
@@ -1438,6 +1453,7 @@ def main():
         required=True,
         help="Exact canonical rulespec-<country> checkout",
     )
+    _add_expected_encoder_checkout_argument(manifest_census_parser)
     manifest_census_parser.add_argument(
         "--json",
         action="store_true",
@@ -5343,6 +5359,7 @@ def cmd_guard_generated(args):
         head_ref=args.head_ref,
         roots=roots,
         all_files=all_files,
+        expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
     if args.json:
@@ -5359,7 +5376,12 @@ def cmd_guard_generated(args):
     sys.exit(0 if not issues else 1)
 
 
-def _manifest_census(repo_path: Path, *, roots: tuple[str, ...]) -> dict[str, object]:
+def _manifest_census(
+    repo_path: Path,
+    *,
+    roots: tuple[str, ...],
+    expected_encoder_checkout: Path | None = None,
+) -> dict[str, object]:
     """Compute model-generated and unmanifested rule-file counts.
 
     A file is ``encoder`` when a signature-valid manifest with a genuine
@@ -5375,8 +5397,12 @@ def _manifest_census(repo_path: Path, *, roots: tuple[str, ...]) -> dict[str, ob
     manifest_paths = _all_applied_encoding_manifest_paths(repo_path, roots=roots)
     surviving = [path for path in manifest_paths if (repo_path / path).exists()]
     try:
-        expected_encoder_identity = _current_guard_encoder_execution_identity()
+        expected_encoder_identity = _read_only_guard_encoder_execution_identity(
+            expected_encoder_checkout
+        )
     except RuntimeError:
+        if expected_encoder_checkout is not None:
+            raise
         entries, coverage = {}, {}
     else:
         entries, _issues = _load_applied_encoding_manifest_entries(
@@ -5454,7 +5480,11 @@ def cmd_manifest_census(args):
         label="RuleSpec checkout",
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
-    census = _manifest_census(repo_path, roots=roots)
+    census = _manifest_census(
+        repo_path,
+        roots=roots,
+        expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
+    )
     census["captured_at"] = (
         datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     )
@@ -16041,6 +16071,7 @@ def guard_generated_change_issues(
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     changed_files: list[str] | None = None,
     all_files: bool = False,
+    expected_encoder_checkout: Path | None = None,
 ) -> list[str]:
     """Return issues for RuleSpec changes not bound to the signed local release."""
     repo_path = Path(repo_path).resolve()
@@ -16128,7 +16159,9 @@ def guard_generated_change_issues(
         ]
 
     try:
-        expected_encoder_identity = _current_guard_encoder_execution_identity()
+        expected_encoder_identity = _read_only_guard_encoder_execution_identity(
+            expected_encoder_checkout
+        )
     except RuntimeError as exc:
         return [f"Cannot verify the running pinned encoder identity: {exc}"]
 
@@ -17950,6 +17983,52 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
         "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
         "commit": commit,
         "version": __version__,
+    }
+
+
+def _read_only_guard_encoder_execution_identity(
+    expected_encoder_checkout: Path | None,
+) -> dict[str, str]:
+    """Resolve a read-only guard identity from its explicit or running checkout."""
+
+    if expected_encoder_checkout is None:
+        return _current_guard_encoder_execution_identity()
+
+    repo_root = Path(expected_encoder_checkout)
+    try:
+        checkout_identity = _git_checkout_execution_identity(repo_root)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise RuntimeError(
+            f"expected axiom-encode checkout identity is unavailable: {exc}"
+        ) from exc
+    commit = checkout_identity.get("commit")
+    if (
+        checkout_identity.get("kind") != "git"
+        or checkout_identity.get("dirty") is not False
+        or not isinstance(commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+    ):
+        raise RuntimeError(
+            "running axiom-encode must be a clean Git checkout at a full commit"
+        )
+    versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
+    checkout_version = versions.get("pyproject")
+    if not checkout_version or any(
+        versions.get(field) != checkout_version for field in ("package", "lock")
+    ):
+        raise RuntimeError(
+            "expected axiom-encode checkout version does not match pyproject.toml, "
+            "src/axiom_encode/__init__.py, and uv.lock at HEAD"
+        )
+    if checkout_version != __version__:
+        raise RuntimeError(
+            f"provisioned runtime version {__version__} does not match expected "
+            f"encoder checkout version {checkout_version}"
+        )
+    return {
+        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+        "commit": commit,
+        "version": checkout_version,
     }
 
 
