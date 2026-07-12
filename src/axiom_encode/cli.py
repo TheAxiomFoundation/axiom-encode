@@ -3895,11 +3895,12 @@ def _execute_rulespec_test_case(
         env=env,
     )
     if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
         failures.append(
             {
                 "file": str(test_file),
                 "case": case_name,
-                "message": result.stderr.strip() or result.stdout.strip(),
+                "message": _translate_rulespec_engine_envelope_error(message),
             }
         )
         return failures
@@ -3996,34 +3997,91 @@ def _rulespec_period_spec(value) -> dict[str, str]:
         }
         if period["period_kind"] == "custom" and value.get("name") is not None:
             period["name"] = str(value["name"])
-        return period
+        return _validate_rulespec_period_spec(period)
     if isinstance(value, int) or (
         isinstance(value, str) and len(value) == 4 and value.isdigit()
     ):
         year = int(value)
-        return {
-            "period_kind": "tax_year",
-            "start": f"{year:04d}-01-01",
-            "end": f"{year:04d}-12-31",
-        }
+        return _validate_rulespec_period_spec(
+            {
+                "period_kind": "tax_year",
+                "start": f"{year:04d}-01-01",
+                "end": f"{year:04d}-12-31",
+            }
+        )
     if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}", value):
         year = int(value[:4])
         month = int(value[5:])
         next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
         next_start = date(next_year, next_month, 1)
         end = date.fromordinal(next_start.toordinal() - 1)
-        return {
-            "period_kind": "month",
-            "start": f"{year:04d}-{month:02d}-01",
-            "end": end.isoformat(),
-        }
+        return _validate_rulespec_period_spec(
+            {
+                "period_kind": "month",
+                "start": f"{year:04d}-{month:02d}-01",
+                "end": end.isoformat(),
+            }
+        )
     if isinstance(value, date):
-        return {
-            "period_kind": "day",
-            "start": value.isoformat(),
-            "end": value.isoformat(),
-        }
+        return _validate_rulespec_period_spec(
+            {
+                "period_kind": "day",
+                "start": value.isoformat(),
+                "end": value.isoformat(),
+            }
+        )
     raise ValueError(f"unsupported period shorthand: {value!r}")
+
+
+# Axiom rules engine `PeriodKind` variants, as exposed by serde during the
+# rulespec-dk#2 fixture failure. The engine is an external checkout, not vendored here.
+_RULESPEC_ENGINE_PERIOD_KINDS = (
+    "month",
+    "benefit_week",
+    "tax_year",
+    "custom",
+)
+
+
+def _validate_rulespec_period_spec(period: dict[str, str]) -> dict[str, str]:
+    period_kind = period["period_kind"]
+    if period_kind not in _RULESPEC_ENGINE_PERIOD_KINDS:
+        accepted = "|".join(_RULESPEC_ENGINE_PERIOD_KINDS)
+        raise ValueError(
+            f"period.period_kind: {period_kind!r} is not one of {accepted}"
+        )
+    return period
+
+
+_SERDE_ENVELOPE_SCHEMA_ERROR_SIGNATURES = (
+    r"unknown variant `[^`]+`, expected [^\r\n]+",
+    r"unknown field `[^`]+`, expected [^\r\n]+",
+    r"missing field `[^`]+`",
+    r"duplicate field `[^`]+`",
+    r"invalid type: [^\r\n]+, expected [^\r\n]+",
+    r"invalid value: [^\r\n]+, expected [^\r\n]+",
+    r"invalid length \d+, expected [^\r\n]+",
+)
+_SERDE_ENVELOPE_SCHEMA_ERROR = re.compile(
+    "|".join(
+        f"(?:{signature})" for signature in _SERDE_ENVELOPE_SCHEMA_ERROR_SIGNATURES
+    ),
+    re.IGNORECASE,
+)
+_SERDE_JSON_COORDINATES = re.compile(r"[ \t]+at line \d+ column \d+")
+
+
+def _translate_rulespec_engine_envelope_error(message: str) -> str:
+    """Replace internal-JSON coordinates on recognized serde envelope errors."""
+    if not _SERDE_ENVELOPE_SCHEMA_ERROR.search(message):
+        return message
+    cleaned = _SERDE_JSON_COORDINATES.sub("", message)
+    if cleaned == message:
+        return message
+    return (
+        f"{cleaned} (the engine envelope is generated; check the companion "
+        "fixture fields)"
+    )
 
 
 def _rulespec_scalar_value(value) -> dict:
