@@ -3269,7 +3269,76 @@ def test_codex_prompt_timeouts_use_long_env_for_large_source(tmp_path, monkeypat
     assert _codex_prompt_timeouts(workspace) == (240, 60)
 
 
-def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_path):
+def test_run_source_eval_retries_when_first_response_writes_invalid_empty_module(
+    tmp_path,
+):
+    policy_repo_root = tmp_path / "axiom-rules-engine"
+    policy_repo_root.mkdir()
+    first_response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: source states 451.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=10,
+        trace={"attempt": "initial"},
+    )
+    second_response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: source states 451.\n"
+            "rules:\n"
+            "  - name: sample_value\n"
+            "    kind: parameter\n"
+            "    entity: Person\n"
+            "    dtype: Integer\n"
+            "    period: Year\n"
+            "    source: source states 451.\n"
+            "    versions:\n"
+            "      - effective_from: '2026-01-01'\n"
+            "        value: 451\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=20,
+        trace={"attempt": "retry"},
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            side_effect=[first_response, second_response],
+        ) as mock_prompt_eval,
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+    ):
+        [result] = run_source_eval(
+            source_id="sample",
+            source_text="source states 451.",
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            mode="cold",
+        )
+
+    assert result.success is True
+    assert result.retry_count == 1
+    assert result.duration_ms == 30
+    assert mock_prompt_eval.call_count == 2
+    retry_prompt = mock_prompt_eval.call_args_list[1].args[2]
+    assert "previous response contained an invalid empty RuleSpec module" in retry_prompt
+    trace = json.loads(Path(result.trace_file).read_text())
+    assert trace["retry_reason"] == "invalid_empty_rulespec_module"
+    rules = yaml.safe_load(Path(result.output_file).read_text())["rules"]
+    assert [rule["name"] for rule in rules] == ["sample_value"]
+
+
+def test_run_source_eval_does_not_retry_explicit_deferred_empty_module(tmp_path):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()
     response = EvalPromptResponse(
@@ -3277,7 +3346,8 @@ def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_
             "=== FILE: sample.yaml ===\n"
             "format: rulespec/v1\n"
             "module:\n"
-            "  summary: source states 451.\n"
+            "  status: deferred\n"
+            "  summary: source needs an unsupported dependency.\n"
             "rules: []\n"
             "=== FILE: sample.test.yaml ===\n"
             "[]\n"
@@ -3295,7 +3365,7 @@ def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_
     ):
         [result] = run_source_eval(
             source_id="sample",
-            source_text="source states 451.",
+            source_text="source needs an unsupported dependency.",
             runner_specs=["codex:gpt-5.4"],
             output_root=tmp_path / "out",
             policy_path=policy_repo_root,

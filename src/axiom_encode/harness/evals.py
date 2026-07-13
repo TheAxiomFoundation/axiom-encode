@@ -76,6 +76,7 @@ from .validator_pipeline import (
     extract_numeric_grounding_source_text,
     extract_numeric_occurrences_from_text,
     find_deferred_output_issues,
+    find_empty_rules_module_issues,
     find_ungrounded_numeric_issues,
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
@@ -1108,6 +1109,7 @@ def _combine_retry_response(
     initial: EvalPromptResponse,
     retry: EvalPromptResponse,
     retry_prompt: str,
+    retry_reason: str = "empty_rulespec_artifact",
 ) -> EvalPromptResponse:
     """Return the retry response while preserving aggregate accounting."""
     return EvalPromptResponse(
@@ -1122,7 +1124,7 @@ def _combine_retry_response(
         ),
         trace={
             "retry_count": 1,
-            "retry_reason": "empty_rulespec_artifact",
+            "retry_reason": retry_reason,
             "retry_prompt_sha256": _sha256_text(retry_prompt),
             "attempts": [
                 {"attempt": 0, "trace": initial.trace or {}},
@@ -3952,8 +3954,9 @@ def _build_empty_artifact_retry_prompt(
     original_prompt: str,
     target_file_name: str,
     include_tests: bool,
+    invalid_empty_module: bool = False,
 ) -> str:
-    """Build the one-shot repair prompt for narrative-only eval responses."""
+    """Build the one-shot repair prompt for missing or invalid empty artifacts."""
     output_contract = (
         f"Return exactly this two-file bundle and nothing else, beginning with "
         f"`=== FILE: {target_file_name} ===`."
@@ -3964,12 +3967,23 @@ def _build_empty_artifact_retry_prompt(
         )
     )
     trimmed_prompt = _strip_source_scope_protocol(original_prompt)
-    return f"""The previous response did not contain a RuleSpec artifact, so the harness could not parse or write `{target_file_name}`.
+    failure = (
+        "The previous response contained an invalid empty RuleSpec module "
+        "(`rules: []` without an explicit deferred or entity-not-supported "
+        "status), even though the source may contain operative requirements."
+        if invalid_empty_module
+        else (
+            "The previous response did not contain a RuleSpec artifact, so the "
+            f"harness could not parse or write `{target_file_name}`."
+        )
+    )
+    return f"""{failure}
 
 Emit the artifact now.
 - Do not narrate your plan.
 - Do not explain what you will do.
 - Do not include markdown prose, analysis, or file-write confirmations.
+- If the source is operative, encode at least one source-backed rule; use an empty module only with a valid explicit non-executable status.
 - {output_contract}
 
 Use the same source, context, schema, and validation constraints from the original task below.
@@ -3978,6 +3992,33 @@ Use the same source, context, schema, and validation constraints from the origin
 {trimmed_prompt}
 === END ORIGINAL TASK ===
 """
+
+
+def _materialized_empty_rules_module_requires_retry(output_file: Path) -> bool:
+    """Return true when the written artifact fails the empty-module contract."""
+    if not output_file.exists():
+        return False
+    try:
+        return bool(find_empty_rules_module_issues(output_file.read_text()))
+    except OSError:
+        return False
+
+
+def _clear_materialized_eval_artifacts_for_retry(
+    output_file: Path,
+    workspace_root: Path,
+) -> None:
+    """Remove first-attempt outputs so the retry cannot reuse stale artifacts."""
+    output_test_file = _rulespec_test_path(output_file)
+    workspace_file = workspace_root / output_file.name
+    workspace_test_file = _rulespec_test_path(workspace_file)
+    for candidate in {
+        output_file,
+        output_test_file,
+        workspace_file,
+        workspace_test_file,
+    }:
+        candidate.unlink(missing_ok=True)
 
 
 def _run_prompt_eval_with_empty_artifact_retry(
@@ -3990,7 +4031,7 @@ def _run_prompt_eval_with_empty_artifact_retry(
     include_tests: bool,
     policyengine_rule_hint: str | None = None,
 ) -> tuple[EvalPromptResponse, bool, int]:
-    """Run an eval and retry once if no RuleSpec artifact can be materialized."""
+    """Run an eval and retry once for a missing or invalid empty artifact."""
     response = _run_prompt_eval(runner, workspace, prompt)
     wrote_artifact = _materialize_eval_artifact(
         response.text,
@@ -3999,13 +4040,23 @@ def _run_prompt_eval_with_empty_artifact_retry(
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
     )
-    if wrote_artifact or not _response_allows_empty_artifact_retry(response):
+    invalid_empty_module = (
+        wrote_artifact
+        and _materialized_empty_rules_module_requires_retry(output_file)
+    )
+    if (
+        wrote_artifact
+        and not invalid_empty_module
+        or not _response_allows_empty_artifact_retry(response)
+    ):
         return response, wrote_artifact, 0
 
+    _clear_materialized_eval_artifacts_for_retry(output_file, workspace.root)
     retry_prompt = _build_empty_artifact_retry_prompt(
         prompt,
         target_file_name=target_file_name,
         include_tests=include_tests,
+        invalid_empty_module=invalid_empty_module,
     )
     retry_response = _run_prompt_eval(runner, workspace, retry_prompt)
     retry_wrote_artifact = _materialize_eval_artifact(
@@ -4016,7 +4067,16 @@ def _run_prompt_eval_with_empty_artifact_retry(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     return (
-        _combine_retry_response(response, retry_response, retry_prompt),
+        _combine_retry_response(
+            response,
+            retry_response,
+            retry_prompt,
+            retry_reason=(
+                "invalid_empty_rulespec_module"
+                if invalid_empty_module
+                else "empty_rulespec_artifact"
+            ),
+        ),
         retry_wrote_artifact,
         1,
     )
