@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Optional
+from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
 from axiom_oracles.bridges.adapters import (
@@ -2421,6 +2421,165 @@ def _policyengine_period_string(value: Any, fallback: str = "2024-01") -> str:
     return value_text
 
 
+def _rule_grounding_values(
+    rule: Any,
+    *,
+    selector_table_keys: Mapping[str, Any] | None = None,
+) -> list[tuple[int, str, float]]:
+    """Extract the grounding-required numeric literals declared by one rule."""
+    values: list[tuple[int, str, float]] = []
+    if not isinstance(rule, dict):
+        return values
+    rule_name = str(rule.get("name") or "").strip()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return values
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+            value = float(formula)
+            if value not in GROUNDING_ALLOWED_VALUES:
+                values.append((1, str(formula), value))
+        elif isinstance(formula, str):
+            values.extend(
+                _extract_formula_grounding_values(
+                    1,
+                    formula,
+                    structural_selector_keys=(
+                        (selector_table_keys or {}).get(rule_name)
+                        if _is_structural_selector_rule(rule)
+                        else None
+                    ),
+                )
+            )
+        table_values = version.get("values")
+        if isinstance(table_values, dict):
+            for table_value in table_values.values():
+                extracted = _numeric_rule_value(table_value)
+                if extracted is None:
+                    continue
+                raw, value = extracted
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    values.append((1, raw, value))
+    return values
+
+
+def _rule_grounding_values_by_path(
+    rule: Any,
+    *,
+    selector_table_keys: Mapping[str, Any] | None = None,
+) -> list[tuple[str, str, float]]:
+    """Like ``_rule_grounding_values`` but anchors each literal to its version path.
+
+    Each literal is tagged with the RuleSpec path it lives at
+    (``versions[i].formula`` or ``versions[i].values``) so grounding can be
+    bound to the proof atom anchored to that exact path.
+    """
+    out: list[tuple[str, str, float]] = []
+    if not isinstance(rule, dict):
+        return out
+    rule_name = str(rule.get("name") or "").strip()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return out
+    for index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        formula_path = f"versions[{index}].formula"
+        values_path = f"versions[{index}].values"
+        formula = version.get("formula")
+        if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+            value = float(formula)
+            if value not in GROUNDING_ALLOWED_VALUES:
+                out.append((formula_path, str(formula), value))
+        elif isinstance(formula, str):
+            for _line, raw, value in _extract_formula_grounding_values(
+                1,
+                formula,
+                structural_selector_keys=(
+                    (selector_table_keys or {}).get(rule_name)
+                    if _is_structural_selector_rule(rule)
+                    else None
+                ),
+            ):
+                out.append((formula_path, raw, value))
+        table_values = version.get("values")
+        if isinstance(table_values, dict):
+            for table_value in table_values.values():
+                extracted = _numeric_rule_value(table_value)
+                if extracted is None:
+                    continue
+                raw, value = extracted
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    out.append((values_path, raw, value))
+    return out
+
+
+def _rule_atom_evidence_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+) -> dict[str, str]:
+    """Map each proof atom's anchor ``path`` to that atom's grounding evidence.
+
+    Evidence is excerpt-first: the atom's excerpt/quote/table cells — the
+    encoder's chosen, excerpt-verified text for the value at that exact path.
+    A citation-only atom (no excerpt) falls back to the resolved text of the
+    provision THAT atom cites, which matches the strength of the long-standing
+    module-source semantics while keeping the boundary per anchored atom: an
+    unrelated atom in the same rule can launder nothing, because neither its
+    excerpt nor its cited provision is consulted for another path's literal.
+    (Follow-up ratchet: require excerpts on numeric-bearing atoms.)
+    """
+    by_path: dict[str, list[str]] = {}
+    cited_by_path: dict[str, list[str]] = {}
+    if not isinstance(rule, dict):
+        return {}
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    if not isinstance(proof, dict):
+        proof = rule.get("proof")
+    if not isinstance(proof, dict):
+        return {}
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return {}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = str(atom.get("path") or "").strip()
+        source = atom.get("source")
+        if not path or not isinstance(source, dict):
+            continue
+        fragments = by_path.setdefault(path, [])
+        for evidence_field in ("excerpt", "quote"):
+            text = source.get(evidence_field)
+            if isinstance(text, str) and text.strip():
+                fragments.append(text.strip())
+        table = source.get("table")
+        if isinstance(table, dict):
+            for cell in table.values():
+                if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
+                    fragments.append(str(cell))
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        if citation_path:
+            cited_by_path.setdefault(path, []).append(citation_path)
+    evidence: dict[str, str] = {}
+    for path, fragments in by_path.items():
+        if fragments:
+            evidence[path] = "\n".join(fragments)
+            continue
+        resolved: list[str] = []
+        if proof_source_texts is not None:
+            for citation_path in cited_by_path.get(path, []):
+                text = proof_source_texts.get(citation_path)
+                if text:
+                    resolved.append(text)
+        evidence[path] = "\n".join(resolved)
+    return evidence
+
+
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     """Extract grounded numeric values from RuleSpec definitions."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -2433,43 +2592,11 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
             values: list[tuple[int, str, float]] = []
             selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
             for rule in payload["rules"]:
-                if not isinstance(rule, dict):
-                    continue
-                rule_name = str(rule.get("name") or "").strip()
-                versions = rule.get("versions")
-                if not isinstance(versions, list):
-                    continue
-                for version in versions:
-                    if not isinstance(version, dict):
-                        continue
-                    formula = version.get("formula")
-                    if isinstance(formula, (int, float)) and not isinstance(
-                        formula, bool
-                    ):
-                        value = float(formula)
-                        if value not in GROUNDING_ALLOWED_VALUES:
-                            values.append((1, str(formula), value))
-                    elif isinstance(formula, str):
-                        values.extend(
-                            _extract_formula_grounding_values(
-                                1,
-                                formula,
-                                structural_selector_keys=(
-                                    selector_table_keys.get(rule_name)
-                                    if _is_structural_selector_rule(rule)
-                                    else None
-                                ),
-                            )
-                        )
-                    table_values = version.get("values")
-                    if isinstance(table_values, dict):
-                        for table_value in table_values.values():
-                            extracted = _numeric_rule_value(table_value)
-                            if extracted is None:
-                                continue
-                            raw, value = extracted
-                            if value not in GROUNDING_ALLOWED_VALUES:
-                                values.append((1, raw, value))
+                values.extend(
+                    _rule_grounding_values(
+                        rule, selector_table_keys=selector_table_keys
+                    )
+                )
             return values
 
     return []
@@ -4190,6 +4317,45 @@ def _decimal_place_scale_values_from_source(source: str) -> set[float]:
     return values
 
 
+def _numeric_value_grounded_in_source(
+    value: float,
+    source_numbers: set[float],
+    decimal_place_scale_values: set[float],
+) -> bool:
+    if numeric_value_is_grounded(value, source_numbers):
+        return True
+    return any(
+        math.isclose(
+            value,
+            decimal_place_scale_value,
+            rel_tol=0,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        )
+        for decimal_place_scale_value in decimal_place_scale_values
+    )
+
+
+def _ungrounded_from_values(
+    grounding_values: Sequence[tuple[int, str, float]],
+    source: str,
+) -> list[str]:
+    """Report values not grounded in ``source`` (which must be pre-stripped)."""
+    source_numbers = extract_numbers_from_text(source)
+    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
+    issues: list[str] = []
+    for _, raw, value in grounding_values:
+        if _numeric_value_grounded_in_source(
+            value, source_numbers, decimal_place_scale_values
+        ):
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        issues.append(
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+        )
+    return issues
+
+
 def find_ungrounded_numeric_issues(
     content: str,
     source_text: str | None = None,
@@ -4210,27 +4376,76 @@ def find_ungrounded_numeric_issues(
             "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
-    source_numbers = extract_numbers_from_text(source)
-    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
+    return _ungrounded_from_values(grounding_values, source)
+
+
+def find_ungrounded_numeric_issues_scoped(
+    content: str,
+    *,
+    module_source_text: str | None,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+) -> list[str]:
+    """Ground each rule's literals against the provisions that rule actually cites.
+
+    A benefit/tax module legitimately draws its numbers from several provisions
+    of one Act — a rate clause, a threshold clause, period conversions. Each such
+    value is cited by the owning rule's proof atom (independently excerpt-verified
+    against that provision). Grounding a rule's literals against its own cited
+    provisions plus the module source is therefore both correct and no weaker than
+    single-source grounding: a fabricated number still fails unless it appears in a
+    provision that rule genuinely cites. Falls back to whole-module single-source
+    grounding when the content cannot be parsed per rule.
+    """
+    module_source = (module_source_text or "").strip()
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        payload = None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("format") != "rulespec/v1"
+        or not isinstance(payload.get("rules"), list)
+    ):
+        return find_ungrounded_numeric_issues(content, source_text=module_source_text)
+
+    if not extract_grounding_values(content):
+        return []
+    any_evidence = bool(module_source) or any(
+        any(_rule_atom_evidence_by_path(rule, proof_source_texts).values())
+        for rule in payload["rules"]
+    )
+    if not any_evidence:
+        return [
+            "Numeric source required: RuleSpec defines policy numeric literals "
+            "but does not provide `source_verification.corpus_citation_path` text. "
+            "`module.summary` is not accepted as source text for numeric grounding."
+        ]
+
+    selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+    seen: set[str] = set()
     issues: list[str] = []
-    for _, raw, value in grounding_values:
-        if numeric_value_is_grounded(value, source_numbers):
-            continue
-        if any(
-            math.isclose(
-                value,
-                decimal_place_scale_value,
-                rel_tol=0,
-                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
-            )
-            for decimal_place_scale_value in decimal_place_scale_values
-        ):
-            continue
-        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
-        issues.append(
-            "Ungrounded generated numeric literal: "
-            f"{display} does not appear as a substantive numeric value in the source text."
+    for rule in payload["rules"]:
+        anchored_values = _rule_grounding_values_by_path(
+            rule, selector_table_keys=selector_table_keys
         )
+        if not anchored_values:
+            continue
+        # Bind each literal to ONLY the proof atom anchored to that literal's
+        # exact path (versions[i].formula / versions[i].values), plus the single
+        # designated module source. Grounding against just that atom's
+        # excerpt-verified evidence — not every atom in the rule, and not the
+        # full text of cited provisions — is the tightest correct semantics: an
+        # unrelated atom in the same rule (e.g. a note) cannot launder a
+        # fabricated value that merely appears in its own excerpt. Module-source
+        # retention matches the pre-existing single-source check (no regression).
+        evidence_by_path = _rule_atom_evidence_by_path(rule, proof_source_texts)
+        for anchor_path, raw, value in anchored_values:
+            texts = [module_source, evidence_by_path.get(anchor_path, "")]
+            combined = "\n".join(text for text in texts if text).strip()
+            for issue in _ungrounded_from_values([(1, raw, value)], combined):
+                if issue not in seen:
+                    seen.add(issue)
+                    issues.append(issue)
     return issues
 
 
@@ -21310,9 +21525,26 @@ class ValidatorPipeline:
                 source_texts=validation_source_texts,
             )
         )
-        issues.extend(
-            find_ungrounded_numeric_issues(content, source_text=validation_source_text)
-        )
+        # Ground each rule's literals against the provisions that rule cites
+        # (module source ∪ its own proof-atom sources), not the single
+        # module-level source: a benefit/tax module legitimately draws its
+        # rate, thresholds, and conversions from several provisions of one Act.
+        # When an explicit override source is supplied, keep single-source
+        # behavior for that caller.
+        if self.source_text is not None:
+            issues.extend(
+                find_ungrounded_numeric_issues(
+                    content, source_text=validation_source_text
+                )
+            )
+        else:
+            issues.extend(
+                find_ungrounded_numeric_issues_scoped(
+                    content,
+                    module_source_text=validation_source_text,
+                    proof_source_texts=proof_source_texts,
+                )
+            )
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(self._trusted_source_binding_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
