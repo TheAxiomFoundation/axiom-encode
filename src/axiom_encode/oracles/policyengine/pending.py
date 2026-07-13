@@ -27,6 +27,9 @@ bridge produced without any axiom-oracles change.
 from __future__ import annotations
 
 import datetime as _dt
+import os
+import stat
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -359,3 +362,131 @@ def ratchet_problems(
                 f"ceiling {pending_file.ceiling}"
             )
     return problems
+
+
+def _dump_pending_file(
+    *,
+    entries: list[PendingEntry],
+    ceiling: int,
+    issue: str | None,
+) -> str:
+    header = [
+        "# Declared oracle-coverage debt: executable RuleSpec outputs awaiting",
+        "# classification in axiom-oracles PolicyEngine mappings. The",
+        "# oracle-coverage gate treats these as pending_classification (visible,",
+        "# counted, accountable) instead of silently unmapped. Ratchets both",
+        "# ways: a new unmapped output must be declared here or the gate fails;",
+        "# an entry that is no longer unmapped must be removed.",
+        "# Maintained by: axiom-encode oracle-coverage-pending sync.",
+    ]
+    payload: dict[str, Any] = {"version": 1}
+    if issue:
+        payload["issue"] = issue
+    payload["ceiling"] = ceiling
+    payload["entries"] = [
+        entry.as_dict() for entry in sorted(entries, key=lambda item: item.legal_id)
+    ]
+    body = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    return "\n".join(header) + "\n" + body
+
+
+def _pending_sync_path(root: Path) -> Path:
+    """Return the one authorized declaration path beneath an exact checkout."""
+    existing = iter_pending_file_paths(root)
+    if existing:
+        return existing[0]
+    checkout = Path(root).resolve(strict=True)
+    nested_checkout = checkout / checkout.name
+    if nested_checkout.is_dir() and is_policy_repo_root(nested_checkout):
+        return nested_checkout / PENDING_FILENAME
+    return checkout / PENDING_FILENAME
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Replace ``path`` atomically so an interrupted sync keeps a valid file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.is_file() else 0o644
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def sync_repo_pending(
+    *,
+    repo_root: Path,
+    unmapped_legal_ids: list[str],
+    source: str,
+    since: str,
+    issue: str | None = None,
+) -> dict[str, Any]:
+    """Atomically rewrite one exact checkout's pending declaration.
+
+    Existing entries retain their provenance while still unmapped. Newly
+    unmapped outputs receive ``source`` and ``since``; classified or removed
+    outputs are drained. The ceiling is reset to the resulting entry count.
+    """
+    root = Path(repo_root)
+    if not is_policy_repo_root(root):
+        raise PendingDeclarationError(
+            "Pending sync requires the exact canonical "
+            f"rulespec-<country> checkout: {root}"
+        )
+    if source not in _ALLOWED_SOURCES:
+        raise PendingDeclarationError(
+            f"source {source!r} must be one of {sorted(_ALLOWED_SOURCES)}"
+        )
+    since = _coerce_date(since, where="sync")
+    path = _pending_sync_path(root)
+    existing_by_id: dict[str, PendingEntry] = {}
+    if path.is_file():
+        existing = load_pending_file(path, repo=path.parent.name)
+        existing_by_id = {entry.legal_id: entry for entry in existing.entries}
+        issue = issue if issue is not None else existing.issue
+
+    wanted = sorted(set(unmapped_legal_ids))
+    entries: list[PendingEntry] = []
+    added: list[str] = []
+    for legal_id in wanted:
+        prior = existing_by_id.get(legal_id)
+        if prior is not None:
+            entries.append(prior)
+            continue
+        entries.append(
+            PendingEntry(
+                legal_id=legal_id,
+                source=source,
+                since=since,
+                note=None,
+                repo=path.parent.name,
+                file=str(path),
+            )
+        )
+        added.append(legal_id)
+    dropped = sorted(set(existing_by_id) - set(wanted))
+
+    text = _dump_pending_file(entries=entries, ceiling=len(entries), issue=issue)
+    changed = not path.is_file() or path.read_text(encoding="utf-8") != text
+    if changed:
+        _atomic_write_text(path, text)
+    return {
+        "path": str(path),
+        "count": len(entries),
+        "added": added,
+        "dropped": dropped,
+        "changed": changed,
+    }
