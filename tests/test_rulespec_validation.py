@@ -3821,13 +3821,13 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert section_1402a12_mapping.program == "tax"
     assert section_2014c_poverty_line_mapping.policyengine_variable == "snap_fpg"
     ca_snap_benefit_mapping = registry.mapping_for_legal_id(
-        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit",
+        "us:policies/usda/snap/state-plan-composition#snap_benefit",
         country="us",
     )
     assert ca_snap_benefit_mapping.mapping_type == "not_comparable"
     assert ca_snap_benefit_mapping.policyengine_variable == "snap"
     ca_snap_monthly_income_mapping = registry.mapping_for_legal_id(
-        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_monthly_household_income",
+        "us:policies/usda/snap/state-plan-composition#snap_monthly_household_income",
         country="us",
     )
     assert ca_snap_monthly_income_mapping.mapping_type == "not_comparable"
