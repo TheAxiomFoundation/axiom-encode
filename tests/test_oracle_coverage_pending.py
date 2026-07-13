@@ -223,6 +223,58 @@ def test_pending_loader_rejects_workspace_and_does_not_scan_siblings(tmp_path):
     ]
 
 
+def test_pending_loader_reads_exact_nested_github_actions_checkout(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    nested_checkout = checkout / "rulespec-us"
+    nested_checkout.mkdir(parents=True)
+    _write(
+        nested_checkout / "oracle-coverage-pending.yaml",
+        "version: 1\nentries: []\n",
+    )
+
+    assert [pending.path for pending in load_pending_files(checkout)] == [
+        nested_checkout / "oracle-coverage-pending.yaml"
+    ]
+
+
+def test_pending_loader_rejects_ambiguous_direct_and_nested_files(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    nested_checkout = checkout / "rulespec-us"
+    nested_checkout.mkdir(parents=True)
+    for path in (
+        checkout / "oracle-coverage-pending.yaml",
+        nested_checkout / "oracle-coverage-pending.yaml",
+    ):
+        _write(path, "version: 1\nentries: []\n")
+
+    with pytest.raises(PendingDeclarationError, match="ambiguous"):
+        load_pending_files(checkout)
+
+
+def test_pending_loader_rejects_symlinked_nested_checkout(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    checkout.mkdir()
+    outside_checkout = tmp_path / "outside"
+    outside_checkout.mkdir()
+    (checkout / "rulespec-us").symlink_to(outside_checkout, target_is_directory=True)
+
+    with pytest.raises(PendingDeclarationError, match="regular directory"):
+        load_pending_files(checkout)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_pending_loader_rejects_symlinked_pending_file(tmp_path, nested):
+    checkout = tmp_path / "rulespec-us"
+    declaration_root = checkout / "rulespec-us" if nested else checkout
+    declaration_root.mkdir(parents=True)
+    outside_file = tmp_path / "outside-pending.yaml"
+    _write(outside_file, "version: 1\nentries: []\n")
+    (declaration_root / "oracle-coverage-pending.yaml").symlink_to(outside_file)
+
+    with pytest.raises(PendingDeclarationError, match="regular file"):
+        load_pending_files(checkout)
+
+
 # --- registry-backed integration: the real gate path ----------------------
 
 
@@ -315,6 +367,26 @@ def test_cli_gate_passes_when_declared(tmp_path, monkeypatch):
         "--fail-on-unmapped",
         "--fail-on-stale-pending",
     )
+    assert code == 0
+
+
+def test_cli_gate_passes_with_nested_github_actions_checkout(tmp_path, monkeypatch):
+    outer_checkout = tmp_path / "rulespec-uk"
+    nested_checkout, legal_id = _checkout_with_unmapped_output(outer_checkout)
+    _write(
+        nested_checkout / "oracle-coverage-pending.yaml",
+        f"version: 1\nentries:\n  - legal_id: {legal_id}\n    source: bulk\n    since: 2026-07-07\n",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage",
+        "--root",
+        str(outer_checkout),
+        "--fail-on-unmapped",
+        "--fail-on-stale-pending",
+    )
+
     assert code == 0
 
 

@@ -189,7 +189,13 @@ def load_pending_file(path: Path, *, repo: str | None = None) -> PendingFile:
 
 
 def iter_pending_file_paths(root: Path) -> list[Path]:
-    """Return the pending declaration in one explicit canonical checkout."""
+    """Return the pending declaration in one explicit canonical checkout.
+
+    GitHub Actions places the repository at ``rulespec-us/rulespec-us`` and
+    passes the outer canonical checkout root to oracle coverage. Support that
+    exact nested checkout as well as the direct layout used by local callers.
+    Never scan sibling repositories.
+    """
 
     raw_root = Path(root).expanduser()
     if not is_policy_repo_root(raw_root):
@@ -197,12 +203,32 @@ def iter_pending_file_paths(root: Path) -> list[Path]:
             "Pending declarations require the exact canonical "
             f"rulespec-<country> checkout: {raw_root}"
         )
-    own = raw_root.resolve(strict=True) / PENDING_FILENAME
-    if own.is_symlink():
+    checkout = raw_root.resolve(strict=True)
+    nested_checkout = checkout / checkout.name
+    if nested_checkout.is_symlink():
         raise PendingDeclarationError(
-            f"Pending declaration must be a regular file, not a symlink: {own}"
+            "Nested RuleSpec checkout must be a regular directory, not a symlink: "
+            f"{nested_checkout}"
         )
-    return [own] if own.is_file() else []
+
+    candidates = [checkout / PENDING_FILENAME]
+    if nested_checkout.is_dir():
+        candidates.append(nested_checkout / PENDING_FILENAME)
+
+    found: list[Path] = []
+    for path in candidates:
+        if path.is_symlink():
+            raise PendingDeclarationError(
+                f"Pending declaration must be a regular file, not a symlink: {path}"
+            )
+        if path.is_file():
+            found.append(path)
+    if len(found) > 1:
+        raise PendingDeclarationError(
+            "Pending declaration is ambiguous; keep exactly one file in the direct "
+            f"or nested canonical checkout: {', '.join(str(path) for path in found)}"
+        )
+    return found
 
 
 def load_pending_files(root: Path) -> list[PendingFile]:
