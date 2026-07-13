@@ -3795,6 +3795,17 @@ def _candidate_import_rule_files(
     return candidates
 
 
+def _validation_overlay_copy_ignore(directory: str, names: list[str]) -> set[str]:
+    ignored = {
+        name
+        for name in names
+        if name in {".git", ".venv", "__pycache__", ".pytest_cache"}
+    }
+    if Path(directory).name == "_axiom":
+        ignored.update(name for name in names if not name.startswith("rulespec-"))
+    return ignored
+
+
 @contextlib.contextmanager
 def _rulespec_validation_target(
     rulespec_file: Path, policy_repo_root: Path
@@ -3836,9 +3847,7 @@ def _rulespec_validation_target(
         shutil.copytree(
             source_repo_root,
             overlay_repo,
-            ignore=shutil.ignore_patterns(
-                ".git", ".venv", "__pycache__", ".pytest_cache"
-            ),
+            ignore=_validation_overlay_copy_ignore,
         )
         eval_workspaces_root = _nearby_eval_workspaces_root(rulespec_file)
         if eval_workspaces_root is not None:

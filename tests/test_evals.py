@@ -2242,6 +2242,32 @@ def test_rulespec_validation_overlay_preserves_eval_source_metadata(tmp_path):
     assert metadata["requested_source"] == "us-co/statute/39/39-22-104/1.5"
 
 
+def test_rulespec_validation_overlay_ignores_nested_axiom_checkouts(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    policy_repo.mkdir()
+    nested_dependency = policy_repo / "_axiom" / "axiom-corpus"
+    nested_dependency.mkdir(parents=True)
+    (nested_dependency / "axiom-corpus").symlink_to("missing-checkout")
+    nested_rulespec = policy_repo / "_axiom" / "rulespec-uk"
+    nested_rulespec.mkdir()
+    (nested_rulespec / "uk").mkdir()
+    (nested_rulespec / "uk" / "dependency.yaml").write_text(
+        "format: rulespec/v1\nrules: []\n"
+    )
+    output_file = tmp_path / "out" / "statutes" / "7" / "2017" / "a.yaml"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("format: rulespec/v1\nrules: []\n")
+
+    with _rulespec_validation_target(output_file, policy_repo) as validation_file:
+        validation_repo = next(
+            parent for parent in validation_file.parents if parent.name == "rulespec-us"
+        )
+        assert not (validation_repo / "_axiom" / "axiom-corpus").exists()
+        assert (
+            validation_repo / "_axiom" / "rulespec-uk" / "uk" / "dependency.yaml"
+        ).exists()
+
+
 def test_rulespec_validation_overlay_resolves_generated_nested_source_id(
     tmp_path,
 ):
