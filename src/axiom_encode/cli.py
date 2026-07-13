@@ -44548,7 +44548,7 @@ def _relative_output_jurisdiction_prefix(relative_output: Path) -> str | None:
     parts = Path(relative_output).parts
     if (
         len(parts) >= 2
-        and parts[1] in RULESPEC_SOURCE_ROOTS
+        and parts[1] in (RULESPEC_SOURCE_ROOTS | {"manual"})
         and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0])
     ):
         return parts[0]
@@ -50769,6 +50769,7 @@ def cmd_sign_applied_files(args):
             repo_path,
             base_ref=args.base_ref,
             head_ref=args.head_ref,
+            roots=roots,
             changed_files=sorted(
                 set(changed)
                 | {path.relative_to(repo_path).as_posix() for path in manifest_paths}

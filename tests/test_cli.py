@@ -34892,6 +34892,7 @@ class TestSignAppliedFiles:
         repo = tmp_path / "rulespec-us"
         _init_test_git_repo(repo)
         (repo / "README.md").write_text("# rulespec-us\n")
+        (repo / "us").mkdir()
         _git(repo, "add", ".")
         _git(repo, "commit", "-m", "initial")
         base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
@@ -35024,6 +35025,60 @@ class TestSignAppliedFiles:
         ):
             issues = guard_generated_change_issues(repo, base_ref=base_sha)
         assert issues == []
+
+    def test_signs_country_prefixed_manual_files_and_passes_guard(
+        self, tmp_path, capsys
+    ):
+        repo = tmp_path / "rulespec-us"
+        _init_test_git_repo(repo)
+        (repo / "README.md").write_text("# rulespec-us\n")
+        (repo / "us").mkdir()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "initial")
+        base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        rule = repo / "us-mo/manual/dss/snap/1115/block-1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        test = rule.with_name("block-1.test.yaml")
+        test.write_text("cases: []\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "encode manual rule without manifest")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value=self._provenance_stub(),
+            ),
+        ):
+            cmd_sign_applied_files(
+                SimpleNamespace(
+                    repo=repo,
+                    base_ref=base_sha,
+                    head_ref="HEAD",
+                    dry_run=False,
+                    roots="us-mo",
+                    manual_exception="repair",
+                )
+            )
+
+        output = capsys.readouterr().out
+        assert "guard passes with the new manifests included" in output
+        manifest = json.loads(
+            (
+                repo
+                / ".axiom/encoding-manifests/us-mo/manual/dss/snap/1115/block-1.json"
+            ).read_text()
+        )
+        assert {item["path"] for item in manifest["applied_files"]} == {
+            "us-mo/manual/dss/snap/1115/block-1.yaml",
+            "us-mo/manual/dss/snap/1115/block-1.test.yaml",
+        }
+        assert manifest["citation"] == "us-mo:manual/dss/snap/1115/block-1"
 
     def test_dry_run_writes_nothing(self, tmp_path, capsys):
         repo, base_sha = self._repo_with_unmanifested_encodings(tmp_path)
