@@ -735,6 +735,140 @@ class EvalArtifactMetrics:
     policyengine_runtime_identity_sha256: str | None = None
 
 
+_VALIDATION_ISSUE_CLASSIFIERS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(?:companion (?:output |test )?coverage|companion test asserts|"
+            r"companion `\.test\.yaml` file)",
+            re.IGNORECASE,
+        ),
+        "companion_coverage",
+    ),
+    (
+        re.compile(
+            r"\bproof (?:atom|malformed|claim|missing|source|import|table)\b",
+            re.IGNORECASE,
+        ),
+        "proof_atoms",
+    ),
+    (
+        re.compile(r"\bungrounded generated numeric literal\b", re.IGNORECASE),
+        "ungrounded_literal",
+    ),
+    (
+        re.compile(
+            r"(?:fixture|test case).*(?:failed|failure|error|expected|returned|"
+            r"missing from execution response)|"
+            r"(?:failed|failure|error).*(?:fixture|test case)",
+            re.IGNORECASE,
+        ),
+        "fixture_execution",
+    ),
+    (
+        re.compile(
+            r"(?:zero comparable oracle evidence|oracle coverage|"
+            r"No PolicyEngine-comparable tests found|"
+            r"PE=.*RuleSpec expects=)",
+            re.IGNORECASE,
+        ),
+        "oracle_coverage",
+    ),
+    (
+        re.compile(
+            r"(?:canonical concept|concept registry|Invalid concept registry)",
+            re.IGNORECASE,
+        ),
+        "concept_registry",
+    ),
+    (
+        re.compile(
+            r"(?:import (?:`[^`]*` )?(?:missing|does not resolve|resolution)|"
+            r"missing imports?|could not resolve import)",
+            re.IGNORECASE,
+        ),
+        "import_resolution",
+    ),
+    (
+        re.compile(
+            r"(?:YAML parse failed|could not be read as RuleSpec YAML|"
+            r"RuleSpec tests must be a YAML list|schema (?:is not supported|invalid)|"
+            r"unsupported (?:registry format|schema))",
+            re.IGNORECASE,
+        ),
+        "schema",
+    ),
+    (
+        re.compile(r"(?:embedded source|Numeric source required)", re.IGNORECASE),
+        "embedded_source",
+    ),
+    (
+        re.compile(
+            r"(?:compile failed|failed compile validation|"
+            r"compile did not return an artifact payload)",
+            re.IGNORECASE,
+        ),
+        "compile",
+    ),
+)
+_VALIDATION_FALLBACK_QUOTED_RE = re.compile(r"(?:`[^`]*`|'[^']*'|\"[^\"]*\")")
+_VALIDATION_FALLBACK_PATH_RE = re.compile(
+    r"(?:[A-Za-z]:)?(?:[/\\][^\s:;,]+)+|\b[^\s:;,]+[/\\][^\s:;,]+"
+)
+_VALIDATION_FALLBACK_FILENAME_RE = re.compile(r"\b[\w.-]*\.[A-Za-z]{1,6}\b")
+_VALIDATION_FALLBACK_DIGIT_RE = re.compile(r"\d+")
+_VALIDATION_FALLBACK_TOKEN_RE = re.compile(r"[a-z]+")
+
+
+def classify_validation_issue(issue: str) -> str:
+    """Return a stable, bounded class for one emitted validation issue."""
+    detail = str(issue)
+    for pattern, message_class in _VALIDATION_ISSUE_CLASSIFIERS:
+        if pattern.search(detail):
+            return message_class
+    normalized = _VALIDATION_FALLBACK_QUOTED_RE.sub(" ", detail.lower())
+    normalized = _VALIDATION_FALLBACK_PATH_RE.sub(" ", normalized)
+    normalized = _VALIDATION_FALLBACK_FILENAME_RE.sub(" ", normalized)
+    normalized = _VALIDATION_FALLBACK_DIGIT_RE.sub(" ", normalized)
+    tokens = _VALIDATION_FALLBACK_TOKEN_RE.findall(normalized)[:6]
+    return "_".join(tokens)[:60] or "unclassified"
+
+
+def summarize_validation_failures(
+    labeled_issues: Sequence[tuple[str, Sequence[str]]],
+) -> dict:
+    """Build bounded issue detail plus uncapped counts for outcome telemetry."""
+    failures: list[dict[str, str]] = []
+    counts: Counter[str] = Counter()
+    seen: set[tuple[str, str]] = set()
+    for gate, issues in labeled_issues:
+        gate_text = str(gate)
+        for issue in issues:
+            detail = str(issue)
+            identity = (gate_text, detail)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            message_class = classify_validation_issue(detail)
+            counts[f"{gate_text}:{message_class}"] += 1
+            failures.append(
+                {
+                    "gate": gate_text,
+                    "message_class": message_class,
+                    "detail": detail[:240],
+                }
+            )
+    if not failures:
+        return {}
+    result: dict[str, object] = {
+        "validation_failures": failures[:40],
+        "validation_failure_counts": dict(counts),
+    }
+    dropped = len(failures) - 40
+    if dropped > 0:
+        result["validation_failures_truncated"] = dropped
+    return result
+
+
 @dataclass
 class EvalContextFile:
     """A context file copied into the eval workspace."""

@@ -174,6 +174,7 @@ from .harness.evals import (
     run_model_eval,
     run_source_eval,
     summarize_readiness,
+    summarize_validation_failures,
 )
 from .harness.policyengine_runtime import (
     PolicyEngineRuntime,
@@ -20806,6 +20807,7 @@ def _cmd_encode_with_authoritative_rulespec_roots(
                 )
                 outcome["status"] = "apply_blocked_validation"
                 outcome["apply_error"] = detail
+                _replace_overlay_validation_failures(outcome, apply_issues)
                 outcome["final_success"] = False
                 print(f"  apply=blocked_validation:{detail}")
             if can_apply:
@@ -20886,6 +20888,7 @@ def _cmd_encode_with_authoritative_rulespec_roots(
                     )
                     outcome["status"] = "apply_blocked_validation"
                     outcome["apply_error"] = detail
+                    _replace_overlay_validation_failures(outcome, apply_issues)
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
                 else:
@@ -42094,7 +42097,7 @@ def _log_eval_session(
 def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     """Build the workflow-level outcome object for an eval-backed encode run."""
     standalone_success = bool(getattr(result, "success", False))
-    return {
+    outcome = {
         "standalone_validation_success": standalone_success,
         "apply_requested": bool(apply_requested),
         "overlay_validation_success": None,
@@ -42105,6 +42108,43 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         "apply_error": None,
         "applied_files": [],
     }
+    metrics = getattr(result, "metrics", None)
+    if metrics is not None and not standalone_success:
+        try:
+            labeled_issues = [
+                (gate, issues)
+                for gate, attribute in (
+                    ("compile", "compile_issues"),
+                    ("ci", "ci_issues"),
+                    ("numeric_occurrence", "numeric_occurrence_issues"),
+                    ("generalist_review", "generalist_review_issues"),
+                    ("policyengine", "policyengine_issues"),
+                    ("taxsim", "taxsim_issues"),
+                )
+                if (issues := getattr(metrics, attribute, None))
+            ]
+            outcome.update(summarize_validation_failures(labeled_issues))
+        except Exception:
+            outcome["validation_failure_counts"] = {"telemetry:error": 1}
+    return outcome
+
+
+def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -> None:
+    """Replace any standalone failure telemetry with the overlay block reason."""
+    if not issues:
+        # The `standalone_failed:` block route arrives with no overlay issues;
+        # the standalone summary is the only telemetry that run has. Keep it.
+        return
+    for key in (
+        "validation_failures",
+        "validation_failures_truncated",
+        "validation_failure_counts",
+    ):
+        outcome.pop(key, None)
+    try:
+        outcome.update(summarize_validation_failures([("overlay", issues)]))
+    except Exception:
+        outcome["validation_failure_counts"] = {"telemetry:error": 1}
 
 
 def _record_encode_outcome(

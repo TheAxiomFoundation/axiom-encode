@@ -9776,7 +9776,14 @@ rules: []
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
-                return_value=(False, ["dependent failed"], {}),
+                return_value=(
+                    False,
+                    [
+                        "dependent failed",
+                        "Proof atom missing path: rule `x` proof atom 0 must declare `path`.",
+                    ],
+                    {},
+                ),
             ),
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
             patch.dict(
@@ -9794,6 +9801,10 @@ rules: []
         assert run.outcome["status"] == "apply_blocked_validation"
         assert run.outcome["final_success"] is False
         assert run.outcome["apply_error"] == "dependent failed"
+        assert run.outcome["validation_failure_counts"] == {
+            "overlay:dependent_failed": 1,
+            "overlay:proof_atoms": 1,
+        }
         events = EncodingDB(args.db).get_session_events(run.session_id)
         assert [event.event_type for event in events] == [
             "encode_request",
@@ -21865,6 +21876,23 @@ rules: []
         args.apply = True
         result = self._make_eval_result(False)
         result.error = "Generated RuleSpec failed compile validation"
+        result.metrics = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=["Axiom rules engine compile failed: standalone bad"],
+            ci_pass=False,
+            ci_issues=[],
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            embedded_source_present=True,
+            grounding=[],
+            numeric_occurrence_issues=[],
+            generalist_review_pass=None,
+            generalist_review_score=None,
+            generalist_review_issues=[],
+            policyengine_pass=None,
+            policyengine_score=None,
+            policyengine_issues=[],
+        )
         output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -21874,7 +21902,14 @@ rules: []
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
-                return_value=(False, ["overlay compile failed"], {}),
+                return_value=(
+                    False,
+                    [
+                        "overlay compile failed",
+                        "Ungrounded generated numeric literal: 0.15 does not appear as a substantive numeric value in the source text.",
+                    ],
+                    {},
+                ),
             ) as mock_overlay,
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
             patch.dict(
@@ -21893,6 +21928,13 @@ rules: []
         assert run.outcome["status"] == "apply_blocked_validation"
         assert run.outcome["overlay_validation_success"] is False
         assert run.outcome["apply_error"] == "overlay compile failed"
+        assert run.outcome["validation_failure_counts"] == {
+            "overlay:compile": 1,
+            "overlay:ungrounded_literal": 1,
+        }
+        assert all(
+            item["gate"] == "overlay" for item in run.outcome["validation_failures"]
+        )
         assert run.outcome["final_success"] is False
 
     def test_encode_apply_records_final_success_when_overlay_apply_passes(
@@ -32882,3 +32924,114 @@ rules: []
 
         census = json.loads(capsys.readouterr().out)
         assert census["captured_at"].endswith("Z")
+
+
+def test_initial_encode_outcome_records_multigate_validation_failures():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    metrics = SimpleNamespace(
+        compile_issues=["Axiom rules engine compile failed: bad formula"],
+        ci_issues=[
+            "Proof atom missing path: rule `x` proof atom 0 must declare `path`."
+        ],
+        numeric_occurrence_issues=[
+            "Ungrounded generated numeric literal: 0.15 does not appear as a substantive numeric value in the source text."
+        ],
+        generalist_review_issues=[],
+        policyengine_issues=[],
+    )
+    outcome = _initial_encode_outcome(
+        SimpleNamespace(
+            success=False,
+            error="Generated RuleSpec failed CI validation",
+            metrics=metrics,
+        ),
+        apply_requested=False,
+    )
+
+    assert [item["gate"] for item in outcome["validation_failures"]] == [
+        "compile",
+        "ci",
+        "numeric_occurrence",
+    ]
+    assert outcome["validation_failure_counts"] == {
+        "compile:compile": 1,
+        "ci:proof_atoms": 1,
+        "numeric_occurrence:ungrounded_literal": 1,
+    }
+    assert "validation_failures_truncated" not in outcome
+
+
+def test_initial_encode_outcome_success_omits_validation_failure_keys():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    outcome = _initial_encode_outcome(
+        SimpleNamespace(
+            success=True, error=None, metrics=SimpleNamespace(ci_issues=["ignored"])
+        ),
+        apply_requested=False,
+    )
+
+    assert not any(key.startswith("validation_failure") for key in outcome)
+
+
+def test_initial_encode_outcome_telemetry_error_never_propagates():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    with patch(
+        "axiom_encode.cli.summarize_validation_failures",
+        side_effect=RuntimeError("telemetry broke"),
+    ):
+        outcome = _initial_encode_outcome(
+            SimpleNamespace(
+                success=False,
+                error="Generated RuleSpec failed CI validation",
+                metrics=SimpleNamespace(ci_issues=["No tests found."]),
+            ),
+            apply_requested=False,
+        )
+
+    assert outcome["validation_failure_counts"] == {"telemetry:error": 1}
+
+
+def test_overlay_validation_failures_replace_standalone_telemetry():
+    from axiom_encode.cli import _replace_overlay_validation_failures
+
+    outcome = {
+        "apply_error": "Axiom rules engine compile failed: overlay bad",
+        "validation_failures": [{"gate": "ci"}],
+        "validation_failures_truncated": 7,
+        "validation_failure_counts": {"ci:proof_atoms": 1},
+    }
+    issues = [
+        "Axiom rules engine compile failed: overlay bad",
+        "Proof atom missing path: rule `x` proof atom 0 must declare `path`.",
+    ]
+    _replace_overlay_validation_failures(outcome, issues)
+
+    assert outcome["apply_error"] == issues[0]
+    assert [item["gate"] for item in outcome["validation_failures"]] == [
+        "overlay",
+        "overlay",
+    ]
+    assert outcome["validation_failure_counts"] == {
+        "overlay:compile": 1,
+        "overlay:proof_atoms": 1,
+    }
+    assert "validation_failures_truncated" not in outcome
+
+
+def test_overlay_validation_failures_keep_standalone_telemetry_when_no_issues():
+    from axiom_encode.cli import _replace_overlay_validation_failures
+
+    outcome = {
+        "apply_error": "standalone_failed: Generated RuleSpec failed CI validation",
+        "validation_failures": [
+            {"gate": "ci", "message_class": "proof_atoms", "detail": "x"}
+        ],
+        "validation_failure_counts": {"ci:proof_atoms": 1},
+    }
+    _replace_overlay_validation_failures(outcome, [])
+
+    assert outcome["validation_failure_counts"] == {"ci:proof_atoms": 1}
+    assert [item["gate"] for item in outcome["validation_failures"]] == ["ci"]
