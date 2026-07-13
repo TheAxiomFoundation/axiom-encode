@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import tempfile
+import textwrap
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -28197,3 +28198,166 @@ def test_canonical_target_resolver_rejects_cross_repo_symlink(tmp_path):
             target_ref,
             policy_repo,
         )
+
+
+def test_per_rule_grounding_accepts_multi_provision_module_and_rejects_fabrication():
+    """Per-rule grounding: each rule's literals ground against its own cited
+    provisions (module source ∪ that rule's proof-atom sources), so a module
+    drawing a rate from one provision and a threshold from another passes —
+    but a value absent from every cited provision still fails."""
+    from axiom_encode.harness.validator_pipeline import (
+        find_ungrounded_numeric_issues_scoped,
+    )
+
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: xx/statute/act/1
+        rules:
+          - name: rate
+            kind: parameter
+            dtype: Rate
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: formula
+                    source:
+                      corpus_citation_path: xx/statute/act/1
+                      excerpt: the rate of tax is fifteen percent (15%)
+            versions:
+              - effective_from: '2025-01-01'
+                formula: '0.15'
+          - name: threshold
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: formula
+                    source:
+                      corpus_citation_path: xx/statute/act/2
+                      excerpt: the maximum liable amount is 152,790
+            versions:
+              - effective_from: '2025-01-01'
+                formula: '152790'
+        """
+    ).strip()
+    proof_source_texts = {
+        "xx/statute/act/1": "The rate of tax is fifteen percent (15%).",
+        "xx/statute/act/2": "The maximum liable amount is 152,790.",
+    }
+    # Both values ground against their own rule's cited provision.
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text=proof_source_texts["xx/statute/act/1"],
+        )
+        == []
+    )
+    # A fabricated value absent from every cited provision is still caught,
+    # even when a proof atom cites a real provision that lacks it.
+    fabricated = content.replace("152790", "987654321")
+    issues = find_ungrounded_numeric_issues_scoped(
+        fabricated,
+        module_source_text=proof_source_texts["xx/statute/act/1"],
+    )
+    assert any("987654321" in issue for issue in issues), issues
+
+
+def test_grounding_binds_each_literal_to_its_own_anchored_atom():
+    """Same-rule cross-atom laundering is rejected: a fabricated formula value
+    whose OWN anchored atom lacks it is not grounded by an unrelated atom in
+    the same rule whose excerpt happens to contain the number — and a
+    citation-only atom grounds via the provision IT cites, not another
+    atom's."""
+    from axiom_encode.harness.validator_pipeline import (
+        find_ungrounded_numeric_issues_scoped,
+    )
+
+    laundering = textwrap.dedent(
+        """
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: xx/statute/act/1
+        rules:
+          - name: fabricated_rate
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: formula
+                    source:
+                      corpus_citation_path: xx/statute/act/2
+                      excerpt: the maximum liable amount
+                  - path: metadata.note
+                    kind: note
+                    source:
+                      corpus_citation_path: xx/statute/act/3
+                      excerpt: filing code 987654321 applies
+            versions:
+              - effective_from: '2025-01-01'
+                formula: '987654321'
+        """
+    ).strip()
+    proof_source_texts = {
+        "xx/statute/act/1": "Act text without the number.",
+        "xx/statute/act/2": "The maximum liable amount is set by Order.",
+        "xx/statute/act/3": "Administrative filing code 987654321 applies.",
+    }
+    issues = find_ungrounded_numeric_issues_scoped(
+        laundering,
+        module_source_text=proof_source_texts["xx/statute/act/1"],
+        proof_source_texts=proof_source_texts,
+    )
+    assert any("987654321" in issue for issue in issues), issues
+
+    citation_only = textwrap.dedent(
+        """
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: xx/statute/act/1
+        rules:
+          - name: weekly_rate
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: formula
+                    source:
+                      corpus_citation_path: xx/statute/act/2
+            versions:
+              - effective_from: '2025-01-01'
+                formula: '450'
+        """
+    ).strip()
+    # A citation-only atom (no excerpt) grounds via the provision it cites.
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            citation_only,
+            module_source_text="Act text without the number.",
+            proof_source_texts={
+                "xx/statute/act/2": "The rate is 450 dollars per winter period.",
+            },
+        )
+        == []
+    )
+    # It does NOT ground via a provision cited only by another path's atom.
+    issues = find_ungrounded_numeric_issues_scoped(
+        citation_only,
+        module_source_text="Act text without the number.",
+        proof_source_texts={
+            "xx/statute/act/2": "The rate is set by Order in Council.",
+            "xx/statute/act/3": "An unrelated schedule mentions 450.",
+        },
+    )
+    assert any("450" in issue for issue in issues), issues
