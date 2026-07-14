@@ -7943,6 +7943,7 @@ Test file rules:
   without this paired positive/negative companion.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
+- When a copied context file already exports the operative legal condition that the requested source consumes, import and use that canonical output. Do not recreate it as a local factual input merely because the requested source describes a person or household as entitled, eligible, qualified, allowed, or subject to that condition. Keep a local fact only when the requested source states a distinct operative fact that the context output does not represent.
 - Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
 - When this source text itself names the operative factual disqualification,
   exception, or eligibility condition, encode that named condition as a local

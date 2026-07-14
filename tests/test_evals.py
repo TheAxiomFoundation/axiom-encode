@@ -8326,6 +8326,11 @@ class TestEvalPrompt:
         assert "sets that exception input true" in prompt
         assert "Do not collapse a list of cited exceptions" in prompt
         assert "Do not create derived `dtype: Boolean` helper rules" in prompt
+        assert (
+            "copied context file already exports the operative legal condition"
+            in prompt
+        )
+        assert "Do not recreate it as a local factual input" in prompt
 
     def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
         workspace = prepare_eval_workspace(
