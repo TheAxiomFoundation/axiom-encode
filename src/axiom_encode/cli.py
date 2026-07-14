@@ -5163,7 +5163,7 @@ def cmd_oracle_coverage_pending(args):
         unmapped = [
             item["legal_id"]
             for item in report.get("items") or []
-            if item.get("status") == "unmapped"
+            if item.get("status") == "unmapped" and item.get("repo") == root.name
         ]
         try:
             result = sync_repo_pending(

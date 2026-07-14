@@ -421,6 +421,37 @@ def test_cli_pending_sync_declares_unmapped_output_idempotently(tmp_path, monkey
     assert load_pending_files(checkout)[0] == pending
 
 
+def test_cli_pending_sync_excludes_nested_foreign_checkout(tmp_path, monkeypatch):
+    checkout, legal_id = _checkout_with_unmapped_output(tmp_path)
+    foreign_id = "us:statutes/9999/1#foreign_pending_output"
+    _write(
+        checkout / "rulespec-us" / "us/statutes/9999/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: foreign_pending_output
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    declared = [entry.legal_id for entry in load_pending_files(checkout)[0].entries]
+    assert declared == [legal_id]
+    assert foreign_id not in declared
+
+
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
     checkout = tmp_path / "rulespec-uk"
     checkout.mkdir()
