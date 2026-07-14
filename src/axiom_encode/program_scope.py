@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
-from .constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from .constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_TEST_FILE_SUFFIX
 from .repo_routing import is_composition_policy_repo_root
 
 
@@ -74,6 +74,7 @@ def _normalize_scope_path(value: str) -> str:
         or path.is_absolute()
         or any(part in {"", ".", ".."} for part in path.parts)
         or path.suffix in {".yaml", ".yml"}
+        or f"{path.as_posix()}.yaml".endswith(RULESPEC_TEST_FILE_SUFFIX)
     ):
         raise ProgramScopeError(
             f"scope paths must be safe repo-relative module paths without a YAML suffix: {value!r}"

@@ -544,6 +544,20 @@ def test_sync_program_scope_rejects_non_atomic_addition(tmp_path: Path) -> None:
         )
 
 
+def test_sync_program_scope_rejects_companion_test_addition(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    companion = repo / "us-sc/policies/dss/snap/page-999.test.yaml"
+    companion.write_text("format: rulespec-test/v1\n")
+
+    with pytest.raises(ProgramScopeError, match="safe repo-relative"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-999.test"],
+        )
+
+
 def test_sync_program_scope_appends_after_unterminated_final_line(
     tmp_path: Path,
 ) -> None:
