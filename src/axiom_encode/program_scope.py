@@ -236,6 +236,10 @@ def sync_program_scope(
     scope_node = _mapping_value(root, "scope")
     if not isinstance(scope_node, MappingNode):
         raise ProgramScopeError("ProgramSpec must declare a `scope` mapping")
+    if scope_node.flow_style:
+        raise ProgramScopeError("ProgramSpec `scope` mapping must use block style")
+    if _node_reference_count(root, scope_node) > 1:
+        raise ProgramScopeError("ProgramSpec `scope` mapping must not use a YAML alias")
     target_node = _mapping_value(scope_node, scope)
     if not isinstance(target_node, SequenceNode):
         raise ProgramScopeError(f"ProgramSpec scope {scope!r} must be a sequence")
@@ -296,11 +300,12 @@ def sync_program_scope(
             f"scope additions do not resolve under {prefix}/: {missing_modules}"
         )
 
+    preserve_sorted_order = list(existing) == sorted(existing)
     desired_list = [item for item in existing if item not in set(removals)]
     for item in additions:
         if item in desired_list:
             continue
-        if desired_list == sorted(desired_list):
+        if preserve_sorted_order:
             bisect.insort(desired_list, item)
         else:
             desired_list.append(item)

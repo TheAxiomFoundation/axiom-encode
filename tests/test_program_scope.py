@@ -186,6 +186,32 @@ def test_sync_program_scope_preserves_unsorted_existing_order(tmp_path: Path) ->
     ]
 
 
+def test_sync_program_scope_uses_original_order_after_removal(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text().replace(
+            "    - policies/dss/snap/page-163\n"
+            "    - policies/dss/snap/page-369\n",
+            "    - policies/dss/snap/page-369\n"
+            "    - policies/dss/snap/page-163\n",
+        )
+    )
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+        remove=["policies/dss/snap/page-369"],
+    )
+
+    assert result.changed is True
+    assert yaml.safe_load(spec.read_text())["scope"]["state"] == [
+        "policies/dss/snap/page-163",
+        "policies/dss/snap/page-159",
+    ]
+
+
 def test_sync_program_scope_resolves_explicit_scope_to_named_jurisdiction(
     tmp_path: Path,
 ) -> None:
@@ -281,6 +307,50 @@ def test_sync_program_scope_rejects_aliased_sequence(tmp_path: Path) -> None:
             program_spec=spec.relative_to(repo),
             scope="state",
             add=["policies/dss/snap/page-159"],
+        )
+
+
+def test_sync_program_scope_rejects_aliased_scope_mapping(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        "program: us-sc/snap\n"
+        "period: 2026-01\n"
+        "scope_defaults: &scope_defaults\n"
+        "  federal:\n"
+        "    - regulations/7-cfr/273/9\n"
+        "  state:\n"
+        "    - policies/dss/snap/page-163\n"
+        "    - policies/dss/snap/page-369\n"
+        "scope: *scope_defaults\n"
+        "unused_scope: *scope_defaults\n"
+        "outputs: [snap_benefit]\n"
+    )
+
+    with pytest.raises(ProgramScopeError, match="mapping must not use a YAML alias"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+def test_sync_program_scope_rejects_flow_style_scope_mapping(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        "program: us-sc/snap\n"
+        "period: 2026-01\n"
+        "scope: {state: []}\n"
+        "outputs: [snap_benefit]\n"
+    )
+
+    with pytest.raises(ProgramScopeError, match="mapping must use block style"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+            write=False,
         )
 
 
