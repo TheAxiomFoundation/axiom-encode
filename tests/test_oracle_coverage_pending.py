@@ -482,6 +482,26 @@ rules:
     assert declared == [legal_id]
 
 
+def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch):
+    outer_checkout = tmp_path / "rulespec-uk"
+    nested_checkout, legal_id = _checkout_with_unmapped_output(outer_checkout)
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(outer_checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    pending = load_pending_files(outer_checkout)[0]
+    assert pending.path.parent == nested_checkout
+    assert [entry.legal_id for entry in pending.entries] == [legal_id]
+
+
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
     checkout = tmp_path / "rulespec-uk"
     checkout.mkdir()
