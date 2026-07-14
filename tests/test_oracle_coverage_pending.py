@@ -8,6 +8,7 @@ the oracle mappings nor the pending file still fails the gate.
 from __future__ import annotations
 
 import datetime
+import stat
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from axiom_encode.oracles.policyengine.pending import (
     load_pending_files,
     parse_pending_payload,
     ratchet_problems,
+    sync_repo_pending,
 )
 
 UNMAPPED = "uk:statutes/ukpga/9999/1/1#pending_test_only_output"
@@ -390,12 +392,271 @@ def test_cli_gate_passes_with_nested_github_actions_checkout(tmp_path, monkeypat
     assert code == 0
 
 
-def test_cli_has_no_pending_sync_mutation_command(tmp_path, monkeypatch):
+def test_cli_pending_sync_declares_unmapped_output_idempotently(tmp_path, monkeypatch):
+    checkout, legal_id = _checkout_with_unmapped_output(tmp_path)
     code = _run_cli(
         monkeypatch,
         "oracle-coverage-pending",
         "sync",
         "--root",
-        str(tmp_path / "rulespec-uk"),
+        str(checkout),
+        "--source",
+        "bulk",
     )
-    assert code == 2
+    assert code == 0
+    pending = load_pending_files(checkout)[0]
+    assert [entry.legal_id for entry in pending.entries] == [legal_id]
+    assert pending.ceiling == 1
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+    assert code == 0
+    assert load_pending_files(checkout)[0] == pending
+
+
+def test_cli_pending_sync_excludes_nested_foreign_checkout(tmp_path, monkeypatch):
+    checkout, legal_id = _checkout_with_unmapped_output(tmp_path)
+    foreign_id = "us:statutes/9999/1#foreign_pending_output"
+    _write(
+        checkout / "rulespec-us" / "us/statutes/9999/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: foreign_pending_output
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    declared = [entry.legal_id for entry in load_pending_files(checkout)[0].entries]
+    assert declared == [legal_id]
+    assert foreign_id not in declared
+
+
+def test_cli_pending_sync_includes_country_monorepo_state_output(tmp_path, monkeypatch):
+    checkout = tmp_path / "rulespec-us"
+    legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
+    _write(
+        checkout / "us-hi" / "statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_personal_exemption_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    declared = [entry.legal_id for entry in load_pending_files(checkout)[0].entries]
+    assert declared == [legal_id]
+
+
+def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch):
+    outer_checkout = tmp_path / "rulespec-us"
+    nested_checkout = outer_checkout / "rulespec-us"
+    state_legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
+    program_legal_id = "us-zz:programs/example/fy-2099#brand_new_program_output_xyz"
+    cross_country_program_id = "uk-zz:programs/example/fy-2099#cross_country_output_xyz"
+    foreign_legal_id = "us:foreign/statutes/y#foreign_output_xyz"
+    _write(
+        nested_checkout / "us-hi" / "statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_personal_exemption_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        nested_checkout / "programs/us-zz/example/fy-2099.yaml",
+        """program: us-zz/example
+period: 2099
+outputs:
+  - brand_new_program_output_xyz
+""",
+    )
+    _write(
+        nested_checkout / "foreign/statutes/y.yaml",
+        """format: rulespec/v1
+rules:
+  - name: foreign_output_xyz
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        nested_checkout / "programs/uk-zz/example/fy-2099.yaml",
+        """program: uk-zz/example
+period: 2099
+outputs:
+  - cross_country_output_xyz
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(outer_checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    pending = load_pending_files(outer_checkout)[0]
+    assert pending.path.parent == nested_checkout
+    assert [entry.legal_id for entry in pending.entries] == [
+        state_legal_id,
+        program_legal_id,
+    ]
+    assert foreign_legal_id not in {entry.legal_id for entry in pending.entries}
+    assert cross_country_program_id not in {entry.legal_id for entry in pending.entries}
+
+
+def test_cli_pending_sync_supports_direct_checkout_programs(tmp_path, monkeypatch):
+    checkout = tmp_path / "rulespec-us"
+    state_legal_id = "us-hi:statutes/235-54#direct_state_output_xyz"
+    program_legal_id = "us-hi:programs/snap/fy-2099#direct_program_output_xyz"
+    _write(
+        checkout / "us-hi/statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: direct_state_output_xyz
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        checkout / "programs/us-hi/snap/fy-2099.yaml",
+        """program: us-hi/snap
+period: 2099
+outputs:
+  - direct_program_output_xyz
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    assert [entry.legal_id for entry in load_pending_files(checkout)[0].entries] == [
+        program_legal_id,
+        state_legal_id,
+    ]
+
+
+def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
+    checkout = tmp_path / "rulespec-uk"
+    checkout.mkdir()
+    first = sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED, OTHER_UNMAPPED],
+        source="manual",
+        since="2026-07-01",
+        issue="https://example.test/issues/1",
+    )
+    assert first["added"] == [UNMAPPED, OTHER_UNMAPPED]
+
+    second = sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+    assert second["dropped"] == [OTHER_UNMAPPED]
+    pending = load_pending_files(checkout)[0]
+    assert pending.ceiling == 1
+    assert pending.issue == "https://example.test/issues/1"
+    assert pending.entries[0].source == "manual"
+    assert pending.entries[0].since == "2026-07-01"
+
+
+def test_pending_sync_quotes_yaml_sensitive_metadata_and_preserves_mode(tmp_path):
+    checkout = tmp_path / "rulespec-uk"
+    checkout.mkdir()
+    path = checkout / "oracle-coverage-pending.yaml"
+    path.write_text(
+        "version: 1\n"
+        'issue: "tracking: issue"\n'
+        "ceiling: 1\n"
+        "entries:\n"
+        f"  - legal_id: {UNMAPPED}\n"
+        "    source: manual\n"
+        "    since: 2026-07-01\n"
+        '    note: "blocked: needs mapping #42"\n',
+        encoding="utf-8",
+    )
+    path.chmod(0o640)
+
+    sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+
+    pending = load_pending_files(checkout)[0]
+    assert pending.issue == "tracking: issue"
+    assert pending.entries[0].note == "blocked: needs mapping #42"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_pending_sync_targets_nested_actions_checkout(tmp_path):
+    outer = tmp_path / "rulespec-uk"
+    nested = outer / "rulespec-uk"
+    nested.mkdir(parents=True)
+
+    result = sync_repo_pending(
+        repo_root=outer,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+
+    assert Path(result["path"]) == nested / "oracle-coverage-pending.yaml"
+    assert not (outer / "oracle-coverage-pending.yaml").exists()

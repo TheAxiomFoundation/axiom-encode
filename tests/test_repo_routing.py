@@ -25,6 +25,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
+    is_composition_policy_repo_root,
     is_policy_repo_root,
     jurisdiction_subdir_names,
 )
@@ -60,6 +61,29 @@ def test_rulespec_filesystem_and_atomic_root_contracts_are_distinct():
     assert RULESPEC_FILESYSTEM_ROOTS == (
         RULESPEC_ATOMIC_MODULE_ROOTS | {RULESPEC_COMPOSITION_SPEC_ROOT}
     )
+
+
+def test_composition_checkout_identity_admits_only_top_level_programs(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    (checkout / "programs/us/snap").mkdir(parents=True)
+
+    assert is_policy_repo_root(checkout) is False
+    assert is_composition_policy_repo_root(checkout) is True
+    assert jurisdiction_subdir_names(checkout, allow_composition_specs=True) == set()
+
+    (checkout / "statutes").mkdir()
+    assert is_composition_policy_repo_root(checkout) is False
+
+
+def test_composition_checkout_identity_rejects_symlinked_programs(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    external_programs = tmp_path / "external-programs"
+    external_programs.mkdir()
+    (checkout / "programs").symlink_to(external_programs, target_is_directory=True)
+
+    assert is_composition_policy_repo_root(checkout) is False
 
 
 def test_canonical_rulespec_root_identity_is_stable_for_direct_content_root(tmp_path):

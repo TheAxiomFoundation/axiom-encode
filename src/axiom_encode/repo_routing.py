@@ -21,7 +21,7 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
-from .constants import RULESPEC_FILESYSTEM_ROOTS
+from .constants import RULESPEC_COMPOSITION_SPEC_ROOT, RULESPEC_FILESYSTEM_ROOTS
 
 
 class _GitProbeError(RuntimeError):
@@ -67,7 +67,11 @@ def _lexical_rulespec_path(path: Path) -> Path | None:
     return raw
 
 
-def _canonical_country_checkout_name(path: Path) -> str | None:
+def _canonical_country_checkout_name(
+    path: Path,
+    *,
+    allow_composition_specs: bool = False,
+) -> str | None:
     """Return the exact canonical country-checkout name for ``path``."""
 
     lexical = _lexical_rulespec_path(path)
@@ -82,9 +86,17 @@ def _canonical_country_checkout_name(path: Path) -> str | None:
     country = name.removeprefix("rulespec-")
     if re.fullmatch(r"[a-z]{2}", country) is None:
         return None
+    blocked_roots = RULESPEC_FILESYSTEM_ROOTS
+    if allow_composition_specs:
+        composition_root = checkout / RULESPEC_COMPOSITION_SPEC_ROOT
+        if (composition_root.exists() or composition_root.is_symlink()) and (
+            composition_root.is_symlink() or not composition_root.is_dir()
+        ):
+            return None
+        blocked_roots = blocked_roots - {RULESPEC_COMPOSITION_SPEC_ROOT}
     if any(
         (checkout / root_name).exists() or (checkout / root_name).is_symlink()
-        for root_name in RULESPEC_FILESYSTEM_ROOTS
+        for root_name in blocked_roots
     ):
         return None
     try:
@@ -144,6 +156,15 @@ def is_policy_repo_root(path: Path) -> bool:
     """Return True for an exact canonical country checkout root."""
 
     return _canonical_country_checkout_name(Path(path)) is not None
+
+
+def is_composition_policy_repo_root(path: Path) -> bool:
+    """Return True for an exact country checkout that may contain ProgramSpecs."""
+
+    return (
+        _canonical_country_checkout_name(Path(path), allow_composition_specs=True)
+        is not None
+    )
 
 
 def is_jurisdiction_content_root(path: Path) -> bool:
@@ -227,14 +248,21 @@ def resolve_jurisdiction_content_dir(
     return None
 
 
-def jurisdiction_subdir_names(checkout: Path) -> set[str]:
+def jurisdiction_subdir_names(
+    checkout: Path,
+    *,
+    allow_composition_specs: bool = False,
+) -> set[str]:
     """Return direct jurisdiction children of one canonical country checkout."""
 
     lexical = _lexical_rulespec_path(checkout)
     if lexical is None:
         return set()
     checkout = lexical.resolve()
-    checkout_name = _canonical_country_checkout_name(checkout)
+    checkout_name = _canonical_country_checkout_name(
+        checkout,
+        allow_composition_specs=allow_composition_specs,
+    )
     if checkout_name is None or not checkout.is_dir():
         return set()
     country = checkout_name.removeprefix("rulespec-")
