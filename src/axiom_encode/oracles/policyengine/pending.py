@@ -397,7 +397,11 @@ def _pending_sync_path(root: Path) -> Path:
         return existing[0]
     checkout = Path(root).resolve(strict=True)
     nested_checkout = checkout / checkout.name
-    if nested_checkout.is_dir() and is_policy_repo_root(nested_checkout):
+    if nested_checkout.is_symlink():
+        raise PendingDeclarationError(
+            f"Pending sync nested checkout must not be a symlink: {nested_checkout}"
+        )
+    if nested_checkout.is_dir():
         return nested_checkout / PENDING_FILENAME
     return checkout / PENDING_FILENAME
 

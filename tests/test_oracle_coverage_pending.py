@@ -483,8 +483,29 @@ rules:
 
 
 def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch):
-    outer_checkout = tmp_path / "rulespec-uk"
-    nested_checkout, legal_id = _checkout_with_unmapped_output(outer_checkout)
+    outer_checkout = tmp_path / "rulespec-us"
+    nested_checkout = outer_checkout / "rulespec-us"
+    state_legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
+    program_legal_id = "us-zz:programs/example/fy-2099#brand_new_program_output_xyz"
+    _write(
+        nested_checkout / "us-hi" / "statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_personal_exemption_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        nested_checkout / "programs/us-zz/example/fy-2099.yaml",
+        """program: us-zz/example
+period: 2099
+outputs:
+  - brand_new_program_output_xyz
+""",
+    )
 
     code = _run_cli(
         monkeypatch,
@@ -499,7 +520,10 @@ def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch)
     assert code == 0
     pending = load_pending_files(outer_checkout)[0]
     assert pending.path.parent == nested_checkout
-    assert [entry.legal_id for entry in pending.entries] == [legal_id]
+    assert [entry.legal_id for entry in pending.entries] == [
+        state_legal_id,
+        program_legal_id,
+    ]
 
 
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):

@@ -5160,16 +5160,14 @@ def cmd_oracle_coverage_pending(args):
     root = _resolve_canonical_rulespec_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
-        coverage_checkout = root
-        display_prefix = ""
         nested_checkout = root / root.name
-        if nested_checkout.is_dir() and is_policy_repo_root(nested_checkout):
-            coverage_checkout = nested_checkout
-            display_prefix = f"{root.name}/"
-        authorized_prefixes = tuple(
-            f"{display_prefix}{jurisdiction}/"
-            for jurisdiction in sorted(jurisdiction_subdir_names(coverage_checkout))
-        )
+        if nested_checkout.is_dir() and not nested_checkout.is_symlink():
+            authorized_prefixes = (f"{root.name}/",)
+        else:
+            authorized_prefixes = tuple(
+                f"{jurisdiction}/"
+                for jurisdiction in sorted(jurisdiction_subdir_names(root))
+            )
 
         unmapped = [
             item["legal_id"]
