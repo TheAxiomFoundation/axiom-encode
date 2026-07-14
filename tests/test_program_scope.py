@@ -1,0 +1,235 @@
+from pathlib import Path
+
+import pytest
+import yaml
+
+from axiom_encode.program_scope import ProgramScopeError, sync_program_scope
+
+
+def _repo(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "rulespec-us"
+    spec = repo / "programs/us-sc/snap/fy-2026.yaml"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "# preserved header\n\n"
+        "program: us-sc/snap\n"
+        "period: 2026-01\n\n"
+        "scope:\n"
+        "  federal:\n"
+        "    - regulations/7-cfr/273/9\n\n"
+        "  state:\n"
+        "    - policies/dss/snap/page-163\n"
+        "    - policies/dss/snap/page-369\n\n"
+        "outputs:\n"
+        "  - snap_benefit\n"
+    )
+    for path in ("page-159", "page-163", "page-369"):
+        module = repo / f"us-sc/policies/dss/snap/{path}.yaml"
+        module.parent.mkdir(parents=True, exist_ok=True)
+        module.write_text("format: rulespec/v1\n")
+    return repo, spec
+
+
+def test_sync_program_scope_changes_only_selected_sequence(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    before = spec.read_text()
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=Path("programs/us-sc/snap/fy-2026.yaml"),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+        remove=["policies/dss/snap/page-369"],
+    )
+
+    assert result.changed is True
+    assert result.added == ("policies/dss/snap/page-159",)
+    assert result.removed == ("policies/dss/snap/page-369",)
+    after = spec.read_text()
+    assert after.startswith("# preserved header\n\n")
+    assert after.split("scope:\n", 1)[0] == before.split("scope:\n", 1)[0]
+    assert after.split("outputs:\n", 1)[1] == before.split("outputs:\n", 1)[1]
+    assert "page-163\n\noutputs:" in after
+    assert yaml.safe_load(after)["scope"]["state"] == [
+        "policies/dss/snap/page-159",
+        "policies/dss/snap/page-163",
+    ]
+
+
+def test_sync_program_scope_check_mode_does_not_write(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    before = spec.read_text()
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+        write=False,
+    )
+
+    assert result.changed is True
+    assert spec.read_text() == before
+
+
+def test_sync_program_scope_is_idempotent(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    assert result.changed is False
+
+
+def test_sync_program_scope_rejects_missing_module(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+
+    with pytest.raises(ProgramScopeError, match="do not resolve"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec,
+            scope="state",
+            add=["policies/dss/snap/page-999"],
+        )
+
+
+def test_sync_program_scope_rejects_module_symlink_outside_scope(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("format: rulespec/v1\n")
+    module = repo / "us-sc/policies/dss/snap/page-999.yaml"
+    module.symlink_to(outside)
+
+    with pytest.raises(ProgramScopeError, match="do not resolve"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec,
+            scope="state",
+            add=["policies/dss/snap/page-999"],
+        )
+
+
+def test_sync_program_scope_rejects_program_spec_symlink(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    real_spec = spec.with_name("real.yaml")
+    spec.rename(real_spec)
+    spec.symlink_to(real_spec)
+
+    with pytest.raises(ProgramScopeError, match="must not contain symlinks"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec,
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+@pytest.mark.parametrize("path", ["../outside", "/absolute", "page.yaml"])
+def test_sync_program_scope_rejects_unsafe_paths(tmp_path: Path, path: str) -> None:
+    repo, spec = _repo(tmp_path)
+
+    with pytest.raises(ProgramScopeError, match="safe repo-relative"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec,
+            scope="state",
+            add=[path],
+        )
+
+
+def test_sync_program_scope_allows_already_absent_removal(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="state",
+        remove=["policies/dss/snap/page-999"],
+    )
+
+    assert result.changed is False
+    assert result.removed == ()
+
+
+def test_sync_program_scope_preserves_unsorted_existing_order(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    text = spec.read_text().replace(
+        "    - regulations/7-cfr/273/9\n",
+        "    - statutes/7/2014/a\n    - regulations/7-cfr/273/9\n",
+    )
+    spec.write_text(text)
+    module = repo / "us/regulations/7-cfr/273/10.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="federal",
+        add=["regulations/7-cfr/273/10"],
+    )
+
+    assert yaml.safe_load(spec.read_text())["scope"]["federal"] == [
+        "statutes/7/2014/a",
+        "regulations/7-cfr/273/9",
+        "regulations/7-cfr/273/10",
+    ]
+
+
+def test_sync_program_scope_resolves_non_federal_scope_to_program_jurisdiction(
+    tmp_path: Path,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    text = spec.read_text().replace("  state:\n", "  province:\n")
+    spec.write_text(text)
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="province",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    assert result.changed is True
+    assert yaml.safe_load(spec.read_text())["scope"]["province"][0] == (
+        "policies/dss/snap/page-159"
+    )
+
+
+def test_sync_program_scope_rejects_unsafe_scope_key(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+
+    with pytest.raises(ProgramScopeError, match="lowercase identifier"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec,
+            scope="../state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+def test_sync_program_scope_supports_empty_block_sequence(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec,
+        scope="state",
+        remove=[
+            "policies/dss/snap/page-163",
+            "policies/dss/snap/page-369",
+        ],
+    )
+
+    assert result.changed is True
+    assert yaml.safe_load(spec.read_text())["scope"]["state"] == []
