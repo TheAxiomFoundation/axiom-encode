@@ -44,6 +44,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: axiom-encode-apply-signer <serve|run> [flags]")
 		os.Exit(2)
 	}
+	if os.Args[1] == "serve" || os.Args[1] == "run" {
+		// Harden before ANY argument parsing or key handling. execve reset
+		// PR_SET_DUMPABLE to 1; on the launcher path the signing key is already
+		// resident in this process's inherited environment. Denying core dumps,
+		// ptrace, and /proc/self/{environ,fd} access as the first instruction
+		// closes that window before flags are read.
+		if err := hardenProcess(); err != nil {
+			fmt.Fprintf(os.Stderr, "apply signer: could not harden process: %v\n", err)
+			os.Exit(2)
+		}
+	}
 	switch os.Args[1] {
 	case "serve":
 		options, err := parseServeOptions(os.Args[2:])
@@ -79,6 +90,7 @@ func parseServeOptions(arguments []string) (serveOptions, error) {
 	scope := flags.String("scope", "", "operation scope this signer serves (apply_ed25519 or eval_ed25519)")
 	socketFD := flags.Int("socket-fd", -1, "inherited connected Unix stream socket descriptor")
 	keyFD := flags.Int("key-fd", -1, "inherited pipe/socket descriptor carrying the private key")
+	readyFD := flags.Int("ready-fd", -1, "optional descriptor to signal after hardening, before reading the key")
 	repository := flags.String("expected-github-repository", "", "required GITHUB_REPOSITORY value")
 	allowLocalDev := flags.Bool("allow-local-dev", false, "run outside GitHub Actions with a self-generated throwaway key")
 	var refs multiFlag
@@ -98,6 +110,7 @@ func parseServeOptions(arguments []string) (serveOptions, error) {
 		scope:    *scope,
 		socketFD: *socketFD,
 		keyFD:    *keyFD,
+		readyFD:  *readyFD,
 		binding: contextBinding{
 			expectedRepository:  *repository,
 			allowedWorkflowRefs: refs,

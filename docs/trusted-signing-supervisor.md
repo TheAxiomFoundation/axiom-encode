@@ -228,17 +228,26 @@ never contain key material.
 
 The launcher is the process manager the deployment model calls for. It:
 
-1. reads the base64/PEM key from a named environment variable (`--key-env`) and
-   **clears that variable from its own environment before spawning any child**,
-   so no descendant — least of all the supervised encoder — can inherit it;
-2. pre-opens the connected signer socket (a `socketpair`), streams the key to the
-   signer over a pipe (fd-passed, then the buffer is zeroized), and starts the
-   signer with a minimal `GITHUB_*`-only environment;
-3. executes the compiled supervisor with the signer attached on
+1. hardens itself (as its first instruction in `main`, before flags are parsed —
+   the key is already in its inherited environment), then reads the base64/PEM
+   key from a named environment variable (`--key-env`) and **clears that variable
+   from its own environment before spawning any child**, so no descendant — least
+   of all the supervised encoder — can inherit it;
+2. spawns the signer by its **running inode** (`/proc/self/exe` on Linux), never
+   an on-disk path an operator flag or a same-UID writer could redirect, over a
+   pre-opened connected socket (`socketpair`), a key pipe, and a readiness pipe,
+   with a minimal `GITHUB_*`-only environment;
+3. **delivers the key only after the signer signals — over the readiness pipe —
+   that it has hardened** (denied core dumps, ptrace, and `/proc/<pid>/fd`
+   access). The key therefore never sits on the pipe while the freshly-`exec`'d
+   signer is still dumpable; if the signer exits without signaling (e.g. a
+   context-binding refusal), the launcher observes EOF and aborts without writing
+   the key. The key buffer is zeroized immediately after the write;
+4. executes the compiled supervisor with the signer attached on
    `--apply-signer-fd 3`, the trusted-python flags, and the `-- axiom-encode
    encode … --apply` command, passing through the environment the encoder needs
    (model API keys, corpus/engine paths) but not the key (already cleared); and
-4. propagates the supervisor's exit code and tears the signer down.
+5. propagates the supervisor's exit code and tears the signer down.
 
 The supervisor performs its own forbidden-private-key-environment rejection and
 per-child scrub, so the launcher is a wiring layer, not a second trust boundary.

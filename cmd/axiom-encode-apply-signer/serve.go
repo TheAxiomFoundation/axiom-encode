@@ -22,6 +22,7 @@ type serveOptions struct {
 	scope    string
 	socketFD int
 	keyFD    int
+	readyFD  int
 	binding  contextBinding
 }
 
@@ -41,14 +42,8 @@ type signerServer struct {
 // process, ingest the key, then serve the pre-connected socket. The private key
 // is zeroized before return.
 func runServe(options serveOptions, environment func(string) string, auditWriter io.Writer) error {
-	// Harden first. execve resets PR_SET_DUMPABLE to 1 (a non-setuid exec), so
-	// re-deny core dumps and same-user debugger attachment as the very first
-	// action, shrinking the post-exec window to a minimum. Critically, the key
-	// is ingested only after this returns, so no key material is ever resident
-	// while the process is dumpable.
-	if err := hardenProcess(); err != nil {
-		return fmt.Errorf("could not harden external signer process: %w", err)
-	}
+	// The process is already hardened in main() before any argument parsing, so
+	// no key material is ever resident while the process is dumpable.
 	if !isKnownScope(options.scope) {
 		return fmt.Errorf("--scope must be one of %q or %q", scopeApply, scopeEval)
 	}
@@ -72,6 +67,13 @@ func runServe(options serveOptions, environment func(string) string, auditWriter
 	} else {
 		if options.keyFD < 0 {
 			return errors.New("--key-fd is required in CI mode")
+		}
+		// Signal readiness only now — after hardening (done in main) and context
+		// validation, and BEFORE reading the key. The launcher blocks on this
+		// signal and delivers the key over the pipe only once this process is
+		// non-dumpable, closing the /proc/<pid>/fd race on the key descriptor.
+		if err := signalReady(options.readyFD); err != nil {
+			return err
 		}
 		privateKey, err = ingestPrivateKeyFromDescriptor(options.keyFD)
 		if err != nil {
@@ -98,6 +100,28 @@ func runServe(options serveOptions, environment func(string) string, auditWriter
 	err = server.serveConnection(connection)
 	audit.shutdown(server.scope, server.signed)
 	return err
+}
+
+// signalReady writes one byte to the readiness descriptor to tell the launcher
+// the process is hardened and about to read the key. A negative descriptor means
+// no readiness gate was requested (e.g. a non-adversarial test harness that
+// delivers the key without a handshake).
+func signalReady(descriptor int) error {
+	if descriptor < 0 {
+		return nil
+	}
+	if descriptor <= 2 {
+		return errors.New("--ready-fd must be greater than 2")
+	}
+	file := os.NewFile(uintptr(descriptor), "apply-signer-ready")
+	if file == nil {
+		return errors.New("ready descriptor is invalid")
+	}
+	defer file.Close()
+	if _, err := file.Write([]byte{1}); err != nil {
+		return fmt.Errorf("could not signal readiness: %w", err)
+	}
+	return nil
 }
 
 // attachSignerSocket wraps the inherited descriptor and requires a connected

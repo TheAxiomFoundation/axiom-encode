@@ -5,9 +5,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -42,10 +44,9 @@ var forwardedContextEnvironment = []string{
 // runLauncher wires the signer and supervisor together and returns the
 // supervisor's exit code (or an error before exec).
 func runLauncher(options runOptions, environment func(string) string) (int, error) {
-	// Harden first, before the key is read into this process (see runServe).
-	if err := hardenProcess(); err != nil {
-		return 0, fmt.Errorf("could not harden launcher process: %w", err)
-	}
+	// The process is hardened in main() before argument parsing, so the key that
+	// is already resident in this process's inherited environment is never
+	// exposed through /proc/self/environ while it is being read and cleared.
 	if !isKnownScope(options.scope) {
 		return 0, fmt.Errorf("--scope must be one of %q or %q", scopeApply, scopeEval)
 	}
@@ -55,8 +56,9 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 		return 0, err
 	}
 
-	// The signer is always this same trusted binary in `serve` mode: the raw
-	// key pipe is never handed to an operator-chosen executable.
+	// The signer is always this same trusted binary in `serve` mode, referenced
+	// by its running inode (not a swappable on-disk path): the raw key pipe is
+	// never handed to an operator-chosen or same-UID-replaced executable.
 	signerExecutable, err := defaultSignerExecutable()
 	if err != nil {
 		return 0, err
@@ -80,17 +82,34 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 		return 0, fmt.Errorf("could not create key pipe: %w", err)
 	}
 	defer keyRead.Close()
+	defer keyWrite.Close()
 
-	signerCommand, err := startSigner(options, signerExecutable, signerSocket, keyRead, environment)
+	readyRead, readyWrite, err := os.Pipe()
 	if err != nil {
-		_ = keyWrite.Close()
+		return 0, fmt.Errorf("could not create readiness pipe: %w", err)
+	}
+	defer readyRead.Close()
+	defer readyWrite.Close()
+
+	signerCommand, err := startSigner(options, signerExecutable, signerSocket, keyRead, readyWrite, environment)
+	if err != nil {
 		return 0, err
 	}
 	// The signer child now owns its copies; drop the parent's.
 	_ = signerSocket.Close()
 	_ = keyRead.Close()
+	_ = readyWrite.Close()
 
-	// Stream the key to the signer, then close so it observes EOF.
+	// Deliver the key ONLY after the signer signals it has hardened (denied core
+	// dumps + ptrace + /proc/<pid>/fd access). If it exits without signaling —
+	// e.g. a context-binding refusal — readyRead observes EOF and we abort here
+	// without ever writing the key onto the pipe.
+	if err := awaitSignerReady(readyRead); err != nil {
+		_ = signerCommand.Process.Kill()
+		_, _ = signerCommand.Process.Wait()
+		return 0, err
+	}
+
 	writeErr := writeAllFile(keyWrite, keyMaterial)
 	zero(keyMaterial)
 	closeErr := keyWrite.Close()
@@ -151,7 +170,7 @@ func readAndClearKeyEnvironment(name string) ([]byte, error) {
 func startSigner(
 	options runOptions,
 	signerExecutable string,
-	signerSocket, keyRead *os.File,
+	signerSocket, keyRead, readyWrite *os.File,
 	environment func(string) string,
 ) (*exec.Cmd, error) {
 	arguments := []string{
@@ -159,6 +178,7 @@ func startSigner(
 		"--scope", options.scope,
 		"--socket-fd", "3",
 		"--key-fd", "4",
+		"--ready-fd", "5",
 		"--expected-github-repository", options.binding.expectedRepository,
 	}
 	for _, ref := range options.binding.allowedWorkflowRefs {
@@ -169,13 +189,21 @@ func startSigner(
 	}
 	command := exec.Command(signerExecutable, arguments...)
 	command.Env = minimalSignerEnvironment(environment)
-	command.ExtraFiles = []*os.File{signerSocket, keyRead}
+	command.ExtraFiles = []*os.File{signerSocket, keyRead, readyWrite}
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("could not start external signer: %w", err)
 	}
 	return command, nil
+}
+
+func awaitSignerReady(readyRead *os.File) error {
+	buffer := make([]byte, 1)
+	if _, err := io.ReadFull(readyRead, buffer); err != nil {
+		return fmt.Errorf("external signer did not signal readiness before key delivery: %w", err)
+	}
+	return nil
 }
 
 func minimalSignerEnvironment(environment func(string) string) []string {
@@ -268,9 +296,15 @@ func waitOrKill(command *exec.Cmd, grace time.Duration) {
 	}
 }
 
-// defaultSignerExecutable returns this binary's own path so the launcher spawns
-// the same trusted image in `serve` mode by default.
+// defaultSignerExecutable returns a reference to this binary's own running image
+// so the launcher spawns the same trusted code in `serve` mode. On Linux it uses
+// /proc/self/exe, which the kernel resolves to the running inode — immune to a
+// same-UID replacement of the on-disk path between resolution and exec. On other
+// platforms it falls back to the resolved path (the CI target is Linux).
 func defaultSignerExecutable() (string, error) {
+	if runtime.GOOS == "linux" {
+		return "/proc/self/exe", nil
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("could not resolve launcher executable: %w", err)

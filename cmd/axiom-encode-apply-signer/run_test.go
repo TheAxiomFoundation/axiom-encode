@@ -127,6 +127,43 @@ func TestLauncherKeepsKeyOutOfSupervisorEnvironment(t *testing.T) {
 	}
 }
 
+func TestAwaitSignerReadyFailsClosedOnEarlyExit(t *testing.T) {
+	// A signer that exits without signaling (e.g. a context refusal) closes its
+	// write end: awaitSignerReady must observe EOF and refuse to deliver the key.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	_ = writer.Close() // no readiness byte written
+	if err := awaitSignerReady(reader); err == nil {
+		t.Fatal("expected readiness failure when the signer never signals")
+	}
+}
+
+func TestReadinessHandshakeRoundTrips(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	dup, err := syscall.Dup(int(writer.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	go func() { _ = signalReady(dup) }()
+	if err := awaitSignerReady(reader); err != nil {
+		t.Fatalf("readiness handshake should succeed: %v", err)
+	}
+}
+
+func TestSignalReadyNoGateIsNoOp(t *testing.T) {
+	if err := signalReady(-1); err != nil {
+		t.Fatalf("a negative ready-fd must be a no-op, got %v", err)
+	}
+}
+
 func TestLauncherRefusesOutsideActions(t *testing.T) {
 	command := exec.Command(applySignerBinary,
 		"run",
