@@ -233,6 +233,7 @@ from .oracles.policyengine.pending import (
     load_pending_declarations,
     load_pending_files,
     ratchet_problems,
+    sync_repo_pending,
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .repo_routing import (
@@ -1167,7 +1168,7 @@ def main():
         "--json", action="store_true", help="Output as JSON"
     )
 
-    # oracle-coverage-pending command — read-only declared-pending ratchet
+    # oracle-coverage-pending command — declared-pending ratchet
     pending_parser = subparsers.add_parser(
         "oracle-coverage-pending",
         help=(
@@ -1197,6 +1198,35 @@ def main():
     )
     pending_check.add_argument(
         "--json", action="store_true", help="Output the pending summary as JSON"
+    )
+
+    pending_sync = pending_sub.add_parser(
+        "sync",
+        help=(
+            "Atomically rewrite one exact checkout's declaration to its current "
+            "unmapped outputs."
+        ),
+    )
+    pending_sync.add_argument(
+        "--root",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout",
+    )
+    pending_sync.add_argument(
+        "--source",
+        default="bulk",
+        help="Source label for newly declared outputs (default: bulk)",
+    )
+    pending_sync.add_argument(
+        "--since",
+        default=None,
+        help="ISO date for newly declared outputs (default: today)",
+    )
+    pending_sync.add_argument(
+        "--issue",
+        default=None,
+        help="Optional tracking issue URL to retain in the declaration",
     )
 
     # classify command — emit us.yaml mapping entries for a state's encoded outputs
@@ -5126,8 +5156,34 @@ def cmd_cloud_queue(args):
 
 
 def cmd_oracle_coverage_pending(args):
-    """Check one checkout's declared-pending ratchet without mutating it."""
+    """Check or synchronize one exact checkout's declared-pending ratchet."""
     root = _resolve_canonical_rulespec_checkout(args.root)
+    if args.pending_command == "sync":
+        report = build_policyengine_coverage_report(root)
+        unmapped = [
+            item["legal_id"]
+            for item in report.get("items") or []
+            if item.get("status") == "unmapped"
+        ]
+        try:
+            result = sync_repo_pending(
+                repo_root=root,
+                unmapped_legal_ids=unmapped,
+                source=args.source,
+                since=args.since or date.today().isoformat(),
+                issue=args.issue,
+            )
+        except PendingDeclarationError as error:
+            print(f"oracle-coverage-pending error: {error}", file=sys.stderr)
+            sys.exit(2)
+        verb = "Updated" if result["changed"] else "Unchanged"
+        print(
+            f"{verb} {result['path']}: {result['count']} declared "
+            f"(+{len(result['added'])} added, "
+            f"-{len(result['dropped'])} drained)."
+        )
+        sys.exit(0)
+
     report = build_policyengine_coverage_report(root, program=args.program)
     try:
         files = load_pending_files(root)

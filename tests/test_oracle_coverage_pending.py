@@ -8,6 +8,7 @@ the oracle mappings nor the pending file still fails the gate.
 from __future__ import annotations
 
 import datetime
+import stat
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from axiom_encode.oracles.policyengine.pending import (
     load_pending_files,
     parse_pending_payload,
     ratchet_problems,
+    sync_repo_pending,
 )
 
 UNMAPPED = "uk:statutes/ukpga/9999/1/1#pending_test_only_output"
@@ -390,12 +392,102 @@ def test_cli_gate_passes_with_nested_github_actions_checkout(tmp_path, monkeypat
     assert code == 0
 
 
-def test_cli_has_no_pending_sync_mutation_command(tmp_path, monkeypatch):
+def test_cli_pending_sync_declares_unmapped_output_idempotently(tmp_path, monkeypatch):
+    checkout, legal_id = _checkout_with_unmapped_output(tmp_path)
     code = _run_cli(
         monkeypatch,
         "oracle-coverage-pending",
         "sync",
         "--root",
-        str(tmp_path / "rulespec-uk"),
+        str(checkout),
+        "--source",
+        "bulk",
     )
-    assert code == 2
+    assert code == 0
+    pending = load_pending_files(checkout)[0]
+    assert [entry.legal_id for entry in pending.entries] == [legal_id]
+    assert pending.ceiling == 1
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+    assert code == 0
+    assert load_pending_files(checkout)[0] == pending
+
+
+def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
+    checkout = tmp_path / "rulespec-uk"
+    checkout.mkdir()
+    first = sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED, OTHER_UNMAPPED],
+        source="manual",
+        since="2026-07-01",
+        issue="https://example.test/issues/1",
+    )
+    assert first["added"] == [UNMAPPED, OTHER_UNMAPPED]
+
+    second = sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+    assert second["dropped"] == [OTHER_UNMAPPED]
+    pending = load_pending_files(checkout)[0]
+    assert pending.ceiling == 1
+    assert pending.issue == "https://example.test/issues/1"
+    assert pending.entries[0].source == "manual"
+    assert pending.entries[0].since == "2026-07-01"
+
+
+def test_pending_sync_quotes_yaml_sensitive_metadata_and_preserves_mode(tmp_path):
+    checkout = tmp_path / "rulespec-uk"
+    checkout.mkdir()
+    path = checkout / "oracle-coverage-pending.yaml"
+    path.write_text(
+        "version: 1\n"
+        'issue: "tracking: issue"\n'
+        "ceiling: 1\n"
+        "entries:\n"
+        f"  - legal_id: {UNMAPPED}\n"
+        "    source: manual\n"
+        "    since: 2026-07-01\n"
+        '    note: "blocked: needs mapping #42"\n',
+        encoding="utf-8",
+    )
+    path.chmod(0o640)
+
+    sync_repo_pending(
+        repo_root=checkout,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+
+    pending = load_pending_files(checkout)[0]
+    assert pending.issue == "tracking: issue"
+    assert pending.entries[0].note == "blocked: needs mapping #42"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_pending_sync_targets_nested_actions_checkout(tmp_path):
+    outer = tmp_path / "rulespec-uk"
+    nested = outer / "rulespec-uk"
+    nested.mkdir(parents=True)
+
+    result = sync_repo_pending(
+        repo_root=outer,
+        unmapped_legal_ids=[UNMAPPED],
+        source="bulk",
+        since="2026-07-13",
+    )
+
+    assert Path(result["path"]) == nested / "oracle-coverage-pending.yaml"
+    assert not (outer / "oracle-coverage-pending.yaml").exists()
