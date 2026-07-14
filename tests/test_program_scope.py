@@ -148,6 +148,21 @@ def test_sync_program_scope_rejects_unsafe_paths(tmp_path: Path, path: str) -> N
         )
 
 
+def test_sync_program_scope_rejects_colon_bearing_module_path(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    module = repo / "us-sc/statutes/47:294.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+
+    with pytest.raises(ProgramScopeError, match="safe repo-relative"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["statutes/47:294"],
+        )
+
+
 def test_sync_program_scope_allows_already_absent_removal(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
 

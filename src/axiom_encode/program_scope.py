@@ -71,6 +71,7 @@ def _normalize_scope_path(value: str) -> str:
     path = PurePosixPath(raw)
     if (
         not raw
+        or ":" in raw
         or path.is_absolute()
         or any(part in {"", ".", ".."} for part in path.parts)
         or path.suffix in {".yaml", ".yml"}
