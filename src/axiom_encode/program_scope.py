@@ -89,7 +89,7 @@ def _scope_prefix(program: str, scope: str) -> str:
     program_path = _normalize_scope_path(program)
     jurisdiction = program_path.split("/", 1)[0]
     if scope == "federal":
-        return "us"
+        return jurisdiction.split("-", 1)[0]
     if scope == "state":
         return jurisdiction
     return scope
@@ -252,6 +252,18 @@ def sync_program_scope(
     if any(_node_reference_count(root, node) > 1 for node in target_node.value):
         raise ProgramScopeError(
             f"ProgramSpec scope {scope!r} entries must not use YAML aliases"
+        )
+    if target_node.value and (
+        target_node.start_mark.line != target_node.value[0].start_mark.line
+    ):
+        raise ProgramScopeError(
+            f"ProgramSpec scope {scope!r} must not use an anchor or explicit tag"
+        )
+    if not target_node.value and text[
+        target_node.start_mark.index : target_node.end_mark.index
+    ].lstrip().startswith(("&", "!")):
+        raise ProgramScopeError(
+            f"ProgramSpec scope {scope!r} must not use an anchor or explicit tag"
         )
     if target_node.flow_style and target_node.value:
         raise ProgramScopeError(

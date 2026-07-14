@@ -251,6 +251,33 @@ def test_sync_program_scope_resolves_explicit_scope_to_named_jurisdiction(
     )
 
 
+def test_sync_program_scope_derives_non_us_federal_prefix(tmp_path: Path) -> None:
+    repo = tmp_path / "rulespec-ca"
+    spec = repo / "programs/ca-on/snap/fy-2026.yaml"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "program: ca-on/snap\n"
+        "period: 2026-01\n"
+        "scope:\n"
+        "  federal: []\n"
+        "outputs: [snap_benefit]\n"
+    )
+    module = repo / "ca/statutes/example/1.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="federal",
+        add=["statutes/example/1"],
+    )
+
+    assert yaml.safe_load(spec.read_text())["scope"]["federal"] == [
+        "statutes/example/1"
+    ]
+
+
 def test_sync_program_scope_preserves_scope_comments(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
     comment = "    # Page 369 remains documented for later composition.\n"
@@ -345,6 +372,29 @@ def test_sync_program_scope_rejects_aliased_sequence_entry(tmp_path: Path) -> No
             program_spec=spec.relative_to(repo),
             scope="state",
             add=["policies/dss/snap/page-159"],
+        )
+
+
+@pytest.mark.parametrize("decoration", ["&state_imports", "!!seq"])
+def test_sync_program_scope_rejects_decorated_sequence(
+    tmp_path: Path,
+    decoration: str,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text().replace(
+            "  state:\n",
+            f"  state: {decoration}\n",
+        )
+    )
+
+    with pytest.raises(ProgramScopeError, match="anchor or explicit tag"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+            write=False,
         )
 
 
