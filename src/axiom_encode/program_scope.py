@@ -12,12 +12,15 @@ from pathlib import Path, PurePosixPath
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
+from .repo_routing import is_composition_policy_repo_root
+
 
 class ProgramScopeError(ValueError):
     """Raised when a requested ProgramSpec scope update is unsafe or invalid."""
 
 
 _SCOPE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
+_NON_IMPORT_SCOPE_KEYS = frozenset({"exclude", "include", "jurisdictions"})
 
 
 @dataclass(frozen=True)
@@ -61,8 +64,73 @@ def _scope_prefix(program: str, scope: str) -> str:
     program_path = _normalize_scope_path(program)
     jurisdiction = program_path.split("/", 1)[0]
     if scope == "federal":
-        return jurisdiction.split("-", 1)[0]
-    return jurisdiction
+        return "us"
+    if scope == "state":
+        return jurisdiction
+    return scope
+
+
+def _updated_scope_text(
+    *,
+    text: str,
+    target_node: SequenceNode,
+    existing: tuple[str, ...],
+    desired: tuple[str, ...],
+) -> str:
+    """Update item lines while retaining comments and unrelated formatting."""
+
+    indent = " " * target_node.start_mark.column
+    lines = text.splitlines(keepends=True)
+    sample_line = lines[target_node.start_mark.line]
+    newline = "\r\n" if sample_line.endswith("\r\n") else "\n"
+    if target_node.flow_style:
+        if target_node.value:
+            raise ProgramScopeError("non-empty scope sequences must use block style")
+        replacement = f"- {desired[0]}" + "".join(
+            f"{newline}{indent}- {item}" for item in desired[1:]
+        )
+        return (
+            text[: target_node.start_mark.index]
+            + replacement
+            + text[target_node.end_mark.index :]
+        )
+
+    item_lines: dict[str, int] = {}
+    for value, node in zip(existing, target_node.value, strict=True):
+        if node.start_mark.line != node.end_mark.line:
+            raise ProgramScopeError("scope entries must occupy one line each")
+        item_lines[value] = node.start_mark.line
+
+    first_item_line = min(item_lines.values())
+    removed_lines = {
+        line for value, line in item_lines.items() if value not in desired
+    }
+    insertions: dict[int, list[str]] = {}
+
+    if not desired:
+        insertions[first_item_line] = [f"{indent}[]{newline}"]
+    else:
+        survivors = [
+            (value, item_lines[value]) for value in existing if value in desired
+        ]
+        new_items = [value for value in desired if value not in existing]
+        for value in new_items:
+            if survivors and list(existing) == sorted(existing):
+                following = [line for item, line in survivors if item > value]
+                anchor = following[0] if following else survivors[-1][1] + 1
+            elif survivors:
+                anchor = survivors[-1][1] + 1
+            else:
+                anchor = first_item_line
+            insertions.setdefault(anchor, []).append(f"{indent}- {value}{newline}")
+
+    updated_lines: list[str] = []
+    for index, line in enumerate(lines):
+        updated_lines.extend(insertions.get(index, ()))
+        if index not in removed_lines:
+            updated_lines.append(line)
+    updated_lines.extend(insertions.get(len(lines), ()))
+    return "".join(updated_lines)
 
 
 def sync_program_scope(
@@ -76,17 +144,19 @@ def sync_program_scope(
 ) -> ProgramScopeSyncResult:
     """Apply one scope update while preserving all unrelated ProgramSpec text."""
 
-    repo = Path(repo).resolve()
-    if not repo.is_dir():
-        raise ProgramScopeError(f"repository does not exist: {repo}")
+    raw_repo = Path(repo)
+    if not is_composition_policy_repo_root(raw_repo):
+        raise ProgramScopeError(
+            f"repository must be an exact canonical rulespec-<country> checkout: {raw_repo}"
+        )
+    repo = raw_repo.resolve()
     if not _SCOPE_KEY_PATTERN.fullmatch(scope):
         raise ProgramScopeError(f"scope must be a lowercase identifier: {scope!r}")
+    if scope in _NON_IMPORT_SCOPE_KEYS:
+        raise ProgramScopeError(f"scope {scope!r} does not contain RuleSpec imports")
     spec_path = Path(program_spec)
     if spec_path.is_absolute():
-        try:
-            spec_path = spec_path.absolute().relative_to(repo)
-        except ValueError as exc:
-            raise ProgramScopeError("program spec must be inside --repo") from exc
+        raise ProgramScopeError("program spec must be relative to --repo")
     if spec_path.suffix != ".yaml":
         raise ProgramScopeError("program spec must be a repo-relative .yaml file")
     spec_path = Path(_normalize_scope_path(spec_path.as_posix()[:-5]))
@@ -126,9 +196,9 @@ def sync_program_scope(
     target_node = _mapping_value(scope_node, scope)
     if not isinstance(target_node, SequenceNode):
         raise ProgramScopeError(f"ProgramSpec scope {scope!r} must be a sequence")
-    if target_node.flow_style:
+    if target_node.flow_style and target_node.value:
         raise ProgramScopeError(
-            f"ProgramSpec scope {scope!r} must use a block-style sequence"
+            f"non-empty ProgramSpec scope {scope!r} must use a block-style sequence"
         )
     payload_scope = payload.get("scope")
     payload_target = payload_scope.get(scope) if isinstance(payload_scope, dict) else None
@@ -184,16 +254,11 @@ def sync_program_scope(
     desired = tuple(desired_list)
     changed = desired != existing
     if changed and write:
-        indent = " " * target_node.start_mark.column
-        replacement = "\n".join(f"{indent}- {item}" for item in desired)
-        if not replacement:
-            replacement = f"{indent}[]"
-        start_index = target_node.start_mark.index - target_node.start_mark.column
-        end_index = target_node.value[-1].end_mark.index
-        updated = (
-            text[:start_index]
-            + replacement
-            + text[end_index:]
+        updated = _updated_scope_text(
+            text=text,
+            target_node=target_node,
+            existing=existing,
+            desired=desired,
         )
         try:
             updated_payload = yaml.safe_load(updated)
