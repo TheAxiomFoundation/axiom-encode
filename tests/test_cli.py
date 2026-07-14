@@ -1572,6 +1572,32 @@ class TestMain:
                     main()
                     mock_cmd.assert_called_once()
 
+    def test_program_scope_sync_command_dispatches(self, tmp_path):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "program-scope-sync",
+                "--repo",
+                str(tmp_path),
+                "--program-spec",
+                "programs/us-sc/snap/fy-2026.yaml",
+                "--scope",
+                "state",
+                "--add",
+                "policies/dss/snap/page-159",
+                "--check",
+            ],
+        ):
+            with patch("axiom_encode.cli.cmd_program_scope_sync") as mock_cmd:
+                main()
+
+        args = mock_cmd.call_args.args[0]
+        assert args.repo == tmp_path
+        assert args.scope == "state"
+        assert args.add == ["policies/dss/snap/page-159"]
+        assert args.check is True
+
     @pytest.mark.parametrize("removed_oracle", ["taxsim", "all"])
     def test_validate_parser_rejects_removed_oracles(self, removed_oracle, capsys):
         with (

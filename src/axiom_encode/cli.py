@@ -237,6 +237,7 @@ from .oracles.policyengine.pending import (
     sync_repo_pending,
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
+from .program_scope import ProgramScopeError, sync_program_scope
 from .repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -1565,6 +1566,48 @@ def main():
         help="Print the machine-readable pipeline stage DAG (renderer input)",
     )
 
+    program_scope_parser = subparsers.add_parser(
+        "program-scope-sync",
+        help="Deterministically update one axiom-compose ProgramSpec scope",
+    )
+    program_scope_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout",
+    )
+    program_scope_parser.add_argument(
+        "--program-spec",
+        type=Path,
+        required=True,
+        help="ProgramSpec path, relative to --repo",
+    )
+    program_scope_parser.add_argument(
+        "--scope",
+        required=True,
+        help="Scope key to update, such as federal or state",
+    )
+    program_scope_parser.add_argument(
+        "--add",
+        action="append",
+        default=[],
+        help="Module path to add without jurisdiction prefix or .yaml (repeatable)",
+    )
+    program_scope_parser.add_argument(
+        "--remove",
+        action="append",
+        default=[],
+        help="Module path to remove without jurisdiction prefix or .yaml (repeatable)",
+    )
+    program_scope_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Do not write; exit nonzero when the requested scope state differs",
+    )
+    program_scope_parser.add_argument(
+        "--json", action="store_true", help="Output the sync result as JSON"
+    )
+
     retire_parser = subparsers.add_parser(
         "retire",
         help=(
@@ -2264,6 +2307,8 @@ def main():
         cmd_runs(args)
     elif args.command == "concepts-audit":
         cmd_concepts_audit(args)
+    elif args.command == "program-scope-sync":
+        cmd_program_scope_sync(args)
     elif args.command == "retire":
         cmd_retire(args)
     elif args.command == "guard-generated":
@@ -4201,6 +4246,35 @@ def _rulespec_output_matches(actual: dict, expected) -> bool:
     if actual.get("kind") == "judgment":
         return actual.get("outcome") == expected
     return _rulespec_scalar_matches(actual.get("value") or {}, expected)
+
+
+def cmd_program_scope_sync(args):
+    """Apply or check one deterministic ProgramSpec scope update."""
+    if not args.add and not args.remove:
+        raise SystemExit("program-scope-sync requires at least one --add or --remove")
+    try:
+        result = sync_program_scope(
+            repo=args.repo,
+            program_spec=args.program_spec,
+            scope=args.scope,
+            add=args.add,
+            remove=args.remove,
+            write=not args.check,
+        )
+    except (OSError, ProgramScopeError) as exc:
+        raise SystemExit(f"program-scope-sync failed: {exc}") from exc
+    payload = asdict(result)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        action = (
+            "would update"
+            if args.check and result.changed
+            else ("updated" if result.changed else "unchanged")
+        )
+        print(f"{action}: {result.program_spec} scope={result.scope}")
+    if args.check and result.changed:
+        raise SystemExit(1)
 
 
 def cmd_compile(args):

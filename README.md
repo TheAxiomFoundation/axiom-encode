@@ -225,12 +225,14 @@ That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 manifest whose signature, signed local release source identity, waiver-set
 identity, and applied-file hashes are valid. The fifth canonical filesystem
 root, `programs/`, contains declarative `axiom-compose` ProgramSpecs and is
-deliberately outside every encoder mutation, manifest, signing, validation,
-proof, waiver, import, concept, judge, and source-hash surface. ProgramSpecs are
-admitted only by their compose-and-Rust build gate. All YAML filenames use the
-canonical `.yaml` extension; `.yml` is rejected. Running the whole-repository
-guard also makes a toolchain-only release migration fail until every existing
-atomic manifest is regenerated against the new immutable release.
+deliberately outside every atomic RuleSpec encoding, manifest, signing,
+validation, proof, waiver, import, concept, judge, and source-hash surface.
+Program scope changes can be applied or checked deterministically with
+`program-scope-sync`; they are admitted only by their compose-and-Rust build
+gate. All YAML filenames use the canonical `.yaml` extension; `.yml` is
+rejected. Running the whole-repository guard also makes a toolchain-only release
+migration fail until every existing atomic manifest is regenerated against the
+new immutable release.
 
 ## Source pinning and staleness
 
