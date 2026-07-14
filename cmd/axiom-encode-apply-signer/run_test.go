@@ -91,7 +91,6 @@ func TestLauncherKeepsKeyOutOfSupervisorEnvironment(t *testing.T) {
 		"run",
 		"--scope", "apply_ed25519",
 		"--key-env", "APPLY_SIGNER_TEST_KEY",
-		"--signer-executable", applySignerBinary,
 		"--supervisor", supervisor,
 		"--trusted-signing-roots", "/dev/null",
 		"--expected-github-repository", "TheAxiomFoundation/rulespec-uk",

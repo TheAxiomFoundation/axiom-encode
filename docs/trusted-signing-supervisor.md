@@ -211,11 +211,18 @@ flags rather than the ambient environment alone):
   developer can build a matching trust root. It is therefore structurally
   impossible to sign with a production key outside GitHub Actions.
 
-Each hardened process (core dumps denied; Linux `PR_SET_DUMPABLE=0` /
-`PR_SET_NO_NEW_PRIVS=1`; macOS `PT_DENY_ATTACH`) is hardened before the key is
-ingested. Structured audit lines go to stdout — bind context, per-request content
-and message SHA-256, a best-effort sanitized citation, and a shutdown count —
-and never contain key material.
+Each process is hardened (core dumps denied; Linux `PR_SET_DUMPABLE=0` /
+`PR_SET_NO_NEW_PRIVS=1`; macOS `PT_DENY_ATTACH`) as its first action, before the
+key is ingested. This ordering matters: `execve` resets `PR_SET_DUMPABLE` to 1,
+so the signer re-hardens immediately on start and only then reads the key — no
+key material is ever resident while the process is dumpable. Zeroization of the
+key buffer is best-effort: Go's `ed25519.PrivateKey` retains an internal copy the
+language does not let us wipe, so the actual control against key recovery is the
+process hardening (no core dump, no `ptrace`/`/proc/<pid>/mem` access from a
+sibling) plus the short-lived, single-purpose process — not the `zero()` call.
+Structured audit lines go to stdout — bind context, per-request content and
+message SHA-256, a best-effort sanitized citation, and a shutdown count — and
+never contain key material.
 
 ### `run` — the launcher / process manager
 
@@ -259,6 +266,17 @@ of the YAML.
   main-branch workflow — i.e. a repository collaborator. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
+- **What the context binding is (and is not).** The `GITHUB_*` values and the
+  allowlist flags both originate from the workflow definition, so the binding is
+  **defense-in-depth against misconfiguration** (an accidental `pull_request`
+  trigger, or invoking the signer from the wrong workflow), not a cryptographic
+  authentication of the runner. The primary boundary is external to this code:
+  GitHub does not expose repository/organization secrets to fork-PR-triggered
+  runs, and the workflow is restricted to `workflow_dispatch`/`schedule`. An
+  actor who could actually forge `GITHUB_*` would have to be able to edit the
+  main-branch workflow — a trusted collaborator who can already dispatch it and
+  obtain signatures legitimately. The binding therefore never widens who can
+  sign; it only narrows it further.
 - **A compromised or malicious PR** can change the module content a future
   generation session encodes, but it cannot exfiltrate the key: the signing leg
   does not run on its event, the secret is absent from PR-triggered runs, and the

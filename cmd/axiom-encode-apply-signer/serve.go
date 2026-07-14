@@ -41,18 +41,20 @@ type signerServer struct {
 // process, ingest the key, then serve the pre-connected socket. The private key
 // is zeroized before return.
 func runServe(options serveOptions, environment func(string) string, auditWriter io.Writer) error {
+	// Harden first. execve resets PR_SET_DUMPABLE to 1 (a non-setuid exec), so
+	// re-deny core dumps and same-user debugger attachment as the very first
+	// action, shrinking the post-exec window to a minimum. Critically, the key
+	// is ingested only after this returns, so no key material is ever resident
+	// while the process is dumpable.
+	if err := hardenProcess(); err != nil {
+		return fmt.Errorf("could not harden external signer process: %w", err)
+	}
 	if !isKnownScope(options.scope) {
 		return fmt.Errorf("--scope must be one of %q or %q", scopeApply, scopeEval)
 	}
 	info, err := options.binding.validate(environment)
 	if err != nil {
 		return err
-	}
-
-	// Harden before any key material enters memory: deny core dumps and
-	// same-user debugger attachment first.
-	if err := hardenProcess(); err != nil {
-		return fmt.Errorf("could not harden external signer process: %w", err)
 	}
 
 	var privateKey ed25519.PrivateKey

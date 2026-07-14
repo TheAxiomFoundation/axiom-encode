@@ -112,7 +112,6 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	flags.SetOutput(io.Discard)
 	scope := flags.String("scope", "", "operation scope to provision (apply_ed25519 or eval_ed25519)")
 	keyEnv := flags.String("key-env", "", "name of the environment variable holding the base64/PEM private key")
-	signerExecutable := flags.String("signer-executable", "", "external signer binary; defaults to this executable")
 	supervisor := flags.String("supervisor", "", "path to the compiled axiom-encode-signing-supervisor")
 	trustRoots := flags.String("trusted-signing-roots", "", "protected three-root trust config for the supervisor")
 	packageRoot := flags.String("trusted-python-package-root", "", "supervisor --trusted-python-package-root")
@@ -138,18 +137,9 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	if *trustRoots == "" {
 		return runOptions{}, fmt.Errorf("--trusted-signing-roots is required")
 	}
-	resolvedSigner := *signerExecutable
-	if resolvedSigner == "" {
-		self, err := defaultSignerExecutable()
-		if err != nil {
-			return runOptions{}, err
-		}
-		resolvedSigner = self
-	}
 	return runOptions{
 		scope:              *scope,
 		keyEnv:             *keyEnv,
-		signerExecutable:   resolvedSigner,
 		supervisor:         *supervisor,
 		trustRoots:         *trustRoots,
 		pythonRuntimeRoots: runtimeRoots,

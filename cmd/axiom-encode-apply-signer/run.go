@@ -18,7 +18,6 @@ import (
 type runOptions struct {
 	scope              string
 	keyEnv             string
-	signerExecutable   string
 	supervisor         string
 	trustRoots         string
 	pythonRuntimeRoots []string
@@ -43,6 +42,10 @@ var forwardedContextEnvironment = []string{
 // runLauncher wires the signer and supervisor together and returns the
 // supervisor's exit code (or an error before exec).
 func runLauncher(options runOptions, environment func(string) string) (int, error) {
+	// Harden first, before the key is read into this process (see runServe).
+	if err := hardenProcess(); err != nil {
+		return 0, fmt.Errorf("could not harden launcher process: %w", err)
+	}
 	if !isKnownScope(options.scope) {
 		return 0, fmt.Errorf("--scope must be one of %q or %q", scopeApply, scopeEval)
 	}
@@ -51,8 +54,12 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	if _, err := options.binding.validate(environment); err != nil {
 		return 0, err
 	}
-	if err := hardenProcess(); err != nil {
-		return 0, fmt.Errorf("could not harden launcher process: %w", err)
+
+	// The signer is always this same trusted binary in `serve` mode: the raw
+	// key pipe is never handed to an operator-chosen executable.
+	signerExecutable, err := defaultSignerExecutable()
+	if err != nil {
+		return 0, err
 	}
 
 	keyMaterial, err := readAndClearKeyEnvironment(options.keyEnv)
@@ -74,7 +81,7 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	}
 	defer keyRead.Close()
 
-	signerCommand, err := startSigner(options, signerSocket, keyRead, environment)
+	signerCommand, err := startSigner(options, signerExecutable, signerSocket, keyRead, environment)
 	if err != nil {
 		_ = keyWrite.Close()
 		return 0, err
@@ -143,6 +150,7 @@ func readAndClearKeyEnvironment(name string) ([]byte, error) {
 
 func startSigner(
 	options runOptions,
+	signerExecutable string,
 	signerSocket, keyRead *os.File,
 	environment func(string) string,
 ) (*exec.Cmd, error) {
@@ -159,7 +167,7 @@ func startSigner(
 	for _, event := range options.binding.allowedEventNames {
 		arguments = append(arguments, "--allowed-event-name", event)
 	}
-	command := exec.Command(options.signerExecutable, arguments...)
+	command := exec.Command(signerExecutable, arguments...)
 	command.Env = minimalSignerEnvironment(environment)
 	command.ExtraFiles = []*os.File{signerSocket, keyRead}
 	command.Stdout = os.Stdout
