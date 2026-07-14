@@ -76,6 +76,16 @@ def test_composition_checkout_identity_admits_only_top_level_programs(tmp_path):
     assert is_composition_policy_repo_root(checkout) is False
 
 
+def test_composition_checkout_identity_rejects_symlinked_programs(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    external_programs = tmp_path / "external-programs"
+    external_programs.mkdir()
+    (checkout / "programs").symlink_to(external_programs, target_is_directory=True)
+
+    assert is_composition_policy_repo_root(checkout) is False
+
+
 def test_canonical_rulespec_root_identity_is_stable_for_direct_content_root(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")

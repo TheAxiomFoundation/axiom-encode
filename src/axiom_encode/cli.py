@@ -4843,7 +4843,7 @@ def cmd_oracle_coverage(args):
         print(f"Unsupported oracle: {args.oracle}")
         sys.exit(2)
 
-    root = _resolve_canonical_rulespec_checkout(args.root)
+    root = _resolve_composition_rulespec_checkout(args.root)
     include_program_surfaces = getattr(args, "include_program_surfaces", False) is True
     fail_on_pending_program_surfaces = (
         getattr(args, "fail_on_pending_program_surfaces", False) is True
@@ -5197,7 +5197,7 @@ def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
     return tuple(prefixes)
 
 
-def _resolve_pending_checkout(raw_path: Path) -> Path:
+def _resolve_composition_rulespec_checkout(raw_path: Path) -> Path:
     """Resolve an exact country checkout while admitting top-level ProgramSpecs."""
 
     checkout = _resolve_explicit_existing_directory(
@@ -5214,7 +5214,7 @@ def _resolve_pending_checkout(raw_path: Path) -> Path:
 
 def cmd_oracle_coverage_pending(args):
     """Check or synchronize one exact checkout's declared-pending ratchet."""
-    root = _resolve_pending_checkout(args.root)
+    root = _resolve_composition_rulespec_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
         authorized_prefixes = _pending_sync_authorized_prefixes(root)

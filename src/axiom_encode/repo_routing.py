@@ -88,6 +88,11 @@ def _canonical_country_checkout_name(
         return None
     blocked_roots = RULESPEC_FILESYSTEM_ROOTS
     if allow_composition_specs:
+        composition_root = checkout / RULESPEC_COMPOSITION_SPEC_ROOT
+        if (composition_root.exists() or composition_root.is_symlink()) and (
+            composition_root.is_symlink() or not composition_root.is_dir()
+        ):
+            return None
         blocked_roots = blocked_roots - {RULESPEC_COMPOSITION_SPEC_ROOT}
     if any(
         (checkout / root_name).exists() or (checkout / root_name).is_symlink()

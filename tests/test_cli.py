@@ -4524,7 +4524,7 @@ class TestCmdValidate:
 
     def test_oracle_coverage_fail_on_unmapped_exits_nonzero(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
-        checkout.mkdir(exist_ok=True)
+        (checkout / "programs/us/snap").mkdir(parents=True)
         args = MagicMock()
         args.root = checkout
         args.oracle = "policyengine"
