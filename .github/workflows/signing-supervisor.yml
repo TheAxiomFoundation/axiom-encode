@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "cmd/axiom-encode-signing-supervisor/**"
+      - "cmd/axiom-encode-apply-signer/**"
       - "go.mod"
       - "go.sum"
       - "src/axiom_encode/**"
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths:
       - "cmd/axiom-encode-signing-supervisor/**"
+      - "cmd/axiom-encode-apply-signer/**"
       - "go.mod"
       - "go.sum"
       - "src/axiom_encode/**"
@@ -61,10 +63,18 @@ jobs:
           go vet ./cmd/axiom-encode-signing-supervisor
           go vet -tags=signing_supervisor_test_fixture ./cmd/axiom-encode-signing-supervisor
 
+      - name: Test apply-signer package
+        run: |
+          go test ./cmd/axiom-encode-apply-signer
+          go vet ./cmd/axiom-encode-apply-signer
+
       - name: Race-test supervisor package
         run: |
           go test -race ./cmd/axiom-encode-signing-supervisor
           go test -race -tags=signing_supervisor_test_fixture ./cmd/axiom-encode-signing-supervisor
+
+      - name: Race-test apply-signer package
+        run: go test -race ./cmd/axiom-encode-apply-signer
 
       - name: Build twice reproducibly
         env:
@@ -81,6 +91,15 @@ jobs:
             -tags=signing_supervisor_test_fixture \
             -o supervisor.fixture ./cmd/axiom-encode-signing-supervisor
           test "$(./supervisor.fixture --build-kind)" = test-fixture-nonpublishable
+
+      - name: Build the apply-signer twice reproducibly
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -buildvcs=false -ldflags='-buildid=' -o apply-signer.first ./cmd/axiom-encode-apply-signer
+          go build -trimpath -buildvcs=false -ldflags='-buildid=' -o apply-signer.second ./cmd/axiom-encode-apply-signer
+          cmp apply-signer.first apply-signer.second
+          test "$(./apply-signer.first --build-kind)" = production
 
       - name: Run supervisor integration and security tests
         run: >-

@@ -157,3 +157,132 @@ Linux and macOS set the core limit to zero. Linux sets
 `PT_DENY_ATTACH`. The broker revalidates its own protected binary and
 unprivileged identity after re-exec. Only the broker receives the external
 signer descriptors, and it exits when the anonymous Python capability closes.
+
+## Production external apply-signer (`cmd/axiom-encode-apply-signer`)
+
+The supervisor and broker never hold a private key: they connect out to an
+*external signer* that speaks protocol v2 and holds the key. `cmd/axiom-encode-signing-supervisor`
+is the broker (protocol v2 client); `cmd/axiom-encode-apply-signer` is the
+production signer (protocol v2 server) plus a launcher that wires it to the
+supervisor inside GitHub Actions. It is what makes an autonomous, signed
+`encode --apply` CI leg possible without ever placing a raw key in the encoder's
+environment.
+
+The binary has two subcommands and a single production build (its `--build-kind`
+is always `production`; there is no fixture policy because it validates no
+filesystem trust chain — it is an unprivileged leaf that holds one key).
+
+### `serve` — the leaf signer
+
+Serves protocol v2 over one pre-connected Unix stream socket (`--socket-fd`) with
+one operation-scoped key (`--scope apply_ed25519`). Key ingestion and capability:
+
+- The private key is read from a **pipe or socket** descriptor (`--key-fd`),
+  never from the environment, never from argv, never from a regular file, and
+  never written to disk. A regular-file, tty, or device descriptor is refused so
+  the key is never read from a persistent, re-readable path. The accepted formats
+  are a PKCS8 PEM or the base64 of the raw 32-byte Ed25519 seed (the format used
+  by the eval and corpus-release keys). A legacy HMAC secret is not a valid
+  Ed25519 key and is refused — the signer fails closed rather than producing an
+  unverifiable signature. The key material buffer is zeroized after parsing.
+- It signs only its provisioned scope: a request for any other scope (including a
+  valid-but-different one such as `eval_ed25519`) is refused. It answers only the
+  two domain-bound message shapes protocol v2 defines — the challenge and the
+  persisted signature — and there is no generic blob-signing endpoint. The
+  payload is opaque to the signer; the `axiom-encode/external-signer-sign/v2\0apply_ed25519\0`
+  domain is applied by the signer itself, so a `sign` request cannot be coerced
+  into producing a signature that verifies in any other context.
+- The request envelope is strict: protocol version 2 only, positive strictly
+  increasing IDs, exact field sets, bounded frames, and duplicate-key/trailing/
+  unknown-field rejection, mirroring the broker's own frame discipline.
+
+Context binding (the trust that the run is genuine CI, enforced from explicit
+flags rather than the ambient environment alone):
+
+- `--expected-github-repository`, one or more `--allowed-workflow-ref`, and one
+  or more `--allowed-event-name` are required. The signer refuses unless
+  `GITHUB_ACTIONS=true` and the ambient `GITHUB_REPOSITORY` / `GITHUB_WORKFLOW_REF`
+  / `GITHUB_EVENT_NAME` match those explicit allowlists.
+- `pull_request` and `pull_request_target` are refused unconditionally, beneath
+  the allowlist, because those events run with fork-controlled refs.
+- `--allow-local-dev` is the only way to run outside Actions, and it is refused
+  *inside* Actions. In local-dev mode the signer **self-generates a throwaway
+  keypair and never reads `--key-fd`**, printing the throwaway public key so a
+  developer can build a matching trust root. It is therefore structurally
+  impossible to sign with a production key outside GitHub Actions.
+
+Each hardened process (core dumps denied; Linux `PR_SET_DUMPABLE=0` /
+`PR_SET_NO_NEW_PRIVS=1`; macOS `PT_DENY_ATTACH`) is hardened before the key is
+ingested. Structured audit lines go to stdout — bind context, per-request content
+and message SHA-256, a best-effort sanitized citation, and a shutdown count —
+and never contain key material.
+
+### `run` — the launcher / process manager
+
+The launcher is the process manager the deployment model calls for. It:
+
+1. reads the base64/PEM key from a named environment variable (`--key-env`) and
+   **clears that variable from its own environment before spawning any child**,
+   so no descendant — least of all the supervised encoder — can inherit it;
+2. pre-opens the connected signer socket (a `socketpair`), streams the key to the
+   signer over a pipe (fd-passed, then the buffer is zeroized), and starts the
+   signer with a minimal `GITHUB_*`-only environment;
+3. executes the compiled supervisor with the signer attached on
+   `--apply-signer-fd 3`, the trusted-python flags, and the `-- axiom-encode
+   encode … --apply` command, passing through the environment the encoder needs
+   (model API keys, corpus/engine paths) but not the key (already cleared); and
+4. propagates the supervisor's exit code and tears the signer down.
+
+The supervisor performs its own forbidden-private-key-environment rejection and
+per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
+
+### Workflow deployment and secrets discipline
+
+The signed-apply leg runs the same provisioning as the verification supervisor
+(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
+`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
+key reaches the job only as a secret bound to that one step's `env:`; the launcher
+consumes and clears it.
+
+**The signing leg must run only on `workflow_dispatch` or `schedule` from the
+main-branch workflow definition, never on `pull_request`.** GitHub does not expose
+repository/organization secrets to workflows triggered by a fork PR, and a PR that
+edits the workflow text runs with the PR's own definition — so fork- or
+PR-modified workflow text can never see the secret. The signer's own event-name
+binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
+allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
+of the YAML.
+
+### Threat model
+
+- **Who can trigger it.** Only an actor who can dispatch (or schedule) the
+  main-branch workflow — i.e. a repository collaborator. A fork contributor
+  cannot: their PR neither receives the secret nor matches the pinned workflow
+  ref / permitted event.
+- **A compromised or malicious PR** can change the module content a future
+  generation session encodes, but it cannot exfiltrate the key: the signing leg
+  does not run on its event, the secret is absent from PR-triggered runs, and the
+  supervised encoder never has the key in its environment or argv. The worst a PR
+  can do is propose bad content, which the supervised `validate` gate and human
+  review still catch.
+- **Signer misuse for arbitrary payloads.** The signer signs only domain-bound
+  `apply_ed25519` messages presented over the socket. There is no endpoint that
+  signs an attacker-chosen pre-image, and an apply signature cannot be replayed as
+  an eval or corpus-release signature (distinct domains and scopes).
+- **Log/artifact exfiltration.** Audit lines carry content hashes, not key bytes;
+  the sanitized citation is bounded and stripped of control characters to prevent
+  audit-line forgery. GitHub also masks the registered secret value in logs.
+- **Local-dev flag abuse.** `--allow-local-dev` cannot be used to strip context
+  binding inside Actions (it is refused there) and cannot sign with a real key (it
+  self-generates and ignores `--key-fd`).
+
+### Key rotation
+
+Rotating the apply key means generating a new Ed25519 keypair, publishing the new
+public half to the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY` Actions variable (which
+the verification and signing supervisors load as a trust root), and placing the
+new private seed into the signing secret. Because the trust root and the signer's
+key are checked against each other at the broker challenge, a mismatched pair
+fails closed at startup rather than producing an unverifiable manifest. Old
+manifests remain verifiable only while the corresponding public root is still
+published, so rotate the variable and re-verify historical manifests together.

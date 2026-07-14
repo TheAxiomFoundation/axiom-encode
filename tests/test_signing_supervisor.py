@@ -1258,3 +1258,191 @@ def test_non_socket_signer_descriptor_is_rejected(
         os.close(write_fd)
     assert completed.returncode == 2
     assert "connected socket" in completed.stderr
+
+
+# --- Production external apply-signer binary (cmd/axiom-encode-apply-signer) ---
+#
+# The tests above use an in-process Python signer to drive the broker. These
+# exercise the real, separately compiled production external signer as the
+# broker's protocol v2 socket peer, proving wire compatibility with the actual
+# supervisor rather than a re-implementation.
+
+_APPLY_SIGNER_PACKAGE = "./cmd/axiom-encode-apply-signer"
+_SIGNER_REPOSITORY = "TheAxiomFoundation/rulespec-uk"
+_SIGNER_WORKFLOW_REF = (
+    "TheAxiomFoundation/rulespec-uk/.github/workflows/bulk-encode.yml@refs/heads/main"
+)
+
+
+@pytest.fixture(scope="session")
+def apply_signer_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    go = shutil.which("go")
+    if go is None:
+        pytest.skip("Go is required to build the apply signer")
+    build_dir = tmp_path_factory.mktemp("apply-signer-build").resolve()
+    binary = build_dir / "axiom-encode-apply-signer"
+    subprocess.run(
+        [
+            go,
+            "build",
+            "-trimpath",
+            "-buildvcs=false",
+            "-ldflags=-buildid=",
+            "-o",
+            str(binary),
+            _APPLY_SIGNER_PACKAGE,
+        ],
+        cwd=ROOT,
+        env={**os.environ, "CGO_ENABLED": "0"},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return binary
+
+
+@contextmanager
+def _external_apply_signer(binary: Path, seed: bytes, audit_path: Path):
+    """Run the production signer binary as the broker's protocol v2 peer.
+
+    The signer's audit stream is redirected to a file, not a pipe: the signer
+    stays alive until the socket tears down in this manager's finally, so reading
+    a pipe inline would deadlock.
+    """
+
+    signer_connection, supervisor_connection = socket.socketpair()
+    key_read, key_write = os.pipe()
+    os.write(key_write, b64encode(seed))
+    os.close(key_write)
+    with open(audit_path, "w") as audit_file:
+        process = subprocess.Popen(
+            [
+                str(binary),
+                "serve",
+                "--scope",
+                "apply_ed25519",
+                "--socket-fd",
+                str(signer_connection.fileno()),
+                "--key-fd",
+                str(key_read),
+                "--expected-github-repository",
+                _SIGNER_REPOSITORY,
+                "--allowed-workflow-ref",
+                _SIGNER_WORKFLOW_REF,
+                "--allowed-event-name",
+                "workflow_dispatch",
+            ],
+            pass_fds=(signer_connection.fileno(), key_read),
+            env={
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REPOSITORY": _SIGNER_REPOSITORY,
+                "GITHUB_WORKFLOW_REF": _SIGNER_WORKFLOW_REF,
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_SHA": "0" * 40,
+                "GITHUB_RUN_ID": "1",
+                "PATH": os.environ.get("PATH", ""),
+            },
+            stdout=audit_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    signer_connection.close()
+    os.close(key_read)
+    try:
+        yield [supervisor_connection.fileno()]
+    finally:
+        supervisor_connection.close()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_production_apply_signer_binary_signs_through_real_broker(
+    signing_supervisor: Path,
+    apply_signer_binary: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    seed = b"\x2a" * 32
+    apply_public, apply_key = _keypair(seed)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    launcher = _launcher(tmp_path, trusted_python_runtime)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    audit_path = tmp_path / "signer-audit.log"
+    with _external_apply_signer(apply_signer_binary, seed, audit_path) as descriptors:
+        completed = _invoke(
+            signing_supervisor,
+            trusted_python_runtime,
+            launcher,
+            trust_config,
+            descriptors,
+        )
+    signer_output = audit_path.read_text()
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["capabilities"] == ["apply_ed25519"]
+    # The apply signature the real broker obtained from the production binary
+    # verifies with the public half over the exact apply domain.
+    apply_key.public_key().verify(
+        b64decode(result["apply_signature"]),
+        SIGNATURE_DOMAIN + b"apply_ed25519\0compiled-apply-boundary",
+    )
+    # It is scope-bound: the apply signature must not verify as an eval one.
+    with pytest.raises(Exception):
+        apply_key.public_key().verify(
+            b64decode(result["apply_signature"]),
+            b"axiom-encode/external-signer-sign/v2\0eval_ed25519\0compiled-apply-boundary",
+        )
+    # The signer's audit stream records the signing event and never the key.
+    assert "event=sign" in signer_output
+    assert b64encode(seed).decode() not in signer_output
+
+
+def test_production_apply_signer_binary_rejects_wrong_ci_context(
+    apply_signer_binary: Path,
+) -> None:
+    seed = b"\x2a" * 32
+    signer_connection, supervisor_connection = socket.socketpair()
+    key_read, key_write = os.pipe()
+    os.write(key_write, b64encode(seed))
+    os.close(key_write)
+    try:
+        completed = subprocess.run(
+            [
+                str(apply_signer_binary),
+                "serve",
+                "--scope",
+                "apply_ed25519",
+                "--socket-fd",
+                str(signer_connection.fileno()),
+                "--key-fd",
+                str(key_read),
+                "--expected-github-repository",
+                _SIGNER_REPOSITORY,
+                "--allowed-workflow-ref",
+                _SIGNER_WORKFLOW_REF,
+                "--allowed-event-name",
+                "workflow_dispatch",
+            ],
+            pass_fds=(signer_connection.fileno(), key_read),
+            env={
+                "GITHUB_ACTIONS": "true",
+                # Fork-controlled repository: must be refused before the key is read.
+                "GITHUB_REPOSITORY": "attacker/rulespec-uk",
+                "GITHUB_WORKFLOW_REF": _SIGNER_WORKFLOW_REF,
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "PATH": os.environ.get("PATH", ""),
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    finally:
+        signer_connection.close()
+        supervisor_connection.close()
+        os.close(key_read)
+    assert completed.returncode == 2
+    assert "does not match the expected repository" in completed.stderr
