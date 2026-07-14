@@ -37,7 +37,7 @@ from typing import Any
 
 import yaml
 
-from ...repo_routing import is_policy_repo_root
+from ...repo_routing import is_composition_policy_repo_root
 
 PENDING_FILENAME = "oracle-coverage-pending.yaml"
 # Report status assigned to a declared output. Distinct from ``unmapped`` so
@@ -201,7 +201,7 @@ def iter_pending_file_paths(root: Path) -> list[Path]:
     """
 
     raw_root = Path(root).expanduser()
-    if not is_policy_repo_root(raw_root):
+    if not is_composition_policy_repo_root(raw_root):
         raise PendingDeclarationError(
             "Pending declarations require the exact canonical "
             f"rulespec-<country> checkout: {raw_root}"
@@ -445,7 +445,7 @@ def sync_repo_pending(
     outputs are drained. The ceiling is reset to the resulting entry count.
     """
     root = Path(repo_root)
-    if not is_policy_repo_root(root):
+    if not is_composition_policy_repo_root(root):
         raise PendingDeclarationError(
             "Pending sync requires the exact canonical "
             f"rulespec-<country> checkout: {root}"

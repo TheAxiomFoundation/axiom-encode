@@ -241,6 +241,7 @@ from .repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
+    is_composition_policy_repo_root,
     is_policy_repo_root,
     jurisdiction_content_dir,
     jurisdiction_subdir_names,
@@ -5174,7 +5175,10 @@ def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
     else:
         content_checkout = root
         display_prefix = ""
-        jurisdictions = sorted(jurisdiction_subdir_names(root))
+        country = root.name.removeprefix("rulespec-")
+        jurisdictions = sorted(
+            jurisdiction_subdir_names(root, allow_composition_specs=True)
+        )
 
     prefixes = [
         f"{display_prefix}{jurisdiction}/{module_root}/"
@@ -5183,13 +5187,34 @@ def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
     ]
     programs_dir = content_checkout / RULESPEC_COMPOSITION_SPEC_ROOT
     if programs_dir.is_dir() and not programs_dir.is_symlink():
-        prefixes.append(f"{display_prefix}{RULESPEC_COMPOSITION_SPEC_ROOT}/")
+        prefixes.extend(
+            f"{display_prefix}{RULESPEC_COMPOSITION_SPEC_ROOT}/{child.name}/"
+            for child in sorted(programs_dir.iterdir())
+            if child.is_dir()
+            and not child.is_symlink()
+            and re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", child.name)
+        )
     return tuple(prefixes)
+
+
+def _resolve_pending_checkout(raw_path: Path) -> Path:
+    """Resolve an exact country checkout while admitting top-level ProgramSpecs."""
+
+    checkout = _resolve_explicit_existing_directory(
+        raw_path,
+        label="RuleSpec checkout",
+    )
+    if not is_composition_policy_repo_root(checkout):
+        raise ValueError(
+            "RuleSpec checkout must be the exact canonical rulespec-<country> "
+            f"checkout; got {checkout}"
+        )
+    return checkout
 
 
 def cmd_oracle_coverage_pending(args):
     """Check or synchronize one exact checkout's declared-pending ratchet."""
-    root = _resolve_canonical_rulespec_checkout(args.root)
+    root = _resolve_pending_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
         authorized_prefixes = _pending_sync_authorized_prefixes(root)
@@ -5198,6 +5223,8 @@ def cmd_oracle_coverage_pending(args):
             item["legal_id"]
             for item in report.get("items") or []
             if item.get("status") == "unmapped"
+            and str(item.get("legal_id") or "").partition(":")[0].split("-", 1)[0]
+            == root.name.removeprefix("rulespec-")
             and str(item.get("file") or "").startswith(authorized_prefixes)
         ]
         try:

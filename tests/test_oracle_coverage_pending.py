@@ -487,6 +487,7 @@ def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch)
     nested_checkout = outer_checkout / "rulespec-us"
     state_legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
     program_legal_id = "us-zz:programs/example/fy-2099#brand_new_program_output_xyz"
+    cross_country_program_id = "uk-zz:programs/example/fy-2099#cross_country_output_xyz"
     foreign_legal_id = "us:foreign/statutes/y#foreign_output_xyz"
     _write(
         nested_checkout / "us-hi" / "statutes/235-54.yaml",
@@ -518,6 +519,14 @@ rules:
         formula: some_input
 """,
     )
+    _write(
+        nested_checkout / "programs/uk-zz/example/fy-2099.yaml",
+        """program: uk-zz/example
+period: 2099
+outputs:
+  - cross_country_output_xyz
+""",
+    )
 
     code = _run_cli(
         monkeypatch,
@@ -537,6 +546,48 @@ rules:
         program_legal_id,
     ]
     assert foreign_legal_id not in {entry.legal_id for entry in pending.entries}
+    assert cross_country_program_id not in {entry.legal_id for entry in pending.entries}
+
+
+def test_cli_pending_sync_supports_direct_checkout_programs(tmp_path, monkeypatch):
+    checkout = tmp_path / "rulespec-us"
+    state_legal_id = "us-hi:statutes/235-54#direct_state_output_xyz"
+    program_legal_id = "us-hi:programs/snap/fy-2099#direct_program_output_xyz"
+    _write(
+        checkout / "us-hi/statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: direct_state_output_xyz
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        checkout / "programs/us-hi/snap/fy-2099.yaml",
+        """program: us-hi/snap
+period: 2099
+outputs:
+  - direct_program_output_xyz
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    assert [entry.legal_id for entry in load_pending_files(checkout)[0].entries] == [
+        program_legal_id,
+        state_legal_id,
+    ]
 
 
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
