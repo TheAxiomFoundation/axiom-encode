@@ -104,7 +104,9 @@ def test_sync_program_scope_rejects_missing_module(tmp_path: Path) -> None:
         )
 
 
-def test_sync_program_scope_rejects_module_symlink_outside_scope(tmp_path: Path) -> None:
+def test_sync_program_scope_rejects_module_symlink_outside_scope(
+    tmp_path: Path,
+) -> None:
     repo, spec = _repo(tmp_path)
     outside = tmp_path / "outside.yaml"
     outside.write_text("format: rulespec/v1\n")
@@ -206,10 +208,8 @@ def test_sync_program_scope_uses_original_order_after_removal(tmp_path: Path) ->
     repo, spec = _repo(tmp_path)
     spec.write_text(
         spec.read_text().replace(
-            "    - policies/dss/snap/page-163\n"
-            "    - policies/dss/snap/page-369\n",
-            "    - policies/dss/snap/page-369\n"
-            "    - policies/dss/snap/page-163\n",
+            "    - policies/dss/snap/page-163\n    - policies/dss/snap/page-369\n",
+            "    - policies/dss/snap/page-369\n    - policies/dss/snap/page-163\n",
         )
     )
 
@@ -449,7 +449,9 @@ def test_sync_program_scope_rejects_scope_root_symlink(tmp_path: Path) -> None:
     state_root.rename(other_root)
     state_root.symlink_to(other_root, target_is_directory=True)
 
-    with pytest.raises(ProgramScopeError, match="scope root path must not contain symlinks"):
+    with pytest.raises(
+        ProgramScopeError, match="scope root path must not contain symlinks"
+    ):
         sync_program_scope(
             repo=repo,
             program_spec=spec.relative_to(repo),

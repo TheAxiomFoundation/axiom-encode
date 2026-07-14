@@ -4267,8 +4267,10 @@ def cmd_program_scope_sync(args):
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        action = "would update" if args.check and result.changed else (
-            "updated" if result.changed else "unchanged"
+        action = (
+            "would update"
+            if args.check and result.changed
+            else ("updated" if result.changed else "unchanged")
         )
         print(f"{action}: {result.program_spec} scope={result.scope}")
     if args.check and result.changed:

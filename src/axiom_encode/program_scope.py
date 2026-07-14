@@ -138,9 +138,7 @@ def _updated_scope_text(
         item_lines[value] = node.start_mark.line
 
     first_item_line = min(item_lines.values())
-    removed_lines = {
-        line for value, line in item_lines.items() if value not in desired
-    }
+    removed_lines = {line for value, line in item_lines.items() if value not in desired}
     insertions: dict[int, list[str]] = {}
 
     if not desired:
@@ -270,13 +268,17 @@ def sync_program_scope(
             f"non-empty ProgramSpec scope {scope!r} must use a block-style sequence"
         )
     payload_scope = payload.get("scope")
-    payload_target = payload_scope.get(scope) if isinstance(payload_scope, dict) else None
+    payload_target = (
+        payload_scope.get(scope) if isinstance(payload_scope, dict) else None
+    )
     if not (
         isinstance(payload_target, list)
         and all(isinstance(item, str) for item in payload_target)
         and all(isinstance(item, ScalarNode) for item in target_node.value)
     ):
-        raise ProgramScopeError(f"ProgramSpec scope {scope!r} must contain only strings")
+        raise ProgramScopeError(
+            f"ProgramSpec scope {scope!r} must contain only strings"
+        )
 
     existing = tuple(_normalize_scope_path(item.value) for item in target_node.value)
     if len(set(existing)) != len(existing):
@@ -295,7 +297,9 @@ def sync_program_scope(
     try:
         scope_root.relative_to(repo)
     except ValueError as exc:
-        raise ProgramScopeError(f"scope prefix resolves outside --repo: {prefix}") from exc
+        raise ProgramScopeError(
+            f"scope prefix resolves outside --repo: {prefix}"
+        ) from exc
     if lexical_scope_root.is_symlink() or scope_root != lexical_scope_root.absolute():
         raise ProgramScopeError("scope root path must not contain symlinks")
     missing_modules: list[str] = []
