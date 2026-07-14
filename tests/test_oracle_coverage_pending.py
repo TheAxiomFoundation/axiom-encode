@@ -487,6 +487,7 @@ def test_cli_pending_sync_targets_nested_actions_checkout(tmp_path, monkeypatch)
     nested_checkout = outer_checkout / "rulespec-us"
     state_legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
     program_legal_id = "us-zz:programs/example/fy-2099#brand_new_program_output_xyz"
+    foreign_legal_id = "us:foreign/statutes/y#foreign_output_xyz"
     _write(
         nested_checkout / "us-hi" / "statutes/235-54.yaml",
         """format: rulespec/v1
@@ -504,6 +505,17 @@ rules:
 period: 2099
 outputs:
   - brand_new_program_output_xyz
+""",
+    )
+    _write(
+        nested_checkout / "foreign/statutes/y.yaml",
+        """format: rulespec/v1
+rules:
+  - name: foreign_output_xyz
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
 """,
     )
 
@@ -524,6 +536,7 @@ outputs:
         state_legal_id,
         program_legal_id,
     ]
+    assert foreign_legal_id not in {entry.legal_id for entry in pending.entries}
 
 
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):

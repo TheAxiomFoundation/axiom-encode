@@ -109,6 +109,7 @@ from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_pre
 from .constants import (
     DEFAULT_OPENAI_MODEL,
     RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_FILESYSTEM_ROOTS,
     RULESPEC_TEST_FILE_SUFFIX,
@@ -5155,19 +5156,43 @@ def cmd_cloud_queue(args):
     sys.exit(0)
 
 
+def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
+    """Return report path prefixes authorized to enter one pending ledger."""
+
+    nested_checkout = root / root.name
+    if nested_checkout.is_dir() and not nested_checkout.is_symlink():
+        content_checkout = nested_checkout
+        display_prefix = f"{root.name}/"
+        country = root.name.removeprefix("rulespec-")
+        jurisdictions = sorted(
+            child.name
+            for child in content_checkout.iterdir()
+            if child.is_dir()
+            and not child.is_symlink()
+            and re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", child.name)
+        )
+    else:
+        content_checkout = root
+        display_prefix = ""
+        jurisdictions = sorted(jurisdiction_subdir_names(root))
+
+    prefixes = [
+        f"{display_prefix}{jurisdiction}/{module_root}/"
+        for jurisdiction in jurisdictions
+        for module_root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)
+    ]
+    programs_dir = content_checkout / RULESPEC_COMPOSITION_SPEC_ROOT
+    if programs_dir.is_dir() and not programs_dir.is_symlink():
+        prefixes.append(f"{display_prefix}{RULESPEC_COMPOSITION_SPEC_ROOT}/")
+    return tuple(prefixes)
+
+
 def cmd_oracle_coverage_pending(args):
     """Check or synchronize one exact checkout's declared-pending ratchet."""
     root = _resolve_canonical_rulespec_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
-        nested_checkout = root / root.name
-        if nested_checkout.is_dir() and not nested_checkout.is_symlink():
-            authorized_prefixes = (f"{root.name}/",)
-        else:
-            authorized_prefixes = tuple(
-                f"{jurisdiction}/"
-                for jurisdiction in sorted(jurisdiction_subdir_names(root))
-            )
+        authorized_prefixes = _pending_sync_authorized_prefixes(root)
 
         unmapped = [
             item["legal_id"]
