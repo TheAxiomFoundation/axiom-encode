@@ -5160,10 +5160,16 @@ def cmd_oracle_coverage_pending(args):
     root = _resolve_canonical_rulespec_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
+        authorized_prefixes = tuple(
+            f"{jurisdiction}/"
+            for jurisdiction in sorted(jurisdiction_subdir_names(root))
+        )
+
         unmapped = [
             item["legal_id"]
             for item in report.get("items") or []
-            if item.get("status") == "unmapped" and item.get("repo") == root.name
+            if item.get("status") == "unmapped"
+            and str(item.get("file") or "").startswith(authorized_prefixes)
         ]
         try:
             result = sync_repo_pending(

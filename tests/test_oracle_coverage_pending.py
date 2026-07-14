@@ -452,6 +452,36 @@ rules:
     assert foreign_id not in declared
 
 
+def test_cli_pending_sync_includes_country_monorepo_state_output(tmp_path, monkeypatch):
+    checkout = tmp_path / "rulespec-us"
+    legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
+    _write(
+        checkout / "us-hi" / "statutes/235-54.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_personal_exemption_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    declared = [entry.legal_id for entry in load_pending_files(checkout)[0].entries]
+    assert declared == [legal_id]
+
+
 def test_pending_sync_preserves_provenance_and_drains_fixed_entries(tmp_path):
     checkout = tmp_path / "rulespec-uk"
     checkout.mkdir()
