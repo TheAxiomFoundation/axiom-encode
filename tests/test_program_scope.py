@@ -271,6 +271,82 @@ def test_sync_program_scope_supports_empty_block_sequence(tmp_path: Path) -> Non
     ]
 
 
+def test_sync_program_scope_supports_inline_empty_sequence(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text().replace(
+            "  state:\n"
+            "    - policies/dss/snap/page-163\n"
+            "    - policies/dss/snap/page-369\n",
+            "  state: []\n",
+        )
+    )
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    assert result.changed is True
+    assert yaml.safe_load(spec.read_text())["scope"]["state"] == [
+        "policies/dss/snap/page-159"
+    ]
+
+
+def test_sync_program_scope_preserves_crlf(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    original = spec.read_text().replace("\n", "\r\n")
+    spec.write_bytes(original.encode())
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    updated = spec.read_bytes()
+    assert updated.count(b"\r\n") == updated.count(b"\n")
+    assert updated.count(b"\r\n") > 0
+
+
+def test_sync_program_scope_rejects_non_atomic_addition(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    module = repo / "us-sc/programs/other.yaml"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text("program: us-sc/other\n")
+
+    with pytest.raises(ProgramScopeError, match="do not resolve"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["programs/other"],
+        )
+
+
+def test_sync_program_scope_appends_after_unterminated_final_line(
+    tmp_path: Path,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(spec.read_text().split("\n\noutputs:", 1)[0].rstrip("\n"))
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    assert yaml.safe_load(spec.read_text())["scope"]["state"] == [
+        "policies/dss/snap/page-159",
+        "policies/dss/snap/page-163",
+        "policies/dss/snap/page-369",
+    ]
+
+
 def test_sync_program_scope_rejects_absolute_program_spec(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
 

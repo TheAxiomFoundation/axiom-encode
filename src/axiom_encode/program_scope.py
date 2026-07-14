@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
+from .constants import RULESPEC_ATOMIC_MODULE_ROOTS
 from .repo_routing import is_composition_policy_repo_root
 
 
@@ -86,6 +87,17 @@ def _updated_scope_text(
     if target_node.flow_style:
         if target_node.value:
             raise ProgramScopeError("non-empty scope sequences must use block style")
+        line_prefix = sample_line[: target_node.start_mark.column]
+        if line_prefix.strip():
+            line_start = target_node.start_mark.index - target_node.start_mark.column
+            line_body = sample_line.removesuffix(newline)
+            line_end = line_start + len(line_body)
+            key_indent = len(sample_line) - len(sample_line.lstrip(" \t"))
+            item_indent = " " * (key_indent + 2)
+            suffix = text[target_node.end_mark.index : line_end]
+            prefix = text[: target_node.start_mark.index].rstrip(" \t")
+            entries = newline.join(f"{item_indent}- {item}" for item in desired)
+            return prefix + suffix + newline + entries + text[line_end:]
         replacement = f"- {desired[0]}" + "".join(
             f"{newline}{indent}- {item}" for item in desired[1:]
         )
@@ -126,10 +138,16 @@ def _updated_scope_text(
 
     updated_lines: list[str] = []
     for index, line in enumerate(lines):
-        updated_lines.extend(insertions.get(index, ()))
+        pending = insertions.get(index, ())
+        if pending and updated_lines and not updated_lines[-1].endswith(("\n", "\r")):
+            updated_lines[-1] += newline
+        updated_lines.extend(pending)
         if index not in removed_lines:
             updated_lines.append(line)
-    updated_lines.extend(insertions.get(len(lines), ()))
+    pending = insertions.get(len(lines), ())
+    if pending and updated_lines and not updated_lines[-1].endswith(("\n", "\r")):
+        updated_lines[-1] += newline
+    updated_lines.extend(pending)
     return "".join(updated_lines)
 
 
@@ -172,7 +190,8 @@ def sync_program_scope(
     if absolute_spec != lexical_spec.absolute():
         raise ProgramScopeError("program spec path must not contain symlinks")
 
-    text = absolute_spec.read_text(encoding="utf-8")
+    with absolute_spec.open(encoding="utf-8", newline="") as source:
+        text = source.read()
     try:
         payload = yaml.safe_load(text)
         root = yaml.compose(text)
@@ -228,6 +247,9 @@ def sync_program_scope(
         raise ProgramScopeError(f"scope prefix resolves outside --repo: {prefix}") from exc
     missing_modules: list[str] = []
     for item in additions:
+        if PurePosixPath(item).parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+            missing_modules.append(item)
+            continue
         lexical_module = scope_root / f"{item}.yaml"
         module = lexical_module.resolve()
         try:
