@@ -44,6 +44,28 @@ def _mapping_value(node: MappingNode, key: str):
     return matches[0] if matches else None
 
 
+def _node_reference_count(root, target) -> int:
+    """Count graph references to a composed node without following cycles twice."""
+
+    references = 0
+    expanded: set[int] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node is target:
+            references += 1
+        identity = id(node)
+        if identity in expanded:
+            continue
+        expanded.add(identity)
+        if isinstance(node, MappingNode):
+            for key_node, value_node in node.value:
+                stack.extend((key_node, value_node))
+        elif isinstance(node, SequenceNode):
+            stack.extend(node.value)
+    return references
+
+
 def _normalize_scope_path(value: str) -> str:
     raw = str(value).strip()
     path = PurePosixPath(raw)
@@ -130,6 +152,8 @@ def _updated_scope_text(
             if survivors and list(existing) == sorted(existing):
                 following = [line for item, line in survivors if item > value]
                 anchor = following[0] if following else survivors[-1][1] + 1
+                while anchor > 0 and lines[anchor - 1].lstrip().startswith("#"):
+                    anchor -= 1
             elif survivors:
                 anchor = survivors[-1][1] + 1
             else:
@@ -215,6 +239,10 @@ def sync_program_scope(
     target_node = _mapping_value(scope_node, scope)
     if not isinstance(target_node, SequenceNode):
         raise ProgramScopeError(f"ProgramSpec scope {scope!r} must be a sequence")
+    if _node_reference_count(root, target_node) > 1:
+        raise ProgramScopeError(
+            f"ProgramSpec scope {scope!r} must not use a YAML alias"
+        )
     if target_node.flow_style and target_node.value:
         raise ProgramScopeError(
             f"non-empty ProgramSpec scope {scope!r} must use a block-style sequence"
@@ -240,11 +268,14 @@ def sync_program_scope(
         )
 
     prefix = _scope_prefix(program.strip(), scope)
-    scope_root = (repo / prefix).resolve()
+    lexical_scope_root = repo / prefix
+    scope_root = lexical_scope_root.resolve()
     try:
         scope_root.relative_to(repo)
     except ValueError as exc:
         raise ProgramScopeError(f"scope prefix resolves outside --repo: {prefix}") from exc
+    if lexical_scope_root.is_symlink() or scope_root != lexical_scope_root.absolute():
+        raise ProgramScopeError("scope root path must not contain symlinks")
     missing_modules: list[str] = []
     for item in additions:
         if PurePosixPath(item).parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:

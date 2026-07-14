@@ -230,6 +230,76 @@ def test_sync_program_scope_preserves_scope_comments(tmp_path: Path) -> None:
     assert comment in spec.read_text()
 
 
+def test_sync_program_scope_inserts_before_following_item_comments(
+    tmp_path: Path,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    module = repo / "us-sc/policies/dss/snap/page-200.yaml"
+    module.write_text("format: rulespec/v1\n")
+    comment = "    # Page 369 has separate composition requirements.\n"
+    spec.write_text(
+        spec.read_text().replace(
+            "    - policies/dss/snap/page-369\n",
+            comment + "    - policies/dss/snap/page-369\n",
+        )
+    )
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-200"],
+    )
+
+    updated = spec.read_text()
+    assert updated.index("page-200") < updated.index(comment.strip())
+    assert updated.index(comment.strip()) < updated.index("page-369")
+
+
+def test_sync_program_scope_rejects_aliased_sequence(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text()
+        .replace(
+            "scope:\n",
+            "state_imports: &state_imports\n"
+            "  - policies/dss/snap/page-163\n"
+            "  - policies/dss/snap/page-369\n\n"
+            "scope:\n",
+        )
+        .replace(
+            "  state:\n"
+            "    - policies/dss/snap/page-163\n"
+            "    - policies/dss/snap/page-369\n",
+            "  state: *state_imports\n",
+        )
+    )
+
+    with pytest.raises(ProgramScopeError, match="must not use a YAML alias"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+def test_sync_program_scope_rejects_scope_root_symlink(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    state_root = repo / "us-sc"
+    other_root = repo / "us-ny"
+    state_root.rename(other_root)
+    state_root.symlink_to(other_root, target_is_directory=True)
+
+    with pytest.raises(ProgramScopeError, match="scope root path must not contain symlinks"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
 def test_sync_program_scope_rejects_unsafe_scope_key(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
 
