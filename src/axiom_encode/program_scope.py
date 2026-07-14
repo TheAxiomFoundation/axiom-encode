@@ -142,7 +142,7 @@ def _updated_scope_text(
     insertions: dict[int, list[str]] = {}
 
     if not desired:
-        insertions[first_item_line] = [f"{indent}[]{newline}"]
+        insertions[first_item_line] = [f"{indent}  []{newline}"]
     else:
         survivors = [
             (value, item_lines[value]) for value in existing if value in desired
@@ -247,6 +247,10 @@ def sync_program_scope(
         raise ProgramScopeError(
             f"ProgramSpec scope {scope!r} must not use a YAML alias"
         )
+    if any(_node_reference_count(root, node) > 1 for node in target_node.value):
+        raise ProgramScopeError(
+            f"ProgramSpec scope {scope!r} entries must not use YAML aliases"
+        )
     if target_node.flow_style and target_node.value:
         raise ProgramScopeError(
             f"non-empty ProgramSpec scope {scope!r} must use a block-style sequence"
@@ -334,6 +338,7 @@ def sync_program_scope(
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
+                newline="",
                 dir=absolute_spec.parent,
                 prefix=f".{absolute_spec.name}.",
                 delete=False,

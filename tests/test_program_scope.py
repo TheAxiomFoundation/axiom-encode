@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import axiom_encode.program_scope as program_scope
 from axiom_encode.program_scope import ProgramScopeError, sync_program_scope
 
 
@@ -310,6 +311,28 @@ def test_sync_program_scope_rejects_aliased_sequence(tmp_path: Path) -> None:
         )
 
 
+def test_sync_program_scope_rejects_aliased_sequence_entry(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        "program: us-sc/snap\n"
+        "period: 2026-01\n"
+        "shared_import: &shared_import policies/dss/snap/page-163\n"
+        "scope:\n"
+        "  state:\n"
+        "    - *shared_import\n"
+        "    - policies/dss/snap/page-369\n"
+        "outputs: [snap_benefit]\n"
+    )
+
+    with pytest.raises(ProgramScopeError, match="entries must not use YAML aliases"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
 def test_sync_program_scope_rejects_aliased_scope_mapping(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
     spec.write_text(
@@ -450,6 +473,60 @@ def test_sync_program_scope_preserves_crlf(tmp_path: Path) -> None:
     updated = spec.read_bytes()
     assert updated.count(b"\r\n") == updated.count(b"\n")
     assert updated.count(b"\r\n") > 0
+
+
+def test_sync_program_scope_disables_write_newline_translation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    calls: list[dict[str, object]] = []
+    original = program_scope.tempfile.NamedTemporaryFile
+
+    def tracked_temporary_file(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        program_scope.tempfile,
+        "NamedTemporaryFile",
+        tracked_temporary_file,
+    )
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+    )
+
+    assert calls[0]["newline"] == ""
+
+
+def test_sync_program_scope_empties_indentationless_sequence(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text().replace(
+            "  state:\n"
+            "    - policies/dss/snap/page-163\n"
+            "    - policies/dss/snap/page-369\n",
+            "  state:\n"
+            "  - policies/dss/snap/page-163\n"
+            "  - policies/dss/snap/page-369\n",
+        )
+    )
+
+    sync_program_scope(
+        repo=repo,
+        program_spec=spec.relative_to(repo),
+        scope="state",
+        remove=[
+            "policies/dss/snap/page-163",
+            "policies/dss/snap/page-369",
+        ],
+    )
+
+    assert yaml.safe_load(spec.read_text())["scope"]["state"] == []
 
 
 def test_sync_program_scope_rejects_non_atomic_addition(tmp_path: Path) -> None:
