@@ -144,7 +144,10 @@ def canonical_rulespec_root_identity(path: Path) -> str | None:
     expected_checkout = monorepo_checkout_name(jurisdiction)
     if checkout.name != expected_checkout:
         return None
-    if _canonical_country_checkout_name(checkout) != expected_checkout:
+    if (
+        _canonical_country_checkout_name(checkout, allow_composition_specs=True)
+        != expected_checkout
+    ):
         return None
     country = jurisdiction_country(jurisdiction)
     if not _is_jurisdiction_dir_name(jurisdiction, country):
@@ -199,7 +202,7 @@ def canonical_rulespec_repo_name(path: Path) -> str | None:
     content_root = find_policy_repo_root(current)
     if content_root is not None:
         return f"rulespec-{content_root.name}"
-    return _canonical_country_checkout_name(current)
+    return _canonical_country_checkout_name(current, allow_composition_specs=True)
 
 
 def jurisdiction_content_dir(checkout: Path, prefix: str) -> Path:
@@ -228,7 +231,8 @@ def candidate_jurisdiction_content_dirs(base: Path, prefix: str) -> list[Path]:
     expected_checkout = monorepo_checkout_name(prefix)
     if (
         base.name == expected_checkout
-        and _canonical_country_checkout_name(base) == expected_checkout
+        and _canonical_country_checkout_name(base, allow_composition_specs=True)
+        == expected_checkout
     ):
         return [base / prefix]
     if canonical_rulespec_root_identity(base) == f"{expected_checkout}/{prefix}":
@@ -283,7 +287,10 @@ def iter_jurisdiction_content_dirs(workspace_root: Path) -> list[tuple[str, Path
         return []
     checkout = lexical.resolve()
     return [
-        (name, checkout / name) for name in sorted(jurisdiction_subdir_names(checkout))
+        (name, checkout / name)
+        for name in sorted(
+            jurisdiction_subdir_names(checkout, allow_composition_specs=True)
+        )
     ]
 
 

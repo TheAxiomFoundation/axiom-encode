@@ -4392,7 +4392,10 @@ def _eval_suite_rulespec_roots(
     exposed_roots = {
         checkout / jurisdiction
         for checkout in checkouts
-        for jurisdiction in jurisdiction_subdir_names(checkout)
+        for jurisdiction in jurisdiction_subdir_names(
+            checkout,
+            allow_composition_specs=True,
+        )
     }
     if not active_roots.issubset(exposed_roots):
         raise ValueError("Eval suite could not identify every active RuleSpec root")

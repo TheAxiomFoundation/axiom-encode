@@ -6479,7 +6479,7 @@ rules:
         with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
             cmd_inventory(SimpleNamespace(root=tmp_path / "rulespec-us", json=True))
 
-    def test_inventory_rejects_repository_root_programs(self, tmp_path):
+    def test_inventory_ignores_repository_root_programs(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
         atomic = checkout / "us/statutes/26/1.yaml"
         atomic.parent.mkdir(parents=True)
@@ -6488,8 +6488,11 @@ rules:
         program.parent.mkdir(parents=True)
         program.write_text("program: us/snap\nperiod: '2026-01'\noutputs: [benefit]\n")
 
-        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
-            cmd_inventory(SimpleNamespace(root=checkout, json=True))
+        cmd_inventory(SimpleNamespace(root=checkout, json=True))
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["total_files"] == 1
+        assert output["repos"][0]["roots"] == {"statutes": 1}
 
 
 class TestCmdIntervalTableAudit:
@@ -32287,23 +32290,38 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
         assert issues == []
 
-    def test_guard_command_rejects_repository_root_programs(self, tmp_path):
+    def test_guard_command_ignores_repository_root_programs(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
+        release = _bind_test_corpus_release(
+            checkout,
+            tmp_path / "axiom-corpus",
+        )
         program = checkout / "programs/us/snap/fy-2026.yaml"
         program.parent.mkdir(parents=True)
         program.write_text("program: us/snap\nperiod: 2026-01\noutputs: [benefit]\n")
 
-        with pytest.raises(ValueError, match="exact canonical rulespec-<country>"):
+        with (
+            patch(
+                "axiom_encode.cli._git_changed_files",
+                return_value=["programs/us/snap/fy-2026.yaml"],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
             cmd_guard_generated(
                 SimpleNamespace(
                     repo=checkout,
-                    corpus_path=tmp_path / "axiom-corpus",
+                    corpus_path=release.root,
                     base_ref=None,
                     head_ref="HEAD",
                     json=False,
                     all=False,
                 )
             )
+
+        assert exc_info.value.code == 0
+        assert "All changed RuleSpec files have encoder apply manifests." in (
+            capsys.readouterr().out
+        )
 
 
 class TestManifestCurrentState:

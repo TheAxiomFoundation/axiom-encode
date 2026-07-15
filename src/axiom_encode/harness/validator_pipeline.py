@@ -19117,7 +19117,10 @@ def _normalize_rulespec_dependency_roots(
             root,
             label="RuleSpec dependency root",
         )
-        jurisdiction_children = jurisdiction_subdir_names(root)
+        jurisdiction_children = jurisdiction_subdir_names(
+            root,
+            allow_composition_specs=True,
+        )
         if not jurisdiction_children:
             raise UnsafeRulespecContextPath(
                 "RuleSpec dependency roots must be exact canonical checkout roots "

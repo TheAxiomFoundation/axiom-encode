@@ -86,6 +86,26 @@ def test_composition_checkout_identity_rejects_symlinked_programs(tmp_path):
     assert is_composition_policy_repo_root(checkout) is False
 
 
+def test_composition_checkout_preserves_atomic_jurisdiction_identity(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    (checkout / "programs/us/snap").mkdir(parents=True)
+    module = checkout / "us-co/policies/snap/example.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n", encoding="utf-8")
+
+    assert canonical_rulespec_root_identity(checkout / "us-co") == ("rulespec-us/us-co")
+    assert find_policy_repo_root(module) == checkout / "us-co"
+    assert canonical_rulespec_repo_name(checkout) == "rulespec-us"
+    assert canonical_rulespec_repo_name(module) == "rulespec-us-co"
+    assert jurisdiction_subdir_names(checkout, allow_composition_specs=True) == {
+        "us-co"
+    }
+    assert candidate_jurisdiction_content_dirs(checkout, "us-co") == [
+        checkout / "us-co"
+    ]
+
+
 def test_canonical_rulespec_root_identity_is_stable_for_direct_content_root(tmp_path):
     checkout = tmp_path / "rulespec-us"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
@@ -123,7 +143,7 @@ def test_country_checkout_identity_requires_existing_directory(tmp_path):
 
 @pytest.mark.parametrize(
     "root_name",
-    ["legislation", "policies", "programs", "regulations", "statutes"],
+    ["legislation", "policies", "regulations", "statutes"],
 )
 def test_country_checkout_rejects_flat_root_level_content(tmp_path, root_name):
     checkout = tmp_path / "rulespec-us"

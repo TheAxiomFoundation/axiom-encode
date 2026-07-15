@@ -17,7 +17,7 @@ from .corpus_resolver import (
     read_bounded_regular_file,
     validate_corpus_release_name,
 )
-from .repo_routing import is_policy_repo_root
+from .repo_routing import is_composition_policy_repo_root
 from .signing_broker import SigningBrokerError, get_signing_broker
 
 MAX_RULESPEC_TOOLCHAIN_BYTES = 64 * 1024
@@ -36,7 +36,7 @@ class RuleSpecToolchainError(ValueError):
 def _require_canonical_country_checkout(root: Path) -> Path:
     """Reject flat, aliased, workspace, and otherwise noncanonical roots."""
 
-    if not is_policy_repo_root(root):
+    if not is_composition_policy_repo_root(root):
         raise RuleSpecToolchainError(
             "RuleSpec toolchain root must be the exact canonical "
             f"rulespec-<country> checkout: {root}"

@@ -23,7 +23,7 @@ from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
 from axiom_encode.corpus_resolver import LocalCorpusRelease
 from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
-    is_policy_repo_root,
+    is_composition_policy_repo_root,
 )
 from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
@@ -158,7 +158,7 @@ def validate_module_path(root: Path, module: str) -> PurePosixPath:
         raise UnsafeRegenerationPath(f"module path is not normalized: {module!r}")
 
     resolved_root = Path(root).resolve(strict=True)
-    if not is_policy_repo_root(resolved_root):
+    if not is_composition_policy_repo_root(resolved_root):
         raise RegenerationInputError(
             "regeneration root must be the exact canonical "
             f"rulespec-<country> checkout: {resolved_root}"

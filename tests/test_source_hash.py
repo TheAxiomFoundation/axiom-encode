@@ -238,6 +238,21 @@ def test_iter_pinned_modules_ignores_composition_specs(tmp_path):
     assert list(iter_pinned_modules(content_root.parent)) == expected
 
 
+def test_iter_pinned_modules_ignores_checkout_program_specs(tmp_path):
+    pinned_sha = source_text_sha256(SOURCE_TEXT)
+    module_path = _write_module(tmp_path, pinned_sha)
+    checkout = tmp_path / "rulespec-us"
+    program_spec = checkout / "programs" / "us" / "snap" / "fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("secret: do-not-read\n", encoding="utf-8")
+    program_spec.symlink_to(outside)
+
+    assert list(iter_pinned_modules(checkout)) == [
+        PinnedModule(module_path, CITATION_PATH, pinned_sha)
+    ]
+
+
 @pytest.mark.parametrize(
     ("relative_path", "message"),
     [

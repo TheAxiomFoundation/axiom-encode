@@ -96,6 +96,14 @@ def test_load_rulespec_local_corpus_release_binds_exact_named_selector(tmp_path)
     )
 
 
+def test_toolchain_accepts_checkout_with_canonical_program_specs(tmp_path):
+    rulespec = tmp_path / "rulespec-us"
+    (rulespec / "programs/us/snap").mkdir(parents=True)
+    _write_toolchain(rulespec)
+
+    assert load_rulespec_corpus_release_pin(rulespec) == (RELEASE_NAME, "a" * 64)
+
+
 def test_environment_corpus_key_cannot_replace_protected_broker(
     tmp_path,
     monkeypatch,

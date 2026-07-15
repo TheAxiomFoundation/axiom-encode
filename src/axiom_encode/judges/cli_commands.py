@@ -33,7 +33,7 @@ from axiom_encode.corpus_resolver import (
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
-from axiom_encode.repo_routing import is_policy_repo_root
+from axiom_encode.repo_routing import is_composition_policy_repo_root
 from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
 from .regeneration import (
@@ -539,7 +539,7 @@ def _emit_event(event, as_json: bool, args: argparse.Namespace | None = None) ->
 def _load_bound_corpus_release(args: argparse.Namespace) -> LocalCorpusRelease | None:
     try:
         root = Path(args.root).resolve(strict=True)
-        if not is_policy_repo_root(root):
+        if not is_composition_policy_repo_root(root):
             raise ValueError(
                 "root must be an exact canonical rulespec-<country> checkout"
             )
@@ -626,7 +626,7 @@ def _load_drift_modules(args: argparse.Namespace) -> dict[str, str] | None:
         except OSError as exc:
             print(f"invalid drift root {args.root}: {exc}", file=sys.stderr)
             return None
-        if not is_policy_repo_root(root):
+        if not is_composition_policy_repo_root(root):
             print(
                 "drift root must be an exact canonical "
                 f"rulespec-<country> checkout: {root}",
