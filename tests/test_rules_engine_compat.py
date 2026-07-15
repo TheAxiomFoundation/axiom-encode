@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -77,6 +78,31 @@ def test_unknown_flag_without_legacy_advertisement_does_not_fallback(monkeypatch
 
     assert result is failure
     assert len(calls) == 1
+
+
+def test_legacy_contract_rejects_roots_containing_path_separator(monkeypatch):
+    unsupported = CompletedProcess(
+        [],
+        1,
+        "",
+        "unknown compile argument `--rulespec-root`\n"
+        "usage: compile [--exclusive-rulespec-roots]",
+    )
+    monkeypatch.setattr(
+        "axiom_encode.rules_engine_compat.subprocess.run",
+        lambda command, **kwargs: unsupported,
+    )
+    root = Path(f"/rulespec{os.pathsep}other/rulespec-us")
+
+    with pytest.raises(ValueError, match="platform path separator"):
+        run_rulespec_compile(
+            binary=Path("/engine/axiom-rules-engine"),
+            program=Path("/rulespec-us/us/policies/program.yaml"),
+            rulespec_roots=(root,),
+            output=Path("/tmp/program.json"),
+            cwd=Path("/engine"),
+            env={"PATH": "/bin"},
+        )
 
 
 def test_compile_requires_an_explicit_root():

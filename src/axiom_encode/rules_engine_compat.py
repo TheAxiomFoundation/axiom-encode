@@ -57,6 +57,14 @@ def run_rulespec_compile(
     ):
         return result
 
+    unrepresentable_roots = [root for root in roots if os.pathsep in str(root)]
+    if unrepresentable_roots:
+        rendered = ", ".join(map(str, unrepresentable_roots))
+        raise ValueError(
+            "Legacy RuleSpec engine roots cannot contain the platform path "
+            f"separator {os.pathsep!r}: {rendered}"
+        )
+
     legacy_env = dict(clean_env)
     legacy_env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(map(str, roots))
     legacy_env["AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE"] = "1"
