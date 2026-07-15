@@ -70,9 +70,7 @@ def test_other_compile_failures_do_not_fallback(monkeypatch):
 
 
 def test_unknown_flag_without_legacy_advertisement_does_not_fallback(monkeypatch):
-    failure = CompletedProcess(
-        [], 1, "", "unknown compile argument `--rulespec-root`"
-    )
+    failure = CompletedProcess([], 1, "", "unknown compile argument `--rulespec-root`")
 
     result, calls = _run(monkeypatch, [failure])
 
