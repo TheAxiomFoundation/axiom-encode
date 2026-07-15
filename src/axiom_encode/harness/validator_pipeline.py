@@ -81,6 +81,7 @@ from axiom_encode.repo_routing import (
     jurisdiction_subdir_names,
     monorepo_checkout_name,
 )
+from axiom_encode.rules_engine_compat import run_rulespec_compile
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 from .dependency_stubs import (
@@ -20405,20 +20406,12 @@ class ValidatorPipeline:
             rules_file,
             self.policy_repo_path,
         )
-        result = subprocess.run(
-            [
-                str(binary),
-                "compile",
-                "--program",
-                str(compile_file),
-                *self._rulespec_root_args(),
-                "--output",
-                str(output_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
+        result = run_rulespec_compile(
+            binary=binary,
+            program=compile_file,
+            rulespec_roots=self._rulespec_compile_roots(),
+            output=output_path,
+            cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
         )
         if result.returncode != 0:

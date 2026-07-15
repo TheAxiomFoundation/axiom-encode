@@ -247,6 +247,7 @@ from .repo_routing import (
     jurisdiction_subdir_names,
     monorepo_checkout_name,
 )
+from .rules_engine_compat import run_rulespec_compile
 from .signing_broker import (
     SigningBroker,
     SigningBrokerError,
@@ -3598,24 +3599,12 @@ def _execute_rulespec_test_file(
             else program_file
         )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
-        result = subprocess.run(
-            [
-                str(binary),
-                "compile",
-                "--program",
-                str(compile_file),
-                *(
-                    item
-                    for root in rulespec_roots
-                    for item in ("--rulespec-root", str(root))
-                ),
-                "--output",
-                str(compiled_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
+        result = run_rulespec_compile(
+            binary=binary,
+            program=compile_file,
+            rulespec_roots=rulespec_roots,
+            output=compiled_path,
+            cwd=axiom_rules_path if axiom_rules_path.exists() else None,
             env=env,
         )
         if result.returncode != 0:
