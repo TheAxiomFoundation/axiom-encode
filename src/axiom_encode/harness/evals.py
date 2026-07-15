@@ -1512,11 +1512,13 @@ _AMENDMENT_NAME_STOPWORDS = frozenset(
         "amendment",
         "and",
         "article",
+        "bek",
         "bekendtgoerelse",
         "chapter",
         "code",
         "decree",
         "law",
+        "lbk",
         "lov",
         "loven",
         "of",
@@ -1543,7 +1545,11 @@ def _normalized_relation_text(value: object) -> str:
     text = "".join(
         character for character in text if not unicodedata.combining(character)
     )
-    return " ".join(re.findall(r"[a-z0-9]+", text))
+    tokens = re.findall(r"[a-z0-9]+", text)
+    # Retsinformation's Danish act-type register uses these abbreviations in
+    # ELI/citation metadata; canonicalize spelled-out citation forms likewise.
+    act_types = {"lovbekendtgoerelse": "lbk", "bekendtgoerelse": "bek"}
+    return " ".join(act_types.get(token, token) for token in tokens)
 
 
 def _metadata_scalar_values(value: object) -> Iterator[str]:
@@ -1609,7 +1615,7 @@ def _target_document_identifiers(
         segment_tokens = _normalized_tokens(segment)
         is_numbered_legal_locator = segment_tokens and segment_tokens[
             0
-        ] in _AMENDMENT_NAME_STOPWORDS - {"act"}
+        ] in _AMENDMENT_NAME_STOPWORDS - {"act", "bek", "lbk"}
         has_letters = any(character.isalpha() for character in segment)
         if (
             has_letters
@@ -1629,6 +1635,13 @@ def _target_document_identifiers(
         for key in ("title", "title_short", "title_alternative"):
             for value in _metadata_scalar_values(row.metadata.get(key)):
                 add_name(value)
+                if key == "title":
+                    title_without_parenthetical = re.sub(
+                        r"\s+\([^()]*\)\s*$", "", value
+                    )
+                    short_title_tokens = _normalized_tokens(title_without_parenthetical)
+                    if short_title_tokens[:2] == ("bek", "af"):
+                        add_name(" ".join(short_title_tokens[2:]))
         for key, value in row.metadata.items():
             normalized_key = key.casefold().replace("-", "_")
             is_eli_identifier = _is_eli_key(normalized_key)
@@ -5236,6 +5249,21 @@ def resolve_corpus_source_unit(
             ),
             None,
         )
+        if target_row is None and resolved.row.source_path:
+            source_path_matches = (
+                item
+                for item in active_rows
+                if item.row.source_path == resolved.row.source_path
+                and item.row.version == resolved.row.version
+            )
+            target_row = min(
+                source_path_matches,
+                key=lambda item: (
+                    len(item.row.citation_path.split("/")),
+                    item.row.citation_path,
+                ),
+                default=None,
+            )
         return CorpusSourceUnit(
             requested=resolved.requested,
             citation_path=resolved.citation_path,

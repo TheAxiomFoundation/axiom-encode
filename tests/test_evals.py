@@ -907,6 +907,69 @@ def test_unrelated_newer_amendment_is_excluded_from_target_context(tmp_path):
             True,
         ),
         (
+            "dk/statute/lbk-603-2025/section-1",
+            {},
+            "lov om en boerne og ungeydelse jf lovbekendtgoerelse nr 603 af "
+            "12 maj 2025 its 1 plus ligningsloven and other acts",
+            True,
+        ),
+        (
+            "dk/statute/lbk-603-2025/section-1",
+            {
+                "title": (
+                    "Bekendtgørelse af lov om en børne- og ungeydelse "
+                    "(LBK nr 603 af 12/05/2025)"
+                )
+            },
+            "lov om social pension lov om hoejeste mellemste forhoejet almindelig "
+            "og almindelig foertidspension m v and various other acts including "
+            "lov om en boerne og ungeydelse its 4 e",
+            True,
+        ),
+        (
+            "dk/statute/lbk-603-2025/section-1",
+            {
+                "title": (
+                    "Bekendtgoerelse af lov om en boerne- og ungeydelse "
+                    "(LBK nr 603 af 12/05/2025)"
+                )
+            },
+            "various acts including lov om en boerne og ungeydelse its 4 e",
+            True,
+        ),
+        ("dk/statute/lbk-603-2025/section-1", {}, "LBK nr 604", False),
+        (
+            "dk/statute/lbk-603-2025/section-1",
+            {},
+            "lovbekendtgørelse nr. 604 af 12. maj 2025",
+            False,
+        ),
+        ("dk/statute/lbk-603-2025/section-1", {}, "LBK nr 6030", False),
+        ("uk/statute/act-766/section-1", {}, "Act 1766", False),
+        (
+            "eu/regulation/benefit/section-1",
+            {"act_number": "979/2016"},
+            "1979/2016",
+            False,
+        ),
+        (
+            "dk/statute/lbk-603-2025/section-1",
+            {
+                "title": (
+                    "Bekendtgørelse af lov om en børne- og ungeydelse "
+                    "(LBK nr 603 af 12/05/2025)"
+                )
+            },
+            "lov om en boerne under andre regler og ungeydelse",
+            False,
+        ),
+        (
+            "dk/statute/lbk-999-2025/section-1",
+            {"title": "Bekendtgørelse af lov om skat (LBK nr 999 af 01/01/2025)"},
+            "lov om skat",
+            False,
+        ),
+        (
             "dk/statute/boerne-og-ungeydelsesloven/section-1",
             {},
             "Lov om ændring af børne- og ungeydelsesloven",
@@ -1277,6 +1340,46 @@ def test_resolve_corpus_source_unit_concatenates_descendant_text_rows(tmp_path):
     assert source_unit.body == (
         "Need standards\n\nFirst extracted block.\n\nSecond extracted block."
     )
+
+
+def test_resolve_corpus_source_unit_matches_root_to_active_source_path(tmp_path):
+    target_path = "dk/statute/lbk-603-2025/boerne-og-ungeydelsesloven"
+    target_source_path = "sources/dk/target.pdf"
+    release = _write_test_corpus_release(
+        tmp_path,
+        [
+            {"citation_path": target_path, "source_path": target_source_path},
+            {
+                "citation_path": f"{target_path}/document-1",
+                "body": "Consolidated target text.",
+                "source_path": target_source_path,
+                "metadata": {
+                    "title": (
+                        "Bekendtgørelse af lov om en børne- og ungeydelse "
+                        "(LBK nr 603 af 12/05/2025)"
+                    ),
+                    "source_note": "Curated target note.",
+                },
+            },
+            {
+                "citation_path": "dk/statute/lov-1642-2025/amendment/document-1",
+                "body": "Amendment text.",
+                "source_path": "sources/dk/amendment.pdf",
+                "metadata": {
+                    "document_type": "amendment act",
+                    "amends": target_path,
+                    "title": "LOV nr 1642 af 16/12/2025",
+                },
+            },
+        ],
+    )
+
+    source_unit = resolve_corpus_source_unit(target_path, release)
+
+    assert source_unit.provision_metadata["source_note"] == "Curated target note."
+    assert [item.citation_path for item in source_unit.amendment_documents] == [
+        "dk/statute/lov-1642-2025/amendment/document-1"
+    ]
 
 
 def test_source_identifier_maps_state_manual_to_policies_repo_path():
