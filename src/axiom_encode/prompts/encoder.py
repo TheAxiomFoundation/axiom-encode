@@ -1109,6 +1109,13 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   as a signal to repair the dependency graph, not as a requirement to preserve
   old names. Keep an old output only when it remains the cleanest
   source-faithful RuleSpec surface.
+- When a copied context file already exports the operative legal condition that
+  the requested source consumes, import and use that canonical output. Do not
+  recreate it as a local factual input merely because the requested source
+  describes a person or household as entitled, eligible, qualified, allowed,
+  or subject to that condition. Keep a local fact only when the requested
+  source states a distinct operative fact that the context output does not
+  represent.
 - Do not preserve existing factual input slots referenced by copied formulas or
   companion tests when a cleaner source-faithful encoding removes them. This is
   especially important for names listed under invalid copied local inputs.

@@ -134,6 +134,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "`clause_ii_provides_otherwise`",
         "paragraph_d_2_methodology_limit_satisfied",
         "dependency graph remains acyclic",
+        "copied context file already exports the operative legal condition",
+        "Do not\n  recreate it as a local factual input",
         "Axiom formulas have no date literal type",
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`",
         "Do not write `else if` or `elif`",
