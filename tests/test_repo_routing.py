@@ -94,15 +94,13 @@ def test_composition_checkout_preserves_atomic_jurisdiction_identity(tmp_path):
     module.parent.mkdir(parents=True)
     module.write_text("format: rulespec/v1\n", encoding="utf-8")
 
-    assert canonical_rulespec_root_identity(checkout / "us-co") == (
-        "rulespec-us/us-co"
-    )
+    assert canonical_rulespec_root_identity(checkout / "us-co") == ("rulespec-us/us-co")
     assert find_policy_repo_root(module) == checkout / "us-co"
     assert canonical_rulespec_repo_name(checkout) == "rulespec-us"
     assert canonical_rulespec_repo_name(module) == "rulespec-us-co"
-    assert jurisdiction_subdir_names(
-        checkout, allow_composition_specs=True
-    ) == {"us-co"}
+    assert jurisdiction_subdir_names(checkout, allow_composition_specs=True) == {
+        "us-co"
+    }
     assert candidate_jurisdiction_content_dirs(checkout, "us-co") == [
         checkout / "us-co"
     ]
