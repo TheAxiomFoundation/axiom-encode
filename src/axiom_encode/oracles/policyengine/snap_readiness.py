@@ -24,7 +24,7 @@ from axiom_encode.corpus_resolver import (
 )
 from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
-    is_policy_repo_root,
+    is_composition_policy_repo_root,
 )
 from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
@@ -178,7 +178,7 @@ def count_snap_corpus_provisions(
 
 
 def _resolve_rulespec_us_repo(root: Path) -> Path:
-    if root.name != "rulespec-us" or not is_policy_repo_root(root):
+    if root.name != "rulespec-us" or not is_composition_policy_repo_root(root):
         raise SnapReadinessConfigurationError(
             f"SNAP readiness requires the exact canonical rulespec-us checkout: {root}"
         )

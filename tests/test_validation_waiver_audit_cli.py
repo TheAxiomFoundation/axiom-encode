@@ -296,6 +296,16 @@ def test_validation_rejects_legacy_flat_checkout_layout(tmp_path: Path):
         cli._canonical_validation_checkout_root(module)
 
 
+def test_validation_accepts_jurisdiction_in_composition_checkout(tmp_path: Path):
+    checkout = tmp_path / "rulespec-us"
+    module = checkout / "us/statutes/1.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+    (checkout / "programs/us/snap").mkdir(parents=True)
+
+    assert cli._canonical_validation_checkout_root(module) == checkout
+
+
 def test_validation_rejects_missing_explicit_engine_checkout(tmp_path: Path):
     module = tmp_path / "rulespec-us/us/statutes/1.yaml"
     module.parent.mkdir(parents=True)

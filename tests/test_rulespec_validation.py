@@ -538,6 +538,27 @@ def test_rulespec_compile_roots_use_only_explicit_checkouts(monkeypatch, tmp_pat
     ]
 
 
+def test_rulespec_compile_roots_accept_composition_checkouts(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path / "active", "us")
+    dependency_root = _canonical_rulespec_content_root(
+        tmp_path / "dependencies", "uk"
+    ).parent
+    (policy_repo.parent / "programs/us/snap").mkdir(parents=True)
+    (dependency_root / "programs/uk/universal-credit").mkdir(parents=True)
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        rulespec_dependency_roots=(dependency_root,),
+    )
+
+    assert pipeline._rulespec_compile_roots() == (
+        policy_repo.parent.resolve(),
+        dependency_root.resolve(),
+    )
+
+
 def test_rulespec_engine_env_excludes_model_and_repository_credentials(
     monkeypatch, tmp_path
 ):

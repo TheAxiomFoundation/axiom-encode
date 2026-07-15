@@ -243,7 +243,6 @@ from .repo_routing import (
     canonical_rulespec_root_identity,
     find_policy_repo_root,
     is_composition_policy_repo_root,
-    is_policy_repo_root,
     jurisdiction_content_dir,
     jurisdiction_subdir_names,
     monorepo_checkout_name,
@@ -374,7 +373,7 @@ def _resolve_canonical_rulespec_checkout(
     """Resolve one explicitly authorized canonical country checkout."""
 
     checkout = _resolve_explicit_existing_directory(raw_path, label=label)
-    if not is_policy_repo_root(checkout):
+    if not is_composition_policy_repo_root(checkout):
         raise ValueError(
             f"{label} must be the exact canonical rulespec-<country> checkout; "
             f"got {checkout}"
@@ -437,7 +436,10 @@ def _canonical_validation_checkout_root(rulespec_file: Path) -> Path:
             "rulespec-<country>/<jurisdiction>: "
             f"{rulespec_file}"
         )
-    if content_root.name not in jurisdiction_subdir_names(content_root.parent):
+    if content_root.name not in jurisdiction_subdir_names(
+        content_root.parent,
+        allow_composition_specs=True,
+    ):
         raise ValueError(
             "validation requires the country-monorepo layout "
             f"(<rulespec-country>/<jurisdiction>/...): {rulespec_file}"
@@ -4512,13 +4514,13 @@ def _rulespec_module_paths(checkout: Path) -> list[Path]:
     """Return only atomic modules from one explicit country checkout."""
 
     checkout = _resolve_canonical_rulespec_checkout(checkout)
-    flat_roots = [checkout / root for root in sorted(RULESPEC_FILESYSTEM_ROOTS)]
+    flat_roots = [checkout / root for root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)]
     invalid_flat_roots = [
         path for path in flat_roots if path.exists() or path.is_symlink()
     ]
     if invalid_flat_roots:
         raise ValueError(
-            "RuleSpec checkout contains repository-root content; all five roots must "
+            "RuleSpec checkout contains repository-root atomic content; atomic roots must "
             "live under rulespec-<country>/<jurisdiction>/<content-root>: "
             + ", ".join(str(path) for path in invalid_flat_roots)
         )
@@ -35976,7 +35978,10 @@ def _apply_dependency_checkout_identity(root: Path) -> dict[str, object]:
     """Bind one explicit dependency checkout exactly as the overlay stages it."""
 
     checkout = Path(root).resolve()
-    jurisdictions = jurisdiction_subdir_names(checkout)
+    jurisdictions = jurisdiction_subdir_names(
+        checkout,
+        allow_composition_specs=True,
+    )
     return {
         "path": str(checkout),
         "checkout_identity": _git_checkout_execution_identity(checkout),

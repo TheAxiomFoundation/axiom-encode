@@ -19,7 +19,7 @@ import yaml
 from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
 from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
-    is_policy_repo_root,
+    is_composition_policy_repo_root,
     iter_jurisdiction_content_dirs,
 )
 
@@ -152,7 +152,7 @@ def _canonical_jurisdiction_roots(roots: Iterable[Path]) -> tuple[Path, ...]:
             ) from exc
         if canonical_rulespec_root_identity(root) is not None:
             candidates = (root,)
-        elif is_policy_repo_root(root):
+        elif is_composition_policy_repo_root(root):
             candidates = tuple(
                 content_root
                 for _jurisdiction, content_root in iter_jurisdiction_content_dirs(root)

@@ -30,7 +30,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 
-from .repo_routing import is_policy_repo_root
+from .repo_routing import is_composition_policy_repo_root
 from .run_log import (
     FUNNEL_STEPS,
     SCHEMA_VERSION,
@@ -283,7 +283,7 @@ def build_manifest_index(repo_paths: Iterable[Path]) -> dict[str, dict[str, Any]
     seen_repos: set[Path] = set()
     for raw_repo_path in repo_paths:
         raw_repo_path = Path(raw_repo_path).expanduser()
-        if not is_policy_repo_root(raw_repo_path):
+        if not is_composition_policy_repo_root(raw_repo_path):
             raise ValueError(
                 "Run-log manifest indexing requires an explicit exact canonical "
                 f"rulespec-<country> checkout: {raw_repo_path}"

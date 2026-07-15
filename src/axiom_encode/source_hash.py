@@ -43,7 +43,7 @@ from axiom_encode.corpus_resolver import (
 )
 from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
-    is_policy_repo_root,
+    is_composition_policy_repo_root,
 )
 from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
@@ -436,7 +436,7 @@ def _rulespec_scan_root_layout(root: Path) -> str:
 
     if canonical_rulespec_root_identity(root) is not None:
         return "jurisdiction"
-    if is_policy_repo_root(root):
+    if is_composition_policy_repo_root(root):
         return "country"
     raise RuleSpecScanError(
         root,
@@ -485,7 +485,11 @@ def _is_canonical_composition_spec_directory(
         return False
     if layout == "jurisdiction":
         return relative.parts == (RULESPEC_COMPOSITION_SPEC_ROOT,)
-    if layout != "country" or len(relative.parts) != 2:
+    if layout != "country":
+        return False
+    if relative.parts == (RULESPEC_COMPOSITION_SPEC_ROOT,):
+        return True
+    if len(relative.parts) != 2:
         return False
     country = root.name.removeprefix("rulespec-")
     jurisdiction, source_root = relative.parts
