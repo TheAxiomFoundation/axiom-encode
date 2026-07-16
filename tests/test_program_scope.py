@@ -57,6 +57,89 @@ def test_sync_program_scope_changes_only_selected_sequence(tmp_path: Path) -> No
     ]
 
 
+def test_sync_program_scope_supports_jurisdiction_program_root(tmp_path: Path) -> None:
+    repo, spec = _repo(tmp_path)
+    canonical_spec = repo / "us-sc/programs/snap/fy-2026.yaml"
+    canonical_spec.parent.mkdir(parents=True)
+    spec.rename(canonical_spec)
+
+    result = sync_program_scope(
+        repo=repo,
+        program_spec=canonical_spec.relative_to(repo),
+        scope="state",
+        add=["policies/dss/snap/page-159"],
+        remove=["policies/dss/snap/page-369"],
+    )
+
+    assert result.changed is True
+    assert result.program_spec == "us-sc/programs/snap/fy-2026.yaml"
+    assert yaml.safe_load(canonical_spec.read_text())["scope"]["state"] == [
+        "policies/dss/snap/page-159",
+        "policies/dss/snap/page-163",
+    ]
+
+
+def test_sync_program_scope_rejects_wrong_jurisdiction_program_root(
+    tmp_path: Path,
+) -> None:
+    repo, spec = _repo(tmp_path)
+    wrong_spec = repo / "us-ny/programs/snap/fy-2026.yaml"
+    wrong_spec.parent.mkdir(parents=True)
+    spec.rename(wrong_spec)
+
+    with pytest.raises(ProgramScopeError, match="must be nested under one of"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=wrong_spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+@pytest.mark.parametrize("program", [".", "./", "./."])
+def test_sync_program_scope_rejects_dot_only_program(
+    tmp_path: Path, program: str
+) -> None:
+    repo, spec = _repo(tmp_path)
+    spec.write_text(
+        spec.read_text().replace("program: us-sc/snap", f"program: {program}")
+    )
+
+    with pytest.raises(ProgramScopeError, match="safe repo-relative"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["programs/uk/snap/fy-2026.yaml", "uk/programs/snap/fy-2026.yaml"],
+)
+def test_sync_program_scope_rejects_cross_country_program_root(
+    tmp_path: Path, relative_path: str
+) -> None:
+    repo, spec = _repo(tmp_path)
+    cross_country_spec = repo / relative_path
+    cross_country_spec.parent.mkdir(parents=True)
+    spec.rename(cross_country_spec)
+    cross_country_spec.write_text(
+        cross_country_spec.read_text().replace(
+            "program: us-sc/snap", "program: uk/snap"
+        )
+    )
+
+    with pytest.raises(ProgramScopeError, match="does not belong to rulespec-us"):
+        sync_program_scope(
+            repo=repo,
+            program_spec=cross_country_spec.relative_to(repo),
+            scope="state",
+            add=["policies/dss/snap/page-159"],
+        )
+
+
 def test_sync_program_scope_check_mode_does_not_write(tmp_path: Path) -> None:
     repo, spec = _repo(tmp_path)
     before = spec.read_text()
