@@ -2940,6 +2940,160 @@ def test_metadata_parent_rejects_uncovered_bodyless_branch(tmp_path: Path):
         resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
+def test_metadata_parent_omits_explicit_repealed_bodyless_leaf(tmp_path: Path):
+    version = "2026-01-01-repealed-leaf"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "operative text"},
+            {
+                "citation_path": f"{CITATION}/2",
+                "body": None,
+                "heading": "Repealed provision. (Repealed)",
+                "metadata": {"status": "repealed"},
+            },
+        ],
+    )
+
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+    assert resolved.body == "operative text"
+    assert [row.citation_path for row in resolved.component_rows] == [f"{CITATION}/1"]
+
+
+def test_metadata_parent_rejects_top_level_repealed_status_field(tmp_path: Path):
+    version = "2026-01-01-top-level-repealed"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "operative text"},
+            {
+                "citation_path": f"{CITATION}/2",
+                "body": None,
+                "status": "repealed",
+            },
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_metadata_parent_rejects_repealed_bodyless_nonleaf(tmp_path: Path):
+    version = "2026-01-01-repealed-nonleaf"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "operative text"},
+            {
+                "citation_path": f"{CITATION}/2",
+                "body": None,
+                "metadata": {"status": "repealed"},
+            },
+            {"citation_path": f"{CITATION}/2/A", "body": "stale repealed text"},
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="malformed repealed"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_rejects_directly_selected_repealed_bodyless_parent(tmp_path: Path):
+    version = "2026-01-01-repealed-parent"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": CITATION,
+                "body": None,
+                "metadata": {"status": "repealed"},
+            },
+            {"citation_path": f"{CITATION}/1", "body": "stale repealed text"},
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="is repealed"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_metadata_parent_rejects_repealed_body_bearing_leaf(tmp_path: Path):
+    version = "2026-01-01-repealed-body"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "operative text"},
+            {
+                "citation_path": f"{CITATION}/2",
+                "body": "stale repealed text",
+                "metadata": {"status": "repealed"},
+            },
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="malformed repealed"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_repealed_leaf_does_not_disable_operative_sibling_ordinals(tmp_path: Path):
+    version = "2026-01-01-repealed-ordering"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/10", "body": "first", "ordinal": 1},
+            {"citation_path": f"{CITATION}/2", "body": "second", "ordinal": 2},
+            {
+                "citation_path": f"{CITATION}/3",
+                "body": None,
+                "metadata": {"status": "repealed"},
+            },
+        ],
+    )
+
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+    assert resolved.body == "first\n\nsecond"
+
+
+def test_rejects_malformed_repealed_row_below_body_bearing_ancestor(
+    tmp_path: Path,
+):
+    version = "2026-01-01-covered-repealed"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": CITATION, "body": None},
+            {"citation_path": f"{CITATION}/1", "body": "complete subtree"},
+            {
+                "citation_path": f"{CITATION}/1/A",
+                "body": "stale repealed text",
+                "metadata": {"status": "repealed"},
+            },
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="malformed repealed"):
+        resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
 def test_active_bodyless_row_without_descendants_is_invalid(tmp_path: Path):
     version = "2026-01-01-no-descendants"
     _write_selector(tmp_path, [_scope(version)])
