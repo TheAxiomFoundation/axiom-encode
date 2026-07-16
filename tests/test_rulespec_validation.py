@@ -26689,6 +26689,60 @@ rules:
     assert any("bare year periods are ambiguous" in issue for issue in result.issues)
 
 
+def test_coerce_rulespec_period_rejects_engine_invalid_year_kind(tmp_path):
+    """Local period coercion must fail closed on the kind the engine rejects.
+
+    Regression for axiom-encode#1112: `_coerce_rulespec_period` silently rewrote
+    `period_kind: year` -> `tax_year` before its own enum check, so
+    `axiom-encode validate` executed (and passed) a fixture the org
+    validate-rulespec workflow's engine test runner then rejected with
+    `unknown variant `year``. The coercion must reject any kind outside the
+    engine's serde enum so local validate and the shared workflow agree on which
+    fixtures are executable. This exercises the parse step directly, so it needs
+    no built engine binary.
+    """
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+        enforce_repository_layout=False,
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        pipeline._coerce_rulespec_period(
+            {
+                "period_kind": "year",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+            }
+        )
+    message = str(excinfo.value)
+    assert "year" in message
+    # The message must name the engine's accepted enum so the divergence between
+    # local validate and the workflow is actionable at the fixture.
+    for accepted in ("month", "benefit_week", "tax_year", "custom"):
+        assert accepted in message
+
+    # Every kind the engine's serde enum accepts must still coerce cleanly, so the
+    # fix closes the fail-open without narrowing the legitimate fixture surface.
+    assert (
+        pipeline._coerce_rulespec_period(
+            {"period_kind": "tax_year", "start": "2024-01-01", "end": "2024-12-31"}
+        )["period_kind"]
+        == "tax_year"
+    )
+    assert (
+        pipeline._coerce_rulespec_period(
+            {
+                "period_kind": "benefit_week",
+                "start": "2024-01-01",
+                "end": "2024-01-07",
+            }
+        )["period_kind"]
+        == "benefit_week"
+    )
+
+
 def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
     tmp_path, monkeypatch
 ):
