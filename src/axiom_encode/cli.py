@@ -5222,8 +5222,10 @@ def cmd_cloud_queue(args):
     sys.exit(0)
 
 
-def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
-    """Return report path prefixes authorized to enter one pending ledger."""
+def _pending_sync_authorized_prefixes(
+    root: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return new-entry and existing legacy report path prefixes."""
 
     nested_checkout = root / root.name
     if nested_checkout.is_dir() and not nested_checkout.is_symlink():
@@ -5250,6 +5252,10 @@ def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
         for jurisdiction in jurisdictions
         for module_root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)
     ]
+    legacy_prefixes = [
+        f"{display_prefix}{jurisdiction}/manual/"
+        for jurisdiction in jurisdictions
+    ]
     programs_dir = content_checkout / RULESPEC_COMPOSITION_SPEC_ROOT
     if programs_dir.is_dir() and not programs_dir.is_symlink():
         prefixes.extend(
@@ -5259,7 +5265,7 @@ def _pending_sync_authorized_prefixes(root: Path) -> tuple[str, ...]:
             and not child.is_symlink()
             and re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", child.name)
         )
-    return tuple(prefixes)
+    return tuple(prefixes), tuple(legacy_prefixes)
 
 
 def _resolve_composition_rulespec_checkout(raw_path: Path) -> Path:
@@ -5282,7 +5288,9 @@ def cmd_oracle_coverage_pending(args):
     root = _resolve_composition_rulespec_checkout(args.root)
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
-        authorized_prefixes = _pending_sync_authorized_prefixes(root)
+        authorized_prefixes, existing_legacy_prefixes = (
+            _pending_sync_authorized_prefixes(root)
+        )
         try:
             existing_pending_ids = set(load_pending_declarations(root))
         except PendingDeclarationError as error:
@@ -5297,7 +5305,12 @@ def cmd_oracle_coverage_pending(args):
             == root.name.removeprefix("rulespec-")
             and (
                 str(item.get("file") or "").startswith(authorized_prefixes)
-                or item.get("legal_id") in existing_pending_ids
+                or (
+                    item.get("legal_id") in existing_pending_ids
+                    and str(item.get("file") or "").startswith(
+                        existing_legacy_prefixes
+                    )
+                )
             )
         ]
         try:

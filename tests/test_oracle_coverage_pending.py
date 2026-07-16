@@ -505,6 +505,53 @@ entries:
     )
 
 
+def test_cli_pending_sync_drops_declared_nested_same_country_checkout(
+    tmp_path, monkeypatch
+):
+    checkout = tmp_path / "rulespec-us"
+    legal_id = "us-mo:policies/demo/x#nested_checkout_output"
+    _write(
+        checkout / "us/statutes/placeholder.yaml",
+        """format: rulespec/v1
+rules: []
+""",
+    )
+    _write(
+        checkout / "rulespec-us-mo/policies/demo/x.yaml",
+        """format: rulespec/v1
+rules:
+  - name: nested_checkout_output
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+    )
+    _write(
+        checkout / "oracle-coverage-pending.yaml",
+        f"""version: 1
+ceiling: 1
+entries:
+  - legal_id: {legal_id}
+    source: manual
+    since: 2026-07-07
+""",
+    )
+
+    code = _run_cli(
+        monkeypatch,
+        "oracle-coverage-pending",
+        "sync",
+        "--root",
+        str(checkout),
+        "--source",
+        "bulk",
+    )
+
+    assert code == 0
+    assert load_pending_files(checkout)[0].entries == ()
+
+
 def test_cli_pending_sync_includes_country_monorepo_state_output(tmp_path, monkeypatch):
     checkout = tmp_path / "rulespec-us"
     legal_id = "us-hi:statutes/235-54#individual_personal_exemption_deduction"
