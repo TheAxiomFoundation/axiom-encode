@@ -1759,6 +1759,15 @@ def main():
         help="Extra file path to copy into the repo-augmented workspace (repeatable)",
     )
     encode_parser.add_argument(
+        "--review-findings",
+        action="append",
+        default=[],
+        help=(
+            "Independent-review findings that the generated encoding must address "
+            "without narrowing unaffected source-backed behavior (repeatable)"
+        ),
+    )
+    encode_parser.add_argument(
         "--policyengine-rule-hint",
         dest="policyengine_rule_hint",
         default=None,
@@ -18420,6 +18429,9 @@ def _cmd_encode_with_authoritative_rulespec_roots(
         corpus_release=corpus_release,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],
+        review_findings_paths=[
+            Path(path) for path in getattr(args, "review_findings", [])
+        ],
         include_tests=True,
         skip_reviewers=skip_reviewers,
         policyengine_rule_hint=policyengine_rule_hint,

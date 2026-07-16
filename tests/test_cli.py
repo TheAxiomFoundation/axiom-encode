@@ -7046,6 +7046,7 @@ class TestCmdEncode:
         args.policy_repo_path = policy_repo_path
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
+        args.review_findings = overrides.get("review_findings", [])
         args.policyengine_rule_hint = overrides.get("policyengine_rule_hint", None)
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
@@ -7194,6 +7195,16 @@ class TestCmdEncode:
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
         )
+
+    def test_encode_propagates_mandatory_review_findings(self, tmp_path):
+        findings = tmp_path / "review-findings.md"
+        findings.write_text("- Preserve the existing outputs while fixing the date.\n")
+        args = self._make_args(tmp_path, review_findings=[findings])
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert mock_run.call_args.kwargs["review_findings_paths"] == [findings]
 
     def test_encode_codex_backend_without_auth_stops_before_running(
         self, capsys, tmp_path

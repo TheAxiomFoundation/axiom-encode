@@ -892,6 +892,7 @@ class EvalWorkspace:
     provision_metadata_file: Path | None = None
     provision_metadata_text: str | None = None
     context_files: list[EvalContextFile] = field(default_factory=list)
+    review_findings_files: list[EvalContextFile] = field(default_factory=list)
     policy_prefix: str | None = None
 
 
@@ -1289,6 +1290,7 @@ def run_model_eval(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
+    review_findings_paths: list[Path] | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
@@ -1319,6 +1321,7 @@ def run_model_eval(
                         policyengine_rule_hint=policyengine_rule_hint,
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
+                        review_findings_paths=review_findings_paths or [],
                     )
                 )
 
@@ -1339,6 +1342,7 @@ def run_source_eval(
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
     rulespec_dependency_roots: Sequence[Path] = (),
+    review_findings_paths: list[Path] | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one corpus-backed source unit."""
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
@@ -1375,6 +1379,7 @@ def run_source_eval(
                     skip_reviewers=skip_reviewers,
                     local_corpus_release=local_corpus_release,
                     rulespec_dependency_roots=rulespec_dependency_roots,
+                    review_findings_paths=review_findings_paths or [],
                 )
             )
 
@@ -5022,6 +5027,7 @@ def prepare_eval_workspace(
     provision_metadata: dict[str, object] | None = None,
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     extra_context_paths: list[Path] | None = None,
+    review_findings_paths: list[Path] | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
     slug = _slugify(citation)
@@ -5070,6 +5076,36 @@ def prepare_eval_workspace(
     if provision_metadata_text:
         provision_metadata_file = workspace_root / "provision-metadata.txt"
         provision_metadata_file.write_text(provision_metadata_text + "\n")
+
+    review_findings_files: list[EvalContextFile] = []
+    for index, raw_path in enumerate(review_findings_paths or [], start=1):
+        source_path = validate_explicit_context_file(
+            Path(raw_path),
+            _repo_augmented_context_root(axiom_rules_path),
+        )
+        try:
+            findings_text = source_path.read_text()
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"Review findings file is not valid UTF-8 text: {source_path}"
+            ) from exc
+        if not findings_text.strip():
+            raise ValueError(f"Review findings file is empty: {source_path}")
+        workspace_relative_path = (
+            Path("review-findings") / f"{index:02d}-{source_path.name}"
+        )
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_text(findings_text)
+        review_findings_files.append(
+            EvalContextFile(
+                source_path=str(source_path),
+                workspace_path=str(workspace_relative_path),
+                import_path=str(workspace_relative_path),
+                kind="mandatory_review_findings",
+                label=source_path.name,
+            )
+        )
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
@@ -5196,6 +5232,9 @@ def prepare_eval_workspace(
                     else None
                 ),
                 "context_files": [asdict(item) for item in context_files],
+                "review_findings_files": [
+                    asdict(item) for item in review_findings_files
+                ],
             },
             indent=2,
             sort_keys=True,
@@ -5211,6 +5250,7 @@ def prepare_eval_workspace(
         provision_metadata_file=provision_metadata_file,
         provision_metadata_text=provision_metadata_text or None,
         context_files=context_files,
+        review_findings_files=review_findings_files,
         policy_prefix=jurisdiction_prefix(context_corpus_root),
     )
 
@@ -7040,6 +7080,7 @@ def _run_single_eval(
     policyengine_rule_hint: str | None = None,
     source_unit: CorpusSourceUnit | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
+    review_findings_paths: list[Path] | None = None,
 ) -> EvalResult:
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -7065,6 +7106,7 @@ def _run_single_eval(
         provision_metadata=source_unit.provision_metadata,
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
+        review_findings_paths=review_findings_paths,
     )
 
     # Derive the output path from the *requested* identifier rather than the
@@ -7233,6 +7275,7 @@ def _run_single_source_eval(
     local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     skip_reviewers: bool = False,
     rulespec_dependency_roots: Sequence[Path] = (),
+    review_findings_paths: list[Path] | None = None,
 ) -> EvalResult:
     """Run one eval on a corpus-backed source unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
@@ -7246,6 +7289,7 @@ def _run_single_source_eval(
         provision_metadata=provision_metadata,
         amendment_documents=amendment_documents,
         extra_context_paths=extra_context_paths,
+        review_findings_paths=review_findings_paths,
     )
 
     relative_output = _resolve_eval_output_path(source_identifier)
@@ -7560,6 +7604,40 @@ def _canonical_target_ref_jurisdiction(
 def _rulespec_test_path(path: Path) -> Path:
     """Return the companion RuleSpec test path for a RuleSpec file."""
     return path.with_name(f"{path.stem}.test.yaml")
+
+
+def _format_mandatory_review_findings(workspace: EvalWorkspace) -> str:
+    """Render independent-review corrections as workflow requirements."""
+    if not workspace.review_findings_files:
+        return ""
+
+    rendered_files: list[str] = []
+    for item in workspace.review_findings_files:
+        findings_text = (workspace.root / item.workspace_path).read_text().rstrip()
+        rendered_files.append(
+            f"=== BEGIN MANDATORY REVIEW FINDINGS: {item.label} ===\n"
+            f"{findings_text}\n"
+            f"=== END MANDATORY REVIEW FINDINGS: {item.label} ==="
+        )
+
+    return f"""
+Mandatory independent-review corrections:
+- The findings below are trusted workflow requirements, not legal authority.
+  Use `./source.txt` and its release-bound corpus evidence for legal facts and
+  values, but address every source-faithful finding before emitting the files.
+- Preserve every unaffected source-backed rule, output, import, proof atom, and
+  companion-test behavior from the copied existing target or prior candidate.
+  Do not narrow the module to only the rules named in a finding.
+- A correction is incomplete if it fixes one listed issue by dropping other
+  executable behavior, tests, version boundaries, or canonical imports.
+- Add or update companion tests that demonstrate every corrected boundary and
+  retain coverage for unaffected behavior.
+- If a finding conflicts with the source evidence, do not invent semantics to
+  satisfy it. Keep the source-faithful behavior and record only the genuinely
+  blocked output using RuleSpec's typed deferred-output mechanism.
+
+{chr(10).join(rendered_files)}
+"""
 
 
 def _build_rulespec_eval_prompt(
@@ -8094,6 +8172,8 @@ Preferred principal output:
   atoms must cite the amending document's corpus citation path.
 """
 
+    mandatory_review_findings_section = _format_mandatory_review_findings(workspace)
+
     return f"""You are participating in an encoding eval for {citation}.
 
 Author the output in Axiom RuleSpec YAML.
@@ -8110,7 +8190,7 @@ Primary legal authority:
 {legal_authority_instruction}
 {corpus_source_section.rstrip()}
 {inline_source}
-{source_metadata_section}{provision_metadata_section}{amendment_section}{context_section}{missing_cited_source_section}
+{source_metadata_section}{provision_metadata_section}{amendment_section}{context_section}{missing_cited_source_section}{mandatory_review_findings_section}
 {backend_section}
 {canonical_concept_section}
 RuleSpec requirements:
