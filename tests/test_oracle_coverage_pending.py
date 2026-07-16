@@ -8,6 +8,7 @@ the oracle mappings nor the pending file still fails the gate.
 from __future__ import annotations
 
 import datetime
+import json
 import stat
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ from axiom_encode.oracles.policyengine.pending import (
     ratchet_problems,
     sync_repo_pending,
 )
+from axiom_encode.repo_routing import is_composition_policy_repo_root
 
 UNMAPPED = "uk:statutes/ukpga/9999/1/1#pending_test_only_output"
 OTHER_UNMAPPED = "uk:statutes/ukpga/9999/1/1#pending_test_second_output"
@@ -390,6 +392,192 @@ def test_cli_gate_passes_with_nested_github_actions_checkout(tmp_path, monkeypat
     )
 
     assert code == 0
+
+
+def _name_shaped_zero_output_root(tmp_path: Path, kind: str) -> Path:
+    """Build a ``rulespec-<country>``-named directory that clears the name gate
+    but classifies to zero executable outputs.
+
+    ``is_composition_policy_repo_root`` accepts a directory by name when no
+    ``.git`` boundary sits at or above it, so each of these clears it — the
+    shapes the auditor showed still produced ``total_outputs: 0`` with exit 0
+    even behind a filesystem-evidence guard (axiom-encode#1113).
+    """
+    root = tmp_path / kind / "rulespec-dk"
+    root.mkdir(parents=True)
+    if kind == "empty_axiom_dir":
+        (root / ".axiom").mkdir()
+    elif kind == "axiom_file":
+        (root / ".axiom").write_text("", encoding="utf-8")
+    elif kind == "empty_pending_ledger":
+        _write(root / "oracle-coverage-pending.yaml", "version: 1\nentries: []\n")
+    elif kind == "empty_jurisdiction_dir":
+        (root / "dk").mkdir()
+    elif kind == "fake_nested_git":
+        (root / "rulespec-dk" / ".git").mkdir(parents=True)
+    else:  # pragma: no cover - guard against a typo in the parametrization
+        raise AssertionError(f"unknown shape {kind!r}")
+    return root
+
+
+ZERO_OUTPUT_SHAPES = [
+    "empty_axiom_dir",
+    "axiom_file",
+    "empty_pending_ledger",
+    "empty_jurisdiction_dir",
+    "fake_nested_git",
+]
+
+
+@pytest.mark.parametrize("kind", ZERO_OUTPUT_SHAPES)
+def test_cli_gate_fail_on_empty_rejects_zero_output_shapes(tmp_path, monkeypatch, kind):
+    """``--fail-on-empty`` fails loudly on every name-shaped root that classifies
+    to zero outputs — the fix for the axiom-encode#1113 vacuous pass.
+
+    Each shape clears the ``is_composition_policy_repo_root`` name gate, so a
+    filesystem-evidence guard was satisfiable: an empty ``.axiom/``, an
+    ``.axiom`` file, an empty pending ledger, an empty jurisdiction directory,
+    and a fake nested ``.git`` all still produced ``total_outputs: 0`` with exit
+    0 under ``--fail-on-unmapped``. The fix gates on the *report*, not on
+    filesystem evidence: with ``--fail-on-empty`` a zero-output report is a loud
+    failure, while without it the same report still passes so a legitimately
+    empty new repo is not broken.
+    """
+    root = _name_shaped_zero_output_root(tmp_path, kind)
+    assert is_composition_policy_repo_root(root)  # the name gate accepts it
+
+    assert (
+        _run_cli(
+            monkeypatch, "oracle-coverage", "--root", str(root), "--fail-on-unmapped"
+        )
+        == 0
+    )
+
+    assert (
+        _run_cli(
+            monkeypatch,
+            "oracle-coverage",
+            "--root",
+            str(root),
+            "--fail-on-unmapped",
+            "--fail-on-empty",
+        )
+        != 0
+    )
+
+
+def test_cli_gate_empty_repo_passes_without_fail_on_empty(tmp_path, monkeypatch):
+    """A legitimately-empty new jurisdiction repo must pass its coverage gate.
+
+    rulespec-tz classified to zero outputs on its push-to-main coverage gate
+    (``--fail-on-unmapped --fail-on-untested-comparable``) this week and passed;
+    that is why the zero-output rejection is opt-in via ``--fail-on-empty`` and
+    not the default under ``--fail-on-unmapped``.
+    """
+    checkout = tmp_path / "rulespec-tz"
+    _write(checkout / ".axiom/known-validation-gaps.yaml", "version: 1\n")
+
+    assert (
+        _run_cli(
+            monkeypatch,
+            "oracle-coverage",
+            "--root",
+            str(checkout),
+            "--fail-on-unmapped",
+            "--fail-on-untested-comparable",
+        )
+        == 0
+    )
+
+
+def test_cli_gate_fail_on_empty_passes_with_declared_outputs(tmp_path, monkeypatch):
+    """``--fail-on-empty`` does not false-fail a checkout that has outputs: a
+    declared-pending output leaves a non-empty report with zero unmapped."""
+    checkout, legal_id = _checkout_with_unmapped_output(tmp_path)
+    _write(
+        checkout / "oracle-coverage-pending.yaml",
+        f"version: 1\nentries:\n  - legal_id: {legal_id}\n    source: bulk\n    since: 2026-07-07\n",
+    )
+
+    assert (
+        _run_cli(
+            monkeypatch,
+            "oracle-coverage",
+            "--root",
+            str(checkout),
+            "--fail-on-unmapped",
+            "--fail-on-stale-pending",
+            "--fail-on-empty",
+        )
+        == 0
+    )
+
+
+def test_cli_gate_fail_on_empty_rejects_empty_root_with_program_surfaces(
+    tmp_path, monkeypatch
+):
+    """Global program surfaces must not vouch for root content.
+
+    ``--include-program-surfaces`` attaches the fixed PolicyEngine program-surface
+    manifest (~189 surfaces, independent of ``--root``), so an empty root reports
+    ``total_outputs: 0`` with a nonzero surface count. ``--fail-on-empty`` must
+    still fail — the emptiness decision keys off the root's executable outputs
+    only — or global surfaces reopen the axiom-encode#1113 vacuous pass. This is
+    the zero-output / nonzero-surface case.
+    """
+    root = tmp_path / "rulespec-dk"
+    (root / ".axiom").mkdir(parents=True)
+    assert is_composition_policy_repo_root(root)  # cleared the name gate
+
+    assert (
+        _run_cli(
+            monkeypatch,
+            "oracle-coverage",
+            "--root",
+            str(root),
+            "--include-program-surfaces",
+            "--fail-on-empty",
+        )
+        != 0
+    )
+
+
+def test_cli_oracle_coverage_accepts_programspec_only_tree(
+    tmp_path, monkeypatch, capsys
+):
+    """A supported non-Git, ProgramSpec-only tree is accepted and classifies its
+    own executable outputs — not rejected as a non-checkout.
+
+    Its ``outputs:`` list yields executable outputs (``total_outputs > 0``), so it
+    is not a zero-output shape: ``--fail-on-empty`` passes on the tree's real
+    content, independently of the global program-surface manifest. This is the
+    nonzero-output counterpart to the zero-output shapes above.
+    """
+    checkout = tmp_path / "rulespec-dk"
+    _write(
+        checkout / "programs/dk-zz/example/fy-2099.yaml",
+        "program: dk-zz/example\nperiod: 2099\noutputs:\n  - programspec_only_output_xyz\n",
+    )
+
+    # Accepted and classified, not rejected as a non-checkout, and it produced
+    # real executable outputs (so it is genuinely non-empty).
+    assert (
+        _run_cli(monkeypatch, "oracle-coverage", "--root", str(checkout), "--json") == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["total_outputs"] > 0
+
+    # --fail-on-empty passes on the tree's own outputs (no --include-program-surfaces).
+    assert (
+        _run_cli(
+            monkeypatch,
+            "oracle-coverage",
+            "--root",
+            str(checkout),
+            "--fail-on-empty",
+        )
+        == 0
+    )
 
 
 def test_cli_pending_sync_declares_unmapped_output_idempotently(tmp_path, monkeypatch):
