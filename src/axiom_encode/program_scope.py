@@ -71,6 +71,7 @@ def _normalize_scope_path(value: str) -> str:
     path = PurePosixPath(raw)
     if (
         not raw
+        or not path.parts
         or ":" in raw
         or path.is_absolute()
         or any(part in {"", ".", ".."} for part in path.parts)
@@ -227,10 +228,20 @@ def sync_program_scope(
     if not isinstance(program, str) or not program.strip():
         raise ProgramScopeError("ProgramSpec must declare a non-empty `program`")
     program_path = _normalize_scope_path(program.strip())
-    expected_parent = Path("programs") / program_path
-    if not spec_rel.is_relative_to(expected_parent):
+    program_parts = PurePosixPath(program_path).parts
+    country = repo.name.removeprefix("rulespec-")
+    if re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", program_parts[0]) is None:
         raise ProgramScopeError(
-            f"program spec path must be nested under {expected_parent.as_posix()}/"
+            f"program jurisdiction {program_parts[0]!r} does not belong to "
+            f"rulespec-{country}"
+        )
+    legacy_parent = Path("programs", *program_parts)
+    canonical_parent = Path(program_parts[0], "programs", *program_parts[1:])
+    expected_parents = (legacy_parent, canonical_parent)
+    if not any(spec_rel.is_relative_to(parent) for parent in expected_parents):
+        raise ProgramScopeError(
+            "program spec path must be nested under one of "
+            + ", ".join(f"{parent.as_posix()}/" for parent in expected_parents)
         )
 
     scope_node = _mapping_value(root, "scope")
