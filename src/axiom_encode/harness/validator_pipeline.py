@@ -19585,6 +19585,20 @@ _RULESPEC_FORMULA_BUILTINS = {
 }
 
 
+# Axiom rules engine `PeriodKind` serde variants, as accepted by the engine test
+# runner the org validate-rulespec workflow invokes. Local `.test.yaml` period
+# coercion must accept exactly this set — no more — so `axiom-encode validate`
+# and the shared workflow agree on which fixtures are executable. Accepting a
+# kind the engine rejects (e.g. `year`) makes local validate pass fixtures the
+# workflow then fails as `unknown variant` (axiom-encode#1112, rulespec-dk#2).
+_RULESPEC_ENGINE_PERIOD_KINDS = (
+    "month",
+    "benefit_week",
+    "tax_year",
+    "custom",
+)
+
+
 @dataclass(frozen=True)
 class _RuleSpecReferenceSummary:
     """Symbols a RuleSpec file can legitimately expose to companion tests."""
@@ -20487,21 +20501,20 @@ class ValidatorPipeline:
                 key: (item.isoformat() if isinstance(item, date) else item)
                 for key, item in value.items()
             }
-            if period.get("period_kind") == "year":
-                period["period_kind"] = "tax_year"
             required = {"period_kind", "start", "end"}
             missing = sorted(required - set(period))
             if missing:
                 raise ValueError(
                     "period mapping missing required field(s): " + ", ".join(missing)
                 )
-            if period["period_kind"] not in {
-                "month",
-                "benefit_week",
-                "tax_year",
-                "custom",
-            }:
-                raise ValueError(f"unsupported period_kind: {period['period_kind']!r}")
+            period_kind = period["period_kind"]
+            if period_kind not in _RULESPEC_ENGINE_PERIOD_KINDS:
+                accepted = "|".join(_RULESPEC_ENGINE_PERIOD_KINDS)
+                hint = " (did you mean 'tax_year'?)" if period_kind == "year" else ""
+                raise ValueError(
+                    f"unsupported period_kind: {period_kind!r}; the engine test "
+                    f"runner accepts {accepted}{hint}"
+                )
             for key in ("start", "end"):
                 try:
                     date.fromisoformat(str(period[key]))
