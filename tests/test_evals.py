@@ -4339,6 +4339,78 @@ def test_run_source_eval_rejects_symlinked_explicit_context(tmp_path):
         )
 
 
+def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    findings = tmp_path / "review-findings.md"
+    findings.write_text(
+        "- Start the FY 2025 amount on October 1.\n"
+        "- Preserve the FY 2026 imported amount and boundary test.\n"
+    )
+    workspace = prepare_eval_workspace(
+        citation="us/manual/example/block-1",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="The amount is determined for each federal fiscal year.",
+        axiom_rules_path=policy_repo_root,
+        mode="cold",
+        review_findings_paths=[findings],
+    )
+
+    prompt = _build_eval_prompt(
+        "us/manual/example/block-1",
+        "cold",
+        workspace,
+        workspace.context_files,
+        target_file_name="block-1.yaml",
+    )
+    manifest = json.loads(workspace.manifest_file.read_text())
+
+    assert "Mandatory independent-review corrections:" in prompt
+    assert "address every source-faithful finding" in prompt
+    assert "Do not narrow the module" in prompt
+    assert "Start the FY 2025 amount on October 1" in prompt
+    assert "Preserve the FY 2026 imported amount" in prompt
+    assert len(manifest["review_findings_files"]) == 1
+    persisted = workspace.root / manifest["review_findings_files"][0]["workspace_path"]
+    assert persisted.read_text() == findings.read_text()
+
+
+def test_review_findings_reject_empty_file(tmp_path):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    findings = tmp_path / "review-findings.md"
+    findings.write_text("\n")
+
+    with pytest.raises(ValueError, match="Review findings file is empty"):
+        prepare_eval_workspace(
+            citation="us/manual/example/block-1",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Source text.",
+            axiom_rules_path=policy_repo_root,
+            mode="cold",
+            review_findings_paths=[findings],
+        )
+
+
+def test_review_findings_reject_symlink(tmp_path):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    target = tmp_path / "actual-findings.md"
+    target.write_text("- Correct the date.\n")
+    findings = tmp_path / "review-findings.md"
+    findings.symlink_to(target)
+
+    with pytest.raises(UnsafeRulespecContextPath, match="symlink"):
+        prepare_eval_workspace(
+            citation="us/manual/example/block-1",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Source text.",
+            axiom_rules_path=policy_repo_root,
+            mode="cold",
+            review_findings_paths=[findings],
+        )
+
+
 def test_empty_artifact_retry_prompt_uses_minimal_source_scope_protocol():
     from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 
