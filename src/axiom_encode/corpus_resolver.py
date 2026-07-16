@@ -454,6 +454,7 @@ class _StoredRecord:
     row: CorpusRowIdentity
     body: str | None
     heading: str | None
+    status: str | None
     level: int | None
     ordinal: int | None
     file_path: Path
@@ -588,6 +589,10 @@ def resolve_local_corpus_source(
             )
         selected = records[0]
         candidate = by_path[selected.row.citation_path]
+        if selected.status == "repealed":
+            raise InvalidActiveCorpusSourceError(
+                f"Active corpus source {selected.row.citation_path!r} is repealed"
+            )
         component_rows: tuple[CorpusRowIdentity, ...] = ()
         stored_body = selected.body
         if stored_body is None:
@@ -1088,6 +1093,7 @@ def _read_matching_records(
                 row=row,
                 body=body,
                 heading=_optional_string(record.get("heading")),
+                status=_record_status(record),
                 level=_optional_int(record.get("level")),
                 ordinal=_optional_int(record.get("ordinal")),
                 file_path=path,
@@ -1168,6 +1174,7 @@ def _read_descendant_records(
                 row=row,
                 body=body,
                 heading=_optional_string(record.get("heading")),
+                status=_record_status(record),
                 level=level,
                 ordinal=ordinal,
                 file_path=path,
@@ -1239,17 +1246,56 @@ def _compose_descendant_text(
                 child_paths.add(child)
             parent = child
 
+    for record in records:
+        if record.status != "repealed":
+            continue
+        if record.body is not None or children.get(record.row.citation_path):
+            raise CorpusDescendantStructureError(
+                f"Active corpus source {citation_path!r} has malformed "
+                f"repealed descendant {record.row.citation_path!r}"
+            )
+
     ordered: list[_StoredRecord] = []
+    contributes_cache: dict[str, bool] = {}
+
+    def contributes_current_text(path: str) -> bool:
+        cached = contributes_cache.get(path)
+        if cached is not None:
+            return cached
+        record = unique_by_path.get(path)
+        if record is not None and record.status == "repealed":
+            contributes_cache[path] = False
+            return False
+        if record is not None and record.body is not None:
+            contributes_cache[path] = True
+            return True
+        child_paths = children.get(path, set())
+        if not child_paths:
+            # Preserve the existing fail-closed visit for ordinary bodyless leaves.
+            contributes_cache[path] = True
+            return True
+        contributes = any(contributes_current_text(child) for child in child_paths)
+        contributes_cache[path] = contributes
+        return contributes
 
     def visit(path: str) -> None:
         record = unique_by_path.get(path)
+        if record is not None and record.status == "repealed":
+            # A repealed bodyless leaf is an explicit current-law tombstone,
+            # not a missing branch of the parent source. It contributes no text.
+            return
         if record is not None and record.body is not None:
             # A body-bearing provision is the shallowest complete source for
             # its subtree. Including represented children as well would
             # duplicate legal text and alter the attested hash.
             ordered.append(record)
             return
-        child_paths = children.get(path, set())
+        raw_child_paths = children.get(path, set())
+        child_paths = {
+            child for child in raw_child_paths if contributes_current_text(child)
+        }
+        if raw_child_paths and not child_paths:
+            return
         if not child_paths:
             raise CorpusDescendantStructureError(
                 f"Active corpus source {citation_path!r} has uncovered "
@@ -3771,6 +3817,14 @@ def _record_body(
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+def _record_status(record: dict[str, Any]) -> str | None:
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    status = metadata.get("status")
+    return status if status == "repealed" else None
 
 
 def _clean_string_value(value: Any, *, label: str) -> str:
