@@ -5283,6 +5283,11 @@ def cmd_oracle_coverage_pending(args):
     if args.pending_command == "sync":
         report = build_policyengine_coverage_report(root)
         authorized_prefixes = _pending_sync_authorized_prefixes(root)
+        try:
+            existing_pending_ids = set(load_pending_declarations(root))
+        except PendingDeclarationError as error:
+            print(f"oracle-coverage-pending error: {error}", file=sys.stderr)
+            sys.exit(2)
 
         unmapped = [
             item["legal_id"]
@@ -5290,7 +5295,10 @@ def cmd_oracle_coverage_pending(args):
             if item.get("status") == "unmapped"
             and str(item.get("legal_id") or "").partition(":")[0].split("-", 1)[0]
             == root.name.removeprefix("rulespec-")
-            and str(item.get("file") or "").startswith(authorized_prefixes)
+            and (
+                str(item.get("file") or "").startswith(authorized_prefixes)
+                or item.get("legal_id") in existing_pending_ids
+            )
         ]
         try:
             result = sync_repo_pending(
