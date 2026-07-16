@@ -1121,6 +1121,17 @@ def main():
         help="Exit non-zero when any executable output is unmapped",
     )
     oracle_coverage_parser.add_argument(
+        "--fail-on-empty",
+        action="store_true",
+        help=(
+            "Exit non-zero when the classifier finds zero executable outputs at "
+            "--root — a coverage gate with nothing to classify would otherwise "
+            "pass vacuously. Keys off executable outputs only (not the global "
+            "program-surface manifest). Opt-in so legitimately-empty new "
+            "jurisdiction repos still pass their bootstrap gate"
+        ),
+    )
+    oracle_coverage_parser.add_argument(
         "--fail-on-pending",
         action="store_true",
         help=(
@@ -4918,6 +4929,7 @@ def cmd_oracle_coverage(args):
         sys.exit(2)
 
     root = _resolve_composition_rulespec_checkout(args.root)
+    fail_on_empty = getattr(args, "fail_on_empty", False) is True
     include_program_surfaces = getattr(args, "include_program_surfaces", False) is True
     fail_on_pending_program_surfaces = (
         getattr(args, "fail_on_pending_program_surfaces", False) is True
@@ -4961,12 +4973,35 @@ def cmd_oracle_coverage(args):
     unvalidated_populace_surfaces = int(
         (report.get("program_surfaces") or {}).get("unvalidated_populace_surfaces", 0)
     )
+    # "Nothing to gate": the classifier found no executable outputs at --root. A
+    # coverage gate with nothing to classify vacuously satisfies every
+    # `--fail-on-*` threshold — 0 unmapped, 0 untested — so it passes without
+    # vouching for any oracle parity. That is the residual fail-open behind
+    # axiom-encode#1113: a mis-pointed `--root` (or a name-shaped non-checkout)
+    # yields an empty report and the gate goes green. `--fail-on-empty` turns an
+    # empty report into a loud failure. It is opt-in because a brand-new
+    # jurisdiction repo (e.g. rulespec-tz before its first module merges) is
+    # legitimately empty, and its push-to-main coverage gate must still pass.
+    # Adopt it on whole-repo gates of repos known to carry content. It does NOT
+    # help changed-file gates on established repos: there, whole-repo
+    # total_outputs stays nonzero even when the changed-file filter matches
+    # nothing — that gate must reject an empty post-filter item set instead
+    # (tracked follow-up; see PR #1148 discussion).
+    #
+    # The decision keys off executable outputs ONLY. Program surfaces are the
+    # fixed global PolicyEngine variable manifest — independent of --root — so
+    # `--include-program-surfaces` attaches a nonzero surface count to *any*
+    # root, including an empty one. Counting surfaces here would let global
+    # surfaces vouch for root content and reopen the vacuous pass.
+    total_outputs = int(report.get("total_outputs", 0))
+    no_gateable_content = total_outputs == 0
     should_fail = (
         (args.fail_on_unmapped and unmapped)
         or (fail_on_pending and pending_classification)
         or (args.fail_on_untested_comparable and untested_comparable)
         or (fail_on_incomplete_comparable and incomplete_comparable)
         or (fail_on_stale_pending and stale_pending)
+        or (fail_on_empty and no_gateable_content)
         or (
             fail_on_pending_program_surfaces
             and include_program_surfaces
@@ -4978,6 +5013,14 @@ def cmd_oracle_coverage(args):
             and unvalidated_populace_surfaces
         )
     )
+    if fail_on_empty and no_gateable_content:
+        print(
+            "oracle-coverage: --fail-on-empty is set but the classifier found no "
+            f"executable outputs to gate at {report['root']}. A coverage gate "
+            "with nothing to classify cannot vouch for oracle parity; verify "
+            "--root is the intended canonical checkout.",
+            file=sys.stderr,
+        )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         sys.exit(1 if should_fail else 0)
