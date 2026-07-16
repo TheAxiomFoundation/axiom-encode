@@ -5253,8 +5253,7 @@ def _pending_sync_authorized_prefixes(
         for module_root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)
     ]
     legacy_prefixes = [
-        f"{display_prefix}{jurisdiction}/manual/"
-        for jurisdiction in jurisdictions
+        f"{display_prefix}{jurisdiction}/manual/" for jurisdiction in jurisdictions
     ]
     programs_dir = content_checkout / RULESPEC_COMPOSITION_SPEC_ROOT
     if programs_dir.is_dir() and not programs_dir.is_symlink():
@@ -5307,9 +5306,7 @@ def cmd_oracle_coverage_pending(args):
                 str(item.get("file") or "").startswith(authorized_prefixes)
                 or (
                     item.get("legal_id") in existing_pending_ids
-                    and str(item.get("file") or "").startswith(
-                        existing_legacy_prefixes
-                    )
+                    and str(item.get("file") or "").startswith(existing_legacy_prefixes)
                 )
             )
         ]

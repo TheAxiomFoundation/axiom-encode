@@ -452,9 +452,7 @@ rules:
     assert foreign_id not in declared
 
 
-def test_cli_pending_sync_preserves_declared_legacy_root_output(
-    tmp_path, monkeypatch
-):
+def test_cli_pending_sync_preserves_declared_legacy_root_output(tmp_path, monkeypatch):
     checkout = tmp_path / "rulespec-us"
     legal_id = "us-mo:manual/dss/snap/example#legacy_manual_output"
     _write(
