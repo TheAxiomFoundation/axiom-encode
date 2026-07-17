@@ -3220,6 +3220,16 @@ def extract_numbers_from_text(text: str) -> set[float]:
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
             occupied_spans.append(match.span(1))
+        # A single dot-group ("1.075") is ambiguous: European grouped
+        # thousands (1075) or a plain dotted decimal (1.075 — the Scottish
+        # CTR band-E multiplier, SSI 2021/249 reg 79). Since this loop
+        # occupies the span, the plain-decimal matcher below never sees it,
+        # so record both readings — the same union the percentage phrase
+        # parser applies to this ambiguity. Multi-group values
+        # ("12.345.678") stay European-only.
+        if re.fullmatch(r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)):
+            with contextlib.suppress(ValueError):
+                numbers.add(float(match.group(1)))
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         span = match.span(1)
