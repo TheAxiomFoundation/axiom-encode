@@ -7300,6 +7300,13 @@ def test_numeric_extraction_reads_single_dot_group_as_decimal_too():
     assert 12345678.0 in multi
     assert 12.345678 not in multi
 
+    # A percentage-marked span contributes only its scaled reading: a bare
+    # 1.075 (or 1075) formula literal must NOT ground against "1.075%".
+    percent = extract_numbers_from_text("a rate of 1.075%")
+    assert 0.01075 in percent
+    assert 1.075 not in percent
+    assert 1075.0 not in percent
+
 
 def test_numeric_extraction_handles_uganda_shilling_suffix():
     # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts

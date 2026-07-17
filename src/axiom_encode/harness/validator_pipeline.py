@@ -3216,6 +3216,12 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
+        # A percentage-marked span ("1.075%") contributes only its scaled
+        # reading via the direct percentage parser; adding an unscaled
+        # reading (1075 or 1.075) here would let a bare formula literal
+        # ground against a percentage source.
+        if _number_span_is_immediately_followed_by_percent_marker(text, match.span(1)):
+            continue
         raw = _normalize_grouped_thousands_number(match.group(1))
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
@@ -3224,8 +3230,7 @@ def extract_numbers_from_text(text: str) -> set[float]:
         # thousands (1075) or a plain dotted decimal (1.075 — the Scottish
         # CTR band-E multiplier, SSI 2021/249 reg 79). Since this loop
         # occupies the span, the plain-decimal matcher below never sees it,
-        # so record both readings — the same union the percentage phrase
-        # parser applies to this ambiguity. Multi-group values
+        # so record the dotted-decimal reading as well. Multi-group values
         # ("12.345.678") stay European-only.
         if re.fullmatch(r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)):
             with contextlib.suppress(ValueError):
