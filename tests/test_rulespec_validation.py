@@ -7307,6 +7307,13 @@ def test_numeric_extraction_reads_single_dot_group_as_decimal_too():
     assert 1.075 not in percent
     assert 1075.0 not in percent
 
+    # Multi-group dotted percentages scale their (only possible) European
+    # reading; the occupied span prevents a partial-prefix fallback match.
+    multi_pct = extract_numbers_from_text("a rate of 12.345.678%")
+    assert 123456.78 in multi_pct
+    assert 12.345 not in multi_pct
+    assert 12345678.0 not in multi_pct
+
 
 def test_numeric_extraction_handles_uganda_shilling_suffix():
     # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts
