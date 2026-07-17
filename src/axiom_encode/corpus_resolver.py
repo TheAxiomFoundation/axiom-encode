@@ -43,11 +43,14 @@ MAX_GENERIC_PARENT_SLICE_CHARACTER_WORK = 64 * 1024 * 1024
 _MAX_INTERNAL_MARK_EVIDENCE_CHARS = 64
 _MAX_DELIMITER_REPLAY_TOKENS = 1_000_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_CITATION_JURISDICTION_RE = re.compile(r"^[a-z]{2,3}(?:-[a-z]{2,32})*$")
+_CITATION_HIERARCHY_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .:\-–]*$")
 
 _DOCUMENT_CLASSES = frozenset(
     {
         "form",
         "guidance",
+        "district-plan",
         "legislation",
         "manual",
         "other",
@@ -156,7 +159,7 @@ def normalize_corpus_identifier(identifier: str) -> str:
             return _normalize_citation_path(
                 "/".join((jurisdiction, document_class, *parts[1:]))
             )
-    if len(parts) >= 3 and parts[1] in _DOCUMENT_CLASSES:
+    if len(parts) >= 2 and parts[1] in _DOCUMENT_CLASSES:
         return _normalize_citation_path(value)
     cfr = _CFR_IDENTIFIER_RE.fullmatch(value)
     if cfr is not None:
@@ -3604,9 +3607,9 @@ def _normalize_citation_path(identifier: str) -> str:
             "Corpus citation path exceeds the maximum segment count of "
             f"{MAX_CORPUS_CITATION_SEGMENTS}"
         )
-    if len(parts) < 3:
+    if len(parts) < 2:
         raise InvalidCorpusCitationError(
-            f"Corpus citation path must have at least three segments: {identifier!r}"
+            f"Corpus citation path must have at least two segments: {identifier!r}"
         )
     try:
         for part in parts:
@@ -3617,6 +3620,15 @@ def _normalize_citation_path(identifier: str) -> str:
         raise InvalidCorpusCitationError(
             f"Unsupported corpus document class {parts[1]!r} in {identifier!r}"
         )
+    if _CITATION_JURISDICTION_RE.fullmatch(parts[0]) is None:
+        raise InvalidCorpusCitationError(
+            f"Invalid corpus jurisdiction {parts[0]!r} in {identifier!r}"
+        )
+    for part in parts[2:]:
+        if _CITATION_HIERARCHY_SEGMENT_RE.fullmatch(part) is None:
+            raise InvalidCorpusCitationError(
+                f"Invalid corpus citation path segment {part!r} in {identifier!r}"
+            )
     return "/".join(parts)
 
 

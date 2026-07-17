@@ -23,6 +23,7 @@ RELEASE_OBJECT_PUBLIC_KEY_ENV = "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
 
 _ARTIFACT_CLASSES = ("inventory", "provisions", "coverage", "sources")
 _DOCUMENT_CLASSES = {
+    "district-plan",
     "statute",
     "regulation",
     "guidance",
