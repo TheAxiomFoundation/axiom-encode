@@ -7536,7 +7536,13 @@ def _preserve_state_statute_dotted_leaf(
     if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
         return False
     if len(tail) == 2 and tail[0].isdigit():
-        return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)+", tail[-1]))
+        # C.R.S. section labels are structured by hyphens as
+        # title-article-section. Dots are part of any one of those three
+        # segments, never subsection separators.
+        crs_segments = tail[-1].split("-")
+        return len(crs_segments) == 3 and all(
+            re.fullmatch(r"\d+(?:\.\d+)*", segment) for segment in crs_segments
+        )
     if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
         return False
     return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
