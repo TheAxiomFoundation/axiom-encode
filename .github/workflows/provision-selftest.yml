@@ -1,0 +1,129 @@
+name: Provision selftest
+
+# Proves scripts/provision_verification_supervisor.py builds a genuinely
+# self-contained runtime on the hosted Ubuntu image — the environment where
+# the rulespec signed-apply workflows run it. The hosted toolcache CPython is
+# --enable-shared with an absolute RUNPATH into the (user-writable) toolcache,
+# so without the relocation pass a copied runtime keeps mapping libpython from
+# the original location. This job re-derives the assertions independently of
+# the provisioner's own internal checks, and exercises the fail-closed paths.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/provision_verification_supervisor.py
+      - .github/workflows/provision-selftest.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/provision_verification_supervisor.py
+      - .github/workflows/provision-selftest.yml
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Set up Python ${{ matrix.python-version }}
+        id: py
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install patchelf
+        run: sudo apt-get -yq install patchelf
+
+      - name: Stage site-packages and a stand-in supervisor
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          "$PYBIN" -m pip install --quiet --target "$RUNNER_TEMP/staged" pyyaml
+          install -m 755 /bin/true "$RUNNER_TEMP/fake-supervisor"
+
+      - name: Provision as root via the resolved interpreter (production shape)
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          case "$PYBIN" in
+            "$RUNNER_TOOL_CACHE"/Python/*) ;;
+            *) echo "resolved interpreter is not the toolcache python: $PYBIN"; exit 1 ;;
+          esac
+          sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root test-apply-root \
+            --eval-root test-eval-root \
+            --corpus-release-root test-corpus-root \
+            --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
+            --patchelf /usr/bin/patchelf
+
+      - name: Independently assert the runtime is self-contained
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/dest"
+          interp="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' "$dest/axiom-encode")"
+          echo "launcher interpreter: $interp"
+          case "$interp" in "$dest"/python/*) ;; *) echo "launcher points outside the runtime"; exit 1 ;; esac
+          # No inherited env: the probe must succeed without LD_LIBRARY_PATH
+          # and must not map a single byte from the source toolcache prefix.
+          src_prefix="$("$PYBIN" -c 'import sys; print(sys.base_prefix)')"
+          env -i PATH=/usr/bin:/bin "$interp" -I -S -c "
+          import sys
+          src = '''$src_prefix'''
+          dest = '''$dest/python'''
+          assert sys.base_prefix == dest, sys.base_prefix
+          maps = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and l.split(None, 5)[5].startswith('/')]
+          escaped = [m for m in maps if m.startswith(src)]
+          assert not escaped, escaped
+          libpython = [m for m in maps if 'libpython' in m.rsplit('/', 1)[-1]]
+          stray = [m for m in libpython if not m.startswith(dest)]
+          assert not stray, stray
+          print('self-contained OK:', len(maps), 'mappings, libpython =', libpython or 'static')
+          "
+          # Staged site-packages replaced the toolcache ones wholesale.
+          env -i PATH=/usr/bin:/bin "$interp" -I -c "import yaml; print('site-packages OK', yaml.__file__)"
+          # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
+          # win: the relocation pass pins RPATH (which outranks it), so every
+          # libpython mapping stays inside the provisioned runtime even here.
+          env -i PATH=/usr/bin:/bin LD_LIBRARY_PATH="$src_prefix/lib" "$interp" -I -S -c "
+          libpython = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and 'libpython' in l.rsplit('/', 1)[-1]]
+          stray = [m for m in libpython if not m.startswith('''$dest/python''')]
+          assert not stray, ('LD_LIBRARY_PATH outranked the pinned RPATH', stray)
+          print('hostile LD_LIBRARY_PATH neutralized:', libpython or 'static libpython')
+          "
+
+      - name: Fail-closed paths refuse before copying
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          if sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-neg" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c \
+            --require-prefix-under /etc 2> "$RUNNER_TEMP/neg.err"; then
+            echo "provisioner accepted a prefix outside --require-prefix-under"; exit 1
+          fi
+          grep -q "not under required parent" "$RUNNER_TEMP/neg.err"
+          test ! -e "$RUNNER_TEMP/dest-neg/python"
+          if sudo /usr/bin/python3 scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-neg2" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c 2> "$RUNNER_TEMP/neg2.err"; then
+            echo "provisioner accepted the system interpreter"; exit 1
+          fi
+          grep -q "not a self-contained" "$RUNNER_TEMP/neg2.err"
+          test ! -e "$RUNNER_TEMP/dest-neg2/python"
