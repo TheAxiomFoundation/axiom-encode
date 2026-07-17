@@ -952,6 +952,14 @@ _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
 # ("five and half per centum", "eighteen and a half per centum"); outside
 # one they would over-extract ordinary prose such as "half of the year".
 _PERCENT_FRACTION_WORD_PATTERN = rf"(?:{_FRACTION_WORD_PATTERN}|a[-\s]+half|half)"
+_DECIMAL_FRACTION_DENOMINATORS = {
+    "tenth": 10.0,
+    "hundredth": 100.0,
+    "thousandth": 1_000.0,
+}
+_DECIMAL_FRACTION_DENOMINATOR_PATTERN = (
+    r"(?P<denominator>tenths?|hundredths?|thousandths?)"
+)
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -3264,6 +3272,40 @@ def _iter_normalized_special_numeric_matches(
     fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
 
     for match in re.finditer(
+        rf"\b(?P<whole>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+and\s+"
+        rf"(?P<numerator>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
+        rf"one[-\s]+{_DECIMAL_FRACTION_DENOMINATOR_PATTERN}\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        whole = _parse_strict_cardinal_number_words(match.group("whole"))
+        numerator = _parse_strict_cardinal_number_words(match.group("numerator"))
+        denominator = _DECIMAL_FRACTION_DENOMINATORS.get(
+            match.group("denominator").lower().removesuffix("s")
+        )
+        if whole is None or numerator is None or denominator is None:
+            continue
+        matches.append((match.span(), (whole + numerator / denominator) / 100))
+
+    for match in re.finditer(
+        rf"\b(?P<numerator>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})[-\s]+"
+        rf"{_DECIMAL_FRACTION_DENOMINATOR_PATTERN}\s+of\s+"
+        rf"(?P<percent>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        numerator = _parse_strict_cardinal_number_words(match.group("numerator"))
+        percent = _parse_strict_cardinal_number_words(match.group("percent"))
+        denominator = _DECIMAL_FRACTION_DENOMINATORS.get(
+            match.group("denominator").lower().removesuffix("s")
+        )
+        if numerator is None or percent is None or denominator is None:
+            continue
+        matches.append((match.span(), numerator / denominator * percent / 100))
+
+    for match in re.finditer(
         rf"\b(?P<number>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
         r"(?:percent|per\s*cent(?:um)?)\b",
         text,
@@ -3688,6 +3730,61 @@ def _parse_cardinal_number_words(text: str) -> float | None:
     if not seen_scale and len(tokens) == 1:
         return _CARDINAL_WORD_VALUES.get(tokens[0])
     return value
+
+
+def _parse_strict_cardinal_number_words(text: str) -> float | None:
+    """Parse a conventionally ordered English cardinal phrase, or fail closed."""
+    tokens = [token for token in re.split(r"[-\s]+", text.strip().lower()) if token]
+    if not tokens or tokens[0] == "and" or tokens[-1] == "and":
+        return None
+    tokens = [token for token in tokens if token != "and"]
+
+    def parse_under_thousand(group: list[str]) -> float | None:
+        if not group:
+            return None
+        total = 0.0
+        if len(group) >= 2 and group[1] == "hundred":
+            hundreds = _CARDINAL_WORD_VALUES.get(group[0])
+            if hundreds is None or not 1 <= hundreds <= 9:
+                return None
+            total = hundreds * 100
+            group = group[2:]
+            if not group:
+                return total
+        if len(group) == 1:
+            remainder = _CARDINAL_WORD_VALUES.get(group[0])
+            return total + remainder if remainder is not None else None
+        if len(group) == 2:
+            tens = _CARDINAL_WORD_VALUES.get(group[0])
+            units = _CARDINAL_WORD_VALUES.get(group[1])
+            if tens in {20, 30, 40, 50, 60, 70, 80, 90} and units is not None:
+                if 1 <= units <= 9:
+                    return total + tens + units
+        return None
+
+    total = 0.0
+    group: list[str] = []
+    previous_scale = math.inf
+    for token in tokens:
+        scale = _CARDINAL_SCALE_WORD_VALUES.get(token)
+        if scale is None or scale == 100:
+            group.append(token)
+            continue
+        if scale >= previous_scale:
+            return None
+        parsed_group = parse_under_thousand(group)
+        if parsed_group is None:
+            return None
+        total += parsed_group * scale
+        previous_scale = scale
+        group = []
+
+    if group:
+        parsed_group = parse_under_thousand(group)
+        if parsed_group is None:
+            return None
+        total += parsed_group
+    return total or None
 
 
 def _parse_fraction_word(text: str) -> float | None:

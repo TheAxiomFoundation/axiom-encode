@@ -7025,6 +7025,78 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_colorado_word_number_rates_and_dollars():
+    content = """format: rulespec/v1
+rules:
+  - name: rounded_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.001
+  - name: assessment_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.06875
+  - name: assessment_increment
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 5000
+"""
+    source_text = (
+        "rounded to the nearest one-tenth of one percent. "
+        "SIX AND EIGHT HUNDRED SEVENTY-FIVE ONE-THOUSANDTHS PERCENT "
+        "FOR EACH FIVE THOUSAND DOLLARS"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert {0.001, 0.06875, 5000.0} <= extract_numbers_from_text(source_text)
+    assert 0.06875 in extract_numbers_from_text(
+        "six and eight hundred seventy-five one thousandths percent"
+    )
+    assert 0.065 in extract_numbers_from_text("six and five one-tenths percent")
+    assert 0.0605 in extract_numbers_from_text("SIX AND FIVE ONE-HUNDREDTHS PERCENT")
+    assert 5_000_000.0 in extract_numbers_from_text("five million dollars")
+
+
+def test_rulespec_grounding_rejects_nearby_colorado_word_number_values():
+    fraction_issues = find_ungrounded_numeric_issues(
+        """format: rulespec/v1
+rules:
+  - name: wrong_rounded_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.002
+""",
+        source_text="rounded to the nearest one-tenth of one percent",
+    )
+    mixed_issues = find_ungrounded_numeric_issues(
+        """format: rulespec/v1
+rules:
+  - name: wrong_assessment_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.0685
+""",
+        source_text=("SIX AND EIGHT HUNDRED SEVENTY-FIVE ONE-THOUSANDTHS PERCENT"),
+    )
+
+    assert any("0.002" in issue for issue in fraction_issues)
+    assert any("0.0685" in issue for issue in mixed_issues)
+    assert 0.0611 not in extract_numbers_from_text(
+        "six and five six one-thousandths percent"
+    )
+
+
 def test_numeric_extraction_prefers_english_compound_cardinals_over_single_words():
     assert 36.0 in extract_numbers_from_text("not longer than thirty-six months")
     assert 600.0 in extract_numbers_from_text("The amount is Six hundred dollars")
