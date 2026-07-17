@@ -1,7 +1,7 @@
 """Cross-family Anthropic judge client for the LLM judge stages.
 
-The generator is ``gpt-5.5``; the judges MUST run on a Claude-family model so a
-judge's errors do not correlate with the generator's (the 9/9 identical
+The generator is ``gpt-5.6-terra``; the judges MUST run on a Claude-family
+model so a judge's errors do not correlate with the generator's (the 9/9 identical
 hardcoded-600,000 incident is the cautionary tale). This module enforces that
 guard and the fail-closed contract:
 

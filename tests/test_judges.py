@@ -2361,7 +2361,7 @@ def _make_db(path: Path):
 def test_calibration_load_cases_balanced(tmp_path):
     db = tmp_path / "e.db"
     _make_db(db)
-    cases = calibration.load_cases(db, n=6, seed=0)
+    cases = calibration.load_cases(db, n=6, seed=0, generator_model="gpt-5.5")
     labels = [c.label for c in cases]
     assert labels.count("good") == 3
     assert labels.count("bad") == 3
