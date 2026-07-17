@@ -34,6 +34,7 @@ from axiom_encode.harness.proof_validator import (
 )
 from axiom_encode.harness.validator_pipeline import (
     OracleSubprocessResult,
+    _corpus_citation_to_normalized_target,
     _extract_json_object,
     _infer_us_state_code_from_rulespec_path,
     _normalize_us_tax_filing_status,
@@ -134,6 +135,22 @@ if not AXIOM_RULES_PATH.is_dir():
 AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
 TEST_CORPUS_RELEASE_NAME = "test-release"
 TEST_CORPUS_VERSION = "test-version"
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "39-28.5-107",
+        "39-30.5-104",
+        "39-22-123.5",
+        "39-1-104.5",
+        "39-26-702",
+    ],
+)
+def test_colorado_corpus_citation_lookup_keeps_crs_segments_dot_atomic(section):
+    assert _corpus_citation_to_normalized_target(
+        f"us-co/statute/39/{section}"
+    ) == ("statutes", "39", section)
 
 
 def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
