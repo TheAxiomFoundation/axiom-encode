@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from ..constants import DEFAULT_OPENAI_MODEL
 from . import statutory_fidelity
 from .client import JudgeClient
 from .run_log import TokenCounts, Verdict
@@ -54,7 +55,7 @@ def load_cases(
     *,
     n: int = 30,
     seed: Optional[int] = 0,
-    generator_model: str = "gpt-5.5",
+    generator_model: str = DEFAULT_OPENAI_MODEL,
 ) -> list[CalibrationCase]:
     """Load a balanced sample of known-good and known-bad historical generations."""
 

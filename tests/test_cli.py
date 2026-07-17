@@ -235,6 +235,9 @@ from axiom_encode.cli import (
     main,
 )
 from axiom_encode.constants import (
+    DEFAULT_OPENAI_ESCALATE_AFTER,
+    DEFAULT_OPENAI_ESCALATION_MODEL,
+    DEFAULT_OPENAI_MODEL,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -694,6 +697,12 @@ def test_package_version_metadata_matches_pyproject():
 
     assert pyproject["project"]["version"] == AXIOM_ENCODE_TEST_VERSION
     assert lock_version == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_openai_encode_model_defaults():
+    assert DEFAULT_OPENAI_MODEL == "gpt-5.6-terra"
+    assert DEFAULT_OPENAI_ESCALATION_MODEL == "gpt-5.6-sol"
+    assert DEFAULT_OPENAI_ESCALATE_AFTER == 2
 
 
 def test_ensure_rulespec_import_preserves_unindented_import_list():
@@ -1813,6 +1822,11 @@ class TestMain:
             with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
+                args = mock_cmd.call_args.args[0]
+                assert args.model is None
+                assert args.escalation_model == DEFAULT_OPENAI_ESCALATION_MODEL
+                assert args.escalate_after == DEFAULT_OPENAI_ESCALATE_AFTER
+                assert args.escalation_enabled is True
 
     def test_encode_accepts_policyengine_rule_hint(self):
         with patch(
@@ -1834,6 +1848,33 @@ class TestMain:
             with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
+
+    def test_encode_accepts_escalation_controls(self):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "encode",
+                "26 USC 1",
+                "--escalation-model",
+                "gpt-test-escalation",
+                "--escalate-after",
+                "3",
+                "--no-escalation",
+                "--corpus-path",
+                "/tmp/axiom-corpus",
+                "--axiom-rules-engine-path",
+                "/tmp/axiom-rules-engine",
+                "--policy-repo-path",
+                "/tmp/rulespec-us",
+            ],
+        ):
+            with patch("axiom_encode.cli.cmd_encode") as mock_cmd:
+                main()
+                args = mock_cmd.call_args.args[0]
+                assert args.escalation_model == "gpt-test-escalation"
+                assert args.escalate_after == 3
+                assert args.escalation_enabled is False
 
     def test_eval_command_dispatches(self):
         with patch(
@@ -7039,6 +7080,17 @@ class TestCmdEncode:
         args.citation = citation
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
+        args.escalation_model = overrides.get(
+            "escalation_model",
+            DEFAULT_OPENAI_ESCALATION_MODEL,
+        )
+        args.escalate_after = overrides.get(
+            "escalate_after",
+            DEFAULT_OPENAI_ESCALATE_AFTER,
+        )
+        # Most command tests cover one pre-existing attempt path. Dedicated
+        # escalation tests opt in explicitly so their gate sequences stay clear.
+        args.escalation_enabled = overrides.get("escalation_enabled", False)
         args.backend = overrides.get("backend", "codex")
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
@@ -7068,6 +7120,7 @@ class TestCmdEncode:
         result.input_tokens = 100
         result.output_tokens = 50
         result.cache_read_tokens = 0
+        result.cache_creation_tokens = 0
         result.reasoning_output_tokens = 0
         result.retrieved_files = []
         result.unexpected_accesses = []
@@ -7179,6 +7232,62 @@ class TestCmdEncode:
                     cmd_encode(args)
             return mock_run, exc_info.value.code
 
+    def _run_validator_escalation_case(self, args, validator_outcomes):
+        generated_models = []
+        validated_models = []
+        remaining_outcomes = list(validator_outcomes)
+
+        def generate(**kwargs):
+            runner_spec = kwargs["runner_specs"][0]
+            backend, model = runner_spec.split(":", 1)
+            runner_name = f"{backend}-{model}"
+            generated_models.append(model)
+            result = self._make_eval_result(True)
+            result.backend = backend
+            result.model = model
+            result.runner = runner_name
+            result.mode = args.mode
+            result.generation_prompt_sha256 = f"prompt-{len(generated_models)}"
+            output_file = (
+                args.output / runner_name / "statutes" / "26" / "1" / "j" / "2.yaml"
+            )
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            output_file.write_text("format: rulespec/v1\nrules: []\n")
+            result.output_file = str(output_file)
+            return [result]
+
+        def validate(result, **_kwargs):
+            validated_models.append(result.model)
+            passed = remaining_outcomes.pop(0)
+            issues = [] if passed else ["validator rejected generated section"]
+            return passed, issues, {}
+
+        applied_file = args.policy_repo_path / "us/statutes/26/1/j/2.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate) as mock_run,
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=validate,
+            ) as mock_validate,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert not remaining_outcomes
+        return (
+            exc_info.value.code,
+            generated_models,
+            validated_models,
+            mock_run,
+            mock_validate,
+            mock_apply,
+        )
+
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
         mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
@@ -7194,6 +7303,197 @@ class TestCmdEncode:
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
+        )
+
+    def test_encode_escalates_after_n_validator_failures(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, validated, mock_run, mock_validate, mock_apply = (
+            self._run_validator_escalation_case(args, [False, False, True])
+        )
+
+        assert exit_code == 0
+        assert generated == [
+            DEFAULT_OPENAI_MODEL,
+            DEFAULT_OPENAI_MODEL,
+            DEFAULT_OPENAI_ESCALATION_MODEL,
+        ]
+        assert validated == generated
+        assert mock_run.call_count == 3
+        assert mock_validate.call_count == 3
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args.args[0].model == DEFAULT_OPENAI_ESCALATION_MODEL
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert len(run.iterations) == 3
+        assert [iteration.success for iteration in run.iterations] == [
+            False,
+            False,
+            True,
+        ]
+        assert run.agent_model == DEFAULT_OPENAI_ESCALATION_MODEL
+        assert run.outcome["generation_escalation"] == {
+            "escalated": True,
+            "failed_attempt_count": 2,
+            "initial_model": DEFAULT_OPENAI_MODEL,
+            "escalation_model": DEFAULT_OPENAI_ESCALATION_MODEL,
+        }
+
+    def test_encode_rejects_incompatible_escalation_model_before_generation(
+        self, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            backend="claude",
+            model="claude-compatible-model",
+            escalation_enabled=True,
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as mock_run,
+            pytest.raises(
+                ValueError,
+                match="GPT escalation model with --backend claude",
+            ),
+        ):
+            cmd_encode(args)
+
+        mock_run.assert_not_called()
+
+    def test_encode_success_before_threshold_never_escalates(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, validated, _run, _validate, mock_apply = (
+            self._run_validator_escalation_case(args, [False, True])
+        )
+
+        assert exit_code == 0
+        assert generated == [DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MODEL]
+        assert validated == generated
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert len(run.iterations) == 2
+        assert "generation_escalation" not in run.outcome
+
+    def test_encode_retries_when_escalation_model_matches_initial(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model="same-model",
+            escalation_model="same-model",
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, validated, _run, _validate, mock_apply = (
+            self._run_validator_escalation_case(args, [False, True])
+        )
+
+        assert exit_code == 0
+        assert generated == ["same-model", "same-model"]
+        assert validated == generated
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "generation_escalation" not in run.outcome
+
+    def test_encode_no_escalation_preserves_single_attempt(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=False,
+        )
+
+        exit_code, generated, validated, mock_run, mock_validate, mock_apply = (
+            self._run_validator_escalation_case(args, [False])
+        )
+
+        assert exit_code == 1
+        assert generated == [DEFAULT_OPENAI_MODEL]
+        assert validated == generated
+        mock_run.assert_called_once()
+        mock_validate.assert_called_once()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert len(run.iterations) == 1
+        assert "generation_escalation" not in run.outcome
+
+    def test_encode_no_escalation_logs_before_validator_exception(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=False,
+        )
+        result = self._make_eval_result(True)
+        result.model = DEFAULT_OPENAI_MODEL
+        result.runner = f"codex-{DEFAULT_OPENAI_MODEL}"
+        result.output_file = str(
+            args.output / result.runner / "statutes" / "26" / "1" / "j" / "2.yaml"
+        )
+        Path(result.output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(result.output_file).write_text("format: rulespec/v1\nrules: []\n")
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=RuntimeError("validator interrupted"),
+            ),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(RuntimeError, match="validator interrupted"),
+        ):
+            cmd_encode(args)
+
+        runs = EncodingDB(args.db).get_recent_runs(limit=2)
+        assert len(runs) == 1
+        assert runs[0].agent_model == DEFAULT_OPENAI_MODEL
+
+    def test_encode_escalated_generation_runs_full_validator_gate(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, validated, _run, mock_validate, mock_apply = (
+            self._run_validator_escalation_case(args, [False, False, False])
+        )
+
+        assert exit_code == 1
+        assert generated == [
+            DEFAULT_OPENAI_MODEL,
+            DEFAULT_OPENAI_MODEL,
+            DEFAULT_OPENAI_ESCALATION_MODEL,
+        ]
+        assert validated == generated
+        assert mock_validate.call_count == 3
+        assert mock_validate.call_args.args[0].model == DEFAULT_OPENAI_ESCALATION_MODEL
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["generation_escalation"]["failed_attempt_count"] == 2
+        assert [iteration.success for iteration in run.iterations] == [
+            False,
+            False,
+            False,
+        ]
+        assert run.iterations[-1].errors[0].message == (
+            "validator rejected generated section"
         )
 
     def test_encode_propagates_mandatory_review_findings(self, tmp_path):
@@ -7420,7 +7720,9 @@ class TestCmdEncode:
         result.context_manifest_file = str(tmp_path / "context.json")
         mock_run, exit_code = self._run_encode(args, result)
         assert exit_code == 1
-        assert mock_run.call_args.kwargs["runner_specs"] == ["codex:gpt-5.5"]
+        assert mock_run.call_args.kwargs["runner_specs"] == [
+            f"codex:{DEFAULT_OPENAI_MODEL}"
+        ]
         repair_manifest = tmp_path / "out.repair.json"
         assert repair_manifest.exists()
         assert json.loads(repair_manifest.read_text())["citation"] == "26 USC 1"

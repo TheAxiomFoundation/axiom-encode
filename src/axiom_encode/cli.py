@@ -107,6 +107,8 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import (
+    DEFAULT_OPENAI_ESCALATE_AFTER,
+    DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
@@ -503,6 +505,19 @@ def _add_gpt_backend_argument(parser: argparse.ArgumentParser) -> None:
             "Defaults to 'codex' locally, or the AXIOM_ENCODE_GPT_BACKEND env var when set."
         ),
     )
+
+
+def _positive_int(value: str) -> int:
+    """Parse one strictly positive CLI integer."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {value!r}")
+    return parsed
 
 
 def _add_required_corpus_path_argument(parser: argparse.ArgumentParser) -> None:
@@ -1723,6 +1738,31 @@ def main():
         "--model",
         default=None,
         help=f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL})",
+    )
+    encode_parser.add_argument(
+        "--escalation-model",
+        default=DEFAULT_OPENAI_ESCALATION_MODEL,
+        help=(
+            "Model for the final validator-failure retry "
+            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL})"
+        ),
+    )
+    encode_parser.add_argument(
+        "--escalate-after",
+        type=_positive_int,
+        default=DEFAULT_OPENAI_ESCALATE_AFTER,
+        metavar="N",
+        help=(
+            "Escalate after N validator-rejected generations "
+            f"(default: {DEFAULT_OPENAI_ESCALATE_AFTER})"
+        ),
+    )
+    encode_parser.add_argument(
+        "--no-escalation",
+        dest="escalation_enabled",
+        action="store_false",
+        default=True,
+        help="Disable validator-failure retries and model escalation",
     )
     encode_parser.add_argument(
         "--backend",
@@ -5886,7 +5926,13 @@ def cmd_run_log_staleness(args):
         sys.exit(1)
 
 
-def _emit_run_log_events_safe(result, run_id, outcome):
+def _emit_run_log_events_safe(
+    result,
+    run_id,
+    outcome,
+    *,
+    total_duration_ms: int | None = None,
+):
     """Emit run-log events for a just-completed encode run; never fatal.
 
     Set ``AXIOM_ENCODE_DISABLE_RUN_LOG=1`` to opt out.
@@ -5896,7 +5942,12 @@ def _emit_run_log_events_safe(result, run_id, outcome):
     try:
         from .run_log_export import emit_live_encode_events
 
-        emit_live_encode_events(result, run_id, outcome or {})
+        emit_live_encode_events(
+            result,
+            run_id,
+            outcome or {},
+            total_duration_ms=total_duration_ms,
+        )
     except Exception:  # noqa: BLE001 - run-log emission must never break a run
         pass
 
@@ -18393,18 +18444,272 @@ def cmd_encode(args):
         return _cmd_encode_with_authoritative_rulespec_roots(args)
 
 
+class _EncodeEscalationConfig(NamedTuple):
+    enabled: bool
+    initial_model: str
+    escalation_model: str
+    escalate_after: int
+
+
+class _FailedEncodeAttempt(NamedTuple):
+    result: Any
+    error: str
+
+
+class _EncodeAttemptExecution(NamedTuple):
+    result: Any
+    outcome: dict[str, Any]
+    apply_passed: bool
+    logged_run: EncodingRun | None
+
+
+def _resolve_encode_escalation_config(args) -> _EncodeEscalationConfig:
+    """Resolve and validate the per-section validator retry policy."""
+    initial_model = getattr(args, "model", None) or DEFAULT_OPENAI_MODEL
+    escalation_model = getattr(
+        args,
+        "escalation_model",
+        DEFAULT_OPENAI_ESCALATION_MODEL,
+    )
+    if (
+        not isinstance(escalation_model, str)
+        or not escalation_model
+        or escalation_model != escalation_model.strip()
+    ):
+        raise ValueError("encode --escalation-model must be a non-empty model ID")
+    escalate_after = getattr(
+        args,
+        "escalate_after",
+        DEFAULT_OPENAI_ESCALATE_AFTER,
+    )
+    if (
+        isinstance(escalate_after, bool)
+        or not isinstance(escalate_after, int)
+        or escalate_after < 1
+    ):
+        raise ValueError("encode --escalate-after must be a positive integer")
+    return _EncodeEscalationConfig(
+        enabled=getattr(args, "escalation_enabled", True) is not False,
+        initial_model=str(initial_model),
+        escalation_model=escalation_model,
+        escalate_after=escalate_after,
+    )
+
+
+def _encode_attempt_was_validator_rejected(
+    result,
+    outcome: dict[str, Any],
+) -> bool:
+    """Return whether the attempt reached and failed a retryable validator gate."""
+    if outcome.get("status") == "apply_blocked_validation":
+        return True
+    if outcome.get("apply_requested") is True:
+        return False
+    return str(getattr(result, "error", "") or "") in {
+        "Generated RuleSpec failed compile validation",
+        "Generated RuleSpec failed CI validation",
+    }
+
+
+def _next_encode_attempt_model(
+    config: _EncodeEscalationConfig,
+    *,
+    current_model: str,
+    failed_attempt_count: int,
+) -> str | None:
+    """Choose the next bounded retry model after one more validator rejection."""
+    if not config.enabled:
+        return None
+    failures_after_current = failed_attempt_count + 1
+    already_escalated = (
+        current_model == config.escalation_model
+        and config.escalation_model != config.initial_model
+    )
+    if already_escalated:
+        return None
+    if failures_after_current < config.escalate_after:
+        return config.initial_model
+    if config.escalation_model == config.initial_model:
+        return None
+    return config.escalation_model
+
+
+def _require_compatible_encode_retry_model(*, backend: str, model: str) -> None:
+    """Reject a known cross-provider retry before invoking the wrong CLI."""
+    if backend == "claude" and model.startswith("gpt-"):
+        raise ValueError(
+            "encode cannot use a GPT escalation model with --backend claude; "
+            "pass a Claude-compatible --escalation-model or --no-escalation"
+        )
+
+
+def _clear_retry_destination(
+    result,
+    *,
+    output_root: Path,
+    backend: str,
+    next_model: str,
+) -> None:
+    """Remove only the next attempt's generated files to prevent stale reuse."""
+    relative_output = _relative_generated_output_path(result, output_root=output_root)
+    next_runner = parse_runner_spec(f"{backend}:{next_model}")
+    generated_root = (Path(output_root) / next_runner.name).resolve()
+    output_file = (generated_root / relative_output).resolve()
+    try:
+        output_file.relative_to(generated_root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Retry output {output_file} escapes generated root {generated_root}"
+        ) from exc
+    retry_files = (
+        output_file,
+        _rulespec_test_path(output_file),
+        output_file.with_suffix(".repair.json"),
+    )
+    for retry_file in retry_files:
+        if retry_file.is_dir() and not retry_file.is_symlink():
+            raise RuntimeError(f"Retry output path is a directory: {retry_file}")
+        retry_file.unlink(missing_ok=True)
+
+
 def _cmd_encode_with_authoritative_rulespec_roots(
     args,
     *,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
 ):
-    """Encode a corpus-backed source unit through the RuleSpec eval pipeline."""
+    """Encode one section with bounded full-gate validator retries."""
+    config = _resolve_encode_escalation_config(args)
+    if config.enabled and config.escalation_model != config.initial_model:
+        _require_compatible_encode_retry_model(
+            backend=args.backend,
+            model=config.escalation_model,
+        )
+    failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
+    current_model = config.initial_model
+
+    while True:
+        execution = _run_encode_attempt(
+            args,
+            model=current_model,
+            prior_attempts=failed_attempts,
+            defer_logging=config.enabled,
+            apply_signing_broker=apply_signing_broker,
+            resolved_policy_checkout_path=resolved_policy_checkout_path,
+        )
+        next_model = None
+        if _encode_attempt_was_validator_rejected(
+            execution.result,
+            execution.outcome,
+        ):
+            next_model = _next_encode_attempt_model(
+                config,
+                current_model=current_model,
+                failed_attempt_count=len(failed_attempts),
+            )
+        if next_model is not None:
+            failure = _FailedEncodeAttempt(
+                result=execution.result,
+                error=_encode_outcome_issue(execution.result, execution.outcome),
+            )
+            failed_attempts = (*failed_attempts, failure)
+            action = (
+                "escalating" if next_model == config.escalation_model else "retrying"
+            )
+            print(
+                f"  generation={action} failed_attempts={len(failed_attempts)} "
+                f"from_model={current_model} to_model={next_model}"
+            )
+            _clear_retry_destination(
+                execution.result,
+                output_root=args.output,
+                backend=args.backend,
+                next_model=next_model,
+            )
+            current_model = next_model
+            continue
+
+        outcome = execution.outcome
+        escalated = (
+            current_model == config.escalation_model
+            and config.escalation_model != config.initial_model
+        )
+        if escalated:
+            outcome["generation_escalation"] = {
+                "escalated": True,
+                "failed_attempt_count": len(failed_attempts),
+                "initial_model": config.initial_model,
+                "escalation_model": config.escalation_model,
+            }
+        db_path = getattr(args, "db", DEFAULT_DB)
+        logged_run = execution.logged_run
+        if logged_run is None:
+            final_attempt_success, final_attempt_error = _encode_iteration_verdict(
+                execution.result, outcome
+            )
+            logged_run = _log_eval_result(
+                execution.result,
+                db_path=db_path,
+                end_session=False,
+                log_issue=False,
+                prior_attempts=failed_attempts,
+                final_attempt_success=final_attempt_success,
+                final_attempt_error=final_attempt_error,
+            )
+            print(f"  run_id={logged_run.id}")
+        repair_manifest = _record_encode_outcome(
+            db_path=db_path,
+            result=execution.result,
+            run=logged_run,
+            outcome=outcome,
+        )
+        _emit_run_log_events_safe(
+            execution.result,
+            logged_run.id,
+            outcome,
+            total_duration_ms=logged_run.total_duration_ms,
+        )
+        apply_requested = getattr(args, "apply", False) is True
+        if apply_requested:
+            print(
+                f"  outcome={outcome['status']} "
+                f"final_success={outcome['final_success']}"
+            )
+        if repair_manifest and repair_manifest.exists():
+            print(f"  repair_manifest={repair_manifest}")
+        if getattr(args, "sync", True) is True:
+            sync_result = _sync_run_to_supabase_if_configured(
+                logged_run,
+                db_path=db_path,
+            )
+            if not sync_result["configured"]:
+                print("  supabase_sync=skipped")
+            elif sync_result["run"] and sync_result["session"]:
+                print("  supabase_sync=run+session")
+            elif sync_result["run"]:
+                print("  supabase_sync=run")
+            else:
+                print("  supabase_sync=failed")
+
+        if apply_requested:
+            sys.exit(0 if execution.apply_passed else 1)
+        sys.exit(0 if execution.result.success else 1)
+
+
+def _run_encode_attempt(
+    args,
+    *,
+    model: str,
+    prior_attempts: Sequence[_FailedEncodeAttempt] = (),
+    defer_logging: bool = True,
+    apply_signing_broker: SigningBroker | None = None,
+    resolved_policy_checkout_path: Path | None = None,
+) -> _EncodeAttemptExecution:
+    """Run one generation through the existing standalone and apply gates."""
     if getattr(args, "apply", False) is True and not apply_signing_broker:
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
-    model = args.model or DEFAULT_OPENAI_MODEL
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     if args.backend == "codex":
@@ -18513,15 +18818,33 @@ def _cmd_encode_with_authoritative_rulespec_roots(
     print(f"  trace={result.trace_file}")
     print(f"  manifest={result.context_manifest_file}")
     db_path = getattr(args, "db", DEFAULT_DB)
-    logged_run = _log_eval_result(
-        result,
-        db_path=db_path,
-        end_session=False,
-        log_issue=False,
-    )
-    print(f"  run_id={logged_run.id}")
+    logged_run: EncodingRun | None = None
+
+    def _ensure_logged_run(
+        *,
+        final_attempt_success: bool | None = None,
+        final_attempt_error: str | None = None,
+    ) -> EncodingRun:
+        nonlocal logged_run
+        if logged_run is None:
+            logged_run = _log_eval_result(
+                result,
+                db_path=db_path,
+                end_session=False,
+                log_issue=False,
+                prior_attempts=prior_attempts,
+                final_attempt_success=final_attempt_success,
+                final_attempt_error=final_attempt_error,
+            )
+            print(f"  run_id={logged_run.id}")
+        return logged_run
+
+    if not defer_logging:
+        # Preserve the legacy --no-escalation durability boundary: generation
+        # is recorded before the apply validator starts or can raise.
+        _ensure_logged_run()
+
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
-    repair_manifest = None
     apply_passed = False
     if apply_requested:
         if not _can_attempt_apply(result):
@@ -21154,7 +21477,9 @@ def _cmd_encode_with_authoritative_rulespec_roots(
                             output_root=args.output,
                             policy_repo_path=policy_repo_path,
                             corpus_path=corpus_path,
-                            run_id=logged_run.id,
+                            run_id=_ensure_logged_run(
+                                final_attempt_success=True,
+                            ).id,
                             supplemental_files=supplemental_files,
                             signing_broker=apply_signing_broker,
                             allow_shrink=(getattr(args, "allow_shrink", False) is True),
@@ -21171,31 +21496,12 @@ def _cmd_encode_with_authoritative_rulespec_roots(
                         outcome["apply_success"] = True
                         outcome["final_success"] = True
                         outcome["applied_files"] = [str(path) for path in applied]
-    repair_manifest = _record_encode_outcome(
-        db_path=db_path,
+    return _EncodeAttemptExecution(
         result=result,
-        run=logged_run,
         outcome=outcome,
+        apply_passed=apply_passed,
+        logged_run=logged_run,
     )
-    _emit_run_log_events_safe(result, logged_run.id, outcome)
-    if apply_requested:
-        print(f"  outcome={outcome['status']} final_success={outcome['final_success']}")
-    if repair_manifest and repair_manifest.exists():
-        print(f"  repair_manifest={repair_manifest}")
-    if getattr(args, "sync", True) is True:
-        sync_result = _sync_run_to_supabase_if_configured(logged_run, db_path=db_path)
-        if not sync_result["configured"]:
-            print("  supabase_sync=skipped")
-        elif sync_result["run"] and sync_result["session"]:
-            print("  supabase_sync=run+session")
-        elif sync_result["run"]:
-            print("  supabase_sync=run")
-        else:
-            print("  supabase_sync=failed")
-
-    if apply_requested:
-        sys.exit(0 if apply_passed else 1)
-    sys.exit(0 if result.success else 1)
 
 
 def _can_attempt_apply(result) -> bool:
@@ -42220,33 +42526,61 @@ def _log_eval_result(
     db_path: Path,
     end_session: bool = True,
     log_issue: bool = True,
+    prior_attempts: Sequence[_FailedEncodeAttempt] = (),
+    final_attempt_success: bool | None = None,
+    final_attempt_error: str | None = None,
 ) -> EncodingRun:
     """Persist an eval-backed encode run in the local run history DB."""
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
-    error = getattr(result, "error", None)
-    iteration_errors = []
-    if isinstance(error, str) and error:
-        iteration_errors.append(
-            IterationError(
-                error_type="validation",
-                message=error,
+    iterations: list[Iteration] = []
+    for attempt_number, failed_attempt in enumerate(prior_attempts, 1):
+        iterations.append(
+            Iteration(
+                attempt=attempt_number,
+                duration_ms=int(getattr(failed_attempt.result, "duration_ms", 0) or 0),
+                errors=[
+                    IterationError(
+                        error_type="validation",
+                        message=failed_attempt.error,
+                    )
+                ],
+                success=False,
             )
         )
+    if final_attempt_success is None:
+        resolved_final_success = bool(getattr(result, "success", False))
+        final_error = getattr(result, "error", None)
+    else:
+        resolved_final_success = final_attempt_success
+        final_error = final_attempt_error
+    final_errors = []
+    if isinstance(final_error, str) and final_error:
+        final_errors.append(
+            IterationError(
+                error_type="validation",
+                message=final_error,
+            )
+        )
+    iterations.append(
+        Iteration(
+            attempt=len(iterations) + 1,
+            duration_ms=int(getattr(result, "duration_ms", 0) or 0),
+            errors=final_errors,
+            success=resolved_final_success,
+        )
+    )
+    attempt_results = [
+        *(failed_attempt.result for failed_attempt in prior_attempts),
+        result,
+    ]
 
     run = EncodingRun(
         citation=result.citation,
         file_path=str(result.output_file),
         source_text=source_text,
-        iterations=[
-            Iteration(
-                attempt=1,
-                duration_ms=int(result.duration_ms or 0),
-                errors=iteration_errors,
-                success=bool(result.success),
-            )
-        ],
-        total_duration_ms=int(result.duration_ms or 0),
+        iterations=iterations,
+        total_duration_ms=sum(iteration.duration_ms for iteration in iterations),
         agent_type=f"{result.backend}:encoder",
         agent_model=str(result.model or ""),
         rulespec_content=rulespec_content,
@@ -42264,6 +42598,7 @@ def _log_eval_result(
         repair_manifest=repair_manifest,
         log_issue=log_issue,
         end_session=end_session,
+        attempt_results=attempt_results,
     )
     return run
 
@@ -42276,8 +42611,23 @@ def _log_eval_session(
     repair_manifest: Path | None = None,
     log_issue: bool = True,
     end_session: bool = True,
+    attempt_results: Sequence[Any] = (),
 ) -> None:
     """Persist a minimal SDK-style session for eval-backed encode runs."""
+    attempts = list(attempt_results) or [result]
+
+    def _sum_attempt_field(field: str) -> int:
+        return sum(int(getattr(attempt, field, 0) or 0) for attempt in attempts)
+
+    attempt_costs = [
+        float(cost)
+        for attempt in attempts
+        if isinstance(
+            (cost := getattr(attempt, "estimated_cost_usd", None)), (int, float)
+        )
+        and not isinstance(cost, bool)
+    ]
+
     session = db.start_session(
         model=str(getattr(result, "model", "") or ""),
         cwd=os.getcwd(),
@@ -42287,10 +42637,10 @@ def _log_eval_session(
     )
     db.update_session_tokens(
         session.id,
-        input_tokens=int(getattr(result, "input_tokens", 0) or 0),
-        output_tokens=int(getattr(result, "output_tokens", 0) or 0),
-        cache_read_tokens=int(getattr(result, "cache_read_tokens", 0) or 0),
-        cache_creation_tokens=int(getattr(result, "cache_creation_tokens", 0) or 0),
+        input_tokens=_sum_attempt_field("input_tokens"),
+        output_tokens=_sum_attempt_field("output_tokens"),
+        cache_read_tokens=_sum_attempt_field("cache_read_tokens"),
+        cache_creation_tokens=_sum_attempt_field("cache_creation_tokens"),
     )
     db.log_event(
         session.id,
@@ -42310,15 +42660,14 @@ def _log_eval_session(
         "citation": run.citation,
         "success": bool(getattr(result, "success", False)),
         "standalone_validation_success": bool(getattr(result, "success", False)),
-        "duration_ms": int(getattr(result, "duration_ms", 0) or 0),
-        "estimated_cost_usd": getattr(result, "estimated_cost_usd", None),
-        "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-        "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
-        "cache_read_tokens": int(getattr(result, "cache_read_tokens", 0) or 0),
-        "cache_creation_tokens": int(getattr(result, "cache_creation_tokens", 0) or 0),
-        "reasoning_output_tokens": int(
-            getattr(result, "reasoning_output_tokens", 0) or 0
-        ),
+        "duration_ms": _sum_attempt_field("duration_ms"),
+        "generation_attempt_count": len(attempts),
+        "estimated_cost_usd": sum(attempt_costs) if attempt_costs else None,
+        "input_tokens": _sum_attempt_field("input_tokens"),
+        "output_tokens": _sum_attempt_field("output_tokens"),
+        "cache_read_tokens": _sum_attempt_field("cache_read_tokens"),
+        "cache_creation_tokens": _sum_attempt_field("cache_creation_tokens"),
+        "reasoning_output_tokens": _sum_attempt_field("reasoning_output_tokens"),
         "retrieved_file_count": len(getattr(result, "retrieved_files", []) or []),
         "unexpected_access_count": len(
             getattr(result, "unexpected_accesses", []) or []
@@ -42456,6 +42805,20 @@ def _record_encode_outcome(
             )
     db.end_session(run.session_id)
     return repair_manifest
+
+
+def _encode_iteration_verdict(
+    result,
+    outcome: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Map the final full-gate outcome to one generation iteration verdict."""
+    status = outcome.get("status")
+    if status in {"apply_applied", "apply_blocked_manifest"}:
+        return True, None
+    if status in {"apply_blocked_generation", "apply_blocked_validation"}:
+        return False, _encode_outcome_issue(result, outcome)
+    success = bool(getattr(result, "success", False))
+    return success, None if success else _encode_outcome_issue(result, outcome)
 
 
 def _encode_outcome_issue(result, outcome: dict) -> str:
