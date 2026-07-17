@@ -109,6 +109,23 @@ def test_machine_identity_requires_exact_canonical_corpus_path():
             require_canonical_corpus_citation_path(alias)
 
 
+@pytest.mark.parametrize(
+    "citation_path",
+    (
+        "nz/district-plan",
+        "nz/district-plan/wellington-city/2024/muz/r13",
+    ),
+)
+def test_machine_identity_accepts_district_plan_paths(citation_path: str):
+    assert require_canonical_corpus_citation_path(citation_path) == citation_path
+    assert normalize_corpus_identifier(citation_path) == citation_path
+
+
+def test_machine_identity_still_rejects_unknown_document_classes():
+    with pytest.raises(InvalidCorpusCitationError, match="document-class"):
+        require_canonical_corpus_citation_path("nz/zoning-code/wellington-city/2024")
+
+
 def test_human_citation_normalization_remains_available():
     assert normalize_corpus_identifier("7 USC 2014(e)") == CITATION
 

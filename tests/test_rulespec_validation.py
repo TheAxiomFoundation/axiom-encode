@@ -109,6 +109,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_test_input_assignment_issues,
     find_unconsumed_local_exception_output_issues,
     find_ungrounded_numeric_issues,
+    find_ungrounded_numeric_issues_scoped,
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
     find_upstream_placement_issues,
@@ -18142,6 +18143,83 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def test_district_plan_proof_source_grounds_anchored_numeric_from_corpus(tmp_path):
+    citation_path = "nz/district-plan/wellington-city/2024/muz/r13"
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = (
+        corpus_root
+        / "data"
+        / "corpus"
+        / "provisions"
+        / "nz"
+        / "district-plan"
+    )
+    provisions.mkdir(parents=True)
+    (provisions / "wellington-city-2024.jsonl").write_text(
+        json.dumps(
+            _active_corpus_record(
+                citation_path,
+                "The total gross floor area does not exceed 1,500 square metres.",
+                version="wellington-city-2024",
+                document_class="district-plan",
+                jurisdiction="nz",
+            )
+        )
+        + "\n"
+    )
+    release = _test_corpus_release(
+        corpus_root,
+        ("nz", "district-plan", "wellington-city-2024"),
+    )
+    content = textwrap.dedent(
+        f"""
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: {citation_path}
+        rules:
+          - name: supermarket_floor_area_limit
+            kind: parameter
+            dtype: Number
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: {citation_path}
+            versions:
+              - effective_from: '2024-01-01'
+                formula: '1500'
+        """
+    ).strip()
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-nz",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        source_texts = pipeline._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+
+    assert source_texts == {
+        citation_path: "The total gross floor area does not exceed 1,500 square metres."
+    }
+    assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text=None,
+            proof_source_texts=source_texts,
+        )
+        == []
+    )
 
 
 def test_validator_pipeline_does_not_treat_in_memory_text_as_legal_authority(
