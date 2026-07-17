@@ -7245,16 +7245,11 @@ def test_deferred_outputs_cover_subparagraphs_for_local_authority_jurisdictions(
     )
 
     assert _rulespec_base_parts_for_corpus_path(
-        "uk-kingston-upon-thames/manual/"
-        "council-tax-reduction-scheme-2026-2027/page-38"
+        "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38"
     ) == ("manuals", "council-tax-reduction-scheme-2026-2027", "page-38")
     # A bare hyphen or non-alpha prefix is not a jurisdiction.
-    assert (
-        _rulespec_base_parts_for_corpus_path("x-/manual/scheme/page-1") == ()
-    )
-    assert (
-        _rulespec_base_parts_for_corpus_path("12-city/manual/scheme/page-1") == ()
-    )
+    assert _rulespec_base_parts_for_corpus_path("x-/manual/scheme/page-1") == ()
+    assert _rulespec_base_parts_for_corpus_path("12-city/manual/scheme/page-1") == ()
 
     # A policy module sourced from a scheme manual cannot mirror the corpus
     # path under an atomic module root (`manuals/...` is not one), so it
@@ -7273,8 +7268,7 @@ def test_deferred_outputs_cover_subparagraphs_for_local_authority_jurisdictions(
         }
     }
     citation = (
-        "uk-kingston-upon-thames/manual/"
-        "council-tax-reduction-scheme-2026-2027/page-38"
+        "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38"
     )
     rules_file = Path(
         "rulespec-uk/uk-kingston-upon-thames/policies/kingston-upon-thames/"
