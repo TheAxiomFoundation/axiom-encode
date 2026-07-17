@@ -10411,7 +10411,9 @@ def find_source_subparagraph_coverage_issues(
         _source_relation_covered_subparagraphs(payload, citation_path)
     )
     covered_children.update(
-        _deferred_output_covered_subparagraphs(payload, citation_path)
+        _deferred_output_covered_subparagraphs(
+            payload, citation_path, rules_file=rules_file
+        )
     )
 
     issues: list[str] = []
@@ -10600,17 +10602,34 @@ def _source_relation_subparagraph_paths(
 def _deferred_output_covered_subparagraphs(
     payload: dict[str, Any],
     citation_path: str,
+    *,
+    rules_file: Path | None = None,
 ) -> set[tuple[str, ...]]:
     return {
         _top_level_subparagraph_path(path)
-        for path in _deferred_output_subparagraph_paths(payload, citation_path)
+        for path in _deferred_output_subparagraph_paths(
+            payload, citation_path, rules_file=rules_file
+        )
         if path
     }
+
+
+def _module_self_scope_parts(rules_file: Path | None) -> tuple[str, ...]:
+    """The module's own repo-relative stem parts, from its filesystem root."""
+    if rules_file is None:
+        return ()
+    file_parts = rules_file.with_suffix("").parts
+    for index in range(len(file_parts) - 1, -1, -1):
+        if file_parts[index] in RULESPEC_ATOMIC_MODULE_ROOTS:
+            return tuple(file_parts[index:])
+    return ()
 
 
 def _deferred_output_subparagraph_paths(
     payload: dict[str, Any],
     citation_path: str,
+    *,
+    rules_file: Path | None = None,
 ) -> set[tuple[str, ...]]:
     module = payload.get("module")
     if not isinstance(module, dict):
@@ -10620,7 +10639,13 @@ def _deferred_output_subparagraph_paths(
         return set()
 
     base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
-    if not base_parts:
+    # A module whose rulespec path does not mirror its corpus document (a
+    # council policy module sourced from a scheme manual, say) cannot name a
+    # corpus-mirror deferral target under an atomic root — `manuals/...` is
+    # not a module root. Such a module defers a sub-paragraph by naming its
+    # own future output: <its own stem path>/<sub-paragraph>#symbol.
+    self_parts = _module_self_scope_parts(rules_file)
+    if not base_parts and not self_parts:
         return set()
 
     paths: set[tuple[str, ...]] = set()
@@ -10633,11 +10658,18 @@ def _deferred_output_subparagraph_paths(
             continue
         target_parts = _rulespec_relative_path_parts(target_ref.relative_path)
         if (
-            len(target_parts) <= len(base_parts)
-            or target_parts[: len(base_parts)] != base_parts
+            base_parts
+            and len(target_parts) > len(base_parts)
+            and target_parts[: len(base_parts)] == base_parts
         ):
+            paths.add(tuple(part.lower() for part in target_parts[len(base_parts) :]))
             continue
-        paths.add(tuple(part.lower() for part in target_parts[len(base_parts) :]))
+        if (
+            self_parts
+            and len(target_parts) > len(self_parts)
+            and target_parts[: len(self_parts)] == self_parts
+        ):
+            paths.add(tuple(part.lower() for part in target_parts[len(self_parts) :]))
     return paths
 
 
@@ -10841,13 +10873,28 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         "regulation": "regulations",
         **_RULESPEC_DOCUMENT_CLASS_DIRS,
     }
-    if len(parts) >= 3 and len(parts[0]) == 2 and parts[1] in generic_class_dirs:
-        # Unitary jurisdictions (gh, ug, ng, be, uk, ...) mirror the corpus
-        # class directly under the country code; the rulespec layout uses the
-        # pluralized class dir. Without this branch the sub-paragraph
-        # coverage gate fires for these jurisdictions but deferred_outputs
-        # entries can never satisfy it (the base resolves empty), making the
-        # gate unsatisfiable outside the US.
+    if (
+        len(parts) >= 3
+        and (
+            (len(parts[0]) == 2 and parts[0].isalpha())
+            or (
+                len(parts[0]) > 3
+                and parts[0][2] == "-"
+                and parts[0][:2].isalpha()
+                and not parts[0].startswith("us-")
+            )
+        )
+        and parts[1] in generic_class_dirs
+    ):
+        # Unitary jurisdictions (gh, ug, ng, be, uk, ...) and their
+        # local-authority sub-jurisdictions (uk-kingston-upon-thames, ...)
+        # mirror the corpus class directly under the jurisdiction prefix; the
+        # rulespec layout uses the pluralized class dir. Without this branch
+        # the sub-paragraph coverage gate fires for these jurisdictions but
+        # deferred_outputs entries can never satisfy it (the base resolves
+        # empty), making the gate unsatisfiable outside the US. The us-*
+        # prefixes are excluded only because the dedicated branches above
+        # already map them.
         return (generic_class_dirs[parts[1]], *parts[2:])
     return ()
 
