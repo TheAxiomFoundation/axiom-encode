@@ -1,4 +1,14 @@
-"""Build a protected, self-contained verification-supervisor execution tree."""
+"""Build a protected, self-contained verification-supervisor execution tree.
+
+Containment guarantee: after provisioning, the launcher interpreter resolves
+every link-time dependency (RPATH, DT_NEEDED, loader) from inside the
+provisioned runtime or root-owned system loader paths, executes no startup
+code from the staged site-packages (.pth/sitecustomize are purged after
+staging), and demonstrably maps nothing from the source prefix. Absolute
+paths passed to dlopen() at run time by third-party code are out of scope of
+static auditing; the supervisor's ownership/writability policy and the
+minimal child environment bound that residual.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +26,73 @@ from pathlib import Path
 FORBIDDEN_PREFIXES = ("/", "/usr", "/usr/local", "/opt", "/etc", "/bin", "/sbin", "/lib")
 
 # A real CPython prefix (toolcache or standalone build) is ~20k files. Anything
-# past this is a wrong-prefix copy about to fill the disk.
-MAX_RUNTIME_FILES = 100_000
+# far past that is a wrong-prefix copy about to fill the disk. Overridable for
+# legitimately larger local prefixes (--max-runtime-files).
+DEFAULT_MAX_RUNTIME_FILES = 100_000
+
+_ET_EXEC = 2
+_ET_DYN = 3
+_PT_DYNAMIC = 2
+
+# Startup-code carriers that must not exist anywhere in the provisioned
+# runtime, INCLUDING the staged site-packages (the launcher runs -I, which
+# still executes site-packages .pth lines at interpreter start).
+_FORBIDDEN_STARTUP_GLOBS = (
+    "*.pth",
+    "*.egg-link",
+    "sitecustomize.py",
+    "usercustomize.py",
+    "pyvenv.cfg",
+    "__editable__*",
+)
 
 
-def _assert_sane_source_prefix(source_runtime: Path, require_under: Path | None) -> None:
+def _count_files_copy_equivalent(source: Path, limit: int) -> None:
+    """Bound the copy the way copytree(symlinks=False) will actually perform it.
+
+    copytree with symlinks=False FOLLOWS symlinks, so the count must too, and
+    a link escaping the source prefix (`x -> /usr`) must refuse rather than
+    count (or copy) the outside world. Diamonds (`lib64 -> lib`) are counted
+    twice exactly as copytree copies them twice; only a directory whose real
+    path appears among its own traversal ancestors — copytree's infinite
+    recursion — refuses.
+    """
+    source_resolved = source.resolve(strict=True)
+
+    def walk(directory: Path, ancestors: frozenset[Path], count: int) -> int:
+        real_directory = directory.resolve(strict=True)
+        if real_directory in ancestors:
+            raise SystemExit(
+                f"refusing to provision: symlink cycle at {directory} in {source}"
+            )
+        ancestors = ancestors | {real_directory}
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                entry_path = Path(entry.path)
+                if entry.is_symlink():
+                    target = entry_path.resolve(strict=False)
+                    if not target.is_relative_to(source_resolved):
+                        raise SystemExit(
+                            "refusing to provision: symlink escapes the source "
+                            f"prefix: {entry_path} -> {target}"
+                        )
+                if entry.is_dir(follow_symlinks=True):
+                    count = walk(entry_path, ancestors, count)
+                else:
+                    count += 1
+                    if count > limit:
+                        raise SystemExit(
+                            f"refusing to provision: {source} holds more than "
+                            f"{limit} files — not a python runtime prefix"
+                        )
+        return count
+
+    walk(source, frozenset(), 0)
+
+
+def _assert_sane_source_prefix(
+    source_runtime: Path, require_under: Path | None, max_files: int
+) -> None:
     if str(source_runtime) in FORBIDDEN_PREFIXES:
         raise SystemExit(
             f"refusing to provision from {source_runtime}: not a self-contained "
@@ -33,36 +105,123 @@ def _assert_sane_source_prefix(source_runtime: Path, require_under: Path | None)
                 f"refusing to provision: source prefix {source_runtime} is not "
                 f"under required parent {resolved_parent}"
             )
-    count = 0
-    for _root, _dirs, files in os.walk(source_runtime):  # followlinks=False: cycle-safe
-        count += len(files)
-        if count > MAX_RUNTIME_FILES:
-            raise SystemExit(
-                f"refusing to provision: {source_runtime} holds more than "
-                f"{MAX_RUNTIME_FILES} files — not a python runtime prefix"
-            )
+    _count_files_copy_equivalent(source_runtime, max_files)
 
 
-def _is_elf(path: Path) -> bool:
+def _stage_runtime_tree(source_runtime: Path, runtime: Path, site_packages: Path) -> None:
+    """Copy the interpreter prefix, swap in staged site-packages, then purge.
+
+    The purge MUST run after the site-packages swap: the staged tree is
+    pip-produced content and could itself carry .pth/sitecustomize startup
+    hooks that the launcher's -I mode would execute.
+    """
+    shutil.copytree(source_runtime, runtime, symlinks=False)
+    target_site_packages = (
+        runtime
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    shutil.rmtree(target_site_packages)
+    shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
+    for pattern in _FORBIDDEN_STARTUP_GLOBS:
+        for forbidden in runtime.rglob(pattern):
+            if forbidden.is_file():
+                forbidden.unlink()
+
+
+def _elf_header(path: Path) -> bytes | None:
     try:
         with path.open("rb") as handle:
-            return handle.read(4) == b"\x7fELF"
+            header = handle.read(64)
     except OSError:
+        return None
+    if len(header) < 20 or header[:4] != b"\x7fELF":
+        return None
+    return header
+
+
+def _elf_is_dynamic(path: Path) -> bool:
+    """True when the ELF participates in dynamic linking (has PT_DYNAMIC).
+
+    Static ET_EXEC objects have no dynamic section for patchelf to read, and
+    nothing for the loader to resolve, so probe failures on them are benign;
+    on anything dynamic a probe failure must be fatal, not skipped.
+    """
+    header = _elf_header(path)
+    if header is None:
         return False
+    is_64 = header[4] == 2
+    byteorder = "little" if header[5] == 1 else "big"
+    e_type = int.from_bytes(header[16:18], byteorder)
+    if e_type not in (_ET_EXEC, _ET_DYN):
+        return False
+    if not is_64:
+        return True  # no 32-bit objects are expected; treat as dynamic (fatal path)
+    e_phoff = int.from_bytes(header[32:40], byteorder)
+    e_phentsize = int.from_bytes(header[54:56], byteorder)
+    e_phnum = int.from_bytes(header[56:58], byteorder)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(e_phoff)
+            table = handle.read(e_phentsize * e_phnum)
+    except OSError:
+        return True
+    for index in range(e_phnum):
+        entry = table[index * e_phentsize : (index + 1) * e_phentsize]
+        if len(entry) >= 4 and int.from_bytes(entry[0:4], byteorder) == _PT_DYNAMIC:
+            return True
+    return False
 
 
-def _relocate_elf_rpaths(runtime: Path, source_runtime: Path, patchelf: str) -> int:
-    """Rewrite every copied ELF whose RPATH/RUNPATH escapes the runtime.
+def _component_escapes(component: str, runtime_resolved: Path) -> bool:
+    return component.startswith("/") and not Path(component).resolve(
+        strict=False
+    ).is_relative_to(runtime_resolved)
+
+
+def _rpath_escapes(rpath: str, runtime_resolved: Path) -> bool:
+    return any(
+        _component_escapes(component, runtime_resolved)
+        for component in rpath.split(":")
+        if component
+    )
+
+
+def _rewrite_rpath(rpath: str, runtime_resolved: Path, target: str) -> str:
+    """Replace escaping components with the runtime lib dir, keeping the rest.
+
+    $ORIGIN-relative components from manylinux wheels stay untouched and in
+    order; only absolute components resolving outside the runtime collapse to
+    the pinned target.
+    """
+    parts: list[str] = []
+    for component in rpath.split(":"):
+        if not component:
+            continue
+        replacement = (
+            target if _component_escapes(component, runtime_resolved) else component
+        )
+        if replacement not in parts:
+            parts.append(replacement)
+    return ":".join(parts)
+
+
+def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
+    """Repin every copied dynamic ELF whose linkage escapes the runtime.
 
     The hosted-toolchain CPython is built --enable-shared with an absolute
     RUNPATH into its build prefix, so a byte-copy keeps loading libpython from
     the ORIGINAL (user-writable) location. RPATH (--force-rpath) rather than
-    RUNPATH so LD_LIBRARY_PATH cannot outrank the pinned path either.
+    RUNPATH so LD_LIBRARY_PATH cannot outrank the pinned path either. Absolute
+    DT_NEEDED entries outside the runtime are refused outright (none are
+    expected; system libraries are referenced by bare soname).
     """
-    target_rpath = str(runtime / "lib")
+    runtime_resolved = runtime.resolve(strict=True)
+    target_rpath = str(runtime_resolved / "lib")
     rewritten = 0
     for path in sorted(runtime.rglob("*")):
-        if path.is_symlink() or not path.is_file() or not _is_elf(path):
+        if path.is_symlink() or not path.is_file() or _elf_header(path) is None:
             continue
         probe = subprocess.run(
             [patchelf, "--print-rpath", str(path)],
@@ -71,19 +230,35 @@ def _relocate_elf_rpaths(runtime: Path, source_runtime: Path, patchelf: str) -> 
             check=False,
         )
         if probe.returncode != 0:
-            continue  # not a patchable dynamic object (e.g. ET_REL)
-        current = probe.stdout.strip()
-        if not current:
+            if _elf_is_dynamic(path):
+                raise SystemExit(
+                    f"patchelf could not inspect dynamic object {path}: "
+                    f"{probe.stderr.strip()}"
+                )
             continue
-        needs_rewrite = str(source_runtime) in current or any(
-            component.startswith("/") and not component.startswith(str(runtime))
-            for component in current.split(":")
-            if component
+        needed = subprocess.run(
+            [patchelf, "--print-needed", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        if not needs_rewrite:
+        for entry in needed.stdout.split():
+            if "/" in entry and _component_escapes(entry, runtime_resolved):
+                raise SystemExit(
+                    f"{path} declares an absolute dependency outside the "
+                    f"runtime: {entry}"
+                )
+        current = probe.stdout.strip()
+        if not current or not _rpath_escapes(current, runtime_resolved):
             continue
         subprocess.run(
-            [patchelf, "--force-rpath", "--set-rpath", target_rpath, str(path)],
+            [
+                patchelf,
+                "--force-rpath",
+                "--set-rpath",
+                _rewrite_rpath(current, runtime_resolved, target_rpath),
+                str(path),
+            ],
             check=True,
         )
         rewritten += 1
@@ -95,9 +270,11 @@ def _assert_self_contained(
 ) -> None:
     """Prove the launcher's interpreter runs entirely from the provisioned tree.
 
-    Runs with an explicit minimal environment (no LD_LIBRARY_PATH) and, on
-    Linux, requires every file mapping to stay out of the source prefix and
-    every libpython mapping to live under the runtime.
+    Runs the interpreter exactly as the launcher will (-I, site enabled, so a
+    surviving .pth would execute and show up) with an explicit minimal
+    environment (no LD_LIBRARY_PATH) and, on Linux, requires every file
+    mapping to stay out of the source prefix and every libpython mapping to
+    live under the runtime.
     """
     probe_code = (
         "import json, sys\n"
@@ -117,14 +294,15 @@ def _assert_self_contained(
         "}))\n"
     )
     result = subprocess.run(
-        [str(interpreter), "-I", "-S", "-c", probe_code],
+        [str(interpreter), "-I", "-c", probe_code],
         capture_output=True,
         text=True,
         check=True,
         env={"PATH": "/usr/bin:/bin"},
     )
     report = json.loads(result.stdout)
-    if Path(report["base_prefix"]).resolve() != runtime.resolve():
+    runtime_resolved = runtime.resolve(strict=True)
+    if Path(report["base_prefix"]).resolve() != runtime_resolved:
         raise SystemExit(
             f"provisioned interpreter reports base_prefix {report['base_prefix']}, "
             f"expected {runtime}"
@@ -135,14 +313,18 @@ def _assert_self_contained(
             f"provisioning interpreter is {list(sys.version_info[:2])}"
         )
     if sys.platform == "linux":
-        escaped = [m for m in report["maps"] if m.startswith(str(source_runtime))]
+        escaped = [
+            m for m in report["maps"] if Path(m).is_relative_to(source_runtime)
+        ]
         if escaped:
             raise SystemExit(
                 "provisioned interpreter still maps code from the source "
                 f"prefix: {escaped}"
             )
         libpython = [m for m in report["maps"] if "libpython" in Path(m).name]
-        stray = [m for m in libpython if not m.startswith(str(runtime))]
+        stray = [
+            m for m in libpython if not Path(m).is_relative_to(runtime_resolved)
+        ]
         if stray:
             raise SystemExit(f"libpython mapped outside the runtime: {stray}")
 
@@ -156,30 +338,13 @@ def provision(
     corpus_release_root: str,
     require_prefix_under: Path | None = None,
     patchelf: str | None = None,
+    max_runtime_files: int = DEFAULT_MAX_RUNTIME_FILES,
 ) -> None:
     source_runtime = Path(sys.base_prefix).resolve(strict=True)
     source_interpreter = Path(sys.executable).resolve(strict=True)
-    _assert_sane_source_prefix(source_runtime, require_prefix_under)
+    _assert_sane_source_prefix(source_runtime, require_prefix_under, max_runtime_files)
     runtime = destination / "python"
-    shutil.copytree(source_runtime, runtime, symlinks=False)
-    for forbidden in (
-        *runtime.rglob("*.pth"),
-        *runtime.rglob("*.egg-link"),
-        *runtime.rglob("sitecustomize.py"),
-        *runtime.rglob("usercustomize.py"),
-        *runtime.rglob("pyvenv.cfg"),
-        *runtime.rglob("__editable__*"),
-    ):
-        if forbidden.is_file():
-            forbidden.unlink()
-    target_site_packages = (
-        runtime
-        / "lib"
-        / f"python{sys.version_info.major}.{sys.version_info.minor}"
-        / "site-packages"
-    )
-    shutil.rmtree(target_site_packages)
-    shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
+    _stage_runtime_tree(source_runtime, runtime, site_packages)
     if sys.platform == "linux":
         if not patchelf:
             patchelf = shutil.which("patchelf")
@@ -188,7 +353,7 @@ def provision(
                     "patchelf is required on linux to relocate the runtime "
                     "(install it or pass --patchelf)"
                 )
-        _relocate_elf_rpaths(runtime, source_runtime, patchelf)
+        _relocate_elf_rpaths(runtime, patchelf)
     interpreter = runtime / source_interpreter.relative_to(source_runtime)
     _assert_self_contained(runtime, source_runtime, interpreter)
     launcher = destination / "axiom-encode"
@@ -232,6 +397,13 @@ if __name__ == "__main__":
         default=None,
         help="patchelf binary for the linux RPATH relocation pass.",
     )
+    parser.add_argument(
+        "--max-runtime-files",
+        type=int,
+        default=DEFAULT_MAX_RUNTIME_FILES,
+        help="Refuse prefixes holding more files than this (copy-equivalent "
+        "count, following symlinks the way the copy will).",
+    )
     args = parser.parse_args()
     provision(
         args.destination.resolve(),
@@ -242,4 +414,5 @@ if __name__ == "__main__":
         args.corpus_release_root,
         args.require_prefix_under,
         args.patchelf,
+        args.max_runtime_files,
     )

@@ -45,7 +45,16 @@ jobs:
         run: |
           set -euo pipefail
           "$PYBIN" -m pip install --quiet --target "$RUNNER_TEMP/staged" pyyaml
+          # Hostile staged content: the provisioner must purge startup hooks
+          # AFTER the site-packages swap, or these execute at every launcher
+          # start (-I still runs site-packages .pth lines).
+          echo "import os; open('$RUNNER_TEMP/pth-executed', 'w').close()" > "$RUNNER_TEMP/staged/evil.pth"
+          printf 'open(%s, "w").close()\n' "'$RUNNER_TEMP/pth-executed'" > "$RUNNER_TEMP/staged/sitecustomize.py"
           install -m 755 /bin/true "$RUNNER_TEMP/fake-supervisor"
+          # The RPATH-relocation claims below are only meaningful against a
+          # shared-libpython build; fail loudly if the toolcache goes static.
+          src_prefix="$("$PYBIN" -c 'import sys; print(sys.base_prefix)')"
+          ls "$src_prefix"/lib/libpython*.so* >/dev/null
 
       - name: Provision as root via the resolved interpreter (production shape)
         env:
@@ -75,32 +84,41 @@ jobs:
           interp="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' "$dest/axiom-encode")"
           echo "launcher interpreter: $interp"
           case "$interp" in "$dest"/python/*) ;; *) echo "launcher points outside the runtime"; exit 1 ;; esac
-          # No inherited env: the probe must succeed without LD_LIBRARY_PATH
-          # and must not map a single byte from the source toolcache prefix.
+          # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
+          # execute here) under a minimal env with no LD_LIBRARY_PATH, using
+          # Path containment (not startswith) so <dest>-evil cannot slip by.
           src_prefix="$("$PYBIN" -c 'import sys; print(sys.base_prefix)')"
-          env -i PATH=/usr/bin:/bin "$interp" -I -S -c "
+          env -i PATH=/usr/bin:/bin "$interp" -I -c "
           import sys
-          src = '''$src_prefix'''
-          dest = '''$dest/python'''
-          assert sys.base_prefix == dest, sys.base_prefix
+          from pathlib import Path
+          src = Path('''$src_prefix''')
+          dest = Path('''$dest/python''')
+          assert Path(sys.base_prefix) == dest, sys.base_prefix
           maps = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and l.split(None, 5)[5].startswith('/')]
-          escaped = [m for m in maps if m.startswith(src)]
+          escaped = [m for m in maps if Path(m).is_relative_to(src)]
           assert not escaped, escaped
-          libpython = [m for m in maps if 'libpython' in m.rsplit('/', 1)[-1]]
-          stray = [m for m in libpython if not m.startswith(dest)]
+          libpython = [m for m in maps if 'libpython' in Path(m).name]
+          assert libpython, 'expected the shared toolcache libpython to be mapped'
+          stray = [m for m in libpython if not Path(m).is_relative_to(dest)]
           assert not stray, stray
-          print('self-contained OK:', len(maps), 'mappings, libpython =', libpython or 'static')
+          import yaml
+          assert Path(yaml.__file__).is_relative_to(dest), yaml.__file__
+          print('self-contained OK:', len(maps), 'mappings, libpython =', sorted(set(libpython)))
           "
-          # Staged site-packages replaced the toolcache ones wholesale.
-          env -i PATH=/usr/bin:/bin "$interp" -I -c "import yaml; print('site-packages OK', yaml.__file__)"
+          # The planted startup hooks must be gone AND must not have executed
+          # during the -I probe above.
+          test -z "$(find "$dest/python" -name '*.pth' -o -name 'sitecustomize.py')"
+          test ! -e "$RUNNER_TEMP/pth-executed"
           # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
           # win: the relocation pass pins RPATH (which outranks it), so every
           # libpython mapping stays inside the provisioned runtime even here.
           env -i PATH=/usr/bin:/bin LD_LIBRARY_PATH="$src_prefix/lib" "$interp" -I -S -c "
+          from pathlib import Path
           libpython = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and 'libpython' in l.rsplit('/', 1)[-1]]
-          stray = [m for m in libpython if not m.startswith('''$dest/python''')]
+          assert libpython, 'expected a shared libpython mapping (static would make this probe vacuous)'
+          stray = [m for m in libpython if not Path(m).is_relative_to(Path('''$dest/python'''))]
           assert not stray, ('LD_LIBRARY_PATH outranked the pinned RPATH', stray)
-          print('hostile LD_LIBRARY_PATH neutralized:', libpython or 'static libpython')
+          print('hostile LD_LIBRARY_PATH neutralized:', sorted(set(libpython)))
           "
 
       - name: Fail-closed paths refuse before copying
