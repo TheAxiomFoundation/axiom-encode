@@ -1954,6 +1954,44 @@ def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
     assert str(_source_identifier_to_relative_rulespec_path(citation)) == expected
 
 
+@pytest.mark.parametrize(
+    "section",
+    [
+        "39-28.5-107",
+        "39-30.5-104",
+        "39-22-123.5",
+        "39-1-104.5",
+        "39-26-702",
+    ],
+)
+def test_colorado_statute_paths_are_hyphen_structured_and_dot_atomic(tmp_path, section):
+    citation = f"us-co/statute/39/{section}"
+    module = _source_identifier_to_relative_rulespec_path(citation)
+    companion = module.with_name(f"{module.stem}.test.yaml")
+
+    assert module == Path(f"statutes/39/{section}.yaml")
+    assert companion == Path(f"statutes/39/{section}.test.yaml")
+
+    # Applied manifests mirror the complete module path. Exercise the same
+    # transformation here so a dotted article cannot diverge at apply time.
+    from axiom_encode.cli import _applied_encoding_manifest_path
+
+    assert _applied_encoding_manifest_path(Path("us-co") / module) == Path(
+        f".axiom/encoding-manifests/us-co/statutes/39/{section}.json"
+    )
+
+    # The reverse index reconstructs the canonical target from the filename;
+    # resolving that citation again must recover the byte-identical path.
+    content_root = _canonical_rulespec_content_root(tmp_path, "us-co")
+    rules_file = content_root / module
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    reversed_citation = _canonical_rulespec_target_for_path(rules_file)
+
+    assert reversed_citation == f"us-co:statutes/39/{section}"
+    assert _source_identifier_to_relative_rulespec_path(reversed_citation) == module
+
+
 def test_resolve_eval_output_path_uses_path_like_citation_directly():
     """Sanity: a citation that already looks like a corpus path is used as-is."""
     from axiom_encode.harness.evals import _resolve_eval_output_path

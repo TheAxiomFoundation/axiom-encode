@@ -57,9 +57,13 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
-`encode` defaults to `--backend codex` with `gpt-5.5`; Claude/Fable capacity is
-reserved for orchestration, gating, and review rather than YAML generation. The
-Codex backend authenticates through the Codex CLI's `~/.codex/auth.json`
+`encode` defaults to `--backend codex` with `gpt-5.6-terra`. Each section gets
+up to two validator-rejected generations on that model, then one generation
+with `gpt-5.6-sol`; use
+`--escalate-after`, `--escalation-model`, or `--no-escalation` to override that
+policy. Claude/Fable capacity is reserved for orchestration, gating, and review
+rather than YAML generation. The Codex backend authenticates through the Codex
+CLI's `~/.codex/auth.json`
 (created by `codex login`, or an `OPENAI_API_KEY` recorded there); `CODEX_HOME`
 overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
 the check. When neither is present `encode` stops with a clear error before
