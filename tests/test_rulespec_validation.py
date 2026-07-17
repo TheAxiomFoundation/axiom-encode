@@ -7282,6 +7282,39 @@ def test_deferred_outputs_cover_subparagraphs_for_local_authority_jurisdictions(
     assert _deferred_output_covered_subparagraphs(payload, citation) == set()
 
 
+def test_numeric_extraction_reads_single_dot_group_as_decimal_too():
+    # "1.075" is ambiguous: European grouped thousands (1075) or a plain
+    # dotted decimal. The Scottish CTR band multipliers (SSI 2021/249 reg 79,
+    # SSI 2012/319 reg 47: "1.075 if the relevant dwelling is in valuation
+    # band E,") are dotted decimals, so both readings must ground. Multi-group
+    # values stay European-only.
+    numbers = extract_numbers_from_text(
+        "1.075 if the relevant dwelling is in valuation band E, "
+        "1.125 if the relevant dwelling is in valuation band F,"
+    )
+    assert 1.075 in numbers
+    assert 1.125 in numbers
+    assert 1075.0 in numbers  # the European reading stays available
+
+    multi = extract_numbers_from_text("a grant of 12.345.678 euro")
+    assert 12345678.0 in multi
+    assert 12.345678 not in multi
+
+    # A percentage-marked span contributes only its scaled reading: a bare
+    # 1.075 (or 1075) formula literal must NOT ground against "1.075%".
+    percent = extract_numbers_from_text("a rate of 1.075%")
+    assert 0.01075 in percent
+    assert 1.075 not in percent
+    assert 1075.0 not in percent
+
+    # Multi-group dotted percentages scale their (only possible) European
+    # reading; the occupied span prevents a partial-prefix fallback match.
+    multi_pct = extract_numbers_from_text("a rate of 12.345.678%")
+    assert 123456.78 in multi_pct
+    assert 12.345 not in multi_pct
+    assert 12345678.0 not in multi_pct
+
+
 def test_numeric_extraction_handles_uganda_shilling_suffix():
     # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts
     # ("Exceeding 100,000= but not exceeding 200,000= 5,000=" in the Local

@@ -3216,10 +3216,28 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
+        # A percentage-marked span ("1.075%") contributes only its scaled
+        # reading via the direct percentage parser; adding an unscaled
+        # reading (1075 or 1.075) here would let a bare formula literal
+        # ground against a percentage source. The span is still occupied so
+        # later generic matchers cannot extract a partial prefix ("12.345"
+        # out of "12.345.678%").
+        if _number_span_is_immediately_followed_by_percent_marker(text, match.span(1)):
+            occupied_spans.append(match.span(1))
+            continue
         raw = _normalize_grouped_thousands_number(match.group(1))
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
             occupied_spans.append(match.span(1))
+        # A single dot-group ("1.075") is ambiguous: European grouped
+        # thousands (1075) or a plain dotted decimal (1.075 — the Scottish
+        # CTR band-E multiplier, SSI 2021/249 reg 79). Since this loop
+        # occupies the span, the plain-decimal matcher below never sees it,
+        # so record the dotted-decimal reading as well. Multi-group values
+        # ("12.345.678") stay European-only.
+        if re.fullmatch(r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)):
+            with contextlib.suppress(ValueError):
+                numbers.add(float(match.group(1)))
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         span = match.span(1)
@@ -3534,7 +3552,14 @@ def _iter_percentage_numeric_phrase_values(raw: str) -> list[float]:
         with contextlib.suppress(ValueError):
             dotted_decimal = float(cleaned)
             values.append(dotted_decimal)
-        if not re.fullmatch(r"-?[1-9]\d{0,2}(?:\.0{3})+", cleaned):
+        # A dotted value keeps its European grouped reading only when the
+        # shape is unambiguous grouping: every group all-zero ("1.000"), or
+        # two or more groups ("12.345.678" — not a valid plain decimal, so
+        # the grouped reading is the only one and must be scaled by the
+        # percentage caller rather than dropped).
+        if not re.fullmatch(
+            r"-?[1-9]\d{0,2}(?:\.0{3})+|-?[1-9]\d{0,2}(?:\.\d{3}){2,}", cleaned
+        ):
             return values
     parsed = _parse_belgian_numeric_phrase(raw)
     if parsed is not None and not any(math.isclose(parsed, value) for value in values):
