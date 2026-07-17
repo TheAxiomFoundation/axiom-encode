@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
+      fail-fast: false  # one version's failure must not mask the other's
       matrix:
         python-version: ["3.13", "3.14"]
     steps:

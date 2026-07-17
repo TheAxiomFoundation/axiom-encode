@@ -260,6 +260,11 @@ def _parse_elf(path: Path) -> _ElfInfo | None:
     e_phoff = struct.unpack_from("<Q", data, 32)[0]
     e_phentsize = struct.unpack_from("<H", data, 54)[0]
     e_phnum = struct.unpack_from("<H", data, 56)[0]
+    # ET_REL objects (a stdlib `.o` such as config-*/python.o) carry no program
+    # header table — no PT_INTERP, no PT_DYNAMIC — so the loader never acts on
+    # them. No segments means nothing to audit.
+    if e_phnum == 0:
+        return _ElfInfo(is_dynamic=False)
     if e_phentsize < 56:
         raise SystemExit(f"{path}: implausible e_phentsize {e_phentsize}")
     loads: list[tuple[int, int, int]] = []  # (vaddr, offset, filesz)

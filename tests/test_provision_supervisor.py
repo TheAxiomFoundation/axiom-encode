@@ -206,20 +206,27 @@ class TestInterpTrusted:
     def test_existing_but_writable_loader_untrusted(self, tmp_path, monkeypatch):
         source = (tmp_path / "toolcache").resolve()
         source.mkdir()
-        # Pretend an allowlisted path exists but is world-writable → untrusted.
-        real_stat = provisioner.os.stat
+
+        # An allowlisted, existing loader that is world-writable → untrusted.
+        # stat() runs on the RESOLVED path, which on usrmerge systems differs
+        # from the literal (/lib64 -> /usr/lib64), so intercept unconditionally.
+        class FakeStat:
+            st_uid = 0
+            st_mode = 0o100777  # regular file, world-writable
+
+        monkeypatch.setattr(provisioner.os, "stat", lambda *a, **k: FakeStat())
+        assert not provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
+
+    def test_existing_root_owned_loader_trusted(self, tmp_path, monkeypatch):
+        source = (tmp_path / "toolcache").resolve()
+        source.mkdir()
 
         class FakeStat:
             st_uid = 0
-            st_mode = 0o40777  # dir, world-writable
+            st_mode = 0o100755  # regular file, not group/other writable
 
-        def fake_stat(target, *a, **k):
-            if str(target) == "/lib64/ld-linux-x86-64.so.2":
-                return FakeStat()
-            return real_stat(target, *a, **k)
-
-        monkeypatch.setattr(provisioner.os, "stat", fake_stat)
-        assert not provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
+        monkeypatch.setattr(provisioner.os, "stat", lambda *a, **k: FakeStat())
+        assert provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
 
 
 class TestStageRuntimeTree:
@@ -423,6 +430,20 @@ class TestParseElf:
     def test_static_object_is_not_dynamic(self, tmp_path):
         path = tmp_path / "static"
         path.write_bytes(_build_elf(include_dynamic=False))
+        info = provisioner._parse_elf(path)
+        assert info is not None and not info.is_dynamic
+
+    def test_relocatable_object_without_program_headers(self, tmp_path):
+        """A stdlib .o (ET_REL, config-*/python.o) has no program header table
+        (e_phnum == e_phentsize == 0); the loader never acts on it, so it must
+        parse as non-dynamic rather than tripping the phentsize sanity check."""
+        elf = bytearray(_build_elf(include_dynamic=False))
+        struct.pack_into("<H", elf, 16, 1)  # e_type = ET_REL
+        struct.pack_into("<Q", elf, 32, 0)  # e_phoff = 0
+        struct.pack_into("<H", elf, 54, 0)  # e_phentsize = 0
+        struct.pack_into("<H", elf, 56, 0)  # e_phnum = 0
+        path = tmp_path / "python.o"
+        path.write_bytes(bytes(elf))
         info = provisioner._parse_elf(path)
         assert info is not None and not info.is_dynamic
 
