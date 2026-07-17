@@ -7060,9 +7060,7 @@ rules:
         "six and eight hundred seventy-five one thousandths percent"
     )
     assert 0.065 in extract_numbers_from_text("six and five one-tenths percent")
-    assert 0.0605 in extract_numbers_from_text(
-        "SIX AND FIVE ONE-HUNDREDTHS PERCENT"
-    )
+    assert 0.0605 in extract_numbers_from_text("SIX AND FIVE ONE-HUNDREDTHS PERCENT")
     assert 5_000_000.0 in extract_numbers_from_text("five million dollars")
 
 
@@ -7089,9 +7087,7 @@ rules:
       - effective_from: '2026-01-01'
         formula: 0.0685
 """,
-        source_text=(
-            "SIX AND EIGHT HUNDRED SEVENTY-FIVE ONE-THOUSANDTHS PERCENT"
-        ),
+        source_text=("SIX AND EIGHT HUNDRED SEVENTY-FIVE ONE-THOUSANDTHS PERCENT"),
     )
 
     assert any("0.002" in issue for issue in fraction_issues)
