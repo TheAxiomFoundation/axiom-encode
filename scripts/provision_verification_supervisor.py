@@ -159,13 +159,23 @@ def _stage_runtime_tree(
     )
     shutil.rmtree(target_site_packages)
     shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
-    for pattern in _FORBIDDEN_STARTUP_GLOBS:
-        for forbidden in runtime.rglob(pattern):
-            if forbidden.is_symlink() or forbidden.is_file():
-                forbidden.unlink()
-            elif forbidden.is_dir():
-                # `sitecustomize/` as a package directory is importable too.
-                shutil.rmtree(forbidden)
+    # Materialize every match BEFORE deleting: rglob is a lazy walker, and
+    # rmtree-ing a directory it has yielded but not yet descended into would
+    # make the walk fail. Collect first, then delete, guarding against a path
+    # already removed by an earlier (ancestor) deletion.
+    doomed = sorted(
+        {
+            match
+            for pattern in _FORBIDDEN_STARTUP_GLOBS
+            for match in runtime.rglob(pattern)
+        }
+    )
+    for forbidden in doomed:
+        if forbidden.is_symlink() or forbidden.is_file():
+            forbidden.unlink()
+        elif forbidden.is_dir():
+            # `sitecustomize/` as a package directory is importable too.
+            shutil.rmtree(forbidden)
 
 
 def _elf_header(path: Path) -> bytes | None:

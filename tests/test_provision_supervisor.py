@@ -188,6 +188,9 @@ class TestStageRuntimeTree:
         pkg = staged / "sitecustomize"  # importable package form
         pkg.mkdir()
         (pkg / "__init__.py").write_text("import os; os.system('pwned')")
+        # A carrier nested INSIDE a doomed dir: exercises parent-then-child
+        # deletion (the guard must skip the already-removed child, not raise).
+        (pkg / "nested.pth").write_text("import os")
         (staged / "yaml.py").write_text("legit = True")
         runtime = tmp_path / "dest" / "python"
         runtime.parent.mkdir()
