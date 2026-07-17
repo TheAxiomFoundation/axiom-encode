@@ -9,7 +9,6 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
-import shutil
 import struct
 import subprocess
 import sys
@@ -555,19 +554,10 @@ class TestRelocateElfRpaths:
         monkeypatch.setattr(provisioner.subprocess, "run", forbid)
         assert provisioner._relocate_elf_rpaths(runtime, runtime, "patchelf") == 0
 
-    @pytest.mark.skipif(
-        shutil.which("patchelf") is None, reason="patchelf not available"
-    )
-    def test_real_patchelf_rewrites_escaping_rpath(self, tmp_path):
-        runtime, obj = self._runtime_with_elf(
-            tmp_path, "/opt/hostedtoolcache/Python/3.14/x64/lib"
-        )
-        count = provisioner._relocate_elf_rpaths(
-            runtime, runtime, shutil.which("patchelf")
-        )
-        assert count == 1
-        after = provisioner._parse_elf(obj)
-        combined = after.dyn_strings.get("DT_RPATH", []) + after.dyn_strings.get(
-            "DT_RUNPATH", []
-        )
-        assert combined == [str(runtime / "lib")]
+    # The real-patchelf rewrite round-trip is NOT unit-tested with a synthetic
+    # ELF on purpose: patchelf operates on ELF *sections*, which the hand-built
+    # program-header-only fixtures here deliberately lack (that section/segment
+    # split is exactly what the direct parser defends against). The authoritative
+    # coverage for the real rewrite is provision-selftest.yml, which relocates a
+    # genuine escaping RUNPATH in the toolchain libpython on hosted Ubuntu and
+    # confirms via /proc/self/maps that libpython loads from inside the runtime.
