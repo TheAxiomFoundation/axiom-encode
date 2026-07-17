@@ -7233,6 +7233,55 @@ def test_deferred_outputs_cover_subparagraphs_for_unitary_jurisdictions():
     assert ("f",) in covered
 
 
+def test_deferred_outputs_cover_subparagraphs_for_local_authority_jurisdictions():
+    # Local-authority sub-jurisdictions (uk-kingston-upon-thames, ...) hit the
+    # same unsatisfiable-gate failure the unitary branch fixed: their corpus
+    # paths resolved to an empty base, so a council-scheme module could defer
+    # page-38(e) forever without the gate ever seeing it. Only us-* prefixes
+    # keep their dedicated mappings.
+    from axiom_encode.harness.validator_pipeline import (
+        _deferred_output_covered_subparagraphs,
+        _rulespec_base_parts_for_corpus_path,
+    )
+
+    assert _rulespec_base_parts_for_corpus_path(
+        "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38"
+    ) == ("manuals", "council-tax-reduction-scheme-2026-2027", "page-38")
+    # A bare hyphen or non-alpha prefix is not a jurisdiction.
+    assert _rulespec_base_parts_for_corpus_path("x-/manual/scheme/page-1") == ()
+    assert _rulespec_base_parts_for_corpus_path("12-city/manual/scheme/page-1") == ()
+
+    # A policy module sourced from a scheme manual cannot mirror the corpus
+    # path under an atomic module root (`manuals/...` is not one), so it
+    # defers a sub-paragraph by naming its own future output.
+    payload = {
+        "module": {
+            "deferred_outputs": [
+                {
+                    "output": (
+                        "uk-kingston-upon-thames:policies/kingston-upon-thames/"
+                        "council-tax-reduction/e#applicable_premiums_amount"
+                    ),
+                    "reason": "premium schedules not yet encoded",
+                }
+            ]
+        }
+    }
+    citation = (
+        "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38"
+    )
+    rules_file = Path(
+        "rulespec-uk/uk-kingston-upon-thames/policies/kingston-upon-thames/"
+        "council-tax-reduction.yaml"
+    )
+    covered = _deferred_output_covered_subparagraphs(
+        payload, citation, rules_file=rules_file
+    )
+    assert ("e",) in covered
+    # Without the module's own path there is nothing to scope against.
+    assert _deferred_output_covered_subparagraphs(payload, citation) == set()
+
+
 def test_numeric_extraction_handles_uganda_shilling_suffix():
     # Ugandan prints glue a "/=" (or plain "=") shilling suffix to amounts
     # ("Exceeding 100,000= but not exceeding 200,000= 5,000=" in the Local
