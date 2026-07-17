@@ -176,9 +176,7 @@ def _elf64(e_type: int, phdr_types: list[int]) -> bytes:
     struct.pack_into("<Q", ehdr, 32, 64)  # e_phoff: right after the header
     struct.pack_into("<H", ehdr, 54, 56)  # e_phentsize
     struct.pack_into("<H", ehdr, 56, len(phdr_types))  # e_phnum
-    body = b"".join(
-        struct.pack("<I", p_type) + bytes(52) for p_type in phdr_types
-    )
+    body = b"".join(struct.pack("<I", p_type) + bytes(52) for p_type in phdr_types)
     return bytes(ehdr) + body
 
 

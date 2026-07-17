@@ -23,7 +23,16 @@ from pathlib import Path
 # Prefixes that are never a self-contained CPython runtime. Copying one of
 # these (e.g. /usr, whose sys.base_prefix the system interpreter reports)
 # means the caller resolved the wrong interpreter; fail before the copy.
-FORBIDDEN_PREFIXES = ("/", "/usr", "/usr/local", "/opt", "/etc", "/bin", "/sbin", "/lib")
+FORBIDDEN_PREFIXES = (
+    "/",
+    "/usr",
+    "/usr/local",
+    "/opt",
+    "/etc",
+    "/bin",
+    "/sbin",
+    "/lib",
+)
 
 # A real CPython prefix (toolcache or standalone build) is ~20k files. Anything
 # far past that is a wrong-prefix copy about to fill the disk. Overridable for
@@ -108,7 +117,9 @@ def _assert_sane_source_prefix(
     _count_files_copy_equivalent(source_runtime, max_files)
 
 
-def _stage_runtime_tree(source_runtime: Path, runtime: Path, site_packages: Path) -> None:
+def _stage_runtime_tree(
+    source_runtime: Path, runtime: Path, site_packages: Path
+) -> None:
     """Copy the interpreter prefix, swap in staged site-packages, then purge.
 
     The purge MUST run after the site-packages swap: the staged tree is
@@ -313,18 +324,14 @@ def _assert_self_contained(
             f"provisioning interpreter is {list(sys.version_info[:2])}"
         )
     if sys.platform == "linux":
-        escaped = [
-            m for m in report["maps"] if Path(m).is_relative_to(source_runtime)
-        ]
+        escaped = [m for m in report["maps"] if Path(m).is_relative_to(source_runtime)]
         if escaped:
             raise SystemExit(
                 "provisioned interpreter still maps code from the source "
                 f"prefix: {escaped}"
             )
         libpython = [m for m in report["maps"] if "libpython" in Path(m).name]
-        stray = [
-            m for m in libpython if not Path(m).is_relative_to(runtime_resolved)
-        ]
+        stray = [m for m in libpython if not Path(m).is_relative_to(runtime_resolved)]
         if stray:
             raise SystemExit(f"libpython mapped outside the runtime: {stray}")
 
