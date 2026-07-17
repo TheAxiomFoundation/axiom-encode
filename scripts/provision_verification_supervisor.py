@@ -10,21 +10,27 @@ Exact Linux containment checks performed (nothing broader is claimed):
   importable ``sitecustomize``/``usercustomize`` form (module, package dir,
   ``.pyc``, extension module) is purged AFTER the staged site-packages swap, so
   the launcher's ``-I`` (site-enabled) start executes none of them.
-* Dynamic ELFs: each object's ``DT_RPATH``/``DT_RUNPATH`` entries must, after
-  per-object ``$ORIGIN`` expansion and lexical normalization, be absolute and
-  strictly inside the runtime; every other form (empty, cwd-relative, or
-  escaping) is rewritten to the pinned ``<runtime>/lib`` as a forced ``DT_RPATH``
-  (so ``LD_LIBRARY_PATH`` cannot outrank it). Any path-bearing ``DT_NEEDED`` is
-  refused, ``PT_INTERP`` must be absolute and outside the (user-writable) source
-  prefix, and a patchelf probe that fails on a genuinely dynamic object is fatal.
+* Dynamic ELFs: the loader-facing metadata is parsed DIRECTLY from the program
+  headers (``PT_INTERP``, ``PT_DYNAMIC``) and dynamic array — not via patchelf's
+  section view, which a crafted object could desync from its segments; a
+  non-64-bit-LE-v1 ELF is fatal, not skipped. Each object's ``DT_RPATH``/
+  ``DT_RUNPATH`` entries must, after per-object ``$ORIGIN`` expansion, be
+  absolute and — both lexically and after symlink resolution — strictly inside
+  the runtime; every other form (empty, cwd-relative, or escaping) is rewritten
+  to the pinned ``<runtime>/lib`` as a forced ``DT_RPATH`` (so ``LD_LIBRARY_PATH``
+  cannot outrank it) and the object is re-parsed to confirm the result is clean.
+  A path-bearing ``DT_NEEDED``/``DT_AUDIT``/``DT_DEPAUDIT``/``DT_FILTER``/
+  ``DT_AUXILIARY`` must resolve inside the runtime (``$ORIGIN``-anchored is fine —
+  CPython's own ``libpython3.so`` links that way); ``PT_INTERP`` must be an
+  absolute, root-owned, non-writable system-loader path outside the source prefix.
 * Empirical backstop: the launcher interpreter is run under a minimal env and
   ``/proc/self/maps`` is required to map ``libpython`` and all code from inside
   the runtime and nothing from the source prefix.
 
 Out of scope (bounded by the supervisor's root-ownership/writability policy and
-the minimal child environment, not by this script): absolute paths passed to
-``dlopen()`` at run time by third-party code, and ``DT_AUDIT``/``DT_DEPAUDIT``
-audit hooks.
+the minimal child environment, not by this script): absolute paths a third-party
+library passes to ``dlopen()`` at run time — these are not encoded in any header
+this script can read.
 """
 
 from __future__ import annotations
@@ -32,9 +38,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
+import struct
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Prefixes that are never a self-contained CPython runtime. Copying one of
@@ -55,10 +64,6 @@ FORBIDDEN_PREFIXES = (
 # far past that is a wrong-prefix copy about to fill the disk. Overridable for
 # legitimately larger local prefixes (--max-runtime-files).
 DEFAULT_MAX_RUNTIME_FILES = 100_000
-
-_ET_EXEC = 2
-_ET_DYN = 3
-_PT_DYNAMIC = 2
 
 # Startup-code carriers that must not exist anywhere in the provisioned
 # runtime, INCLUDING the staged site-packages (the launcher runs -I, which
@@ -159,6 +164,15 @@ def _stage_runtime_tree(
     )
     shutil.rmtree(target_site_packages)
     shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
+    # CPython puts the canonical <prefix>/lib/pythonXY.zip on sys.path
+    # unconditionally (even when absent), and -I still lets `site` import
+    # modules — including sitecustomize — from it. Remove it if the copy carried
+    # one; the full lib/ tree we copied makes it redundant.
+    stdlib_zip = (
+        runtime / "lib" / f"python{sys.version_info.major}{sys.version_info.minor}.zip"
+    )
+    if stdlib_zip.is_file():
+        stdlib_zip.unlink()
     # Materialize every match BEFORE deleting: rglob is a lazy walker, and
     # rmtree-ing a directory it has yielded but not yet descended into would
     # make the walk fail. Collect first, then delete, guarding against a path
@@ -178,78 +192,162 @@ def _stage_runtime_tree(
             shutil.rmtree(forbidden)
 
 
-def _elf_header(path: Path) -> bytes | None:
-    try:
-        with path.open("rb") as handle:
-            header = handle.read(64)
-    except OSError:
-        return None
-    if len(header) < 20 or header[:4] != b"\x7fELF":
-        return None
-    return header
+# The audit reads the exact bytes the LOADER consumes — program headers
+# (PT_INTERP, PT_DYNAMIC) and the dynamic array — rather than trusting
+# patchelf's section-based view, which a crafted object could desync from its
+# segments. patchelf is used ONLY to rewrite, after which the object is
+# re-parsed to confirm the loader-facing result is clean.
+_PT_LOAD = 1
+_PT_DYNAMIC = 2
+_PT_INTERP = 3
+_DT_NULL = 0
+_DT_NEEDED = 1
+_DT_STRTAB = 5
+_DT_RPATH = 15
+_DT_RUNPATH = 29
+_DT_AUDIT = 0x6FFFFEF8
+_DT_DEPAUDIT = 0x6FFFFEF7
+_DT_FILTER = 0x7FFFFFFF
+_DT_AUXILIARY = 0x7FFFFFFD
+# String-table-offset tags whose values are paths the loader may act on.
+_DT_STR_PATH_TAGS = {
+    _DT_NEEDED: "DT_NEEDED",
+    _DT_RPATH: "DT_RPATH",
+    _DT_RUNPATH: "DT_RUNPATH",
+    _DT_AUDIT: "DT_AUDIT",
+    _DT_DEPAUDIT: "DT_DEPAUDIT",
+    _DT_FILTER: "DT_FILTER",
+    _DT_AUXILIARY: "DT_AUXILIARY",
+}
+# gABI: $ORIGIN / ${ORIGIN}; a bare $ORIGIN token ends at a non-identifier
+# char, so "$ORIGIN_evil" is NOT the token and stays unexpanded (→ unsafe).
+_ORIGIN_TOKEN = re.compile(r"\$(?:\{ORIGIN\}|ORIGIN(?![0-9A-Z_a-z]))")
+# Root-owned system directories a program interpreter may legitimately live in.
+_SYSTEM_LOADER_DIRS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64")
 
 
-def _elf_is_dynamic(path: Path) -> bool:
-    """True when the ELF participates in dynamic linking (has PT_DYNAMIC).
+@dataclass
+class _ElfInfo:
+    is_dynamic: bool
+    interp: str | None = None
+    # tag name -> ordered raw string values as the loader would read them
+    dyn_strings: dict[str, list[str]] = field(default_factory=dict)
 
-    Static ET_EXEC objects have no dynamic section for patchelf to read, and
-    nothing for the loader to resolve, so probe failures on them are benign;
-    on anything dynamic a probe failure must be fatal, not skipped.
+
+def _parse_elf(path: Path) -> _ElfInfo | None:
+    """Parse the loader-facing ELF metadata, or return None for a non-ELF file.
+
+    Only 64-bit little-endian ELF v1 is supported; any other class/data/version
+    is fatal rather than silently skipped (a flipped EI_DATA on a native object
+    would otherwise make a naive parser miss segments the kernel still reads).
     """
-    header = _elf_header(path)
-    if header is None:
-        return False
-    is_64 = header[4] == 2
-    byteorder = "little" if header[5] == 1 else "big"
-    e_type = int.from_bytes(header[16:18], byteorder)
-    if e_type not in (_ET_EXEC, _ET_DYN):
-        return False
-    if not is_64:
-        return True  # no 32-bit objects are expected; treat as dynamic (fatal path)
-    e_phoff = int.from_bytes(header[32:40], byteorder)
-    e_phentsize = int.from_bytes(header[54:56], byteorder)
-    e_phnum = int.from_bytes(header[56:58], byteorder)
-    try:
-        with path.open("rb") as handle:
-            handle.seek(e_phoff)
-            table = handle.read(e_phentsize * e_phnum)
-    except OSError:
-        return True
+    data = path.read_bytes()
+    if len(data) < 64 or data[:4] != b"\x7fELF":
+        return None
+    ei_class, ei_data, ei_version = data[4], data[5], data[6]
+    if ei_class != 2:
+        raise SystemExit(f"{path}: unsupported ELF class {ei_class} (only 64-bit)")
+    if ei_data != 1:
+        raise SystemExit(f"{path}: unsupported ELF data encoding {ei_data} (only LE)")
+    if ei_version != 1:
+        raise SystemExit(f"{path}: unsupported ELF version {ei_version}")
+
+    def at(offset: int, size: int) -> bytes:
+        if offset < 0 or offset + size > len(data):
+            raise SystemExit(f"{path}: ELF truncated (need {size} bytes at {offset})")
+        return data[offset : offset + size]
+
+    e_phoff = struct.unpack_from("<Q", data, 32)[0]
+    e_phentsize = struct.unpack_from("<H", data, 54)[0]
+    e_phnum = struct.unpack_from("<H", data, 56)[0]
+    if e_phentsize < 56:
+        raise SystemExit(f"{path}: implausible e_phentsize {e_phentsize}")
+    loads: list[tuple[int, int, int]] = []  # (vaddr, offset, filesz)
+    dyn_span: tuple[int, int] | None = None
+    interp: str | None = None
     for index in range(e_phnum):
-        entry = table[index * e_phentsize : (index + 1) * e_phentsize]
-        if len(entry) >= 4 and int.from_bytes(entry[0:4], byteorder) == _PT_DYNAMIC:
-            return True
-    return False
+        phdr = at(e_phoff + index * e_phentsize, 56)
+        p_type = struct.unpack_from("<I", phdr, 0)[0]
+        p_offset, p_vaddr = struct.unpack_from("<QQ", phdr, 8)
+        p_filesz = struct.unpack_from("<Q", phdr, 32)[0]
+        if p_type == _PT_LOAD:
+            loads.append((p_vaddr, p_offset, p_filesz))
+        elif p_type == _PT_DYNAMIC:
+            dyn_span = (p_offset, p_filesz)
+        elif p_type == _PT_INTERP:
+            interp = (
+                at(p_offset, p_filesz)
+                .split(b"\x00", 1)[0]
+                .decode("utf-8", "surrogateescape")
+            )
+    if dyn_span is None:
+        return _ElfInfo(is_dynamic=False, interp=interp)
+
+    def vaddr_to_offset(vaddr: int) -> int:
+        for seg_vaddr, seg_offset, seg_filesz in loads:
+            if seg_vaddr <= vaddr < seg_vaddr + seg_filesz:
+                return seg_offset + (vaddr - seg_vaddr)
+        raise SystemExit(f"{path}: DT string vaddr {vaddr:#x} outside every PT_LOAD")
+
+    dyn_offset, dyn_size = dyn_span
+    entries: list[tuple[int, int]] = []
+    strtab_vaddr: int | None = None
+    cursor = dyn_offset
+    while cursor + 16 <= dyn_offset + dyn_size:
+        d_tag, d_val = struct.unpack_from("<qQ", data, cursor)
+        cursor += 16
+        if d_tag == _DT_NULL:
+            break
+        entries.append((d_tag, d_val))
+        if d_tag == _DT_STRTAB:
+            strtab_vaddr = d_val
+    dyn_strings: dict[str, list[str]] = {}
+    if strtab_vaddr is not None:
+        strtab_offset = vaddr_to_offset(strtab_vaddr)
+
+        def read_string(value_offset: int) -> str:
+            start = strtab_offset + value_offset
+            end = data.find(b"\x00", start)
+            if start < 0 or start > len(data) or end < 0:
+                raise SystemExit(f"{path}: unterminated DT string at {value_offset}")
+            return data[start:end].decode("utf-8", "surrogateescape")
+
+        for d_tag, d_val in entries:
+            name = _DT_STR_PATH_TAGS.get(d_tag)
+            if name is not None:
+                dyn_strings.setdefault(name, []).append(read_string(d_val))
+    return _ElfInfo(is_dynamic=True, interp=interp, dyn_strings=dyn_strings)
 
 
-def _lexically_inside(path_text: str, runtime_resolved: Path) -> bool:
-    """True iff the NORMALIZED (symlink-preserving) absolute path is inside.
+def _path_inside(path_text: str, runtime_resolved: Path) -> bool:
+    """Inside iff BOTH the lexically normalized path AND the symlink-resolved
+    path stay within the runtime.
 
-    Deliberately does NOT call .resolve(): a component like
-    ``/outside/alias`` whose target is a symlink into ``<runtime>/lib`` would
-    pass a resolve()-only check yet still be an out-of-runtime, retargetable
-    path the loader would read literally. Lexical normalization alone
-    (``os.path.normpath``) collapses ``..`` without following links.
+    Lexical-only accepts ``/runtime/alias/../lib`` where ``alias`` is a symlink
+    pointing outside (the loader follows the link before ``..``, landing out);
+    resolve-only accepts ``/outside/alias`` symlinked into the runtime (the
+    loader reads the literal, retargetable path). Requiring both closes each.
     """
     normalized = Path(os.path.normpath(path_text))
-    return normalized.is_relative_to(runtime_resolved)
+    if not normalized.is_relative_to(runtime_resolved):
+        return False
+    resolved = Path(path_text).resolve(strict=False)
+    return resolved.is_relative_to(runtime_resolved)
 
 
 def _origin_expand(component: str, object_dir: Path) -> str:
-    for token in ("${ORIGIN}", "$ORIGIN"):
-        component = component.replace(token, str(object_dir))
-    return component
+    return _ORIGIN_TOKEN.sub(str(object_dir), component)
 
 
 def _rpath_component_inside(
     component: str, object_dir: Path, runtime_resolved: Path
 ) -> bool:
-    """A DT_RPATH/DT_RUNPATH entry is safe only if, after $ORIGIN expansion, it
-    is absolute and strictly inside the runtime.
+    """A DT_RPATH/DT_RUNPATH (or path-bearing DT_NEEDED) entry is safe only if,
+    after per-object $ORIGIN expansion, it is absolute and — both lexically and
+    after symlink resolution — strictly inside the runtime.
 
-    ``object_dir`` is the ELF's directory — during provisioning that IS its
-    final runtime location (we provision in place), so $ORIGIN evaluation is
-    exact. Empty, cwd-relative (no $ORIGIN, not absolute), and runtime-escaping
+    ``object_dir`` is the ELF's directory; we provision in place at the final
+    location, so $ORIGIN evaluation is exact. Empty, cwd-relative, and escaping
     entries are all unsafe.
     """
     if not component:
@@ -257,7 +355,7 @@ def _rpath_component_inside(
     expanded = _origin_expand(component, object_dir)
     if not expanded.startswith("/"):
         return False
-    return _lexically_inside(expanded, runtime_resolved)
+    return _path_inside(expanded, runtime_resolved)
 
 
 def _rewrite_rpath_for_object(
@@ -279,29 +377,62 @@ def _rewrite_rpath_for_object(
 
 
 def _needed_is_pathbearing(entry: str) -> bool:
-    """A legitimate DT_NEEDED is a bare soname; any '/' (absolute OR relative)
-    makes the loader treat it as a path and is refused."""
+    """A bare soname (no '/') is resolved via the search path; a '/'-bearing
+    DT_NEEDED is a literal path the loader opens directly and must be audited
+    like an rpath component (CPython's own libpython3.so uses
+    ``$ORIGIN/../lib/…`` legitimately, so path-bearing is not itself a fault)."""
     return "/" in entry
 
 
-def _interp_trusted(interpreter: str, source_runtime: Path) -> bool:
-    """PT_INTERP (the ELF program loader) must be an absolute path that is NOT
-    inside the user-writable source prefix. The system loader
-    (/lib64/ld-linux-*) satisfies this; a loader under the toolcache does not.
+def _interp_trusted(interpreter: str, source_resolved: Path) -> bool:
+    """PT_INTERP (the program loader) must be an absolute path whose lexical AND
+    resolved forms sit under a root-owned system loader directory and outside
+    the user-writable source prefix; if it exists it must be root-owned and not
+    group/other-writable. The system loader (/lib64/ld-linux-*) qualifies; a
+    loader under the toolcache, /tmp, or a symlink into the source does not.
     """
     if not interpreter.startswith("/"):
         return False
-    return not _lexically_inside(interpreter, source_runtime)
+    lexical = Path(os.path.normpath(interpreter))
+    resolved = Path(interpreter).resolve(strict=False)
+    for candidate in (lexical, resolved):
+        if not any(candidate.is_relative_to(d) for d in _SYSTEM_LOADER_DIRS):
+            return False
+        if candidate.is_relative_to(source_resolved):
+            return False
+    try:
+        status = os.stat(resolved)
+    except OSError:
+        return True  # not present in this environment; the allowlist stands
+    return status.st_uid == 0 and not (status.st_mode & 0o022)
 
 
-def _patchelf_query(
-    patchelf: str, flag: str, path: Path
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [patchelf, flag, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
+def _audit_dynamic_elf(
+    path: Path,
+    info: _ElfInfo,
+    object_dir: Path,
+    runtime_resolved: Path,
+    source_resolved: Path,
+) -> None:
+    """Refuse an object whose loader-facing metadata would pull code from
+    outside the runtime, before any rewrite."""
+    if info.interp is not None and not _interp_trusted(info.interp, source_resolved):
+        raise SystemExit(
+            f"{path} names an untrusted program interpreter: {info.interp}"
+        )
+    for tag in ("DT_NEEDED", "DT_AUDIT", "DT_DEPAUDIT", "DT_FILTER", "DT_AUXILIARY"):
+        for entry in info.dyn_strings.get(tag, []):
+            if _needed_is_pathbearing(entry) and not _rpath_component_inside(
+                entry, object_dir, runtime_resolved
+            ):
+                raise SystemExit(f"{path} declares an escaping {tag}: {entry}")
+
+
+def _combined_rpath(info: _ElfInfo) -> str:
+    """The loader honours DT_RPATH then DT_RUNPATH; audit them together as one
+    colon list (patchelf collapses both into a single forced DT_RPATH)."""
+    return ":".join(
+        info.dyn_strings.get("DT_RPATH", []) + info.dyn_strings.get("DT_RUNPATH", [])
     )
 
 
@@ -310,53 +441,27 @@ def _relocate_elf_rpaths(runtime: Path, source_runtime: Path, patchelf: str) -> 
 
     The hosted-toolchain CPython is built --enable-shared with an absolute
     RUNPATH into its build prefix, so a byte-copy keeps loading libpython from
-    the ORIGINAL (user-writable) location. Every rpath entry is re-evaluated
-    per object with $ORIGIN expansion; anything not provably inside is forced to
-    the pinned <runtime>/lib as DT_RPATH (LD_LIBRARY_PATH cannot outrank it).
-    Path-bearing DT_NEEDED and an untrusted PT_INTERP are refused; a patchelf
-    probe failure on a genuinely dynamic object is fatal (never skipped open).
+    the ORIGINAL (user-writable) location. Each object's loader-facing metadata
+    is parsed directly and audited; escaping DT_RPATH/DT_RUNPATH is rewritten to
+    the pinned <runtime>/lib as a forced DT_RPATH (LD_LIBRARY_PATH cannot
+    outrank it), then the object is re-parsed to confirm the result is clean.
     """
     runtime_resolved = runtime.resolve(strict=True)
     source_resolved = source_runtime.resolve(strict=True)
     target_rpath = str(runtime_resolved / "lib")
     rewritten = 0
     for path in sorted(runtime.rglob("*")):
-        if path.is_symlink() or not path.is_file() or _elf_header(path) is None:
+        if path.is_symlink() or not path.is_file():
             continue
-        dynamic = _elf_is_dynamic(path)
-        rpath_probe = _patchelf_query(patchelf, "--print-rpath", path)
-        if rpath_probe.returncode != 0:
-            if dynamic:
-                raise SystemExit(
-                    f"patchelf could not read rpath of dynamic object {path}: "
-                    f"{rpath_probe.stderr.strip()}"
-                )
+        info = _parse_elf(path)
+        if info is None or not info.is_dynamic:
             continue
-        needed_probe = _patchelf_query(patchelf, "--print-needed", path)
-        if needed_probe.returncode != 0:
-            if dynamic:
-                raise SystemExit(
-                    f"patchelf could not read DT_NEEDED of dynamic object {path}: "
-                    f"{needed_probe.stderr.strip()}"
-                )
-        else:
-            for entry in needed_probe.stdout.split():
-                if _needed_is_pathbearing(entry):
-                    raise SystemExit(
-                        f"{path} declares a path-bearing DT_NEEDED: {entry}"
-                    )
-        interp_probe = _patchelf_query(patchelf, "--print-interpreter", path)
-        if interp_probe.returncode == 0:
-            interp = interp_probe.stdout.strip()
-            if interp and not _interp_trusted(interp, source_resolved):
-                raise SystemExit(
-                    f"{path} names an untrusted program interpreter: {interp}"
-                )
-        current = rpath_probe.stdout.strip()
-        if not current:
+        _audit_dynamic_elf(path, info, path.parent, runtime_resolved, source_resolved)
+        combined = _combined_rpath(info)
+        if not combined:
             continue
         new_rpath, changed = _rewrite_rpath_for_object(
-            current, path.parent, runtime_resolved, target_rpath
+            combined, path.parent, runtime_resolved, target_rpath
         )
         if not changed:
             continue
@@ -364,6 +469,20 @@ def _relocate_elf_rpaths(runtime: Path, source_runtime: Path, patchelf: str) -> 
             [patchelf, "--force-rpath", "--set-rpath", new_rpath, str(path)],
             check=True,
         )
+        # Re-read from the loader's view: the rewrite must have taken and left
+        # nothing escaping (a decoy section could make patchelf write a DT_RPATH
+        # the segments don't reflect).
+        after = _parse_elf(path)
+        if after is None:
+            raise SystemExit(f"{path}: no longer parses as ELF after relocation")
+        _, still_escapes = _rewrite_rpath_for_object(
+            _combined_rpath(after), path.parent, runtime_resolved, target_rpath
+        )
+        if still_escapes:
+            raise SystemExit(
+                f"{path}: rpath still escapes the runtime after relocation: "
+                f"{_combined_rpath(after)!r}"
+            )
         rewritten += 1
     return rewritten
 
