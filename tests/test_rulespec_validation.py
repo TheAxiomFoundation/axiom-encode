@@ -18148,14 +18148,7 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 def test_district_plan_proof_source_grounds_anchored_numeric_from_corpus(tmp_path):
     citation_path = "nz/district-plan/wellington-city/2024/muz/r13"
     corpus_root = tmp_path / "axiom-corpus"
-    provisions = (
-        corpus_root
-        / "data"
-        / "corpus"
-        / "provisions"
-        / "nz"
-        / "district-plan"
-    )
+    provisions = corpus_root / "data" / "corpus" / "provisions" / "nz" / "district-plan"
     provisions.mkdir(parents=True)
     (provisions / "wellington-city-2024.jsonl").write_text(
         json.dumps(

@@ -44,9 +44,7 @@ _MAX_INTERNAL_MARK_EVIDENCE_CHARS = 64
 _MAX_DELIMITER_REPLAY_TOKENS = 1_000_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _CITATION_JURISDICTION_RE = re.compile(r"^[a-z]{2,3}(?:-[a-z]{2,32})*$")
-_CITATION_HIERARCHY_SEGMENT_RE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9 .:\-–]*$"
-)
+_CITATION_HIERARCHY_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .:\-–]*$")
 
 _DOCUMENT_CLASSES = frozenset(
     {
