@@ -1964,9 +1964,7 @@ def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
         "39-26-702",
     ],
 )
-def test_colorado_statute_paths_are_hyphen_structured_and_dot_atomic(
-    tmp_path, section
-):
+def test_colorado_statute_paths_are_hyphen_structured_and_dot_atomic(tmp_path, section):
     citation = f"us-co/statute/39/{section}"
     module = _source_identifier_to_relative_rulespec_path(citation)
     companion = module.with_name(f"{module.stem}.test.yaml")

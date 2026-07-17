@@ -148,9 +148,11 @@ TEST_CORPUS_VERSION = "test-version"
     ],
 )
 def test_colorado_corpus_citation_lookup_keeps_crs_segments_dot_atomic(section):
-    assert _corpus_citation_to_normalized_target(
-        f"us-co/statute/39/{section}"
-    ) == ("statutes", "39", section)
+    assert _corpus_citation_to_normalized_target(f"us-co/statute/39/{section}") == (
+        "statutes",
+        "39",
+        section,
+    )
 
 
 def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(

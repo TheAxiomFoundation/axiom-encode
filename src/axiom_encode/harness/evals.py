@@ -7541,8 +7541,7 @@ def _preserve_state_statute_dotted_leaf(
         # segments, never subsection separators.
         crs_segments = tail[-1].split("-")
         return len(crs_segments) == 3 and all(
-            re.fullmatch(r"\d+(?:\.\d+)*", segment)
-            for segment in crs_segments
+            re.fullmatch(r"\d+(?:\.\d+)*", segment) for segment in crs_segments
         )
     if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
         return False
