@@ -230,6 +230,7 @@ def emit_live_encode_events(
     run_id: str,
     outcome: dict[str, Any],
     *,
+    total_duration_ms: int | None = None,
     log_dir: Optional[Path] = None,
 ) -> RunLogWriter:
     """Emit generate + gate + apply events for a just-completed encode run.
@@ -245,7 +246,11 @@ def emit_live_encode_events(
         "generate",
         StageStatus.passed if generation_ok else StageStatus.failed,
         reason=getattr(result, "error", None),
-        duration_ms=getattr(result, "duration_ms", None),
+        duration_ms=(
+            total_duration_ms
+            if total_duration_ms is not None
+            else getattr(result, "duration_ms", None)
+        ),
         attrs={
             "citation": getattr(result, "citation", None),
             "legal_id": None,
@@ -261,6 +266,7 @@ def emit_live_encode_events(
                 getattr(result, "metrics", None), "embedded_source_present", None
             ),
             "retry_count": getattr(result, "retry_count", None),
+            "generation_escalation": (outcome or {}).get("generation_escalation"),
         },
     )
     for kwargs in _gate_events_from_metrics(getattr(result, "metrics", None)):
@@ -393,6 +399,7 @@ def synthesize_backfill_events(
             "trace_sha256": (manifest or {}).get("trace_sha256"),
             "corpus_context_ref": (manifest or {}).get("context_manifest_file"),
             "corpus_context_sha256": (manifest or {}).get("context_manifest_sha256"),
+            "generation_escalation": outcome.get("generation_escalation"),
             "backfilled": True,
         },
     )

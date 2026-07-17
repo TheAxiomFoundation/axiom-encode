@@ -226,6 +226,25 @@ def test_backfill_emits_generate_with_backfilled_flag():
     assert generate.attrs["citation"] == "us-ct/statute/17b-104"
 
 
+def test_backfill_preserves_escalation_metadata_and_aggregate_duration():
+    escalation = {
+        "escalated": True,
+        "failed_attempt_count": 2,
+        "initial_model": "gpt-5.6-terra",
+        "escalation_model": "gpt-5.6-sol",
+    }
+    events = rx.synthesize_backfill_events(
+        _fake_run(
+            total_duration_ms=12600,
+            outcome={"generation_escalation": escalation},
+        ),
+        None,
+    )
+    generate = next(event for event in events if event.stage == "generate")
+    assert generate.duration_ms == 12600
+    assert generate.attrs["generation_escalation"] == escalation
+
+
 def test_backfill_never_fabricates_downstream_or_judge_stages():
     run = _fake_run(
         outcome={
@@ -347,7 +366,17 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
     writer = rx.emit_live_encode_events(
         result,
         "liverun1",
-        {"final_success": False, "status": "apply_blocked_validation"},
+        {
+            "final_success": False,
+            "status": "apply_blocked_validation",
+            "generation_escalation": {
+                "escalated": True,
+                "failed_attempt_count": 2,
+                "initial_model": "gpt-5.6-terra",
+                "escalation_model": "gpt-5.6-sol",
+            },
+        },
+        total_duration_ms=12600,
         log_dir=tmp_path,
     )
     assert writer.last_error is None
@@ -358,6 +387,13 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
     assert by_stage["gate.ci"].reason_code == "ci_failure"
     assert by_stage["gate.grounding"].status == "passed"
     assert by_stage["apply"].status == "failed"
+    assert by_stage["generate"].duration_ms == 12600
+    assert by_stage["generate"].attrs["generation_escalation"] == {
+        "escalated": True,
+        "failed_attempt_count": 2,
+        "initial_model": "gpt-5.6-terra",
+        "escalation_model": "gpt-5.6-sol",
+    }
     # Live logs are NOT flagged as backfill.
     assert by_stage["generate"].attrs.get("backfilled") is None
 

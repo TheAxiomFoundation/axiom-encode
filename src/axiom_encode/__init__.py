@@ -1,4 +1,4 @@
-__version__ = "0.2.1258"
+__version__ = "0.2.1259"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
@@ -6,6 +6,8 @@ __version__ = "0.2.1258"
 from .constants import (
     DEFAULT_CLI_MODEL,
     DEFAULT_MODEL,
+    DEFAULT_OPENAI_ESCALATE_AFTER,
+    DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
     REVIEWER_CLI_MODEL,
 )
@@ -53,6 +55,8 @@ __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_CLI_MODEL",
     "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_OPENAI_ESCALATION_MODEL",
+    "DEFAULT_OPENAI_ESCALATE_AFTER",
     "REVIEWER_CLI_MODEL",
     "EncodingDB",
     "EncodingRun",
