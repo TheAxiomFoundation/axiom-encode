@@ -1955,6 +1955,29 @@ def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
 
 
 @pytest.mark.parametrize(
+    "dash",
+    [
+        "\u2010",
+        "\u2011",
+        "\u2012",
+        "\u2013",
+        "\u2014",
+        "\u2015",
+        "\u2212",
+        "\ufe58",
+        "\ufe63",
+        "\uff0d",
+    ],
+)
+def test_source_identifier_normalizes_unicode_dashes_only_in_output_path(dash):
+    citation = f"us/statute/42/1437c{dash}1"
+
+    assert _source_identifier_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1.yaml"
+    )
+
+
+@pytest.mark.parametrize(
     "section",
     [
         "39-28.5-107",

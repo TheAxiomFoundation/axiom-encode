@@ -229,6 +229,12 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
+_RULESPEC_PATH_DASH_TRANSLATION = str.maketrans(
+    {
+        ord(character): "-"
+        for character in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"
+    }
+)
 _UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
 _UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
@@ -7448,14 +7454,20 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
-    Each path segment is treated as a directory and a dot inside the leaf
-    segment is treated as a further nesting separator (CDSS-style numbering
-    like ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
+    Unicode dash punctuation is normalized only in the returned filesystem
+    path; the authoritative source identifier remains unchanged. Each path
+    segment is treated as a directory and a dot inside the leaf segment is
+    treated as a further nesting separator (CDSS-style numbering like
+    ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
     ``with_suffix`` pitfall where a dotted leaf would be silently truncated
     to a section-level path and collide with sibling subsections at apply
     time (issue #71).
     """
-    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    parts = [
+        part.translate(_RULESPEC_PATH_DASH_TRANSLATION)
+        for part in source_id.strip().strip("/").split("/")
+        if part
+    ]
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
