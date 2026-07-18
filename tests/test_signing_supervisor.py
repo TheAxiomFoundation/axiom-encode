@@ -1469,7 +1469,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert all(step["with"]["fetch-depth"] == 0 for step in checkout_steps)
 
     identity_step = next(
-        step for step in steps if step.get("name") == "Verify immutable checkout identities"
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
     )
     identity_command = identity_step["run"]
     assert "^[0-9a-f]{40}$" in identity_command
