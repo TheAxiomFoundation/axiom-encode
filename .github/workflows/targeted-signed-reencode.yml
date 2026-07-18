@@ -205,7 +205,10 @@ jobs:
             --apply-root "$TRUST_APPLY_ROOT" \
             --eval-root "$TRUST_EVAL_ROOT" \
             --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
-            --git /usr/bin/git
+            --git /usr/bin/git \
+            --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
+            --encoder-commit "$GITHUB_SHA" \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
           sudo install -o root -g root -m 0755 \
             "$RUNNER_TEMP/axiom-encode-apply-signer" \
             /opt/axiom-verification/axiom-encode-apply-signer
