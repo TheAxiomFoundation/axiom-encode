@@ -2129,6 +2129,12 @@ def test_target_rel_preserves_colon_prefixed_louisiana_jurisdiction():
         "us-la/statute/47:294/../outside",
         "us-la/statute/47:294:outside",
         "us-la/statute/47:294/sub:section",
+        "us-la/statute/47:.294",
+        "us-la/statute/47:294.",
+        "us-la/statute/47:294..4",
+        "us-la/statute/47:294/.subsection",
+        "us-la/statute/47:294/subsection.",
+        "us-la/statute/47:294/sub..section",
     ],
 )
 def test_resolve_eval_output_path_rejects_unsafe_louisiana_components(citation):

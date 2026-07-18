@@ -7745,13 +7745,18 @@ def _expand_louisiana_title_section_tail(
     if ":" not in title_section:
         return tail
     components = title_section.split(":")
+    expanded = [*components, *tail[1:]]
     if len(components) != 2 or any(
-        component in {"", ".", ".."} for component in components
+        not component
+        or component.startswith(".")
+        or component.endswith(".")
+        or ".." in component
+        for component in expanded
     ):
         raise ValueError(
             f"Invalid Louisiana title:section statute segment: {title_section!r}"
         )
-    return [*components, *tail[1:]]
+    return expanded
 
 
 def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
