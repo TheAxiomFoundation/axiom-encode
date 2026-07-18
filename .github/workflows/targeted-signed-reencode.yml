@@ -297,11 +297,7 @@ jobs:
             --apply
           )
           if [ -n "$REVIEW_FINDING" ]; then
-            review_finding_path="$GITHUB_WORKSPACE/axiom-rules-engine/.axiom-targeted-review-finding.txt"
-            if [ -e "$review_finding_path" ] || [ -L "$review_finding_path" ]; then
-              echo "reserved review finding path already exists" >&2
-              exit 1
-            fi
+            review_finding_path="$(mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX.txt")"
             printf '%s\n' "$REVIEW_FINDING" > "$review_finding_path"
             args+=(--review-findings "$review_finding_path")
           fi
@@ -337,6 +333,7 @@ jobs:
       - name: Package exact generated changes
         env:
           CITATION: ${{ inputs.citation }}
+          REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
         run: |
           artifact="$RUNNER_TEMP/targeted-reencode"
           mkdir -p "$artifact"
@@ -345,6 +342,82 @@ jobs:
             | tar -C rulespec-us --null -czf "$artifact/untracked.tar.gz" --files-from -
           git -C rulespec-us status --short > "$artifact/status.txt"
           cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
+          python - "$artifact/context-manifest.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def git_paths(*args):
+              output = subprocess.check_output(
+                  ["git", "-C", "rulespec-us", *args]
+              )
+              return {
+                  Path(value.decode("utf-8"))
+                  for value in output.split(b"\0")
+                  if value
+              }
+
+          manifest_paths = git_paths(
+              "diff", "--name-only", "-z", "HEAD", "--",
+              ".axiom/encoding-manifests",
+          )
+          manifest_paths.update(
+              git_paths(
+                  "ls-files", "--others", "--exclude-standard", "-z", "--",
+                  ".axiom/encoding-manifests",
+              )
+          )
+          matches = []
+          for relative_path in sorted(manifest_paths):
+              manifest_path = Path("rulespec-us") / relative_path
+              payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+              if (
+                  payload.get("schema_version")
+                  == "axiom-encode/applied-rulespec/v5"
+                  and payload.get("citation") == os.environ["CITATION"]
+              ):
+                  matches.append(payload)
+          if len(matches) != 1:
+              raise SystemExit(
+                  "expected exactly one changed signed apply manifest for citation; "
+                  f"found {len(matches)}"
+              )
+
+          applied_manifest = matches[0]
+          context_path = Path(applied_manifest["context_manifest_file"]).resolve()
+          generated_root = (Path(os.environ["RUNNER_TEMP"]) / "generated").resolve()
+          try:
+              context_path.relative_to(generated_root)
+          except ValueError as exc:
+              raise SystemExit("signed context manifest is outside generated root") from exc
+          context_bytes = context_path.read_bytes()
+          context_digest = hashlib.sha256(context_bytes).hexdigest()
+          if context_digest != applied_manifest.get("context_manifest_sha256"):
+              raise SystemExit("signed context manifest digest does not match")
+
+          context_payload = json.loads(context_bytes)
+          review_findings = context_payload.get("review_findings_files")
+          if not isinstance(review_findings, list):
+              raise SystemExit("context manifest review findings evidence is malformed")
+          if os.environ["REVIEW_FINDING_PRESENT"] == "true" and not review_findings:
+              raise SystemExit("context manifest omits supplied review finding")
+          for finding in review_findings:
+              if not isinstance(finding, dict):
+                  raise SystemExit("context manifest review finding is malformed")
+              content = finding.get("content")
+              digest = finding.get("sha256")
+              if not isinstance(content, str) or not content.strip():
+                  raise SystemExit("context manifest review finding content is empty")
+              if "\r" in content:
+                  raise SystemExit("context manifest review finding is not normalized")
+              if hashlib.sha256(content.encode("utf-8")).hexdigest() != digest:
+                  raise SystemExit("context manifest review finding digest does not match")
+
+          Path(sys.argv[1]).write_bytes(context_bytes)
+          PY
           python - "$artifact/metadata.json" <<'PY'
           import json
           import os
