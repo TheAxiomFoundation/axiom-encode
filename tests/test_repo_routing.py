@@ -266,6 +266,35 @@ def test_canonical_identity_rejects_observed_git_boundary_when_git_unavailable(
     assert canonical_rulespec_root_identity(plain_root) == "rulespec-us/us-co"
 
 
+@pytest.mark.parametrize(
+    ("error", "rejection"),
+    [
+        (FileNotFoundError(2, "git unavailable"), "git-top-level-probe-oserror-2"),
+        (
+            subprocess.TimeoutExpired(["git", "rev-parse"], 2),
+            "git-top-level-probe-timeout",
+        ),
+    ],
+)
+def test_checkout_inspection_categorizes_git_probe_launch_failures(
+    monkeypatch,
+    tmp_path,
+    error,
+    rejection,
+):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+
+    def failed_git(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr("axiom_encode.repo_routing.subprocess.run", failed_git)
+
+    assert inspect_canonical_rulespec_checkout(
+        checkout, allow_composition_specs=True
+    ) == (None, rejection)
+
+
 def test_candidate_roots_reject_noncanonical_checkout_alias(tmp_path):
     checkout = tmp_path / "rulespec-us-clean.abcd"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
