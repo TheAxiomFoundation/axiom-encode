@@ -297,11 +297,7 @@ jobs:
             --apply
           )
           if [ -n "$REVIEW_FINDING" ]; then
-            review_finding_path="$GITHUB_WORKSPACE/axiom-rules-engine/.axiom-targeted-review-finding.txt"
-            if [ -e "$review_finding_path" ] || [ -L "$review_finding_path" ]; then
-              echo "reserved review finding path already exists" >&2
-              exit 1
-            fi
+            review_finding_path="$(mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
             printf '%s\n' "$REVIEW_FINDING" > "$review_finding_path"
             args+=(--review-findings "$review_finding_path")
           fi

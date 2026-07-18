@@ -1549,6 +1549,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "--allowed-event-name workflow_dispatch" in command
     assert "--apply" in command
     assert "--skip-reviewers" not in command
+    assert 'mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX"' in command
+    assert "$GITHUB_WORKSPACE/axiom-rules-engine/.axiom-targeted" not in command
     assert "printf '%s\\n' \"$REVIEW_FINDING\"" in command
     assert 'args+=(--review-findings "$review_finding_path")' in command
 
