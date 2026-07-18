@@ -1631,16 +1631,22 @@ def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
         serialization.Encoding.PEM,
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
+    raw_seed = b64encode(seed).decode("ascii")
+    pkcs8_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
     serializations = {
-        "raw-seed": b64encode(seed).decode("ascii"),
-        "pkcs8-pem": private_key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        ).decode("ascii"),
+        "raw-seed": (raw_seed, raw_seed),
+        "raw-seed-whitespace": (f" \n{raw_seed}\n ", raw_seed),
+        "pkcs8-pem": (pkcs8_pem, pkcs8_pem.strip()),
     }
 
-    for run_name, serialized_private_key in serializations.items():
+    for run_name, (
+        serialized_private_key,
+        expected_private_key,
+    ) in serializations.items():
         completed, artifact = _run_apply_key_migration(
             tmp_path,
             run_name=run_name,
@@ -1663,7 +1669,7 @@ def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
                 label=None,
             ),
         )
-        assert decrypted.decode("ascii") == serialized_private_key
+        assert decrypted.decode("ascii") == expected_private_key
 
 
 def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
@@ -1694,11 +1700,25 @@ def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
         apply_public_key=apply_public_key,
         recipient_public_key=recipient_public_key,
     )
+    pkcs8_pem = _private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    trailing_data, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="trailing-data",
+        signing_key=f"{pkcs8_pem}not-part-of-the-pem",
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
 
     assert mismatched.returncode != 0
     assert "does not match the trusted apply public key" in mismatched.stderr
     assert malformed.returncode != 0
     assert "not strict base64 or PKCS8 PEM" in malformed.stderr
+    assert trailing_data.returncode != 0
+    assert "PEM contains trailing data" in trailing_data.stderr
 
 
 def test_apply_signing_key_migration_rejects_weak_recipient_rsa(

@@ -1,4 +1,5 @@
-# One-time lane: remove this workflow and its Environment after verified migration.
+# One-time lane: after verified migration, delete the inherited organization secret,
+# this workflow, and its Environment.
 name: Migrate inherited apply signing key
 
 on:
@@ -40,13 +41,14 @@ jobs:
           printf '%s' "$APPLY_SIGNING_KEY" > "$plaintext"
           unset APPLY_SIGNING_KEY
           key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
-          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 256 ]; then
+          if [ "$key_bytes" -lt 1 ] || [ "$key_bytes" -gt 16384 ]; then
             echo "inherited signing key has an unsupported serialized length" >&2
             exit 1
           fi
 
           python3 - "$plaintext" "$private_der" "$trusted_public_pem" <<'PY'
           import base64
+          import binascii
           import hmac
           import os
           import subprocess
@@ -59,26 +61,38 @@ jobs:
           private_prefix = bytes.fromhex("302e020100300506032b657004220420")
           public_prefix = bytes.fromhex("302a300506032b6570032100")
 
-          def openssl(*args: str) -> bytes:
+          def openssl(*args: str, input_bytes: bytes | None = None) -> bytes:
               completed = subprocess.run(
                   ["openssl", *args],
                   check=False,
                   capture_output=True,
                   env={"PATH": os.environ["PATH"]},
+                  input=input_bytes,
               )
               if completed.returncode:
                   raise SystemExit("inherited signing material is not valid Ed25519 key material")
               return completed.stdout
 
-          material = plaintext.read_bytes()
-          if material.startswith(b"-----BEGIN PRIVATE KEY-----"):
+          material = plaintext.read_bytes().strip()
+          if material.startswith(b"-----BEGIN"):
+              begin_marker = b"-----BEGIN PRIVATE KEY-----"
+              end_marker = b"-----END PRIVATE KEY-----"
+              if not material.startswith(begin_marker):
+                  raise SystemExit("inherited signing key PEM is not an unencrypted PKCS8 key")
+              end_offset = material.find(end_marker, len(begin_marker))
+              if end_offset < 0:
+                  raise SystemExit("inherited signing key PEM is malformed")
+              end_offset += len(end_marker)
+              if material[end_offset:].strip():
+                  raise SystemExit("inherited signing key PEM contains trailing data")
+              material = material[:end_offset]
               derived_public = openssl(
-                  "pkey", "-in", str(plaintext), "-pubout", "-outform", "DER"
+                  "pkey", "-pubout", "-outform", "DER", input_bytes=material
               )
           else:
               try:
                   seed = base64.b64decode(material, validate=True)
-              except (ValueError, base64.binascii.Error):
+              except (ValueError, binascii.Error):
                   raise SystemExit("inherited signing key is not strict base64 or PKCS8 PEM") from None
               if len(seed) != 32:
                   raise SystemExit("inherited signing key is not a 32-byte Ed25519 seed")
@@ -106,7 +120,7 @@ jobs:
           else:
               try:
                   trusted_raw = base64.b64decode(trusted_serialized, validate=True)
-              except (ValueError, base64.binascii.Error):
+              except (ValueError, binascii.Error):
                   raise SystemExit("trusted apply public key is malformed") from None
               if len(trusted_raw) != 32:
                   raise SystemExit("trusted apply public key is not 32 bytes")
@@ -114,10 +128,18 @@ jobs:
 
           if not hmac.compare_digest(derived_public, trusted_public):
               raise SystemExit("inherited signing key does not match the trusted apply public key")
+          plaintext.write_bytes(material)
           PY
+
+          key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
+          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 256 ]; then
+            echo "normalized signing key has an unsupported serialized length" >&2
+            exit 1
+          fi
 
           python3 - "$recipient" <<'PY'
           import base64
+          import binascii
           import os
           import sys
           from pathlib import Path
@@ -126,7 +148,7 @@ jobs:
               recipient = base64.b64decode(
                   os.environ["RECIPIENT_PUBLIC_KEY"], validate=True
               )
-          except (ValueError, base64.binascii.Error):
+          except (ValueError, binascii.Error):
               raise SystemExit("recipient public key is not strict base64") from None
           Path(sys.argv[1]).write_bytes(recipient)
           PY
