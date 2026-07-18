@@ -671,6 +671,7 @@ def _write_verified_run_log_manifest(tmp_path, monkeypatch):
             "dirty_tracked": False,
             "version": __version__,
             "version_commit": "b" * 40,
+            "identity_source": "git",
         },
         "generation_prompt_sha256": None,
         "citation": corpus_path,
@@ -697,6 +698,7 @@ def _write_verified_run_log_manifest(tmp_path, monkeypatch):
                 "repository": "github.com/TheAxiomFoundation/axiom-encode",
                 "commit": "a" * 40,
                 "version": __version__,
+                "identity_source": "git",
             },
             "axiom_rules_engine": {
                 "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",

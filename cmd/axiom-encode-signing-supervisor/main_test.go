@@ -243,3 +243,30 @@ func TestBrokerAllowsVerificationOnlyButRejectsAliasedSignerDescriptors(t *testi
 		t.Fatalf("expected aliased signer descriptor rejection, got %v", err)
 	}
 }
+
+func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
+	environment := cleanChildEnvironment(1234, 3, "/opt/axiom-verification", "/root")
+	want := map[string]string{
+		trustedRuntimeEnv: "1",
+		brokerActiveEnv:   "1",
+	}
+	for name, value := range want {
+		expected := name + "=" + value
+		found := false
+		for _, entry := range environment {
+			if entry == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("cleaned child environment missing %q; got %v", expected, environment)
+		}
+	}
+	// The marker must originate from the empty child environment, never inherited.
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, trustedRuntimeEnv+"=") && entry != trustedRuntimeEnv+"=1" {
+			t.Fatalf("trusted-runtime marker must be exactly 1, got %q", entry)
+		}
+	}
+}

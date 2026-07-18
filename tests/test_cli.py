@@ -818,6 +818,7 @@ def _signed_manifest_payload(payload: dict) -> dict:
                 "dirty_tracked": False,
                 "version": AXIOM_ENCODE_TEST_VERSION,
                 "version_commit": "b" * 40,
+                "identity_source": "git",
             },
         )
         payload.setdefault("generation_prompt_sha256", None)
@@ -854,6 +855,7 @@ def _signed_manifest_payload(payload: dict) -> dict:
                     "version": payload.get(
                         "axiom_encode_version", AXIOM_ENCODE_TEST_VERSION
                     ),
+                    "identity_source": "git",
                 },
                 "axiom_rules_engine": {
                     "repository": ("github.com/TheAxiomFoundation/axiom-rules-engine"),
@@ -889,6 +891,7 @@ def _signed_manifest_payload(payload: dict) -> dict:
                     "dirty_tracked": False,
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "b" * 40,
+                    "identity_source": "git",
                 },
             )
     _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
@@ -8506,6 +8509,7 @@ class TestCmdEncode:
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -8535,11 +8539,13 @@ class TestCmdEncode:
             "dirty_tracked": False,
             "version": AXIOM_ENCODE_TEST_VERSION,
             "version_commit": "version123",
+            "identity_source": "git",
         }
         assert payload["validation_execution"]["axiom_encode"] == {
             "repository": "github.com/TheAxiomFoundation/axiom-encode",
             "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
             "version": AXIOM_ENCODE_TEST_VERSION,
+            "identity_source": "git",
         }
         assert payload["validation_execution"]["axiom_rules_engine"] == {
             "repository": ("github.com/TheAxiomFoundation/axiom-rules-engine"),
@@ -8622,6 +8628,7 @@ class TestCmdEncode:
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             patch(
@@ -9157,6 +9164,7 @@ cli._install_apply_transaction(
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             patch(
@@ -9226,6 +9234,7 @@ cli._install_apply_transaction(
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match="changed after overlay validation"),
@@ -9295,6 +9304,7 @@ cli._install_apply_transaction(
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             patch(
@@ -9372,6 +9382,7 @@ cli._install_apply_transaction(
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             patch(
@@ -9451,6 +9462,7 @@ cli._install_apply_transaction(
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match="changed after overlay validation"),
@@ -9515,6 +9527,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -9631,6 +9644,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -9671,6 +9685,7 @@ rules: []
                     return_value={
                         "version": AXIOM_ENCODE_TEST_VERSION,
                         "version_commit": "version123",
+                        "identity_source": "git",
                     },
                 ),
                 pytest.raises(RuntimeError, match="Generation input digest mismatch"),
@@ -9720,6 +9735,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match="without resolver source_attestation"),
@@ -9763,6 +9779,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match="without resolver source_attestation"),
@@ -9815,6 +9832,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match="corpus_citation_paths is not supported"),
@@ -9876,6 +9894,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(
@@ -9948,6 +9967,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
             pytest.raises(RuntimeError, match=expected_issue),
@@ -10009,6 +10029,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -10101,6 +10122,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -10216,6 +10238,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -10317,6 +10340,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -10470,6 +10494,7 @@ rules: []
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
                     "version_commit": "version123",
+                    "identity_source": "git",
                 },
             ),
         ):
@@ -27195,6 +27220,386 @@ rules:
         assert "self_employment_income_tax_rate" in content
 
 
+class TestTrustedRuntimeApplyIdentity:
+    """Cover the encode#1147 trusted-runtime apply-identity mode that EXTENDS
+    _apply_encoder_execution_identity (main's AXIOM_ENCODE_APPLY_CHECKOUT base)."""
+
+    OFFICIAL = "github.com/TheAxiomFoundation/axiom-encode"
+    TREE = "d" * 64
+
+    def _write_attestation(
+        self,
+        tmp_path,
+        *,
+        commit="a" * 40,
+        origin=None,
+        version=None,
+        package_tree_sha256=None,
+        schema="axiom-encode/trusted-runtime-attestation/v1",
+        provisioned_at="2026-07-18T00:00:00+00:00",
+        extra_sibling=False,
+    ):
+        payload = {
+            "schema": schema,
+            "provisioned_at": provisioned_at,
+            "axiom_encode": {
+                "origin_repository": self.OFFICIAL if origin is None else origin,
+                "commit": commit,
+                "version": AXIOM_ENCODE_TEST_VERSION if version is None else version,
+                "package_tree_sha256": (
+                    self.TREE if package_tree_sha256 is None else package_tree_sha256
+                ),
+            },
+        }
+        if extra_sibling:
+            # encode#1158 will add a sibling member; the reader must tolerate it.
+            payload["pinned_clis"] = {"axiom-rules-engine": {"version": "9.9.9"}}
+        path = tmp_path / "runtime-attestation.json"
+        path.write_text(json.dumps(payload))
+        return path
+
+    def _use_marker(self, monkeypatch, path, *, live=None, runtime_tree=None):
+        """Marker set, attestation at ``path``, live-commit tri-state fixed to
+        ``live``, and the running-package tree hash fixed to ``runtime_tree``
+        (defaults to TREE, so the byte-binding passes)."""
+        monkeypatch.delenv("AXIOM_ENCODE_APPLY_CHECKOUT", raising=False)
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setattr("axiom_encode.cli._runtime_attestation_path", lambda: path)
+        monkeypatch.setattr(
+            "axiom_encode.cli._live_axiom_encode_apply_commit", lambda: live
+        )
+        tree = self.TREE if runtime_tree is None else runtime_tree
+        monkeypatch.setattr(
+            "axiom_encode.cli._deterministic_tree_identity",
+            lambda *a, **k: {"state": "directory", "tree_sha256": tree},
+        )
+
+    def test_marker_present_resolves_attestation_identity(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        commit = "b" * 40
+        path = self._write_attestation(tmp_path, commit=commit, extra_sibling=True)
+        self._use_marker(monkeypatch, path, live=None)
+        identity = _apply_encoder_execution_identity()
+        assert identity["kind"] == "trusted-runtime-attestation"
+        assert identity["identity_source"] == "trusted-runtime-attestation"
+        assert identity["commit"] == commit
+        assert identity["origin_repository"] == self.OFFICIAL
+        assert identity["path"] == str(path)
+        assert identity["version"] == AXIOM_ENCODE_TEST_VERSION
+
+    def test_marker_and_checkout_override_conflict_fails_closed(
+        self, monkeypatch, tmp_path
+    ):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        path = self._write_attestation(tmp_path)
+        self._use_marker(monkeypatch, path, live=None)
+        monkeypatch.setenv(
+            "AXIOM_ENCODE_APPLY_CHECKOUT", str(tmp_path / "axiom-encode")
+        )
+        with pytest.raises(RuntimeError, match="exactly one apply-identity source"):
+            _apply_encoder_execution_identity()
+
+    def test_marker_present_missing_file_fails_closed(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        self._use_marker(monkeypatch, tmp_path / "absent.json", live=None)
+        with pytest.raises(RuntimeError, match="unreadable"):
+            _apply_encoder_execution_identity()
+
+    def test_marker_present_conflicting_git_fails_closed(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        path = self._write_attestation(tmp_path, commit="a" * 40)
+        self._use_marker(monkeypatch, path, live="c" * 40)
+        with pytest.raises(RuntimeError, match="conflicts with the live"):
+            _apply_encoder_execution_identity()
+
+    def test_marker_present_agreeing_git_is_allowed(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        commit = "a" * 40
+        path = self._write_attestation(tmp_path, commit=commit)
+        self._use_marker(monkeypatch, path, live=commit)
+        identity = _apply_encoder_execution_identity()
+        assert identity["identity_source"] == "trusted-runtime-attestation"
+        assert identity["commit"] == commit
+
+    def test_marker_present_version_mismatch_fails_closed(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        path = self._write_attestation(tmp_path, version="0.0.0-tampered")
+        self._use_marker(monkeypatch, path, live=None)
+        with pytest.raises(RuntimeError, match="does not match the running encoder"):
+            _apply_encoder_execution_identity()
+
+    def test_marker_present_package_bytes_mismatch_fails_closed(
+        self, monkeypatch, tmp_path
+    ):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        path = self._write_attestation(tmp_path, package_tree_sha256="e" * 64)
+        # The running package hashes to something else -> byte-binding must reject.
+        self._use_marker(monkeypatch, path, live=None, runtime_tree="f" * 64)
+        with pytest.raises(RuntimeError, match="package bytes do not match"):
+            _apply_encoder_execution_identity()
+
+    def test_marker_present_unverifiable_live_repo_fails_closed(
+        self, monkeypatch, tmp_path
+    ):
+        from axiom_encode.cli import _apply_encoder_execution_identity
+
+        path = self._write_attestation(tmp_path)
+        self._use_marker(monkeypatch, path, live=None)
+
+        def _raise():
+            raise RuntimeError(
+                "Cannot apply generated RuleSpec: live axiom-encode checkout is dirty"
+            )
+
+        monkeypatch.setattr("axiom_encode.cli._live_axiom_encode_apply_commit", _raise)
+        with pytest.raises(RuntimeError, match="dirty"):
+            _apply_encoder_execution_identity()
+
+    def test_live_commit_tristate_absent_clean_and_dirty(self, monkeypatch, tmp_path):
+        import subprocess as _subprocess
+
+        from axiom_encode.cli import _live_axiom_encode_apply_commit
+
+        if _subprocess.run(["git", "--version"], capture_output=True).returncode != 0:
+            pytest.skip("git required")
+
+        # Absent: a plain directory is genuinely no repository -> None.
+        non_repo = tmp_path / "not-a-repo"
+        non_repo.mkdir()
+        monkeypatch.setattr(
+            "axiom_encode.cli._axiom_encode_repo_root", lambda: non_repo
+        )
+        assert _live_axiom_encode_apply_commit() is None
+
+        # Clean: a committed checkout -> its 40-hex HEAD.
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def git(*args):
+            _subprocess.run(
+                ["git", "-C", str(repo), "-c", "safe.directory=*", *args],
+                check=True,
+                capture_output=True,
+            )
+
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "T")
+        git("config", "commit.gpgsign", "false")
+        (repo / "f.txt").write_text("x\n")
+        git("add", ".")
+        git("commit", "-q", "-m", "init")
+        monkeypatch.setattr("axiom_encode.cli._axiom_encode_repo_root", lambda: repo)
+        head = _subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert _live_axiom_encode_apply_commit() == head
+
+        # Dirty: an uncommitted tracked change must RAISE, never silently pass.
+        (repo / "f.txt").write_text("mutated\n")
+        with pytest.raises(RuntimeError, match="dirty"):
+            _live_axiom_encode_apply_commit()
+
+    def test_manifest_rejects_mismatched_identity_source_across_blocks(self):
+        from axiom_encode.cli import _model_apply_validation_execution_issues
+
+        version = AXIOM_ENCODE_TEST_VERSION
+        commit = "a" * 40
+        payload = {
+            "axiom_encode_version": version,
+            "axiom_encode_git": {
+                "root": "/x",
+                "commit": commit,
+                "dirty_tracked": False,
+                "version": version,
+                "version_commit": "b" * 40,
+                "identity_source": "git",
+            },
+            "validation_execution": {
+                "schema": "axiom-encode/apply-validation-execution/v1",
+                "axiom_encode": {
+                    "repository": self.OFFICIAL,
+                    "commit": commit,
+                    "version": version,
+                    # Disagrees with axiom_encode_git.identity_source above.
+                    "identity_source": "trusted-runtime-attestation",
+                },
+                "axiom_rules_engine": {
+                    "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",
+                    "commit": "e" * 40,
+                },
+                "policy_pre_apply": {},
+                "rulespec_dependencies": [],
+            },
+        }
+        issues = _model_apply_validation_execution_issues(
+            payload,
+            manifest_label="m",
+            expected_waiver_set_sha256="c" * 64,
+            expected_encoder_identity={
+                "repository": self.OFFICIAL,
+                "commit": commit,
+                "version": version,
+            },
+        )
+        assert any("identity_source disagrees" in issue for issue in issues)
+
+    @pytest.mark.parametrize(
+        "mutate,match",
+        [
+            ({"schema": "axiom-encode/trusted-runtime-attestation/v2"}, "schema"),
+            ({"origin": "github.com/evil/axiom-encode"}, "origin"),
+            ({"commit": "z" * 40}, "40-hex"),
+            ({"commit": "abc"}, "40-hex"),
+            ({"provisioned_at": ""}, "provisioned_at"),
+            ({"version": ""}, "attested encoder version"),
+            ({"package_tree_sha256": "not-hex"}, "package_tree_sha256"),
+            ({"package_tree_sha256": "a" * 40}, "package_tree_sha256"),
+        ],
+    )
+    def test_attestation_loader_fails_closed_on_bad_fields(
+        self, monkeypatch, tmp_path, mutate, match
+    ):
+        from axiom_encode.cli import _load_trusted_runtime_attestation
+
+        path = self._write_attestation(tmp_path, **mutate)
+        monkeypatch.setattr("axiom_encode.cli._runtime_attestation_path", lambda: path)
+        with pytest.raises(RuntimeError, match=match):
+            _load_trusted_runtime_attestation()
+
+    def test_attestation_loader_rejects_non_object(self, monkeypatch, tmp_path):
+        from axiom_encode.cli import _load_trusted_runtime_attestation
+
+        path = tmp_path / "runtime-attestation.json"
+        path.write_text("[]")
+        monkeypatch.setattr("axiom_encode.cli._runtime_attestation_path", lambda: path)
+        with pytest.raises(RuntimeError, match="not a JSON object"):
+            _load_trusted_runtime_attestation()
+
+    def test_require_clean_provenance_attestation_mode(self, monkeypatch, tmp_path):
+        from axiom_encode import __version__
+        from axiom_encode.cli import _require_clean_axiom_encode_git_provenance
+
+        commit = "d" * 40
+        path = self._write_attestation(tmp_path, commit=commit)
+        self._use_marker(monkeypatch, path, live=None)
+        # The dev-only version gate must never run in the git-free runtime.
+        monkeypatch.setattr(
+            "axiom_encode.cli._require_axiom_encode_version_provenance",
+            lambda _root: pytest.fail("version gate ran in attestation mode"),
+        )
+        provenance = _require_clean_axiom_encode_git_provenance()
+        assert provenance == {
+            "root": str(path),
+            "commit": commit,
+            "dirty_tracked": False,
+            "version": __version__,
+            "version_commit": commit,
+            "identity_source": "trusted-runtime-attestation",
+        }
+
+    def test_require_clean_provenance_git_mode_stamps_source(
+        self, monkeypatch, tmp_path
+    ):
+        from axiom_encode.cli import _require_clean_axiom_encode_git_provenance
+
+        monkeypatch.delenv("AXIOM_ENCODE_TRUSTED_RUNTIME", raising=False)
+        monkeypatch.setattr(
+            "axiom_encode.cli._git_repo_provenance",
+            lambda _root: {
+                "root": "/repo/axiom-encode",
+                "commit": "e" * 40,
+                "dirty_tracked": False,
+            },
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._require_axiom_encode_version_provenance",
+            lambda _root: {
+                "version": AXIOM_ENCODE_TEST_VERSION,
+                "version_commit": "f" * 40,
+            },
+        )
+        provenance = _require_clean_axiom_encode_git_provenance()
+        assert provenance["identity_source"] == "git"
+        assert set(provenance) == {
+            "root",
+            "commit",
+            "dirty_tracked",
+            "version",
+            "version_commit",
+            "identity_source",
+        }
+
+    def test_portable_identity_accepts_attestation_only_when_opted_in(self):
+        from axiom_encode.cli import _portable_clean_apply_git_identity
+
+        attestation_identity = {
+            "kind": "trusted-runtime-attestation",
+            "path": "/opt/axiom-verification/python/runtime-attestation.json",
+            "commit": "a" * 40,
+            "origin_repository": self.OFFICIAL,
+            "provisioned_at": "2026-07-18T00:00:00+00:00",
+            "dirty": False,
+            "identity_source": "trusted-runtime-attestation",
+        }
+        portable = _portable_clean_apply_git_identity(
+            attestation_identity,
+            label="axiom-encode",
+            expected_repository=self.OFFICIAL,
+            allow_trusted_runtime_attestation=True,
+        )
+        assert portable == {
+            "repository": self.OFFICIAL,
+            "commit": "a" * 40,
+            "identity_source": "trusted-runtime-attestation",
+        }
+        # Without the opt-in, an attestation identity is not a Git checkout.
+        with pytest.raises(RuntimeError, match="must be a Git checkout"):
+            _portable_clean_apply_git_identity(
+                attestation_identity,
+                label="axiom-encode",
+                expected_repository=self.OFFICIAL,
+            )
+
+    def test_portable_identity_git_kind_stamps_source_when_opted_in(self):
+        from axiom_encode.cli import _portable_clean_apply_git_identity
+
+        git_identity = {
+            "kind": "git",
+            "path": "/repo/axiom-encode",
+            "commit": "a" * 40,
+            "origin_repository": self.OFFICIAL,
+            "dirty": False,
+            "working_tree_sha256": "0" * 64,
+        }
+        assert _portable_clean_apply_git_identity(
+            git_identity,
+            label="axiom-encode",
+            expected_repository=self.OFFICIAL,
+            allow_trusted_runtime_attestation=True,
+        ) == {
+            "repository": self.OFFICIAL,
+            "commit": "a" * 40,
+            "identity_source": "git",
+        }
+        # The engine call does not opt in, so its shape is unchanged.
+        assert _portable_clean_apply_git_identity(
+            git_identity,
+            label="axiom-encode",
+            expected_repository=self.OFFICIAL,
+        ) == {"repository": self.OFFICIAL, "commit": "a" * 40}
+
+
 class TestCmdRetire:
     @pytest.fixture(autouse=True)
     def _clean_encoder_provenance(self, monkeypatch):
@@ -27206,6 +27611,7 @@ class TestCmdRetire:
                 "dirty_tracked": False,
                 "version": AXIOM_ENCODE_TEST_VERSION,
                 "version_commit": "b" * 40,
+                "identity_source": "git",
             },
         )
 

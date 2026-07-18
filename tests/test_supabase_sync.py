@@ -1000,6 +1000,7 @@ def _apply_manifest_payload(**overrides) -> dict:
             "dirty_tracked": False,
             "version": "0.2.301",
             "version_commit": "b" * 40,
+            "identity_source": "git",
         },
         "generation_prompt_sha256": None,
         "run_id": "5c8705fb",
@@ -1166,6 +1167,7 @@ class TestSyncAppliedManifestRuns:
                     "dirty_tracked": False,
                     "version": __version__,
                     "version_commit": "b" * 40,
+                    "identity_source": "git",
                 },
                 validation_waiver_set_sha256=waiver_sha256,
                 source_attestation=source_attestation,
@@ -1175,6 +1177,7 @@ class TestSyncAppliedManifestRuns:
                         "repository": ("github.com/TheAxiomFoundation/axiom-encode"),
                         "commit": "a" * 40,
                         "version": __version__,
+                        "identity_source": "git",
                     },
                     "axiom_rules_engine": {
                         "repository": (

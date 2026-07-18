@@ -53,6 +53,12 @@ const (
 	brokerFDEnv     = "AXIOM_ENCODE_SIGNING_BROKER_FD"
 	brokerPIDEnv    = "AXIOM_ENCODE_SIGNING_BROKER_PID"
 	brokerActiveEnv = "AXIOM_ENCODE_SIGNING_BROKER_ACTIVE"
+	// trustedRuntimeEnv marks the child as executing inside the root-provisioned,
+	// git-free verification runtime. The encoder reads it to source its own apply
+	// identity from the root-written runtime-attestation.json instead of a Git
+	// checkout (which the provisioned runtime is not). It is set from the empty
+	// child environment below, so it can never be spoofed by an ambient value.
+	trustedRuntimeEnv = "AXIOM_ENCODE_TRUSTED_RUNTIME"
 )
 
 var privateEnvironmentNames = map[string]struct{}{
@@ -901,6 +907,7 @@ func cleanChildEnvironment(
 		"XDG_DATA_HOME":           filepath.Join(trustedHome, ".empty-data"),
 	}
 	clean[brokerActiveEnv] = "1"
+	clean[trustedRuntimeEnv] = "1"
 	clean[brokerFDEnv] = strconv.Itoa(capabilityFD)
 	clean[brokerPIDEnv] = strconv.Itoa(brokerPID)
 	for _, name := range parentOnlyEnvironmentNames {
