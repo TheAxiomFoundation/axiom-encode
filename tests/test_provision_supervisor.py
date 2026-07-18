@@ -429,26 +429,46 @@ class TestAssertSelfContained:
         provisioner._assert_self_contained(runtime, source, interpreter)
         return runtime
 
+    def _interp(self, tmp_path):
+        return str((tmp_path / "python").resolve() / "bin" / "python3")
+
     def test_empty_maps_fails_closed(self, tmp_path, monkeypatch):
         with pytest.raises(SystemExit, match="no /proc/self/maps entries"):
             self._run_with(monkeypatch, tmp_path, [])
 
-    def test_no_libpython_fails_closed(self, tmp_path, monkeypatch):
-        runtime = (tmp_path / "python").resolve()
-        maps = [str(runtime / "bin" / "python3"), "/usr/lib/x86_64-linux-gnu/libc.so.6"]
-        with pytest.raises(SystemExit, match="mapped no libpython"):
+    def test_interpreter_not_mapped_fails_closed(self, tmp_path, monkeypatch):
+        # maps present but the provisioned interpreter binary is absent → the
+        # probe did not actually run the runtime interpreter (vacuous pass).
+        maps = ["/usr/lib/x86_64-linux-gnu/libc.so.6", "/lib64/ld-linux-x86-64.so.2"]
+        with pytest.raises(SystemExit, match="did not map the provisioned interpreter"):
             self._run_with(monkeypatch, tmp_path, maps)
 
-    def test_libc_from_system_is_allowed(self, tmp_path, monkeypatch):
+    def test_static_build_without_libpython_ok(self, tmp_path, monkeypatch):
+        # A static-libpython interpreter (python-build-standalone) maps no
+        # libpython.so; that is fine as long as its own binary is mapped.
+        maps = [self._interp(tmp_path), "/usr/lib/x86_64-linux-gnu/libc.so.6"]
+        self._run_with(monkeypatch, tmp_path, maps)  # no raise
+
+    def test_system_libc_allowed_shared_libpython_pinned(self, tmp_path, monkeypatch):
         runtime = (tmp_path / "python").resolve()
-        # system libc/loader outside the runtime are fine; only source-prefix
-        # mappings and stray libpython are rejected.
         maps = [
+            self._interp(tmp_path),
             str(runtime / "lib" / "libpython3.so"),
             "/usr/lib/x86_64-linux-gnu/libc.so.6",
             "/lib64/ld-linux-x86-64.so.2",
         ]
         self._run_with(monkeypatch, tmp_path, maps)  # no raise
+
+    def test_source_prefix_mapping_rejected(self, tmp_path, monkeypatch):
+        source = (tmp_path / "src").resolve()
+        maps = [self._interp(tmp_path), str(source / "lib" / "libpython3.so")]
+        with pytest.raises(SystemExit, match="maps code from the source"):
+            self._run_with(monkeypatch, tmp_path, maps)
+
+    def test_stray_libpython_rejected(self, tmp_path, monkeypatch):
+        maps = [self._interp(tmp_path), "/opt/elsewhere/lib/libpython3.so"]
+        with pytest.raises(SystemExit, match="libpython mapped outside the runtime"):
+            self._run_with(monkeypatch, tmp_path, maps)
 
     def test_whitespace_destination_is_refused(self, tmp_path):
         runtime = tmp_path / "python"

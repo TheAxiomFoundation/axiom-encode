@@ -338,13 +338,15 @@ def _assert_self_contained(
     Runs the interpreter exactly as the launcher will (-I, site enabled, so a
     surviving .pth would execute and show up) with an explicit minimal
     environment (no LD_LIBRARY_PATH). On Linux it then requires, from a
-    non-empty /proc/self/maps: NO file mapping under the (user-writable) source
-    prefix, and AT LEAST ONE libpython mapping with every libpython mapping
-    under the runtime. It deliberately does NOT require every mapping to be
-    inside the runtime — the root-owned system loader and libc legitimately map
-    from /lib, /usr/lib, etc. This bounds the launcher interpreter's own
-    load-time closure; C-extensions the encoder imports later are covered by the
-    run-path repin plus the caller's root-ownership, not by this probe.
+    non-empty /proc/self/maps: the provisioned interpreter's own binary is
+    mapped (non-vacuity — proves the runtime interpreter actually ran, for both
+    shared and static-libpython builds), NO file mapping under the
+    (user-writable) source prefix, and every libpython mapping (if any) under
+    the runtime. It deliberately does NOT require every mapping to be inside the
+    runtime — the root-owned system loader and libc legitimately map from /lib,
+    /usr/lib, etc. This bounds the launcher interpreter's own load-time closure;
+    C-extensions the encoder imports later are covered by the run-path repin plus
+    the caller's root-ownership, not by this probe.
 
     The launcher is a `#!<interpreter> -I` shebang, and Linux truncates the
     shebang interpreter at whitespace, so a destination path containing
@@ -401,6 +403,18 @@ def _assert_self_contained(
                 "self-containment probe observed no /proc/self/maps entries; "
                 "cannot verify the provisioned runtime"
             )
+        # Non-vacuity, build-agnostic: the probe MUST have mapped this exact
+        # interpreter binary from the runtime, proving it ran the provisioned
+        # interpreter rather than passing on an empty/foreign map set. This holds
+        # for both --enable-shared (libpython.so) and static-libpython builds
+        # (e.g. python-build-standalone), where there is no shared libpython to
+        # require.
+        interpreter_resolved = str(interpreter.resolve(strict=True))
+        if interpreter_resolved not in report["maps"]:
+            raise SystemExit(
+                "self-containment probe did not map the provisioned interpreter "
+                f"{interpreter_resolved}; observed {sorted(report['maps'])[:5]}"
+            )
         # /proc/self/maps paths are kernel-canonical; compare against resolved
         # bases so a symlinked prefix component cannot desync the containment.
         escaped = [m for m in report["maps"] if Path(m).is_relative_to(source_resolved)]
@@ -409,14 +423,10 @@ def _assert_self_contained(
                 "provisioned interpreter still maps code from the source "
                 f"prefix: {escaped}"
             )
+        # Any libpython that IS mapped (shared builds) must come from the runtime;
+        # a static build maps none, which is fine — libpython is baked into the
+        # root-owned interpreter binary already required above.
         libpython = [m for m in report["maps"] if "libpython" in Path(m).name]
-        # The interpreter MUST have mapped its shared libpython from the runtime;
-        # zero libpython mappings would make the "pinned to runtime" check vacuous.
-        if not libpython:
-            raise SystemExit(
-                "self-containment probe mapped no libpython; the shared runtime "
-                "was not exercised (cannot confirm it is pinned)"
-            )
         stray = [m for m in libpython if not Path(m).is_relative_to(runtime_resolved)]
         if stray:
             raise SystemExit(f"libpython mapped outside the runtime: {stray}")
