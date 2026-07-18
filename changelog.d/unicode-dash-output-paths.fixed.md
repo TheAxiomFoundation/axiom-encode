@@ -1,1 +1,1 @@
-Normalize Unicode dash punctuation to ASCII hyphens in generated RuleSpec filesystem paths while preserving authoritative corpus citation identifiers.
+Normalize Unicode dash punctuation to ASCII hyphens across canonical, alias, and structured RuleSpec output paths while preserving authoritative corpus citation identifiers.

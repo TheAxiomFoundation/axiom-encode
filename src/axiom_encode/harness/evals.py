@@ -53,6 +53,7 @@ from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
     citation_to_relative_rulespec_path,
+    normalize_rulespec_path_segment,
     parse_usc_citation,
 )
 from axiom_encode.toolchain import (
@@ -229,12 +230,6 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
-_RULESPEC_PATH_DASH_TRANSLATION = str.maketrans(
-    {
-        ord(character): "-"
-        for character in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"
-    }
-)
 _UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
 _UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
@@ -7464,7 +7459,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     time (issue #71).
     """
     parts = [
-        part.translate(_RULESPEC_PATH_DASH_TRANSLATION)
+        normalize_rulespec_path_segment(part)
         for part in source_id.strip().strip("/").split("/")
         if part
     ]

@@ -110,6 +110,7 @@ from axiom_encode.harness.validator_pipeline import (
 )
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
+from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
 from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
 )
@@ -1975,6 +1976,22 @@ def test_source_identifier_normalizes_unicode_dashes_only_in_output_path(dash):
     assert _source_identifier_to_relative_rulespec_path(citation) == Path(
         "statutes/42/1437c-1.yaml"
     )
+
+
+def test_slash_usc_alias_normalizes_unicode_dash_in_output_path():
+    assert _resolve_eval_output_path(
+        "42/1437c\u20131",
+        fallback=citation_to_relative_rulespec_path,
+    ) == Path("statutes/42/1437c-1.yaml")
+
+
+def test_structured_usc_citation_normalizes_only_output_path():
+    citation = CitationParts(title="42", section="1437c\u20131", fragments=("d",))
+
+    assert citation_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1/d.yaml"
+    )
+    assert citation.section == "1437c\u20131"
 
 
 @pytest.mark.parametrize(
