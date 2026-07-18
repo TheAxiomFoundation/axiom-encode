@@ -7158,7 +7158,7 @@ def _run_single_eval(
     )
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        _hydrate_eval_root(eval_root, workspace, protected_paths=(relative_output,))
 
     trace_relative = Path("traces") / runner.name / f"{_slugify(citation)}.json"
     trace_file = Path(output_root).resolve() / trace_relative
@@ -7331,7 +7331,7 @@ def _run_single_source_eval(
     )
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        _hydrate_eval_root(eval_root, workspace, protected_paths=(relative_output,))
 
     trace_relative = (
         Path("traces") / runner.name / f"{_slugify(source_identifier)}.json"
@@ -11802,8 +11802,22 @@ def _relative_to_root(path: Path, root: Path) -> Path | None:
         return None
 
 
-def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
+def _hydrate_eval_root(
+    eval_root: Path,
+    workspace: EvalWorkspace,
+    *,
+    protected_paths: Sequence[Path] = (),
+) -> None:
     """Copy allowed precedent files into the eval root so imports resolve."""
+
+    protected = {Path(path) for path in protected_paths}
+    if any(
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        for path in protected
+    ):
+        raise ValueError("Protected eval artifact paths must be canonical and relative")
 
     def copy_context(source: Path, target_relative: Path) -> None:
         source_raw = source.read_bytes()
@@ -11826,6 +11840,8 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
             continue
 
         target_relative = _import_target_to_path(item.import_path)
+        if target_relative in protected:
+            continue
         source = workspace.root / workspace_path
         prefix = _import_target_prefix(item.import_path)
         if prefix and prefix != workspace.policy_prefix:

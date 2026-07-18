@@ -15368,6 +15368,52 @@ rules:
             "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
         )
 
+    def test_hydrate_eval_root_preserves_generated_target_and_copies_sibling(
+        self, tmp_path
+    ):
+        workspace_root = tmp_path / "workspace"
+        context_root = workspace_root / "context" / "statutes" / "47"
+        context_root.mkdir(parents=True)
+        old_target = context_root / "294.yaml"
+        sibling = context_root / "295.yaml"
+        old_target.write_text("old target\n", encoding="utf-8")
+        sibling.write_text("sibling context\n", encoding="utf-8")
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=workspace_root / "source.txt",
+            manifest_file=workspace_root / "context-manifest.json",
+            context_files=[
+                EvalContextFile(
+                    source_path=old_target,
+                    workspace_path=Path("context/statutes/47/294.yaml"),
+                    import_path="us-la:statutes/47/294",
+                    kind="implementation_precedent",
+                ),
+                EvalContextFile(
+                    source_path=sibling,
+                    workspace_path=Path("context/statutes/47/295.yaml"),
+                    import_path="us-la:statutes/47/295",
+                    kind="implementation_precedent",
+                ),
+            ],
+            policy_prefix="us-la",
+        )
+        eval_root = tmp_path / "eval-root"
+        generated_target = eval_root / "statutes" / "47" / "294.yaml"
+        generated_target.parent.mkdir(parents=True)
+        generated_target.write_text("generated target\n", encoding="utf-8")
+
+        _hydrate_eval_root(
+            eval_root,
+            workspace,
+            protected_paths=(Path("statutes/47/294.yaml"),),
+        )
+
+        assert generated_target.read_text(encoding="utf-8") == "generated target\n"
+        assert (eval_root / "statutes/47/295.yaml").read_text(
+            encoding="utf-8"
+        ) == "sibling context\n"
+
     def test_prepare_eval_workspace_expands_transitive_context_imports(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = _canonical_rulespec_content_root(repo_root, "us")
