@@ -38,6 +38,23 @@ from tests.release_object_fixtures import bind_test_corpus_release
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "valid,malformed",
+    [
+        ("us-la/statute/47:294", "us-la/statute/47:.294"),
+        ("us-la/statute/47:294.4", "us-la/statute/47:294..4"),
+        ("us-la/statute/47:294.4", "us-la/statute/47/294..4"),
+    ],
+)
+def test_louisiana_malformed_dotted_identity_cannot_alias_valid_path(
+    valid,
+    malformed,
+):
+    assert _resolve_eval_output_path(valid).suffix == ".yaml"
+    with pytest.raises(ValueError, match="Invalid Louisiana"):
+        _resolve_eval_output_path(malformed)
+
+
 def _make_workspace(root: Path) -> EvalWorkspace:
     root.mkdir(parents=True, exist_ok=True)
     source_text_file = root / "source.txt"
