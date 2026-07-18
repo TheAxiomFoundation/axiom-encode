@@ -1511,3 +1511,37 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
     assert secret_steps == [apply_step]
+
+
+def test_apply_signing_key_migration_workflow_is_main_only() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+
+    job = workflow["jobs"]["migrate"]
+    assert job["environment"] == "signing-key-migration"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    steps = job["steps"]
+    assert not any(
+        step.get("uses", "").startswith("actions/checkout@") for step in steps
+    )
+
+    encrypt_step = next(
+        step for step in steps if step.get("name") == "Encrypt inherited signing key"
+    )
+    assert encrypt_step["env"]["APPLY_SIGNING_KEY"] == (
+        "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
+    )
+    command = encrypt_step["run"]
+    assert "rsa_padding_mode:oaep" in command
+    assert "rsa_oaep_md:sha256" in command
+    assert 'rm -f "$plaintext"' in command
+    assert 'echo "$APPLY_SIGNING_KEY"' not in command
+
+    secret_steps = [
+        step for step in steps if "APPLY_SIGNING_KEY" in (step.get("env") or {})
+    ]
+    assert secret_steps == [encrypt_step]

@@ -1,0 +1,64 @@
+name: Migrate inherited apply signing key
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipient_public_key_pem_base64:
+        description: Base64-encoded RSA public key for one-time OAEP encryption
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment: signing-key-migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Encrypt inherited signing key
+        env:
+          APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          APPLY_PUBLIC_KEY: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          RECIPIENT_PUBLIC_KEY: ${{ inputs.recipient_public_key_pem_base64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          artifact="$RUNNER_TEMP/apply-signing-key-migration"
+          recipient="$RUNNER_TEMP/recipient-public.pem"
+          plaintext="$RUNNER_TEMP/apply-signing-key.material"
+          trap 'rm -f "$recipient" "$plaintext"' EXIT
+          mkdir -p "$artifact"
+
+          test -n "$APPLY_SIGNING_KEY"
+          test -n "$APPLY_PUBLIC_KEY"
+          printf '%s' "$RECIPIENT_PUBLIC_KEY" | base64 --decode > "$recipient"
+          openssl pkey -pubin -in "$recipient" -noout
+
+          printf '%s' "$APPLY_SIGNING_KEY" > "$plaintext"
+          key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
+          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 512 ]; then
+            echo "inherited signing key has an unsupported serialized length" >&2
+            exit 1
+          fi
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey "$recipient" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -in "$plaintext" \
+            -out "$artifact/apply-signing-key.oaep-sha256.bin"
+          rm -f "$plaintext"
+
+          printf '%s\n' "$APPLY_PUBLIC_KEY" > "$artifact/apply-public-key.txt"
+          sha256sum "$artifact"/* > "$artifact/SHA256SUMS"
+
+      - name: Upload encrypted migration artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apply-signing-key-migration-${{ github.run_id }}
+          path: ${{ runner.temp }}/apply-signing-key-migration
+          if-no-files-found: error
+          retention-days: 1
