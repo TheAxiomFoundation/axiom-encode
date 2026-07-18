@@ -218,6 +218,43 @@ jobs:
             fi
           done
           test ! -e "$hostile_marker"
+          partial_source="$RUNNER_TEMP/partial-source"
+          partial_clone="$RUNNER_TEMP/partial-clone"
+          /usr/bin/git init --quiet "$partial_source"
+          printf 'promised blob\n' > "$partial_source/a.txt"
+          /usr/bin/git -C "$partial_source" add a.txt
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$partial_source" commit --quiet -m fixture
+          promised_oid="$(/usr/bin/git -C "$partial_source" rev-parse HEAD:a.txt)"
+          /usr/bin/git -C "$partial_source" config uploadpack.allowFilter true
+          /usr/bin/git \
+            -c protocol.file.allow=always \
+            clone --quiet --filter=blob:none --no-checkout \
+            "file://$partial_source" "$partial_clone"
+          if env GIT_NO_LAZY_FETCH=1 \
+            /usr/bin/git -C "$partial_clone" cat-file -e "$promised_oid"; then
+            echo "partial-clone fixture unexpectedly contains promised blob" >&2
+            exit 1
+          fi
+          find "$partial_clone/.git/objects/pack" -maxdepth 1 -type f \
+            -printf '%f\n' | sort > "$RUNNER_TEMP/packs-before"
+          if env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            git -C "$partial_clone" cat-file blob "$promised_oid" >/dev/null; then
+            echo "trusted Git wrapper lazily fetched a promised object" >&2
+            exit 1
+          fi
+          find "$partial_clone/.git/objects/pack" -maxdepth 1 -type f \
+            -printf '%f\n' | sort > "$RUNNER_TEMP/packs-after"
+          cmp "$RUNNER_TEMP/packs-before" "$RUNNER_TEMP/packs-after"
+          if env GIT_NO_LAZY_FETCH=1 \
+            /usr/bin/git -C "$partial_clone" cat-file -e "$promised_oid"; then
+            echo "promised blob appeared after trusted wrapper query" >&2
+            exit 1
+          fi
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
           # Path containment (not startswith) so <dest>-evil cannot slip by.

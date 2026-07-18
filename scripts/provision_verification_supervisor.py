@@ -605,6 +605,7 @@ def _install_trusted_git_wrapper(
         "os.environ['GIT_ATTR_NOSYSTEM'] = '1'\n"
         "os.environ['GIT_CONFIG_GLOBAL'] = '/dev/null'\n"
         "os.environ['GIT_CONFIG_NOSYSTEM'] = '1'\n"
+        "os.environ['GIT_NO_LAZY_FETCH'] = '1'\n"
         "os.environ['GIT_OPTIONAL_LOCKS'] = '0'\n"
         "os.environ['GIT_TERMINAL_PROMPT'] = '0'\n"
         "trusted = [\n"

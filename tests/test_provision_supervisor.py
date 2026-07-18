@@ -9,6 +9,7 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -660,6 +661,88 @@ class TestTrustedGit:
             assert refused_gitlink.returncode != 0
             assert "refused gitlink at sub" in refused_gitlink.stderr
         assert not marker.exists()
+
+    def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        source = tmp_path / "source"
+        subprocess.run([git, "init", "--quiet", str(source)], check=True)
+        (source / "a.txt").write_text("promised blob\n")
+        subprocess.run([git, "-C", str(source), "add", "a.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(source),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        object_id = subprocess.check_output(
+            [git, "-C", str(source), "rev-parse", "HEAD:a.txt"], text=True
+        ).strip()
+        subprocess.run(
+            [git, "-C", str(source), "config", "uploadpack.allowFilter", "true"],
+            check=True,
+        )
+        partial = tmp_path / "partial"
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "protocol.file.allow=always",
+                "clone",
+                "--quiet",
+                "--filter=blob:none",
+                "--no-checkout",
+                source.as_uri(),
+                str(partial),
+            ],
+            check=True,
+        )
+        no_lazy_environment = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        missing = subprocess.run(
+            [git, "-C", str(partial), "cat-file", "-e", object_id],
+            check=False,
+            capture_output=True,
+            env=no_lazy_environment,
+        )
+        if missing.returncode == 0:
+            pytest.skip("Git did not create a blobless partial clone")
+        pack_root = partial / ".git" / "objects" / "pack"
+        packs_before = {path.name for path in pack_root.iterdir()}
+        wrapped = subprocess.run(
+            [str(wrapper), "-C", str(partial), "cat-file", "blob", object_id],
+            check=False,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert wrapped.returncode != 0
+        assert {path.name for path in pack_root.iterdir()} == packs_before
+        assert (
+            subprocess.run(
+                [git, "-C", str(partial), "cat-file", "-e", object_id],
+                check=False,
+                capture_output=True,
+                env=no_lazy_environment,
+            ).returncode
+            != 0
+        )
 
 
 class TestIsElf:
