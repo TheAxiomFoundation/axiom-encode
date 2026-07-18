@@ -7602,7 +7602,7 @@ def _secure_eval_read(root: Path, relative_path: Path) -> bytes:
         parent_fd,
         target_name,
     ):
-        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
         file_fd = os.open(target_name, flags, dir_fd=parent_fd)
         try:
             metadata = os.fstat(file_fd)
@@ -7739,6 +7739,14 @@ def _expand_louisiana_title_section_tail(
 
     if jurisdiction != "us-la" or root != "statutes" or not tail:
         return tail
+    if any(
+        not component
+        or component.startswith(".")
+        or component.endswith(".")
+        or ".." in component
+        for component in tail
+    ):
+        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
     title_section = tail[0]
     if any(":" in component for component in tail[1:]):
         raise ValueError(f"Invalid Louisiana statute path: {tail!r}")

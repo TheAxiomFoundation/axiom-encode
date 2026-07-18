@@ -77,6 +77,7 @@ from axiom_encode.harness.evals import (
     _rulespec_validation_target,
     _run_claude_prompt_eval,
     _run_codex_prompt_eval,
+    _secure_eval_read,
     _select_cross_section_context_files,
     _slugify,
     _source_identifier_to_relative_rulespec_path,
@@ -2150,6 +2151,13 @@ def test_contained_eval_output_file_rejects_runner_root_escape(tmp_path):
 def test_contained_eval_output_file_rejects_output_root_escape(tmp_path):
     with pytest.raises(ValueError, match="runner path escapes output root"):
         _contained_eval_output_file(tmp_path, "../outside", Path("artifact.yaml"))
+
+
+def test_secure_eval_read_rejects_fifo_without_blocking(tmp_path):
+    os.mkfifo(tmp_path / "artifact.yaml")
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        _secure_eval_read(tmp_path, Path("artifact.yaml"))
 
 
 def test_contained_eval_output_file_preserves_lexical_target_symlink(tmp_path):

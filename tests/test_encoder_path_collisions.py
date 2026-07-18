@@ -43,6 +43,7 @@ from tests.release_object_fixtures import bind_test_corpus_release
     [
         ("us-la/statute/47:294", "us-la/statute/47:.294"),
         ("us-la/statute/47:294.4", "us-la/statute/47:294..4"),
+        ("us-la/statute/47:294.4", "us-la/statute/47/294..4"),
     ],
 )
 def test_louisiana_malformed_dotted_identity_cannot_alias_valid_path(
@@ -50,7 +51,7 @@ def test_louisiana_malformed_dotted_identity_cannot_alias_valid_path(
     malformed,
 ):
     assert _resolve_eval_output_path(valid).suffix == ".yaml"
-    with pytest.raises(ValueError, match="Invalid Louisiana title:section"):
+    with pytest.raises(ValueError, match="Invalid Louisiana"):
         _resolve_eval_output_path(malformed)
 
 
