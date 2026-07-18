@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -53,6 +54,7 @@ from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
     citation_to_relative_rulespec_path,
+    normalize_rulespec_path_segment,
     parse_usc_citation,
 )
 from axiom_encode.toolchain import (
@@ -4965,8 +4967,10 @@ def select_context_files(
     )
     if statutes_root is None:
         return []
+    title = normalize_rulespec_path_segment(parts.title)
+    section = normalize_rulespec_path_segment(parts.section)
     section_root = validate_rulespec_context_directory(
-        statutes_root / parts.title / parts.section,
+        statutes_root / title / section,
         repo_root,
     )
     target_rel = citation_to_relative_rulespec_path(parts)
@@ -4985,7 +4989,7 @@ def select_context_files(
 
     if not candidates:
         title_root = validate_rulespec_context_directory(
-            statutes_root / parts.title,
+            statutes_root / title,
             repo_root,
         )
         if title_root is not None:
@@ -5078,6 +5082,7 @@ def prepare_eval_workspace(
         provision_metadata_file.write_text(provision_metadata_text + "\n")
 
     review_findings_files: list[EvalContextFile] = []
+    review_findings_evidence: list[dict[str, object]] = []
     for index, raw_path in enumerate(review_findings_paths or [], start=1):
         source_path = validate_explicit_context_file(
             Path(raw_path),
@@ -5089,22 +5094,37 @@ def prepare_eval_workspace(
             raise ValueError(
                 f"Review findings file is not valid UTF-8 text: {source_path}"
             ) from exc
-        if not findings_text.strip():
+        normalized_findings_text = findings_text.replace("\r\n", "\n").replace(
+            "\r", "\n"
+        )
+        if not normalized_findings_text.strip():
             raise ValueError(f"Review findings file is empty: {source_path}")
         workspace_relative_path = (
             Path("review-findings") / f"{index:02d}-{source_path.name}"
         )
         workspace_path = workspace_root / workspace_relative_path
         workspace_path.parent.mkdir(parents=True, exist_ok=True)
-        workspace_path.write_text(findings_text)
-        review_findings_files.append(
-            EvalContextFile(
-                source_path=str(source_path),
-                workspace_path=str(workspace_relative_path),
-                import_path=str(workspace_relative_path),
-                kind="mandatory_review_findings",
-                label=source_path.name,
-            )
+        workspace_path.write_text(
+            normalized_findings_text,
+            encoding="utf-8",
+            newline="",
+        )
+        context_file = EvalContextFile(
+            source_path=str(source_path),
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label=source_path.name,
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": normalized_findings_text,
+                "sha256": hashlib.sha256(
+                    normalized_findings_text.encode("utf-8")
+                ).hexdigest(),
+            }
         )
 
     context_files: list[EvalContextFile] = []
@@ -5232,9 +5252,7 @@ def prepare_eval_workspace(
                     else None
                 ),
                 "context_files": [asdict(item) for item in context_files],
-                "review_findings_files": [
-                    asdict(item) for item in review_findings_files
-                ],
+                "review_findings_files": review_findings_evidence,
             },
             indent=2,
             sort_keys=True,
@@ -6130,8 +6148,7 @@ def _target_rel_for_eval_identifier(citation: str) -> Path | None:
     if ":" in first_part:
         _jurisdiction, source_root = first_part.split(":", 1)
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
-            rest = normalized.split(":", 1)[1]
-            return _source_identifier_to_relative_rulespec_path(rest)
+            return _source_identifier_to_relative_rulespec_path(normalized)
     if _looks_like_corpus_citation_path(normalized):
         return _source_identifier_to_relative_rulespec_path(normalized)
     try:
@@ -7031,8 +7048,10 @@ def _run_prompt_eval_with_empty_artifact_retry(
     target_file_name: str,
     include_tests: bool,
     policyengine_rule_hint: str | None = None,
-) -> tuple[EvalPromptResponse, bool, int]:
+    artifact_root: Path | None = None,
+) -> tuple[EvalPromptResponse, bool, int, frozenset[Path]]:
     """Run an eval and retry once if no RuleSpec artifact can be materialized."""
+    materialized_paths: set[Path] = set()
     response = _run_prompt_eval(runner, workspace, prompt)
     wrote_artifact = _materialize_eval_artifact(
         response.text,
@@ -7040,9 +7059,11 @@ def _run_prompt_eval_with_empty_artifact_retry(
         source_text=source_text,
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
+        artifact_root=artifact_root,
+        materialized_paths=materialized_paths,
     )
     if wrote_artifact or not _response_allows_empty_artifact_retry(response):
-        return response, wrote_artifact, 0
+        return response, wrote_artifact, 0, frozenset(materialized_paths)
 
     retry_prompt = _build_empty_artifact_retry_prompt(
         prompt,
@@ -7056,11 +7077,14 @@ def _run_prompt_eval_with_empty_artifact_retry(
         source_text=source_text,
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
+        artifact_root=artifact_root,
+        materialized_paths=materialized_paths,
     )
     return (
         _combine_retry_response(response, retry_response, retry_prompt),
         retry_wrote_artifact,
         1,
+        frozenset(materialized_paths),
     )
 
 
@@ -7138,30 +7162,40 @@ def _run_single_eval(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    output_file = Path(output_root) / runner.name / relative_output
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
-        runner=runner,
-        workspace=workspace,
-        prompt=prompt,
-        output_file=output_file,
-        source_text=source_text,
-        target_file_name=relative_output.name,
-        include_tests=include_tests,
-        policyengine_rule_hint=policyengine_rule_hint,
+    output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
+    response, wrote_artifact, retry_count, materialized_paths = (
+        _run_prompt_eval_with_empty_artifact_retry(
+            runner=runner,
+            workspace=workspace,
+            prompt=prompt,
+            output_file=output_file,
+            source_text=source_text,
+            target_file_name=relative_output.name,
+            include_tests=include_tests,
+            policyengine_rule_hint=policyengine_rule_hint,
+            artifact_root=artifact_root,
+        )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        protected_paths = [relative_output]
+        if _rulespec_test_path(output_file) in materialized_paths:
+            protected_paths.append(_rulespec_test_path(relative_output))
+        _hydrate_eval_root(eval_root, workspace, protected_paths=protected_paths)
 
-    trace_file = (
-        Path(output_root) / "traces" / runner.name / f"{_slugify(citation)}.json"
+    trace_relative = Path("traces") / runner.name / f"{_slugify(citation)}.json"
+    trace_file = Path(output_root).resolve() / trace_relative
+    _secure_atomic_eval_write(
+        Path(output_root).resolve(),
+        trace_relative,
+        json.dumps(response.trace or {}, indent=2, sort_keys=True).encode("utf-8"),
     )
-    trace_file.parent.mkdir(parents=True, exist_ok=True)
-    trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7191,7 +7225,7 @@ def _run_single_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7309,33 +7343,42 @@ def _run_single_source_eval(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    output_file = Path(output_root) / runner.name / relative_output
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
-        runner=runner,
-        workspace=workspace,
-        prompt=prompt,
-        output_file=output_file,
-        source_text=source_text,
-        target_file_name=relative_output.name,
-        include_tests=True,
-        policyengine_rule_hint=policyengine_rule_hint,
+    output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
+    response, wrote_artifact, retry_count, materialized_paths = (
+        _run_prompt_eval_with_empty_artifact_retry(
+            runner=runner,
+            workspace=workspace,
+            prompt=prompt,
+            output_file=output_file,
+            source_text=source_text,
+            target_file_name=relative_output.name,
+            include_tests=True,
+            policyengine_rule_hint=policyengine_rule_hint,
+            artifact_root=artifact_root,
+        )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        protected_paths = [relative_output]
+        if _rulespec_test_path(output_file) in materialized_paths:
+            protected_paths.append(_rulespec_test_path(relative_output))
+        _hydrate_eval_root(eval_root, workspace, protected_paths=protected_paths)
 
-    trace_file = (
-        Path(output_root)
-        / "traces"
-        / runner.name
-        / f"{_slugify(source_identifier)}.json"
+    trace_relative = (
+        Path("traces") / runner.name / f"{_slugify(source_identifier)}.json"
     )
-    trace_file.parent.mkdir(parents=True, exist_ok=True)
-    trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
+    trace_file = Path(output_root).resolve() / trace_relative
+    _secure_atomic_eval_write(
+        Path(output_root).resolve(),
+        trace_relative,
+        json.dumps(response.trace or {}, indent=2, sort_keys=True).encode("utf-8"),
+    )
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7365,7 +7408,7 @@ def _run_single_source_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7439,6 +7482,227 @@ def _resolve_eval_output_path(
     )
 
 
+def _contained_eval_output_file(
+    output_root: Path,
+    runner_name: str,
+    relative_output: Path,
+) -> Path:
+    """Resolve an eval artifact path and require runner-root containment."""
+
+    resolved_output_root = Path(output_root).resolve()
+    runner_relative = Path(runner_name)
+    relative = Path(relative_output)
+    if runner_relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in runner_relative.parts
+    ):
+        raise ValueError(f"Eval runner path escapes output root: {runner_name!r}")
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError(
+            f"Eval output path escapes runner root: {relative_output.as_posix()!r}"
+        )
+    return resolved_output_root / runner_relative / relative
+
+
+@contextlib.contextmanager
+def _open_secure_eval_parent(
+    root: Path,
+    relative_path: Path,
+    *,
+    create: bool,
+) -> Iterator[tuple[int, str]]:
+    """Open a symlink-free parent directory beneath one trusted eval root."""
+
+    relative = Path(relative_path)
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError(f"Unsafe eval artifact path: {relative.as_posix()!r}")
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise RuntimeError(
+            "Secure eval artifact writes require O_NOFOLLOW and O_DIRECTORY"
+        )
+    directory_flags = os.O_RDONLY | os.O_CLOEXEC | nofollow | directory
+    descriptors: list[int] = []
+    try:
+        current_fd = os.open(Path(root), directory_flags)
+        descriptors.append(current_fd)
+        for component in relative.parts[:-1]:
+            try:
+                child_fd = os.open(component, directory_flags, dir_fd=current_fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    os.mkdir(component, 0o755, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+                child_fd = os.open(component, directory_flags, dir_fd=current_fd)
+            descriptors.append(child_fd)
+            current_fd = child_fd
+        yield current_fd, relative.name
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def _secure_atomic_eval_write(root: Path, relative_path: Path, raw: bytes) -> None:
+    """Atomically write bytes beneath an eval root without following symlinks."""
+
+    if not isinstance(raw, bytes):
+        raise TypeError("Eval artifact payload must be bytes")
+    _ensure_secure_eval_root(root)
+    with _open_secure_eval_parent(root, relative_path, create=True) as (
+        parent_fd,
+        target_name,
+    ):
+        temporary_name: str | None = None
+        temporary_fd: int | None = None
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+        try:
+            for _attempt in range(100):
+                candidate = f".{target_name}.{os.urandom(16).hex()}.tmp"
+                try:
+                    temporary_fd = os.open(candidate, flags, 0o600, dir_fd=parent_fd)
+                except FileExistsError:
+                    continue
+                temporary_name = candidate
+                break
+            if temporary_fd is None or temporary_name is None:
+                raise OSError("Could not reserve a temporary eval artifact")
+            remaining = memoryview(raw)
+            while remaining:
+                written = os.write(temporary_fd, remaining)
+                if written <= 0:
+                    raise OSError("short write while materializing eval artifact")
+                remaining = remaining[written:]
+            os.fsync(temporary_fd)
+            os.close(temporary_fd)
+            temporary_fd = None
+            os.replace(
+                temporary_name,
+                target_name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+            temporary_name = None
+            os.fsync(parent_fd)
+        finally:
+            if temporary_fd is not None:
+                os.close(temporary_fd)
+            if temporary_name is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(temporary_name, dir_fd=parent_fd)
+
+
+def _ensure_secure_eval_root(root: Path) -> None:
+    """Create one eval root beneath its parent and reject a root symlink."""
+
+    resolved = Path(os.path.abspath(root))
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise RuntimeError(
+            "Secure eval artifact writes require O_NOFOLLOW and O_DIRECTORY"
+        )
+    flags = os.O_RDONLY | os.O_CLOEXEC | nofollow | directory
+    try:
+        root_fd = os.open(resolved, flags)
+    except FileNotFoundError:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        parent_fd = os.open(resolved.parent, flags)
+        try:
+            try:
+                os.mkdir(resolved.name, 0o755, dir_fd=parent_fd)
+            except FileExistsError:
+                pass
+            root_fd = os.open(resolved.name, flags, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+    os.close(root_fd)
+
+
+def _secure_eval_read(root: Path, relative_path: Path) -> bytes:
+    """Read one regular eval artifact through a symlink-free descriptor walk."""
+
+    with _open_secure_eval_parent(root, relative_path, create=False) as (
+        parent_fd,
+        target_name,
+    ):
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        file_fd = os.open(target_name, flags, dir_fd=parent_fd)
+        try:
+            metadata = os.fstat(file_fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(
+                    f"Eval artifact is not a regular file: {relative_path.as_posix()}"
+                )
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(file_fd, 1024 * 1024)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+        finally:
+            os.close(file_fd)
+
+
+def _eval_artifact_write_location(
+    target_path: Path,
+    artifact_root: Path | None,
+) -> tuple[Path, Path]:
+    """Return the trusted root and lexical relative path for one artifact."""
+
+    target = Path(os.path.abspath(target_path))
+    if artifact_root is None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target.parent, Path(target.name)
+    root = Path(os.path.abspath(artifact_root))
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Eval artifact target is outside output root: {target}"
+        ) from exc
+    return root, relative
+
+
+def _write_eval_artifact_text(
+    target_path: Path,
+    content: str,
+    artifact_root: Path | None,
+) -> None:
+    root, relative = _eval_artifact_write_location(target_path, artifact_root)
+    _secure_atomic_eval_write(root, relative, content.encode("utf-8"))
+
+
+def _clear_eval_target_artifacts(expected_path: Path, artifact_root: Path) -> None:
+    """Remove stale main and companion artifacts without following symlinks."""
+
+    for target_path in (expected_path, _rulespec_test_path(expected_path)):
+        root, relative = _eval_artifact_write_location(target_path, artifact_root)
+        _ensure_secure_eval_root(root)
+        try:
+            with _open_secure_eval_parent(root, relative, create=False) as (
+                parent_fd,
+                target_name,
+            ):
+                try:
+                    os.unlink(target_name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    continue
+                os.fsync(parent_fd)
+        except FileNotFoundError:
+            continue
+
+
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
     """Return the canonical requested path bound by the resolver attestation."""
 
@@ -7448,19 +7712,30 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
-    Each path segment is treated as a directory and a dot inside the leaf
-    segment is treated as a further nesting separator (CDSS-style numbering
-    like ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
+    Unicode dash punctuation is normalized only in the returned filesystem
+    path; the authoritative source identifier remains unchanged. Each path
+    segment is treated as a directory and a dot inside the leaf segment is
+    treated as a further nesting separator (CDSS-style numbering like
+    ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
     ``with_suffix`` pitfall where a dotted leaf would be silently truncated
     to a section-level path and collide with sibling subsections at apply
     time (issue #71).
     """
-    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    parts = [
+        normalize_rulespec_path_segment(part)
+        for part in source_id.strip().strip("/").split("/")
+        if part
+    ]
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError(
+            f"Unsafe RuleSpec path component in source identifier: {source_id!r}"
+        )
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
             tail = parts[1:]
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
+            tail = _expand_louisiana_title_section_tail(jurisdiction, root, tail)
             if (
                 tail
                 and jurisdiction == "us"
@@ -7488,6 +7763,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
             tail = parts[2:]
+            tail = _expand_louisiana_title_section_tail(parts[0], root, tail)
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
             if parts[0] == "uk":
@@ -7497,6 +7773,43 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
                     return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
                 return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
+
+
+def _expand_louisiana_title_section_tail(
+    jurisdiction: str,
+    root: str,
+    tail: list[str],
+) -> list[str]:
+    """Expand Louisiana statute ``title:section`` labels into path components."""
+
+    if jurisdiction != "us-la" or root != "statutes" or not tail:
+        return tail
+    if any(
+        not component
+        or component.startswith(".")
+        or component.endswith(".")
+        or ".." in component
+        for component in tail
+    ):
+        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
+    title_section = tail[0]
+    if any(":" in component for component in tail[1:]):
+        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
+    if ":" not in title_section:
+        return tail
+    components = title_section.split(":")
+    expanded = [*components, *tail[1:]]
+    if len(components) != 2 or any(
+        not component
+        or component.startswith(".")
+        or component.endswith(".")
+        or ".." in component
+        for component in expanded
+    ):
+        raise ValueError(
+            f"Invalid Louisiana title:section statute segment: {title_section!r}"
+        )
+    return expanded
 
 
 def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
@@ -11534,18 +11847,37 @@ def _relative_to_root(path: Path, root: Path) -> Path | None:
         return None
 
 
-def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
+def _hydrate_eval_root(
+    eval_root: Path,
+    workspace: EvalWorkspace,
+    *,
+    protected_paths: Sequence[Path] = (),
+) -> None:
     """Copy allowed precedent files into the eval root so imports resolve."""
 
-    def copy_context(source: Path, target: Path) -> None:
-        if target.exists():
-            if target.read_bytes() != source.read_bytes():
+    protected = {Path(path) for path in protected_paths}
+    if any(
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        for path in protected
+    ):
+        raise ValueError("Protected eval artifact paths must be canonical and relative")
+
+    def copy_context(source: Path, target_relative: Path) -> None:
+        source_raw = source.read_bytes()
+        try:
+            existing_raw = _secure_eval_read(eval_root, target_relative)
+        except FileNotFoundError:
+            existing_raw = None
+        if existing_raw is not None:
+            if existing_raw != source_raw:
                 raise ValueError(
-                    f"Conflicting eval context files target the same path: {target}"
+                    "Conflicting eval context files target the same path: "
+                    f"{eval_root / target_relative}"
                 )
             return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        _secure_atomic_eval_write(eval_root, target_relative, source_raw)
 
     for item in workspace.context_files:
         workspace_path = Path(item.workspace_path)
@@ -11553,6 +11885,8 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
             continue
 
         target_relative = _import_target_to_path(item.import_path)
+        if target_relative in protected:
+            continue
         source = workspace.root / workspace_path
         prefix = _import_target_prefix(item.import_path)
         if prefix and prefix != workspace.policy_prefix:
@@ -11560,7 +11894,7 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
             # canonical dependency roots. Never materialize a hidden `_axiom`
             # checkout inside generated output.
             continue
-        copy_context(source, eval_root / target_relative)
+        copy_context(source, target_relative)
 
 
 def _run_prompt_eval(
@@ -13370,6 +13704,8 @@ def _materialize_eval_artifact(
     source_text: str | None = None,
     workspace_root: Path | None = None,
     policyengine_rule_hint: str | None = None,
+    artifact_root: Path | None = None,
+    materialized_paths: set[Path] | None = None,
 ) -> bool:
     """Write an eval artifact and optional companion test file from model output."""
     single_amount_table_slice = bool(
@@ -13385,6 +13721,8 @@ def _materialize_eval_artifact(
             single_amount_table_slice=single_amount_table_slice,
             source_text=source_text,
             policyengine_rule_hint=policyengine_rule_hint,
+            artifact_root=artifact_root,
+            materialized_paths=materialized_paths,
         )
         if wrote_from_workspace:
             return True
@@ -13483,11 +13821,12 @@ def _materialize_eval_artifact(
                     content,
                     rule_names=stripped_test_output_names,
                 )
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(content)
+            _write_eval_artifact_text(target_path, content, artifact_root)
+            if materialized_paths is not None:
+                materialized_paths.add(target_path)
             if target_path == expected_path:
                 wrote_main = True
-        if wrote_main or expected_path.exists():
+        if wrote_main:
             return True
 
     rulespec_content = _extract_rulespec_content(llm_response)
@@ -13503,8 +13842,9 @@ def _materialize_eval_artifact(
     except ValueError:
         return False
 
-    expected_path.parent.mkdir(parents=True, exist_ok=True)
-    expected_path.write_text(rulespec_content)
+    _write_eval_artifact_text(expected_path, rulespec_content, artifact_root)
+    if materialized_paths is not None:
+        materialized_paths.add(expected_path)
     return True
 
 
@@ -13515,6 +13855,8 @@ def _materialize_workspace_artifacts(
     single_amount_table_slice: bool,
     source_text: str | None,
     policyengine_rule_hint: str | None = None,
+    artifact_root: Path | None = None,
+    materialized_paths: set[Path] | None = None,
 ) -> bool:
     """Salvage eval artifacts that a model wrote directly into the workspace."""
     workspace_main = workspace_root / expected_path.name
@@ -13538,8 +13880,9 @@ def _materialize_workspace_artifacts(
     )
     stripped_test_output_names.update(_indexed_parameter_rule_names(main_content))
 
-    expected_path.parent.mkdir(parents=True, exist_ok=True)
-    expected_path.write_text(main_content)
+    _write_eval_artifact_text(expected_path, main_content, artifact_root)
+    if materialized_paths is not None:
+        materialized_paths.add(expected_path)
 
     if workspace_test.exists():
         test_content = workspace_test.read_text()
@@ -13570,7 +13913,9 @@ def _materialize_workspace_artifacts(
             test_content,
             rule_names=stripped_test_output_names,
         )
-        expected_test_path.write_text(test_content)
+        _write_eval_artifact_text(expected_test_path, test_content, artifact_root)
+        if materialized_paths is not None:
+            materialized_paths.add(expected_test_path)
 
     return True
 

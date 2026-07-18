@@ -152,6 +152,7 @@ from .harness.evals import (
     _bind_eval_result_payload,
     _build_eval_suite_execution_identity,
     _build_eval_suite_manifest_identity,
+    _deterministic_tree_identity,
     _eval_artifact_validation_error,
     _eval_result_from_payload,
     _eval_suite_case_corpus_citation_path,
@@ -240,10 +241,16 @@ from .oracles.policyengine.pending import (
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .program_scope import ProgramScopeError, sync_program_scope
+from .proof_hash_migration import (
+    apply_proof_hash_cascade,
+    build_proof_hash_cascade_plan,
+    render_proof_hash_cascade_plan,
+)
 from .repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
+    inspect_canonical_rulespec_checkout,
     is_composition_policy_repo_root,
     jurisdiction_content_dir,
     jurisdiction_subdir_names,
@@ -1082,6 +1089,45 @@ def main():
     )
     migration_inventory_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
+    proof_hash_cascade_parser = subparsers.add_parser(
+        "migration-cascade-proof-hashes",
+        help=(
+            "Cascade proof-import hashes changed by a base-bound repository migration"
+        ),
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--root",
+        required=True,
+        type=Path,
+        help="Clean canonical rulespec-<country> checkout",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--base-ref",
+        required=True,
+        help="Ancestor commit whose target hashes must match every rewritten hash",
+    )
+    proof_hash_cascade_mode = proof_hash_cascade_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    proof_hash_cascade_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Report eligible migration-induced stale hashes without writing",
+    )
+    proof_hash_cascade_mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="Rewrite only exact base-matching hashes and write an audit report",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--report",
+        type=Path,
+        help="Required with --apply; JSON path under .axiom/migrations",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable output"
     )
 
     interval_table_audit_parser = subparsers.add_parser(
@@ -2358,6 +2404,8 @@ def main():
         cmd_normalize_proof_atom_kinds(args)
     elif args.command == "migration-inventory":
         cmd_migration_inventory(args)
+    elif args.command == "migration-cascade-proof-hashes":
+        sys.exit(cmd_migration_cascade_proof_hashes(args))
     elif args.command == "interval-table-audit":
         cmd_interval_table_audit(args)
     elif args.command == "oracle-coverage":
@@ -5072,6 +5120,33 @@ def cmd_migration_inventory(args):
             )
         print(f"{len(rows)} module citation failure(s).")
     raise SystemExit(1)
+
+
+def cmd_migration_cascade_proof_hashes(args) -> int:
+    """Audit or apply proof hashes caused by an exact ancestor migration."""
+    if args.apply and args.report is None:
+        print("--report is required with --apply", file=sys.stderr)
+        return 2
+    if args.check and args.report is not None:
+        print("--report is only valid with --apply", file=sys.stderr)
+        return 2
+    try:
+        plan = build_proof_hash_cascade_plan(args.root, args.base_ref)
+        if args.check:
+            print(render_proof_hash_cascade_plan(plan, as_json=args.json))
+            return 1 if plan.eligible else 0
+        payload = apply_proof_hash_cascade(plan, args.report)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"proof hash cascade failed: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"eligible_replacements={payload['eligible_replacements']}")
+        print(f"ignored_mismatches={payload['ignored_mismatches']}")
+        print(f"applied_files={len(payload['applied_files'])}")
+        print(f"report={args.report}")
+    return 0
 
 
 def cmd_interval_table_audit(args):
@@ -18455,6 +18530,27 @@ def _is_axiom_encode_versioned_path(path: str) -> bool:
 
 
 def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
+    if os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT"):
+        identity = _apply_encoder_execution_identity()
+        root = identity.get("path")
+        commit = identity.get("commit")
+        if (
+            identity.get("kind") != "git"
+            or identity.get("dirty") is not False
+            or not isinstance(root, str)
+            or not isinstance(commit, str)
+        ):
+            raise RuntimeError(
+                "Cannot apply generated RuleSpec from an uncommitted encoder execution"
+            )
+        version_provenance = _require_axiom_encode_version_provenance(Path(root))
+        return {
+            "root": root,
+            "commit": commit,
+            "dirty_tracked": False,
+            **version_provenance,
+        }
+
     provenance = _git_repo_provenance(_axiom_encode_repo_root())
     if provenance is None or not provenance.get("commit"):
         raise RuntimeError(
@@ -18574,13 +18670,21 @@ def cmd_encode(args):
                 args.policy_repo_path,
                 label="RuleSpec checkout",
             )
+            checkout_inspection = inspect_canonical_rulespec_checkout(
+                policy_checkout_path,
+                allow_composition_specs=True,
+            )
             if (
                 canonical_rulespec_repo_name(policy_checkout_path)
                 != policy_checkout_path.name
             ):
+                rejection = (
+                    checkout_inspection.rejection or "repository-context-mismatch"
+                )
                 raise ValueError(
                     "encode --apply requires the exact canonical "
-                    "rulespec-<country> checkout"
+                    "rulespec-<country> checkout "
+                    f"(rejection: {rejection})"
                 )
             # Recovery needs no signing capability and must happen before any
             # model, corpus, or live-checkout preflight consumes partial state.
@@ -37005,11 +37109,7 @@ def _apply_validation_execution_identity(
     engine = Path(axiom_rules_path).resolve()
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependencies = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
-    encoder = _git_checkout_execution_identity(
-        Path(__file__).resolve().parents[2],
-        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
-    )
-    encoder["version"] = __version__
+    encoder = _apply_encoder_execution_identity()
     return {
         "axiom_encode_identity": encoder,
         "axiom_rules_path": str(engine),
@@ -37021,6 +37121,84 @@ def _apply_validation_execution_identity(
             _apply_dependency_checkout_identity(path) for path in dependencies
         ],
     }
+
+
+def _apply_encoder_execution_identity() -> dict[str, object]:
+    """Bind apply provenance to this checkout or the verified CI source checkout."""
+
+    checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
+    checkout_root = Path(__file__).resolve().parents[2]
+    expected_ci_sha: str | None = None
+    if checkout_override:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT is only allowed in GitHub Actions"
+            )
+        workspace = os.environ.get("GITHUB_WORKSPACE")
+        github_sha = os.environ.get("GITHUB_SHA")
+        if (
+            not workspace
+            or not github_sha
+            or re.fullmatch(r"[0-9a-f]{40}", github_sha) is None
+        ):
+            raise RuntimeError("GitHub Actions encoder checkout identity is incomplete")
+        expected_checkout = Path(os.path.abspath(workspace)) / "axiom-encode"
+        checkout_root = Path(os.path.abspath(checkout_override))
+        try:
+            canonical_checkout = checkout_root.resolve(strict=True)
+        except OSError as exc:
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT is not a readable checkout"
+            ) from exc
+        if (
+            checkout_root != expected_checkout
+            or canonical_checkout != checkout_root
+            or not canonical_checkout.is_dir()
+        ):
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT must be the canonical, symlink-free "
+                "workflow axiom-encode checkout"
+            )
+        expected_ci_sha = github_sha
+
+    encoder = _git_checkout_execution_identity(
+        checkout_root,
+        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
+    )
+    if expected_ci_sha is not None:
+        if encoder.get("path") != str(checkout_root.resolve(strict=True)):
+            raise RuntimeError(
+                "Workflow encoder checkout must be the Git repository top level"
+            )
+        if encoder.get("commit") != expected_ci_sha:
+            raise RuntimeError("Workflow encoder checkout does not match GITHUB_SHA")
+        versions = _axiom_encode_versions_at_ref(checkout_root, "HEAD")
+        if any(
+            versions.get(field) != __version__
+            for field in ("pyproject", "package", "lock")
+        ):
+            raise RuntimeError(
+                "Provisioned encoder version does not match the workflow checkout"
+            )
+        checkout_package = _deterministic_tree_identity(
+            checkout_root / "src" / "axiom_encode",
+            excluded_directory_names=frozenset({"__pycache__"}),
+        )
+        runtime_package = _deterministic_tree_identity(
+            Path(__file__).resolve().parent,
+            excluded_directory_names=frozenset({"__pycache__"}),
+        )
+        if (
+            checkout_package.get("state") != "directory"
+            or runtime_package.get("state") != "directory"
+            or checkout_package.get("file_count") != runtime_package.get("file_count")
+            or checkout_package.get("tree_sha256") != runtime_package.get("tree_sha256")
+        ):
+            raise RuntimeError(
+                "Provisioned encoder package bytes do not match the workflow checkout"
+            )
+    encoder["version"] = __version__
+    return encoder
 
 
 def _portable_clean_apply_git_identity(

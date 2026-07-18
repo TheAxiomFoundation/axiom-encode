@@ -48,9 +48,11 @@ from axiom_encode.harness.evals import (
     _canonical_rulespec_target_for_path,
     _canonical_target_ref_prefix,
     _clean_generated_file_content,
+    _clear_eval_target_artifacts,
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
     _command_uses_policyengine_skill,
+    _contained_eval_output_file,
     _context_file_executable_surfaces,
     _context_import_target,
     _eval_result_from_payload,
@@ -76,10 +78,12 @@ from axiom_encode.harness.evals import (
     _rulespec_validation_target,
     _run_claude_prompt_eval,
     _run_codex_prompt_eval,
+    _secure_eval_read,
     _select_cross_section_context_files,
     _slugify,
     _source_identifier_to_relative_rulespec_path,
     _source_metadata_citation_path,
+    _target_rel_for_eval_identifier,
     _target_source_scope_for_heuristics,
     _validate_eval_result_artifacts,
     _validate_eval_suite_execution_identity,
@@ -110,6 +114,7 @@ from axiom_encode.harness.validator_pipeline import (
 )
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
+from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
 from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
 )
@@ -1928,6 +1933,13 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
             "us-co/statute/39/39-22-104/1.5",
             "statutes/39/39-22-104/1.5.yaml",
         ),
+        # Louisiana's corpus preserves the official R.S. title:section label,
+        # while RuleSpec represents the separator as a directory boundary.
+        ("us-la/statute/47:294", "statutes/47/294.yaml"),
+        ("us-la/statute/47:297.4", "statutes/47/297/4.yaml"),
+        # Colon expansion is a Louisiana source convention, not a generic
+        # rewrite for every jurisdiction.
+        ("us-tx/statute/1:2", "statutes/1:2.yaml"),
         # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
         # are regression cases for the dot-stripping fix.
         (
@@ -1952,6 +1964,45 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
 )
 def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
     assert str(_source_identifier_to_relative_rulespec_path(citation)) == expected
+
+
+@pytest.mark.parametrize(
+    "dash",
+    [
+        "\u2010",
+        "\u2011",
+        "\u2012",
+        "\u2013",
+        "\u2014",
+        "\u2015",
+        "\u2212",
+        "\ufe58",
+        "\ufe63",
+        "\uff0d",
+    ],
+)
+def test_source_identifier_normalizes_unicode_dashes_only_in_output_path(dash):
+    citation = f"us/statute/42/1437c{dash}1"
+
+    assert _source_identifier_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1.yaml"
+    )
+
+
+def test_slash_usc_alias_normalizes_unicode_dash_in_output_path():
+    assert _resolve_eval_output_path(
+        "42/1437c\u20131",
+        fallback=citation_to_relative_rulespec_path,
+    ) == Path("statutes/42/1437c-1.yaml")
+
+
+def test_structured_usc_citation_normalizes_only_output_path():
+    citation = CitationParts(title="42", section="1437c\u20131", fragments=("d",))
+
+    assert citation_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1/d.yaml"
+    )
+    assert citation.section == "1437c\u20131"
 
 
 @pytest.mark.parametrize(
@@ -2047,6 +2098,93 @@ def test_resolve_eval_output_path_rejects_free_text_source_identity():
 
 def test_resolve_eval_output_path_uses_exact_canonical_path():
     assert _resolve_eval_output_path("us/statute/26/63") == Path("statutes/26/63.yaml")
+
+
+@pytest.mark.parametrize(
+    "citation,expected",
+    [
+        ("us-la/statute/47:294", "statutes/47/294.yaml"),
+        ("us-la/statute/47:297.4", "statutes/47/297/4.yaml"),
+    ],
+)
+def test_resolve_eval_output_path_expands_louisiana_title_section_separator(
+    citation, expected
+):
+    assert _resolve_eval_output_path(citation) == Path(expected)
+
+
+def test_resolve_eval_output_path_rejects_empty_colon_statute_component():
+    with pytest.raises(ValueError, match="Invalid Louisiana title:section"):
+        _resolve_eval_output_path("us-la/statute/47::294")
+
+
+def test_target_rel_preserves_colon_prefixed_louisiana_jurisdiction():
+    assert _target_rel_for_eval_identifier("us-la:statute/47:294") == Path(
+        "statutes/47/294.yaml"
+    )
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us-la/statute/47:..",
+        "us-la/statute/47:294/../outside",
+        "us-la/statute/47:294:outside",
+        "us-la/statute/47:294/sub:section",
+        "us-la/statute/47:.294",
+        "us-la/statute/47:294.",
+        "us-la/statute/47:294..4",
+        "us-la/statute/47:294/.subsection",
+        "us-la/statute/47:294/subsection.",
+        "us-la/statute/47:294/sub..section",
+    ],
+)
+def test_resolve_eval_output_path_rejects_unsafe_louisiana_components(citation):
+    with pytest.raises(ValueError):
+        _resolve_eval_output_path(citation)
+
+
+def test_contained_eval_output_file_rejects_runner_root_escape(tmp_path):
+    with pytest.raises(ValueError, match="escapes runner root"):
+        _contained_eval_output_file(tmp_path, "runner", Path("../../outside.yaml"))
+
+
+def test_contained_eval_output_file_rejects_output_root_escape(tmp_path):
+    with pytest.raises(ValueError, match="runner path escapes output root"):
+        _contained_eval_output_file(tmp_path, "../outside", Path("artifact.yaml"))
+
+
+def test_secure_eval_read_rejects_fifo_without_blocking(tmp_path):
+    os.mkfifo(tmp_path / "artifact.yaml")
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        _secure_eval_read(tmp_path, Path("artifact.yaml"))
+
+
+def test_contained_eval_output_file_preserves_lexical_target_symlink(tmp_path):
+    runner_root = tmp_path / "runner"
+    canonical = runner_root / "statutes" / "26" / "1.yaml"
+    requested = runner_root / "statutes" / "47" / "294.yaml"
+    canonical.parent.mkdir(parents=True)
+    requested.parent.mkdir(parents=True)
+    canonical.write_text("canonical sentinel\n", encoding="utf-8")
+    requested.symlink_to(canonical)
+
+    output_file = _contained_eval_output_file(
+        tmp_path,
+        "runner",
+        Path("statutes/47/294.yaml"),
+    )
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+        artifact_root=tmp_path,
+    )
+
+    assert wrote is True
+    assert output_file == requested
+    assert not requested.is_symlink()
+    assert canonical.read_text(encoding="utf-8") == "canonical sentinel\n"
 
 
 class TestCorpusSourceResolution:
@@ -3313,6 +3451,7 @@ rules:
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
     output_file = tmp_path / "runner" / "source" / "tn-snap.yaml"
+    materialized_paths: set[Path] = set()
     llm_response = """=== FILE: tn-snap.yaml ===
 format: rulespec/v1
 module:
@@ -3339,12 +3478,118 @@ rules:
         llm_response,
         output_file,
         source_text="The standard utility allowance is $451.",
+        materialized_paths=materialized_paths,
     )
 
     assert wrote is True
     assert output_file.exists()
     assert output_file.with_name("tn-snap.test.yaml").exists()
     assert output_file.read_text().startswith("format: rulespec/v1")
+    assert materialized_paths == {
+        output_file,
+        output_file.with_name("tn-snap.test.yaml"),
+    }
+
+
+def test_materialize_eval_artifact_rejects_test_only_bundle_with_stale_main(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "47" / "294.yaml"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    materialized_paths: set[Path] = set()
+
+    wrote = _materialize_eval_artifact(
+        "=== FILE: 294.test.yaml ===\n- name: current test only\n",
+        output_file,
+        materialized_paths=materialized_paths,
+    )
+
+    assert wrote is False
+    assert output_file.read_text(encoding="utf-8") == "stale prior-run main\n"
+    assert materialized_paths == {output_file.with_name("294.test.yaml")}
+
+
+def test_clear_eval_target_artifacts_prevents_reused_companion_test(
+    tmp_path,
+):
+    output_root = tmp_path / "output"
+    output_file = output_root / "runner" / "statutes" / "47" / "294.yaml"
+    companion_test = output_file.with_name("294.test.yaml")
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    companion_test.write_text("- name: stale prior-run test\n", encoding="utf-8")
+
+    _clear_eval_target_artifacts(output_file, output_root)
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+        artifact_root=output_root,
+    )
+
+    assert wrote is True
+    assert output_file.read_text(encoding="utf-8") == (
+        "format: rulespec/v1\nrules: []\n"
+    )
+    assert not companion_test.exists()
+
+
+def test_clear_eval_target_artifacts_rejects_symlinked_ancestor(tmp_path):
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_root.mkdir()
+    outside.mkdir()
+    (output_root / "runner").symlink_to(outside, target_is_directory=True)
+    outside_target = outside / "statutes" / "47" / "294.yaml"
+    outside_target.parent.mkdir(parents=True)
+    outside_target.write_text("outside sentinel\n", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        _clear_eval_target_artifacts(
+            output_root / "runner" / "statutes" / "47" / "294.yaml",
+            output_root,
+        )
+
+    assert outside_target.read_text(encoding="utf-8") == "outside sentinel\n"
+
+
+def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "47" / "294.yaml"
+    outside = tmp_path / "outside.yaml"
+    output_file.parent.mkdir(parents=True)
+    outside.write_text("outside sentinel\n", encoding="utf-8")
+    output_file.symlink_to(outside)
+
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+    )
+
+    assert wrote is True
+    assert outside.read_text(encoding="utf-8") == "outside sentinel\n"
+    assert not output_file.is_symlink()
+    assert output_file.read_text(encoding="utf-8") == (
+        "format: rulespec/v1\nrules: []\n"
+    )
+
+
+def test_materialize_eval_artifact_rejects_symlinked_output_ancestor(tmp_path):
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_root.mkdir()
+    outside.mkdir()
+    (output_root / "runner").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        _materialize_eval_artifact(
+            "format: rulespec/v1\nrules: []\n",
+            output_root / "runner" / "statutes" / "47" / "294.yaml",
+            artifact_root=output_root,
+        )
+
+    assert list(outside.iterdir()) == []
 
 
 def test_materialize_eval_artifact_repairs_copied_cross_reference_summary(tmp_path):
@@ -4380,9 +4625,9 @@ def test_run_source_eval_rejects_symlinked_explicit_context(tmp_path):
 def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
     findings = tmp_path / "review-findings.md"
-    findings.write_text(
-        "- Start the FY 2025 amount on October 1.\n"
-        "- Preserve the FY 2026 imported amount and boundary test.\n"
+    findings.write_bytes(
+        b"- Start the FY 2025 amount on October 1.\r\n"
+        b"- Preserve the FY 2026 imported amount and boundary test.\r\n"
     )
     workspace = prepare_eval_workspace(
         citation="us/manual/example/block-1",
@@ -4409,8 +4654,15 @@ def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     assert "Start the FY 2025 amount on October 1" in prompt
     assert "Preserve the FY 2026 imported amount" in prompt
     assert len(manifest["review_findings_files"]) == 1
-    persisted = workspace.root / manifest["review_findings_files"][0]["workspace_path"]
-    assert persisted.read_text() == findings.read_text()
+    evidence = manifest["review_findings_files"][0]
+    persisted = workspace.root / evidence["workspace_path"]
+    expected = (
+        "- Start the FY 2025 amount on October 1.\n"
+        "- Preserve the FY 2026 imported amount and boundary test.\n"
+    )
+    assert persisted.read_text() == expected
+    assert evidence["content"] == expected
+    assert evidence["sha256"] == hashlib.sha256(expected.encode()).hexdigest()
 
 
 def test_review_findings_reject_empty_file(tmp_path):
@@ -13812,6 +14064,32 @@ class TestRepoAugmentedContext:
         assert section_dir / "b.yaml" in selected
         assert section_dir / "c.yaml" in selected
 
+    @pytest.mark.parametrize(
+        "citation",
+        [
+            "42/1437c\u20131/d",
+            CitationParts(title="42", section="1437c\u20131", fragments=("d",)),
+        ],
+        ids=["slash-alias", "structured-citation"],
+    )
+    def test_select_context_files_uses_normalized_section_path(
+        self,
+        tmp_path,
+        citation,
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+        title_dir = policy_repo_root / "statutes" / "42"
+        section_dir = title_dir / "1437c-1"
+        section_dir.mkdir(parents=True)
+        sibling = section_dir / "e.yaml"
+        sibling.write_text("same-section sibling")
+        for index in range(6):
+            (title_dir / f"{index}.yaml").write_text("unrelated title context")
+
+        selected = select_context_files(citation, policy_repo_root)
+
+        assert sibling in selected
+
     def test_prepare_eval_workspace_writes_manifest_and_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = _canonical_rulespec_content_root(repo_root, "us")
@@ -15165,6 +15443,69 @@ rules:
         assert (eval_root / "statutes" / "26" / "24" / "c.yaml").read_text() == (
             "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
         )
+
+    def test_hydrate_eval_root_preserves_generated_target_and_copies_sibling(
+        self, tmp_path
+    ):
+        workspace_root = tmp_path / "workspace"
+        context_root = workspace_root / "context" / "statutes" / "47"
+        context_root.mkdir(parents=True)
+        old_target = context_root / "294.yaml"
+        old_target_test = context_root / "294.test.yaml"
+        sibling = context_root / "295.yaml"
+        old_target.write_text("old target\n", encoding="utf-8")
+        old_target_test.write_text("old target test\n", encoding="utf-8")
+        sibling.write_text("sibling context\n", encoding="utf-8")
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=workspace_root / "source.txt",
+            manifest_file=workspace_root / "context-manifest.json",
+            context_files=[
+                EvalContextFile(
+                    source_path=old_target,
+                    workspace_path=Path("context/statutes/47/294.yaml"),
+                    import_path="us-la:statutes/47/294",
+                    kind="implementation_precedent",
+                ),
+                EvalContextFile(
+                    source_path=old_target_test,
+                    workspace_path=Path("context/statutes/47/294.test.yaml"),
+                    import_path="us-la:statutes/47/294.test",
+                    kind="existing_target_test_context",
+                ),
+                EvalContextFile(
+                    source_path=sibling,
+                    workspace_path=Path("context/statutes/47/295.yaml"),
+                    import_path="us-la:statutes/47/295",
+                    kind="implementation_precedent",
+                ),
+            ],
+            policy_prefix="us-la",
+        )
+        eval_root = tmp_path / "eval-root"
+        generated_target = eval_root / "statutes" / "47" / "294.yaml"
+        generated_target.parent.mkdir(parents=True)
+        generated_target.write_text("generated target\n", encoding="utf-8")
+        generated_target_test = eval_root / "statutes" / "47" / "294.test.yaml"
+        generated_target_test.write_text("generated target test\n", encoding="utf-8")
+
+        _hydrate_eval_root(
+            eval_root,
+            workspace,
+            protected_paths=(
+                Path("statutes/47/294.yaml"),
+                Path("statutes/47/294.test.yaml"),
+            ),
+        )
+
+        assert generated_target.read_text(encoding="utf-8") == "generated target\n"
+        assert (
+            generated_target_test.read_text(encoding="utf-8")
+            == "generated target test\n"
+        )
+        assert (eval_root / "statutes/47/295.yaml").read_text(
+            encoding="utf-8"
+        ) == "sibling context\n"
 
     def test_prepare_eval_workspace_expands_transitive_context_imports(self, tmp_path):
         repo_root = tmp_path / "repos"

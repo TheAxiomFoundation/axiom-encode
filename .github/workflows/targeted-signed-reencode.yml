@@ -1,0 +1,454 @@
+name: Targeted signed RuleSpec re-encode
+
+on:
+  workflow_dispatch:
+    inputs:
+      citation:
+        description: Canonical corpus citation path
+        required: true
+        type: string
+      rulespec_ref:
+        description: Immutable rulespec-us commit SHA to re-encode
+        required: true
+        type: string
+      corpus_ref:
+        description: Immutable axiom-corpus commit SHA
+        required: true
+        type: string
+      rules_engine_ref:
+        description: Immutable axiom-rules-engine commit SHA
+        required: true
+        type: string
+      review_finding:
+        description: Validator or independent-review finding to address
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: targeted-signed-reencode
+  cancel-in-progress: false
+
+jobs:
+  encode:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment: production-signing
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout rulespec-us
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: ${{ inputs.rulespec_ref }}
+          path: rulespec-us
+          fetch-depth: 0
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout axiom-corpus
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.corpus_ref }}
+          path: axiom-corpus
+          fetch-depth: 0
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout axiom-rules-engine
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ inputs.rules_engine_ref }}
+          path: axiom-rules-engine
+          fetch-depth: 0
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Verify immutable checkout identities
+        env:
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+        run: |
+          set -euo pipefail
+          sha_pattern='^[0-9a-f]{40}$'
+          verify_checkout() {
+            local label="$1"
+            local requested="$2"
+            local checkout="$3"
+            if [[ ! "$requested" =~ $sha_pattern ]]; then
+              echo "$label ref must be a full lowercase commit SHA" >&2
+              exit 1
+            fi
+            actual="$(git -C "$checkout" rev-parse HEAD)"
+            if [ "$actual" != "$requested" ]; then
+              echo "$label checkout resolved to $actual, expected $requested" >&2
+              exit 1
+            fi
+          }
+          if [[ ! "$GITHUB_SHA" =~ $sha_pattern ]]; then
+            echo "GITHUB_SHA must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
+          verify_checkout rulespec-us "$RULESPEC_REF" rulespec-us
+          verify_checkout axiom-corpus "$CORPUS_REF" axiom-corpus
+          verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
+          git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
+          git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Build Axiom rules engine
+        working-directory: axiom-rules-engine
+        run: |
+          cargo build --release --locked
+          test -x target/release/axiom-rules-engine
+
+      - name: Install encoder
+        working-directory: axiom-encode
+        run: |
+          uv sync --locked --python 3.13 --extra api
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          uv pip install --python .venv/bin/python \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Fetch pinned signed corpus release object
+        shell: bash
+        env:
+          SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ANON_KEY"
+          materializer=axiom-encode/scripts/materialize_corpus_release.py
+          toolchain=rulespec-us/.axiom/toolchain.toml
+          mapfile -t release_pin < <(
+            axiom-encode/.venv/bin/python "$materializer" pin --toolchain "$toolchain"
+          )
+          if [ "${#release_pin[@]}" -ne 2 ]; then
+            echo "RuleSpec toolchain did not yield exactly one corpus release pin" >&2
+            exit 1
+          fi
+          release_name="${release_pin[0]}"
+          release_sha="${release_pin[1]}"
+          response="$(mktemp "$RUNNER_TEMP/corpus-release-response.XXXXXX")"
+          trap 'rm -f "$response"' EXIT
+          url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --max-filesize 16777216 \
+            --header "apikey: $SUPABASE_ANON_KEY" \
+            --header "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            --header "Accept-Profile: corpus" \
+            --output "$response" "$url"
+          release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
+            materialize --toolchain "$toolchain" --response "$response" \
+            --corpus-root axiom-corpus)"
+          rm -f "$response"
+          trap - EXIT
+          if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          git -C axiom-corpus merge-base --is-ancestor "$release_commit" HEAD || {
+            echo "Pinned corpus checkout predates signed release provenance" >&2
+            exit 1
+          }
+
+      - name: Provision protected signing supervisor
+        working-directory: axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+        run: |
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            ./cmd/axiom-encode-apply-signer
+          sudo chown 0:0 /opt
+          sudo chmod go-w /opt
+          sudo rm -rf /opt/axiom-verification
+          sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" \
+            --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
+            --git /usr/bin/git
+          sudo install -o root -g root -m 0755 \
+            "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            /opt/axiom-verification/axiom-encode-apply-signer
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+
+      - name: Verify protected RuleSpec routing
+        env:
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-us
+        run: |
+          set -euo pipefail
+          trusted_path=/opt/axiom-verification/python/bin
+          trusted_home=/opt/axiom-verification/python
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            git -C "$RULESPEC_CHECKOUT" rev-parse --show-toplevel
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            git -C "$RULESPEC_CHECKOUT" remote get-url origin
+          interpreter="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' \
+            /opt/axiom-verification/axiom-encode)"
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            "$interpreter" -I - "$RULESPEC_CHECKOUT" <<'PY'
+          import ctypes
+          import json
+          import sys
+          from pathlib import Path
+
+          from axiom_encode.constants import RULESPEC_FILESYSTEM_ROOTS
+          from axiom_encode.repo_routing import (
+              canonical_rulespec_repo_name,
+              inspect_canonical_rulespec_checkout,
+          )
+          from axiom_encode.signing_broker import _harden_signing_capability_process
+
+          checkout = Path(sys.argv[1])
+          structure = {
+              "git_marker_is_symlink": (checkout / ".git").is_symlink(),
+              "name": checkout.name,
+              "path": str(checkout),
+              "resolved_path": str(checkout.resolve()),
+              "unexpected_root_entries": sorted(
+                  name
+                  for name in RULESPEC_FILESYSTEM_ROOTS - {"programs"}
+                  if (checkout / name).exists() or (checkout / name).is_symlink()
+              ),
+          }
+
+          def route_payload():
+              inspection = inspect_canonical_rulespec_checkout(
+                  checkout, allow_composition_specs=True
+              )
+              return {
+                  "canonical_repo_name": canonical_rulespec_repo_name(checkout),
+                  "rejection": inspection.rejection,
+              }
+
+          direct = route_payload()
+          _harden_signing_capability_process(role="routing-probe")
+          if sys.platform.startswith("linux"):
+              libc = ctypes.CDLL(None, use_errno=True)
+              if libc.prctl(38, 1, 0, 0, 0) != 0:
+                  raise SystemExit("could not enable routing-probe no-new-privileges")
+          hardened = route_payload()
+          payload = {**structure, "direct": direct, "hardened": hardened}
+          print(json.dumps(payload, sort_keys=True))
+          if direct["canonical_repo_name"] != checkout.name:
+              raise SystemExit("protected RuleSpec routing rejected checkout")
+          if hardened["canonical_repo_name"] != checkout.name:
+              raise SystemExit("hardened RuleSpec routing rejected checkout")
+          PY
+
+      - name: Encode, review, validate, and apply
+        env:
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          AXIOM_ENCODE_APPLY_CHECKOUT: ${{ github.workspace }}/axiom-encode
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CITATION: ${{ inputs.citation }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+        run: |
+          args=(
+            /opt/axiom-verification/axiom-encode encode
+            --backend openai
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+            --policy-repo-path "$GITHUB_WORKSPACE/rulespec-us"
+            --output "$RUNNER_TEMP/generated"
+            --mode repo-augmented
+            --db "$RUNNER_TEMP/encodings.db"
+            --no-sync
+            --apply
+          )
+          if [ -n "$REVIEW_FINDING" ]; then
+            review_finding_path="$(mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX.txt")"
+            printf '%s\n' "$REVIEW_FINDING" > "$review_finding_path"
+            args+=(--review-findings "$review_finding_path")
+          fi
+          args+=("$CITATION")
+
+          exec /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- "${args[@]}"
+
+      - name: Verify generated provenance
+        run: |
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$GITHUB_WORKSPACE/rulespec-us" \
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
+            --json > "$RUNNER_TEMP/guard-generated.json"
+          git -C rulespec-us diff --check
+
+      - name: Package exact generated changes
+        env:
+          CITATION: ${{ inputs.citation }}
+          REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
+        run: |
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          mkdir -p "$artifact"
+          git -C rulespec-us diff --binary --full-index HEAD > "$artifact/tracked.patch"
+          git -C rulespec-us ls-files --others --exclude-standard -z \
+            | tar -C rulespec-us --null -czf "$artifact/untracked.tar.gz" --files-from -
+          git -C rulespec-us status --short > "$artifact/status.txt"
+          cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
+          python - "$artifact/context-manifest.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def git_paths(*args):
+              output = subprocess.check_output(
+                  ["git", "-C", "rulespec-us", *args]
+              )
+              return {
+                  Path(value.decode("utf-8"))
+                  for value in output.split(b"\0")
+                  if value
+              }
+
+          manifest_paths = git_paths(
+              "diff", "--name-only", "-z", "HEAD", "--",
+              ".axiom/encoding-manifests",
+          )
+          manifest_paths.update(
+              git_paths(
+                  "ls-files", "--others", "--exclude-standard", "-z", "--",
+                  ".axiom/encoding-manifests",
+              )
+          )
+          matches = []
+          for relative_path in sorted(manifest_paths):
+              manifest_path = Path("rulespec-us") / relative_path
+              payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+              if (
+                  payload.get("schema_version")
+                  == "axiom-encode/applied-rulespec/v5"
+                  and payload.get("citation") == os.environ["CITATION"]
+              ):
+                  matches.append(payload)
+          if len(matches) != 1:
+              raise SystemExit(
+                  "expected exactly one changed signed apply manifest for citation; "
+                  f"found {len(matches)}"
+              )
+
+          applied_manifest = matches[0]
+          context_path = Path(applied_manifest["context_manifest_file"]).resolve()
+          generated_root = (Path(os.environ["RUNNER_TEMP"]) / "generated").resolve()
+          try:
+              context_path.relative_to(generated_root)
+          except ValueError as exc:
+              raise SystemExit("signed context manifest is outside generated root") from exc
+          context_bytes = context_path.read_bytes()
+          context_digest = hashlib.sha256(context_bytes).hexdigest()
+          if context_digest != applied_manifest.get("context_manifest_sha256"):
+              raise SystemExit("signed context manifest digest does not match")
+
+          context_payload = json.loads(context_bytes)
+          review_findings = context_payload.get("review_findings_files")
+          if not isinstance(review_findings, list):
+              raise SystemExit("context manifest review findings evidence is malformed")
+          if os.environ["REVIEW_FINDING_PRESENT"] == "true" and not review_findings:
+              raise SystemExit("context manifest omits supplied review finding")
+          for finding in review_findings:
+              if not isinstance(finding, dict):
+                  raise SystemExit("context manifest review finding is malformed")
+              content = finding.get("content")
+              digest = finding.get("sha256")
+              if not isinstance(content, str) or not content.strip():
+                  raise SystemExit("context manifest review finding content is empty")
+              if "\r" in content:
+                  raise SystemExit("context manifest review finding is not normalized")
+              if hashlib.sha256(content.encode("utf-8")).hexdigest() != digest:
+                  raise SystemExit("context manifest review finding digest does not match")
+
+          Path(sys.argv[1]).write_bytes(context_bytes)
+          PY
+          python - "$artifact/metadata.json" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def rev(path):
+              return subprocess.check_output(
+                  ["git", "-C", path, "rev-parse", "HEAD"], text=True
+              ).strip()
+
+          payload = {
+              "schema": "axiom-encode/targeted-reencode-artifact/v1",
+              "citation": os.environ["CITATION"],
+              "rulespec_base": rev("rulespec-us"),
+              "encoder_commit": rev("axiom-encode"),
+              "corpus_commit": rev("axiom-corpus"),
+              "rules_engine_commit": rev("axiom-rules-engine"),
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          PY
+          sha256sum "$artifact"/* > "$artifact/SHA256SUMS"
+          test -s "$artifact/status.txt"
+
+      - name: Upload signed re-encode artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: targeted-reencode-${{ github.run_id }}
+          path: ${{ runner.temp }}/targeted-reencode
+          if-no-files-found: error
+          retention-days: 7

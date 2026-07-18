@@ -18,7 +18,9 @@ from pathlib import Path
 import _cffi_backend
 import cryptography
 import pytest
-from cryptography.hazmat.primitives import serialization
+import yaml
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from axiom_encode import __version__
@@ -27,6 +29,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MODEL_TOOL,
     _sign_applied_encoding_manifest,
 )
+from axiom_encode.harness.dependency_stubs import validate_explicit_context_file
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from tests.release_object_fixtures import bind_test_corpus_release
 from tests.signing_broker_fixtures import SigningBrokerFixture
@@ -1446,3 +1449,588 @@ def test_production_apply_signer_binary_rejects_wrong_ci_context(
         os.close(key_read)
     assert completed.returncode == 2
     assert "does not match the expected repository" in completed.stderr
+
+
+def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+
+    job = workflow["jobs"]["encode"]
+    assert job["environment"] == "production-signing"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    steps = job["steps"]
+    checkout_steps = [
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert checkout_steps
+    assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
+    assert all(step["with"]["fetch-depth"] == 0 for step in checkout_steps)
+
+    identity_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
+    )
+    identity_command = identity_step["run"]
+    assert "^[0-9a-f]{40}$" in identity_command
+    assert "rev-parse HEAD" in identity_command
+    assert "merge-base --is-ancestor" in identity_command
+
+    release_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch pinned signed corpus release object"
+    )
+    assert release_step["env"] == {
+        "SUPABASE_URL": "https://swocpijqqahhuwtuahwc.supabase.co",
+        "SUPABASE_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
+    }
+    release_command = release_step["run"]
+    assert "materialize_corpus_release.py" in release_command
+    assert "rulespec-us/.axiom/toolchain.toml" in release_command
+    assert 'pin --toolchain "$toolchain"' in release_command
+    assert 'mktemp "$RUNNER_TEMP/' in release_command
+    assert "/rest/v1/release_objects?select=release_object" in release_command
+    assert "content_sha256=eq.${release_sha}&limit=2" in release_command
+    assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
+    assert "--max-filesize 16777216" in release_command
+    assert "Accept-Profile: corpus" in release_command
+    assert (
+        'materialize --toolchain "$toolchain" --response "$response"' in release_command
+    )
+    assert "--corpus-root axiom-corpus" in release_command
+    assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
+
+    provision_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Provision protected signing supervisor"
+    )
+    assert "sudo chown 0:0 /opt" in provision_step["run"]
+    assert "sudo chmod go-w /opt" in provision_step["run"]
+    assert "--git /usr/bin/git" in provision_step["run"]
+
+    routing_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify protected RuleSpec routing"
+    )
+    routing_command = routing_step["run"]
+    assert "trusted_path=/opt/axiom-verification/python/bin" in routing_command
+    assert 'env -i PATH="$trusted_path" HOME="$trusted_home"' in routing_command
+    assert "canonical_rulespec_repo_name(checkout)" in routing_command
+    assert "inspect_canonical_rulespec_checkout" in routing_command
+    assert '_harden_signing_capability_process(role="routing-probe")' in routing_command
+    assert "libc.prctl(38, 1, 0, 0, 0)" in routing_command
+    assert "protected RuleSpec routing rejected checkout" in routing_command
+    assert "hardened RuleSpec routing rejected checkout" in routing_command
+
+    apply_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+    assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
+        "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
+    )
+    assert apply_step["env"]["AXIOM_ENCODE_APPLY_CHECKOUT"] == (
+        "${{ github.workspace }}/axiom-encode"
+    )
+    command = apply_step["run"]
+    assert "exec /opt/axiom-verification/axiom-encode-apply-signer run" in command
+    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
+    assert (
+        "TheAxiomFoundation/axiom-encode/.github/workflows/"
+        "targeted-signed-reencode.yml@refs/heads/main" in command
+    )
+    assert "--allowed-event-name workflow_dispatch" in command
+    assert "--apply" in command
+    assert "--skip-reviewers" not in command
+    assert 'mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX.txt"' in command
+    assert "$GITHUB_WORKSPACE/axiom-rules-engine/.axiom-targeted" not in command
+    assert "printf '%s\\n' \"$REVIEW_FINDING\"" in command
+    assert 'args+=(--review-findings "$review_finding_path")' in command
+
+    package_step = next(
+        step for step in steps if step.get("name") == "Package exact generated changes"
+    )
+    package_command = package_step["run"]
+    assert package_step["env"]["REVIEW_FINDING_PRESENT"] == (
+        "${{ inputs.review_finding != '' }}"
+    )
+    assert '"$artifact/context-manifest.json"' in package_command
+    assert '".axiom/encoding-manifests"' in package_command
+    assert 'payload.get("citation") == os.environ["CITATION"]' in package_command
+    assert 'applied_manifest["context_manifest_file"]' in package_command
+    assert 'applied_manifest.get("context_manifest_sha256")' in package_command
+    assert 'finding.get("content")' in package_command
+    assert 'finding.get("sha256")' in package_command
+
+    guard_step = next(
+        step for step in steps if step.get("name") == "Verify generated provenance"
+    )
+    assert "guard-generated" in guard_step["run"]
+    assert "--base-ref" not in guard_step["run"]
+
+    secret_steps = [
+        step
+        for step in steps
+        if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
+    ]
+    assert secret_steps == [apply_step]
+
+
+def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> None:
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    policy_root = tmp_path / "rulespec-us" / "us"
+    policy_root.mkdir(parents=True)
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'path="$(mktemp "$RUNNER_TEMP/'
+            'axiom-targeted-review-finding.XXXXXX.txt")"; '
+            "printf '%s\\n' 'Preserve the supported provision.' > \"$path\"; "
+            "printf '%s' \"$path\"",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RUNNER_TEMP": str(runner_temp)},
+    )
+
+    finding_path = Path(completed.stdout)
+    assert finding_path.parent == runner_temp
+    assert finding_path.suffix == ".txt"
+    assert validate_explicit_context_file(finding_path, policy_root) == finding_path
+
+
+def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    package_command = next(
+        step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Package exact generated changes"
+    )["run"]
+    marker = "python - \"$artifact/context-manifest.json\" <<'PY'\n"
+    script = package_command.split(marker, 1)[1].split(
+        '\nPY\npython - "$artifact/metadata.json"', 1
+    )[0]
+
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    base = rulespec / "README.md"
+    base.write_text("fixture\n")
+    subprocess.run(["git", "add", "README.md"], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=rulespec, check=True)
+
+    citation = "us-la/statute/47:294"
+    review_content = "Preserve every supported provision.\n"
+    context_payload = {
+        "citation": citation,
+        "review_findings_files": [
+            {
+                "content": review_content,
+                "sha256": hashlib.sha256(review_content.encode()).hexdigest(),
+            }
+        ],
+    }
+    context_bytes = json.dumps(context_payload, sort_keys=True).encode()
+    context_path = tmp_path / "generated" / "context-manifest.json"
+    context_path.parent.mkdir()
+    context_path.write_bytes(context_bytes)
+    applied_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+    }
+    applied_path = (
+        rulespec / ".axiom" / "encoding-manifests" / "statutes" / "47" / "294.yaml.json"
+    )
+    applied_path.parent.mkdir(parents=True)
+    applied_path.write_text(json.dumps(applied_manifest))
+
+    packaged_context = tmp_path / "artifact" / "context-manifest.json"
+    packaged_context.parent.mkdir()
+    completed = subprocess.run(
+        [sys.executable, "-", str(packaged_context)],
+        cwd=tmp_path,
+        input=script,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "REVIEW_FINDING_PRESENT": "true",
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert packaged_context.read_bytes() == context_bytes
+
+
+def test_apply_signing_key_migration_workflow_is_main_only() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+
+    job = workflow["jobs"]["migrate"]
+    assert job["environment"] == "signing-key-migration"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    steps = job["steps"]
+    assert not any(
+        step.get("uses", "").startswith("actions/checkout@") for step in steps
+    )
+    setup_go = next(
+        step for step in steps if step.get("name") == "Install pinned Go toolchain"
+    )
+    assert setup_go["uses"] == (
+        "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
+    )
+    assert setup_go["with"] == {"go-version": "1.26.1", "cache": False}
+
+    encrypt_step = next(
+        step for step in steps if step.get("name") == "Encrypt inherited signing key"
+    )
+    assert encrypt_step["env"]["APPLY_SIGNING_KEY"] == (
+        "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
+    )
+    command = encrypt_step["run"]
+    assert "rsa_padding_mode:oaep" in command
+    assert "rsa_oaep_md:sha256" in command
+    assert "rsa_mgf1_md:sha256" in command
+    assert "unset APPLY_SIGNING_KEY" in command
+    assert '"$rsa_bits" -lt 3072' in command
+    assert "base64.StdEncoding.Strict().DecodeString" in command
+    assert "x509.ParsePKCS8PrivateKey" in command
+    assert "bytes.Equal(derivedPublic, trustedPublic)" in command
+    assert "sha256sum --check SHA256SUMS" in command
+    assert 'rm -f "$plaintext"' in command
+    assert 'echo "$APPLY_SIGNING_KEY"' not in command
+    upload_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload encrypted migration artifact"
+    )
+    assert upload_step["with"]["path"] == (
+        "${{ runner.temp }}/apply-signing-key-migration"
+    )
+    assert upload_step["with"]["retention-days"] == 1
+
+    secret_steps = [
+        step for step in steps if "APPLY_SIGNING_KEY" in (step.get("env") or {})
+    ]
+    assert secret_steps == [encrypt_step]
+
+
+def _migration_openssl() -> Path:
+    candidates = (
+        Path("/opt/homebrew/opt/openssl@3/bin/openssl"),
+        Path("/usr/local/opt/openssl@3/bin/openssl"),
+        Path(shutil.which("openssl") or "/missing"),
+    )
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        version = subprocess.run(
+            [candidate, "version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if version.returncode == 0 and version.stdout.startswith("OpenSSL 3."):
+            return candidate
+    pytest.skip("OpenSSL 3 is required for the executable migration workflow test")
+
+
+def _run_apply_key_migration(
+    tmp_path: Path,
+    *,
+    run_name: str,
+    signing_key: str,
+    apply_public_key: str,
+    recipient_public_key: bytes,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    go = Path(shutil.which("go") or "/opt/homebrew/bin/go")
+    if not go.is_file():
+        pytest.skip("Go is required for the executable migration workflow test")
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["migrate"]["steps"]
+        if step.get("name") == "Encrypt inherited signing key"
+    )
+    runner_temp = tmp_path / run_name
+    runner_temp.mkdir()
+    shim_dir = runner_temp / "bin"
+    shim_dir.mkdir()
+    (shim_dir / "go").symlink_to(go)
+    (shim_dir / "openssl").symlink_to(_migration_openssl())
+    sha256sum = shim_dir / "sha256sum"
+    sha256sum.write_text(
+        "#!/usr/bin/env python3\n"
+        "import hashlib, pathlib, sys\n"
+        "if sys.argv[1:2] == ['--check']:\n"
+        "    for line in pathlib.Path(sys.argv[2]).read_text().splitlines():\n"
+        "        expected, name = line.split('  ', 1)\n"
+        "        actual = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()\n"
+        "        if actual != expected:\n"
+        "            raise SystemExit(f'{name}: FAILED')\n"
+        "        print(f'{name}: OK')\n"
+        "else:\n"
+        "    for name in sys.argv[1:]:\n"
+        "        digest = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()\n"
+        "        print(f'{digest}  {name}')\n"
+    )
+    sha256sum.chmod(0o700)
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(runner_temp),
+            "APPLY_SIGNING_KEY": signing_key,
+            "APPLY_PUBLIC_KEY": apply_public_key,
+            "RECIPIENT_PUBLIC_KEY": b64encode(recipient_public_key).decode("ascii"),
+            "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+    )
+    return completed, runner_temp / "apply-signing-key-migration"
+
+
+def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, private_key = _keypair(seed)
+    recipient_private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=3072
+    )
+    recipient_public_key = recipient_private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    raw_seed = b64encode(seed).decode("ascii")
+    pkcs8_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    serializations = {
+        "raw-seed": (raw_seed, raw_seed),
+        "raw-seed-whitespace": (f" \n{raw_seed}\n ", raw_seed),
+        "pkcs8-pem": (pkcs8_pem, pkcs8_pem.strip()),
+    }
+
+    for run_name, (
+        serialized_private_key,
+        expected_private_key,
+    ) in serializations.items():
+        completed, artifact = _run_apply_key_migration(
+            tmp_path,
+            run_name=run_name,
+            signing_key=serialized_private_key,
+            apply_public_key=apply_public_key,
+            recipient_public_key=recipient_public_key,
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert sorted(path.name for path in artifact.iterdir()) == [
+            "SHA256SUMS",
+            "apply-public-key.txt",
+            "apply-signing-key.oaep-sha256.bin",
+        ]
+        checksum_manifest = (artifact / "SHA256SUMS").read_text()
+        assert str(tmp_path) not in checksum_manifest
+        for line in checksum_manifest.splitlines():
+            expected_digest, relative_name = line.split("  ", 1)
+            assert (
+                hashlib.sha256((artifact / relative_name).read_bytes()).hexdigest()
+                == expected_digest
+            )
+        decrypted = recipient_private_key.decrypt(
+            (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        assert decrypted.decode("ascii") == expected_private_key
+
+    escaped_public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("ascii")
+        .replace("\n", "\\n")
+    )
+    escaped_public, artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="escaped-public-pem",
+        signing_key=raw_seed,
+        apply_public_key=escaped_public_pem,
+        recipient_public_key=recipient_public_key,
+    )
+    assert escaped_public.returncode == 0, escaped_public.stderr
+    decrypted = recipient_private_key.decrypt(
+        (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    assert decrypted.decode("ascii") == raw_seed
+
+
+def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, _private_key = _keypair(seed)
+    wrong_public_key, _wrong_private_key = _keypair(bytes(reversed(range(32))))
+    recipient_private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=3072
+    )
+    recipient_public_key = recipient_private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    mismatched, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="mismatched",
+        signing_key=b64encode(seed).decode("ascii"),
+        apply_public_key=wrong_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+    malformed, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="malformed",
+        signing_key="!" * 44,
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+    pkcs8_pem = _private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    trailing_data, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="trailing-data",
+        signing_key=f"{pkcs8_pem}not-part-of-the-pem",
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+    private_der = _private_key.private_bytes(
+        serialization.Encoding.DER,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    internal_trailing_der = b64encode(private_der + b"X").decode("ascii")
+    internal_trailing_pem = "\n".join(
+        [
+            "-----BEGIN PRIVATE KEY-----",
+            *(
+                internal_trailing_der[index : index + 64]
+                for index in range(0, len(internal_trailing_der), 64)
+            ),
+            "-----END PRIVATE KEY-----",
+        ]
+    )
+    trailing_der, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="trailing-der",
+        signing_key=internal_trailing_pem,
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+
+    canonical_seed = b64encode(seed).decode("ascii")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    padding_index = alphabet.index(canonical_seed[-2])
+    assert padding_index % 4 == 0
+    noncanonical_seed = f"{canonical_seed[:-2]}{alphabet[padding_index + 1]}="
+    noncanonical_private, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="noncanonical-private-base64",
+        signing_key=noncanonical_seed,
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+    public_padding_index = alphabet.index(apply_public_key[-2])
+    assert public_padding_index % 4 == 0
+    noncanonical_apply_public = (
+        f"{apply_public_key[:-2]}{alphabet[public_padding_index + 1]}="
+    )
+    noncanonical_public, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="noncanonical-public-base64",
+        signing_key=canonical_seed,
+        apply_public_key=noncanonical_apply_public,
+        recipient_public_key=recipient_public_key,
+    )
+
+    assert mismatched.returncode != 0
+    assert "does not match the trusted apply public key" in mismatched.stderr
+    assert malformed.returncode != 0
+    assert "not strict base64 or PKCS8 PEM" in malformed.stderr
+    assert trailing_data.returncode != 0
+    assert "PEM contains trailing data" in trailing_data.stderr
+    assert trailing_der.returncode != 0
+    assert "contains trailing ASN.1 data" in trailing_der.stderr
+    assert noncanonical_private.returncode != 0
+    assert "not strict base64 or PKCS8 PEM" in noncanonical_private.stderr
+    assert noncanonical_public.returncode != 0
+    assert "not strict base64 Ed25519 material" in noncanonical_public.stderr
+
+
+def test_apply_signing_key_migration_rejects_weak_recipient_rsa(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, _private_key = _keypair(seed)
+    weak_recipient = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    weak_public_key = weak_recipient.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    completed, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="weak-rsa",
+        signing_key=b64encode(seed).decode("ascii"),
+        apply_public_key=apply_public_key,
+        recipient_public_key=weak_public_key,
+    )
+
+    assert completed.returncode != 0
+    assert "must be RSA with at least 3072 bits" in completed.stderr

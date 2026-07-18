@@ -1,0 +1,218 @@
+# One-time lane: after verified migration, delete the inherited organization secret,
+# this workflow, and its Environment.
+name: Migrate inherited apply signing key
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipient_public_key_pem_base64:
+        description: Base64-encoded RSA public key for one-time OAEP encryption
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment: signing-key-migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install pinned Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.1"
+          cache: false
+
+      - name: Encrypt inherited signing key
+        env:
+          APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          APPLY_PUBLIC_KEY: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          RECIPIENT_PUBLIC_KEY: ${{ inputs.recipient_public_key_pem_base64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          artifact="$RUNNER_TEMP/apply-signing-key-migration"
+          recipient="$RUNNER_TEMP/recipient-public.pem"
+          plaintext="$RUNNER_TEMP/apply-signing-key.material"
+          validator_source="$RUNNER_TEMP/validate-apply-signing-key.go"
+          trap 'rm -f "$recipient" "$plaintext" "$validator_source"' EXIT
+          mkdir -m 700 -p "$artifact"
+
+          test -n "$APPLY_SIGNING_KEY"
+          test -n "$APPLY_PUBLIC_KEY"
+          printf '%s' "$APPLY_SIGNING_KEY" > "$plaintext"
+          unset APPLY_SIGNING_KEY
+          key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
+          if [ "$key_bytes" -lt 1 ] || [ "$key_bytes" -gt 16384 ]; then
+            echo "inherited signing key has an unsupported serialized length" >&2
+            exit 1
+          fi
+
+          cat > "$validator_source" <<'GO'
+          package main
+
+          import (
+            "bytes"
+            "crypto/ed25519"
+            "crypto/x509"
+            "encoding/asn1"
+            "encoding/base64"
+            "encoding/pem"
+            "fmt"
+            "os"
+          )
+
+          func fail(message string) {
+            fmt.Fprintln(os.Stderr, message)
+            os.Exit(1)
+          }
+
+          func parsePrivate(material []byte) (ed25519.PrivateKey, []byte) {
+            normalized := bytes.TrimSpace(material)
+            if bytes.HasPrefix(normalized, []byte("-----BEGIN")) {
+              block, rest := pem.Decode(normalized)
+              if block == nil {
+                fail("inherited signing key PEM is malformed")
+              }
+              if len(bytes.TrimSpace(rest)) != 0 {
+                fail("inherited signing key PEM contains trailing data")
+              }
+              var raw asn1.RawValue
+              trailing, err := asn1.Unmarshal(block.Bytes, &raw)
+              if err != nil || len(trailing) != 0 {
+                fail("inherited signing key PEM contains trailing ASN.1 data")
+              }
+              parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+              if err != nil {
+                fail("inherited signing key PEM must contain one PKCS8 key")
+              }
+              privateKey, ok := parsed.(ed25519.PrivateKey)
+              if !ok {
+                fail("inherited signing key must be Ed25519")
+              }
+              return privateKey, normalized
+            }
+            seed, err := base64.StdEncoding.Strict().DecodeString(string(normalized))
+            if err != nil {
+              fail("inherited signing key is not strict base64 or PKCS8 PEM")
+            }
+            if len(seed) != ed25519.SeedSize {
+              fail("inherited signing key is not a 32-byte Ed25519 seed")
+            }
+            return ed25519.NewKeyFromSeed(seed), normalized
+          }
+
+          func parsePublic(material []byte) ed25519.PublicKey {
+            normalized := bytes.TrimSpace(material)
+            normalized = bytes.ReplaceAll(normalized, []byte(`\n`), []byte("\n"))
+            if bytes.HasPrefix(normalized, []byte("-----BEGIN")) {
+              block, rest := pem.Decode(normalized)
+              if block == nil || len(bytes.TrimSpace(rest)) != 0 {
+                fail("trusted apply public key PEM is malformed")
+              }
+              var raw asn1.RawValue
+              trailing, err := asn1.Unmarshal(block.Bytes, &raw)
+              if err != nil || len(trailing) != 0 {
+                fail("trusted apply public key PEM contains trailing ASN.1 data")
+              }
+              parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+              if err != nil {
+                fail("trusted apply public key PEM is malformed")
+              }
+              publicKey, ok := parsed.(ed25519.PublicKey)
+              if !ok {
+                fail("trusted apply public key must be Ed25519")
+              }
+              return publicKey
+            }
+            publicKey, err := base64.StdEncoding.Strict().DecodeString(string(normalized))
+            if err != nil || len(publicKey) != ed25519.PublicKeySize {
+              fail("trusted apply public key is not strict base64 Ed25519 material")
+            }
+            return ed25519.PublicKey(publicKey)
+          }
+
+          func main() {
+            if len(os.Args) != 2 {
+              fail("expected one private-key path")
+            }
+            material, err := os.ReadFile(os.Args[1])
+            if err != nil {
+              fail("could not read inherited signing key")
+            }
+            privateKey, normalized := parsePrivate(material)
+            trustedPublic := parsePublic([]byte(os.Getenv("APPLY_PUBLIC_KEY")))
+            derivedPublic := privateKey.Public().(ed25519.PublicKey)
+            if !bytes.Equal(derivedPublic, trustedPublic) {
+              fail("inherited signing key does not match the trusted apply public key")
+            }
+            if err := os.WriteFile(os.Args[1], normalized, 0600); err != nil {
+              fail("could not normalize inherited signing key")
+            }
+          }
+          GO
+          go run "$validator_source" "$plaintext"
+
+          key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
+          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 256 ]; then
+            echo "normalized signing key has an unsupported serialized length" >&2
+            exit 1
+          fi
+
+          python3 - "$recipient" <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          try:
+              recipient = base64.b64decode(
+                  os.environ["RECIPIENT_PUBLIC_KEY"], validate=True
+              )
+          except (ValueError, binascii.Error):
+              raise SystemExit("recipient public key is not strict base64") from None
+          Path(sys.argv[1]).write_bytes(recipient)
+          PY
+          unset RECIPIENT_PUBLIC_KEY
+          rsa_bits="$(
+            openssl rsa -pubin -in "$recipient" -text -noout 2>/dev/null \
+              | sed -n '1s/.*(\([0-9][0-9]*\) bit).*/\1/p'
+          )"
+          if ! [[ "$rsa_bits" =~ ^[0-9]+$ ]] || [ "$rsa_bits" -lt 3072 ]; then
+            echo "recipient public key must be RSA with at least 3072 bits" >&2
+            exit 1
+          fi
+
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey "$recipient" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256 \
+            -in "$plaintext" \
+            -out "$artifact/apply-signing-key.oaep-sha256.bin"
+          rm -f "$plaintext"
+
+          printf '%s\n' "$APPLY_PUBLIC_KEY" > "$artifact/apply-public-key.txt"
+          unset APPLY_PUBLIC_KEY
+          (
+            cd "$artifact"
+            sha256sum apply-signing-key.oaep-sha256.bin apply-public-key.txt \
+              > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+          actual_files="$(find "$artifact" -type f -exec basename {} \; | LC_ALL=C sort)"
+          expected_files="$(printf '%s\n' SHA256SUMS apply-public-key.txt apply-signing-key.oaep-sha256.bin)"
+          test "$actual_files" = "$expected_files"
+
+      - name: Upload encrypted migration artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apply-signing-key-migration-${{ github.run_id }}
+          path: ${{ runner.temp }}/apply-signing-key-migration
+          if-no-files-found: error
+          retention-days: 1

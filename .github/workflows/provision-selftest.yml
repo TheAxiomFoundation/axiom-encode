@@ -1,0 +1,400 @@
+name: Provision selftest
+
+# Proves scripts/provision_verification_supervisor.py builds a runtime whose
+# launcher maps no file from the source prefix and pins libpython to the runtime,
+# on the hosted Ubuntu image — the environment where the rulespec signed-apply
+# workflows run it. The hosted toolcache CPython is --enable-shared with an
+# absolute RUNPATH into the (user-writable) toolcache, so without the relocation
+# pass a copied runtime keeps mapping libpython from the original location. This
+# job re-derives the assertions independently of the provisioner's own internal
+# checks, and exercises the fail-closed paths.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/provision_verification_supervisor.py
+      - .github/workflows/provision-selftest.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/provision_verification_supervisor.py
+      - .github/workflows/provision-selftest.yml
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false  # one version's failure must not mask the other's
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Set up Python ${{ matrix.python-version }}
+        id: py
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install patchelf
+        run: sudo apt-get -yq install patchelf
+
+      - name: Stage site-packages and a stand-in supervisor
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          "$PYBIN" -m pip install --quiet --target "$RUNNER_TEMP/staged" pyyaml
+          # Hostile staged content: the provisioner must purge startup hooks
+          # AFTER the site-packages swap, or these execute at every launcher
+          # start (-I still runs site-packages .pth lines and imports the
+          # sitecustomize MODULE — package/.pyc/.so forms, not just the .py).
+          marker="$RUNNER_TEMP/pth-executed"
+          echo "import os; open('$marker', 'w').close()" > "$RUNNER_TEMP/staged/evil.pth"
+          echo "import site" > "$RUNNER_TEMP/staged/python._pth"
+          printf 'open(%s, "w").close()\n' "'$marker'" > "$RUNNER_TEMP/staged/usercustomize.py"
+          mkdir "$RUNNER_TEMP/staged/sitecustomize"
+          printf 'import os; os.close(os.open(%s, os.O_CREAT | os.O_WRONLY))\n' "'$marker'" \
+            > "$RUNNER_TEMP/staged/sitecustomize/__init__.py"
+          install -m 755 /bin/true "$RUNNER_TEMP/fake-supervisor"
+          # The RPATH-relocation claims below are only meaningful against a
+          # shared-libpython build; fail loudly if the toolcache goes static.
+          src_prefix="$("$PYBIN" -c 'import sys; print(sys.base_prefix)')"
+          ls "$src_prefix"/lib/libpython*.so* >/dev/null
+
+      - name: Provision as root via the resolved interpreter (production shape)
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          case "$PYBIN" in
+            "$RUNNER_TOOL_CACHE"/Python/*) ;;
+            *) echo "resolved interpreter is not the toolcache python: $PYBIN"; exit 1 ;;
+          esac
+          sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root test-apply-root \
+            --eval-root test-eval-root \
+            --corpus-release-root test-corpus-root \
+            --git /usr/bin/git \
+            --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
+            --patchelf /usr/bin/patchelf
+
+      - name: Independently assert the launcher maps nothing from the source prefix
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/dest"
+          trusted_path="$dest/python/bin"
+          interp="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' "$dest/axiom-encode")"
+          echo "launcher interpreter: $interp"
+          case "$interp" in "$dest"/python/*) ;; *) echo "launcher points outside the runtime"; exit 1 ;; esac
+          env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 \
+            git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel >/dev/null
+          hostile_repo="$RUNNER_TEMP/hostile-git-config"
+          hostile_marker="$RUNNER_TEMP/hostile-git-helper-executed"
+          /usr/bin/git init --quiet "$hostile_repo"
+          printf 'original\n' > "$hostile_repo/a.txt"
+          printf '*.txt diff=hostile\n' > "$hostile_repo/.gitattributes"
+          /usr/bin/git -C "$hostile_repo" add .
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$hostile_repo" commit --quiet -m fixture
+          printf '#!/bin/sh\n/usr/bin/touch %s\n' "$hostile_marker" \
+            > "$RUNNER_TEMP/hostile-git-helper"
+          chmod 755 "$RUNNER_TEMP/hostile-git-helper"
+          for key in core.fsmonitor diff.external diff.hostile.textconv; do
+            /usr/bin/git -C "$hostile_repo" config \
+              "$key" "$RUNNER_TEMP/hostile-git-helper"
+          done
+          printf 'changed\n' > "$hostile_repo/a.txt"
+          env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=core.fsmonitor \
+            GIT_CONFIG_VALUE_0="$RUNNER_TEMP/hostile-git-helper" \
+            GIT_EXTERNAL_DIFF="$RUNNER_TEMP/hostile-git-helper" \
+            git -C "$hostile_repo" status --porcelain >/dev/null
+          env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=core.fsmonitor \
+            GIT_CONFIG_VALUE_0="$RUNNER_TEMP/hostile-git-helper" \
+            GIT_EXTERNAL_DIFF="$RUNNER_TEMP/hostile-git-helper" \
+            git -C "$hostile_repo" diff --binary HEAD -- a.txt >/dev/null
+          printf '*.txt diff=hostile filter=hostile\n' \
+            > "$hostile_repo/.gitattributes"
+          for key in filter.hostile.clean filter.hostile.smudge; do
+            /usr/bin/git -C "$hostile_repo" config \
+              "$key" "$RUNNER_TEMP/hostile-git-helper"
+          done
+          for args in \
+            'status --porcelain' \
+            'status --porcelain --untracked-files=no' \
+            'diff --binary HEAD -- a.txt' \
+            'diff --name-only --no-renames --diff-filter=ACDMRT -z HEAD'; do
+            if env -i \
+              PATH="$trusted_path" \
+              HOME="$dest/python" \
+              git -C "$hostile_repo" $args >/dev/null; then
+              echo "trusted Git wrapper accepted worktree filter: $args" >&2
+              exit 1
+            fi
+          done
+          for driver in unspecified unset; do
+            printf '*.txt filter=%s\n' "$driver" \
+              > "$hostile_repo/.gitattributes"
+            /usr/bin/git -C "$hostile_repo" config \
+              "filter.$driver.clean" "$RUNNER_TEMP/hostile-git-helper"
+            if env -i \
+              PATH="$trusted_path" \
+              HOME="$dest/python" \
+              git -C "$hostile_repo" diff --binary HEAD -- a.txt >/dev/null; then
+              echo "trusted Git wrapper accepted sentinel filter: $driver" >&2
+              exit 1
+            fi
+          done
+          if env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            git -C "$hostile_repo" remote add blocked \
+              https://example.invalid/repo.git; then
+            echo "trusted Git wrapper accepted remote add" >&2
+            exit 1
+          fi
+          if /usr/bin/git -C "$hostile_repo" remote get-url blocked; then
+            echo "trusted Git wrapper mutated repository remotes" >&2
+            exit 1
+          fi
+          if env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            git -C "$hostile_repo" cat-file --filters HEAD:a.txt >/dev/null; then
+            echo "trusted Git wrapper accepted cat-file --filters" >&2
+              exit 1
+          fi
+          child_source="$RUNNER_TEMP/hostile-submodule-source"
+          parent_repo="$RUNNER_TEMP/hostile-submodule-parent"
+          /usr/bin/git init --quiet "$child_source"
+          printf 'original\n' > "$child_source/a.txt"
+          printf '*.txt filter=hostile\n' > "$child_source/.gitattributes"
+          /usr/bin/git -C "$child_source" add .
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$child_source" commit --quiet -m fixture
+          /usr/bin/git init --quiet "$parent_repo"
+          /usr/bin/git \
+            -c protocol.file.allow=always \
+            -C "$parent_repo" submodule add --quiet "$child_source" sub
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$parent_repo" commit --quiet -m fixture
+          /usr/bin/git -C "$parent_repo/sub" config \
+            filter.hostile.clean "$RUNNER_TEMP/hostile-git-helper"
+          printf 'changed\n' > "$parent_repo/sub/a.txt"
+          for args in \
+            'status --porcelain' \
+            'status --porcelain --untracked-files=no' \
+            'diff --binary HEAD -- sub'; do
+            if env -i \
+              PATH="$trusted_path" \
+              HOME="$dest/python" \
+              git -C "$parent_repo" $args >/dev/null; then
+              echo "trusted Git wrapper accepted gitlink: $args" >&2
+              exit 1
+            fi
+          done
+          test ! -e "$hostile_marker"
+          partial_source="$RUNNER_TEMP/partial-source"
+          partial_clone="$RUNNER_TEMP/partial-clone"
+          /usr/bin/git init --quiet "$partial_source"
+          printf 'promised blob\n' > "$partial_source/a.txt"
+          /usr/bin/git -C "$partial_source" add a.txt
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$partial_source" commit --quiet -m fixture
+          promised_oid="$(/usr/bin/git -C "$partial_source" rev-parse HEAD:a.txt)"
+          /usr/bin/git -C "$partial_source" config uploadpack.allowFilter true
+          /usr/bin/git \
+            -c protocol.file.allow=always \
+            clone --quiet --filter=blob:none --no-checkout \
+            "file://$partial_source" "$partial_clone"
+          if env GIT_NO_LAZY_FETCH=1 \
+            /usr/bin/git -C "$partial_clone" cat-file -e "$promised_oid"; then
+            echo "partial-clone fixture unexpectedly contains promised blob" >&2
+            exit 1
+          fi
+          find "$partial_clone/.git/objects/pack" -maxdepth 1 -type f \
+            -printf '%f\n' | sort > "$RUNNER_TEMP/packs-before"
+          if env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            git -C "$partial_clone" cat-file blob "$promised_oid" >/dev/null; then
+            echo "trusted Git wrapper lazily fetched a promised object" >&2
+            exit 1
+          fi
+          find "$partial_clone/.git/objects/pack" -maxdepth 1 -type f \
+            -printf '%f\n' | sort > "$RUNNER_TEMP/packs-after"
+          cmp "$RUNNER_TEMP/packs-before" "$RUNNER_TEMP/packs-after"
+          if env GIT_NO_LAZY_FETCH=1 \
+            /usr/bin/git -C "$partial_clone" cat-file -e "$promised_oid"; then
+            echo "promised blob appeared after trusted wrapper query" >&2
+            exit 1
+          fi
+          replace_repo="$RUNNER_TEMP/replace-repo"
+          /usr/bin/git init --quiet "$replace_repo"
+          printf 'original blob\n' > "$replace_repo/original.txt"
+          printf 'replacement blob\n' > "$replace_repo/replacement.txt"
+          original_oid="$(
+            /usr/bin/git -C "$replace_repo" hash-object -w original.txt
+          )"
+          replacement_oid="$(
+            /usr/bin/git -C "$replace_repo" hash-object -w replacement.txt
+          )"
+          /usr/bin/git -C "$replace_repo" replace \
+            "$original_oid" "$replacement_oid"
+          /usr/bin/git -C "$replace_repo" cat-file blob "$original_oid" \
+            > "$RUNNER_TEMP/replaced-output"
+          cmp "$replace_repo/replacement.txt" "$RUNNER_TEMP/replaced-output"
+          env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            git -C "$replace_repo" cat-file blob "$original_oid" \
+            > "$RUNNER_TEMP/trusted-object-output"
+          cmp "$replace_repo/original.txt" "$RUNNER_TEMP/trusted-object-output"
+          signature_repo="$RUNNER_TEMP/signature-repo"
+          /usr/bin/git init --quiet "$signature_repo"
+          printf '[project]\nname = "fixture"\n' \
+            > "$signature_repo/pyproject.toml"
+          /usr/bin/git -C "$signature_repo" add pyproject.toml
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$signature_repo" commit --quiet -m fixture
+          /usr/bin/git -C "$signature_repo" cat-file commit HEAD \
+            > "$RUNNER_TEMP/unsigned-commit"
+          "$PYBIN" - \
+            "$RUNNER_TEMP/unsigned-commit" \
+            "$RUNNER_TEMP/signed-commit" <<'PY'
+          import sys
+          from pathlib import Path
+
+          raw = Path(sys.argv[1]).read_bytes()
+          headers, message = raw.split(b"\n\n", 1)
+          Path(sys.argv[2]).write_bytes(
+              headers
+              + b"\ngpgsig -----BEGIN PGP SIGNATURE-----\n"
+              + b" fake\n -----END PGP SIGNATURE-----\n\n"
+              + message
+          )
+          PY
+          signed_oid="$(
+            /usr/bin/git -C "$signature_repo" \
+              hash-object -t commit -w "$RUNNER_TEMP/signed-commit"
+          )"
+          /usr/bin/git -C "$signature_repo" update-ref HEAD "$signed_oid"
+          /usr/bin/git -C "$signature_repo" config log.showSignature true
+          /usr/bin/git -C "$signature_repo" config \
+            gpg.program "$RUNNER_TEMP/hostile-git-helper"
+          rm -f "$hostile_marker"
+          /usr/bin/git -C "$signature_repo" log --format=%H -- \
+            pyproject.toml src/axiom_encode/__init__.py uv.lock \
+            >/dev/null 2>&1 || true
+          test -e "$hostile_marker"
+          rm -f "$hostile_marker"
+          env -i \
+            PATH="$trusted_path" \
+            HOME="$dest/python" \
+            git -C "$signature_repo" log --format=%H -- \
+              pyproject.toml src/axiom_encode/__init__.py uv.lock >/dev/null
+          test ! -e "$hostile_marker"
+          # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
+          # execute here) under a minimal env with no LD_LIBRARY_PATH, using
+          # Path containment (not startswith) so <dest>-evil cannot slip by.
+          src_prefix="$("$PYBIN" -c 'import sys; print(sys.base_prefix)')"
+          env -i PATH=/usr/bin:/bin "$interp" -I -c "
+          import sys
+          from pathlib import Path
+          # Resolve every base: /proc/self/maps paths are kernel-canonical, so
+          # a symlinked prefix component would otherwise desync containment.
+          src = Path('''$src_prefix''').resolve()
+          dest = Path('''$dest/python''').resolve()
+          assert Path(sys.base_prefix).resolve() == dest, sys.base_prefix
+          maps = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and l.split(None, 5)[5].startswith('/')]
+          escaped = [m for m in maps if Path(m).resolve().is_relative_to(src)]
+          assert not escaped, escaped
+          libpython = [m for m in maps if 'libpython' in Path(m).name]
+          assert libpython, 'expected the shared toolcache libpython to be mapped'
+          stray = [m for m in libpython if not Path(m).resolve().is_relative_to(dest)]
+          assert not stray, stray
+          import yaml
+          assert Path(yaml.__file__).resolve().is_relative_to(dest), yaml.__file__
+          print('launcher containment OK:', len(maps), 'mappings, libpython =', sorted(set(libpython)))
+          "
+          # Every planted startup carrier must be gone AND must not have
+          # executed during the -I probe above (the marker file is untouched).
+          # The canonical stdlib zip (on sys.path even absent) must also be gone.
+          test -z "$(find "$dest/python" \( -name '*.pth' -o -name '*._pth' \
+            -o -name 'pybuilddir.txt' -o -name 'sitecustomize*' \
+            -o -name 'usercustomize*' -o -name 'python3*.zip' \) -print -quit)"
+          test ! -e "$RUNNER_TEMP/pth-executed"
+          # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
+          # win: the relocation pass pins RPATH (which outranks it), so libpython
+          # stays inside the runtime AND nothing maps back from the source prefix
+          # even here — the same two conditions the production probe enforces.
+          env -i PATH=/usr/bin:/bin LD_LIBRARY_PATH="$src_prefix/lib" "$interp" -I -S -c "
+          from pathlib import Path
+          dest = Path('''$dest/python''').resolve()
+          src = Path('''$src_prefix''').resolve()
+          maps = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and l.split(None, 5)[5].startswith('/')]
+          assert maps, 'probe observed no maps'
+          escaped = [m for m in maps if Path(m).resolve().is_relative_to(src)]
+          assert not escaped, ('LD_LIBRARY_PATH pulled code from the source prefix', escaped)
+          libpython = [m for m in maps if 'libpython' in Path(m).name]
+          assert libpython, 'expected a shared libpython mapping (static would make this probe vacuous)'
+          stray = [m for m in libpython if not Path(m).resolve().is_relative_to(dest)]
+          assert not stray, ('LD_LIBRARY_PATH outranked the pinned RPATH', stray)
+          print('hostile LD_LIBRARY_PATH neutralized:', sorted(set(libpython)))
+          "
+
+      - name: Fail-closed paths refuse before copying
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          if sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-neg" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git \
+            --require-prefix-under /etc 2> "$RUNNER_TEMP/neg.err"; then
+            echo "provisioner accepted a prefix outside --require-prefix-under"; exit 1
+          fi
+          grep -q "not under required parent" "$RUNNER_TEMP/neg.err"
+          test ! -e "$RUNNER_TEMP/dest-neg/python"
+          if sudo /usr/bin/python3 scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-neg2" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git 2> "$RUNNER_TEMP/neg2.err"; then
+            echo "provisioner accepted the system interpreter"; exit 1
+          fi
+          grep -q "not a self-contained" "$RUNNER_TEMP/neg2.err"
+          test ! -e "$RUNNER_TEMP/dest-neg2/python"

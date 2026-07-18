@@ -26,6 +26,7 @@ from axiom_encode.cli import _enforce_no_apply_collision
 from axiom_encode.harness.evals import (
     EvalPromptResponse,
     EvalWorkspace,
+    _resolve_eval_output_path,
     _run_single_eval,
     parse_runner_spec,
     resolve_corpus_source_unit,
@@ -35,6 +36,23 @@ from tests.release_object_fixtures import bind_test_corpus_release
 # ---------------------------------------------------------------------------
 # Layer 2: requested-not-resolved drives the output path
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "valid,malformed",
+    [
+        ("us-la/statute/47:294", "us-la/statute/47:.294"),
+        ("us-la/statute/47:294.4", "us-la/statute/47:294..4"),
+        ("us-la/statute/47:294.4", "us-la/statute/47/294..4"),
+    ],
+)
+def test_louisiana_malformed_dotted_identity_cannot_alias_valid_path(
+    valid,
+    malformed,
+):
+    assert _resolve_eval_output_path(valid).suffix == ".yaml"
+    with pytest.raises(ValueError, match="Invalid Louisiana"):
+        _resolve_eval_output_path(malformed)
 
 
 def _make_workspace(root: Path) -> EvalWorkspace:
@@ -199,6 +217,24 @@ def test_collision_guard_allows_overwrite_with_same_citation_path(tmp_path: Path
         corpus_citation_path="us-ca/regulation/mpp/63-503.132",
     )
     # Re-applying the same encode (re-run after a fix) must succeed.
+    _enforce_no_apply_collision(source_file=source, target_file=target)
+
+
+def test_unicode_dash_citation_reuses_ascii_target_path(tmp_path: Path):
+    citation_path = "us/statute/42/1437c\u20131"
+    relative_target = _resolve_eval_output_path(citation_path)
+    source = _write_rulespec(
+        tmp_path / "src.yaml",
+        corpus_citation_path=citation_path,
+    )
+    target = _write_rulespec(
+        tmp_path / relative_target,
+        corpus_citation_path=citation_path,
+    )
+
+    assert relative_target == Path("statutes/42/1437c-1.yaml")
+    assert citation_path in source.read_text()
+    assert citation_path in target.read_text()
     _enforce_no_apply_collision(source_file=source, target_file=target)
 
 
