@@ -240,6 +240,11 @@ from .oracles.policyengine.pending import (
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .program_scope import ProgramScopeError, sync_program_scope
+from .proof_hash_migration import (
+    apply_proof_hash_cascade,
+    build_proof_hash_cascade_plan,
+    render_proof_hash_cascade_plan,
+)
 from .repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -1062,6 +1067,45 @@ def main():
     )
     migration_inventory_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
+    proof_hash_cascade_parser = subparsers.add_parser(
+        "migration-cascade-proof-hashes",
+        help=(
+            "Cascade proof-import hashes changed by a base-bound repository migration"
+        ),
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--root",
+        required=True,
+        type=Path,
+        help="Clean canonical rulespec-<country> checkout",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--base-ref",
+        required=True,
+        help="Ancestor commit whose target hashes must match every rewritten hash",
+    )
+    proof_hash_cascade_mode = proof_hash_cascade_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    proof_hash_cascade_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Report eligible migration-induced stale hashes without writing",
+    )
+    proof_hash_cascade_mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="Rewrite only exact base-matching hashes and write an audit report",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--report",
+        type=Path,
+        help="Required with --apply; JSON path under .axiom/migrations",
+    )
+    proof_hash_cascade_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable output"
     )
 
     interval_table_audit_parser = subparsers.add_parser(
@@ -2336,6 +2380,8 @@ def main():
         cmd_inventory(args)
     elif args.command == "migration-inventory":
         cmd_migration_inventory(args)
+    elif args.command == "migration-cascade-proof-hashes":
+        sys.exit(cmd_migration_cascade_proof_hashes(args))
     elif args.command == "interval-table-audit":
         cmd_interval_table_audit(args)
     elif args.command == "oracle-coverage":
@@ -4922,6 +4968,33 @@ def cmd_migration_inventory(args):
             )
         print(f"{len(rows)} module citation failure(s).")
     raise SystemExit(1)
+
+
+def cmd_migration_cascade_proof_hashes(args) -> int:
+    """Audit or apply proof hashes caused by an exact ancestor migration."""
+    if args.apply and args.report is None:
+        print("--report is required with --apply", file=sys.stderr)
+        return 2
+    if args.check and args.report is not None:
+        print("--report is only valid with --apply", file=sys.stderr)
+        return 2
+    try:
+        plan = build_proof_hash_cascade_plan(args.root, args.base_ref)
+        if args.check:
+            print(render_proof_hash_cascade_plan(plan, as_json=args.json))
+            return 1 if plan.eligible else 0
+        payload = apply_proof_hash_cascade(plan, args.report)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"proof hash cascade failed: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"eligible_replacements={payload['eligible_replacements']}")
+        print(f"ignored_mismatches={payload['ignored_mismatches']}")
+        print(f"applied_files={len(payload['applied_files'])}")
+        print(f"report={args.report}")
+    return 0
 
 
 def cmd_interval_table_audit(args):
