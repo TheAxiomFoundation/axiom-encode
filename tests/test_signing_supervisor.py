@@ -1710,6 +1710,33 @@ def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
         )
         assert decrypted.decode("ascii") == expected_private_key
 
+    escaped_public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("ascii")
+        .replace("\n", "\\n")
+    )
+    escaped_public, artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="escaped-public-pem",
+        signing_key=raw_seed,
+        apply_public_key=escaped_public_pem,
+        recipient_public_key=recipient_public_key,
+    )
+    assert escaped_public.returncode == 0, escaped_public.stderr
+    decrypted = recipient_private_key.decrypt(
+        (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    assert decrypted.decode("ascii") == raw_seed
+
 
 def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
     tmp_path: Path,

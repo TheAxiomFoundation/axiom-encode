@@ -107,6 +107,7 @@ jobs:
 
           func parsePublic(material []byte) ed25519.PublicKey {
             normalized := bytes.TrimSpace(material)
+            normalized = bytes.ReplaceAll(normalized, []byte(`\n`), []byte("\n"))
             if bytes.HasPrefix(normalized, []byte("-----BEGIN")) {
               block, rest := pem.Decode(normalized)
               if block == nil || len(bytes.TrimSpace(rest)) != 0 {
