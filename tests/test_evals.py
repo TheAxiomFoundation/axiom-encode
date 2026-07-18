@@ -1929,6 +1929,10 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
             "us-co/statute/39/39-22-104/1.5",
             "statutes/39/39-22-104/1.5.yaml",
         ),
+        # Louisiana's corpus preserves the official R.S. title:section label,
+        # while RuleSpec represents the separator as a directory boundary.
+        ("us-la/statute/47:294", "statutes/47/294.yaml"),
+        ("us-la/statute/47:297.4", "statutes/47/297/4.yaml"),
         # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
         # are regression cases for the dot-stripping fix.
         (
@@ -2087,6 +2091,24 @@ def test_resolve_eval_output_path_rejects_free_text_source_identity():
 
 def test_resolve_eval_output_path_uses_exact_canonical_path():
     assert _resolve_eval_output_path("us/statute/26/63") == Path("statutes/26/63.yaml")
+
+
+@pytest.mark.parametrize(
+    "citation,expected",
+    [
+        ("us-la/statute/47:294", "statutes/47/294.yaml"),
+        ("us-la/statute/47:297.4", "statutes/47/297/4.yaml"),
+    ],
+)
+def test_resolve_eval_output_path_expands_louisiana_title_section_separator(
+    citation, expected
+):
+    assert _resolve_eval_output_path(citation) == Path(expected)
+
+
+def test_resolve_eval_output_path_rejects_empty_colon_statute_component():
+    with pytest.raises(ValueError, match="Invalid colon-structured statute segment"):
+        _resolve_eval_output_path("us-la/statute/47::294")
 
 
 class TestCorpusSourceResolution:

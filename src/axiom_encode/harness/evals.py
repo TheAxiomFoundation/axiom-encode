@@ -7470,6 +7470,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
             tail = parts[1:]
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
+            tail = _expand_colon_structured_statute_tail(root, tail)
             if (
                 tail
                 and jurisdiction == "us"
@@ -7490,6 +7491,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         tail = parts[1:]
         if tail:
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
+            tail = _expand_colon_structured_statute_tail(root, tail)
             if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
                 tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
@@ -7497,6 +7499,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
             tail = parts[2:]
+            tail = _expand_colon_structured_statute_tail(root, tail)
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
             if parts[0] == "uk":
@@ -7506,6 +7509,20 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
                     return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
                 return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
+
+
+def _expand_colon_structured_statute_tail(root: str, tail: list[str]) -> list[str]:
+    """Expand state statute ``title:section`` labels into path components."""
+
+    if root != "statutes":
+        return tail
+    expanded: list[str] = []
+    for part in tail:
+        components = part.split(":")
+        if any(not component for component in components):
+            raise ValueError(f"Invalid colon-structured statute segment: {part!r}")
+        expanded.extend(components)
+    return expanded
 
 
 def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
