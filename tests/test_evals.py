@@ -3450,6 +3450,7 @@ rules:
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
     output_file = tmp_path / "runner" / "source" / "tn-snap.yaml"
+    materialized_paths: set[Path] = set()
     llm_response = """=== FILE: tn-snap.yaml ===
 format: rulespec/v1
 module:
@@ -3476,12 +3477,17 @@ rules:
         llm_response,
         output_file,
         source_text="The standard utility allowance is $451.",
+        materialized_paths=materialized_paths,
     )
 
     assert wrote is True
     assert output_file.exists()
     assert output_file.with_name("tn-snap.test.yaml").exists()
     assert output_file.read_text().startswith("format: rulespec/v1")
+    assert materialized_paths == {
+        output_file,
+        output_file.with_name("tn-snap.test.yaml"),
+    }
 
 
 def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(
@@ -15375,8 +15381,10 @@ rules:
         context_root = workspace_root / "context" / "statutes" / "47"
         context_root.mkdir(parents=True)
         old_target = context_root / "294.yaml"
+        old_target_test = context_root / "294.test.yaml"
         sibling = context_root / "295.yaml"
         old_target.write_text("old target\n", encoding="utf-8")
+        old_target_test.write_text("old target test\n", encoding="utf-8")
         sibling.write_text("sibling context\n", encoding="utf-8")
         workspace = EvalWorkspace(
             root=workspace_root,
@@ -15388,6 +15396,12 @@ rules:
                     workspace_path=Path("context/statutes/47/294.yaml"),
                     import_path="us-la:statutes/47/294",
                     kind="implementation_precedent",
+                ),
+                EvalContextFile(
+                    source_path=old_target_test,
+                    workspace_path=Path("context/statutes/47/294.test.yaml"),
+                    import_path="us-la:statutes/47/294.test",
+                    kind="existing_target_test_context",
                 ),
                 EvalContextFile(
                     source_path=sibling,
@@ -15402,14 +15416,23 @@ rules:
         generated_target = eval_root / "statutes" / "47" / "294.yaml"
         generated_target.parent.mkdir(parents=True)
         generated_target.write_text("generated target\n", encoding="utf-8")
+        generated_target_test = eval_root / "statutes" / "47" / "294.test.yaml"
+        generated_target_test.write_text("generated target test\n", encoding="utf-8")
 
         _hydrate_eval_root(
             eval_root,
             workspace,
-            protected_paths=(Path("statutes/47/294.yaml"),),
+            protected_paths=(
+                Path("statutes/47/294.yaml"),
+                Path("statutes/47/294.test.yaml"),
+            ),
         )
 
         assert generated_target.read_text(encoding="utf-8") == "generated target\n"
+        assert (
+            generated_target_test.read_text(encoding="utf-8")
+            == "generated target test\n"
+        )
         assert (eval_root / "statutes/47/295.yaml").read_text(
             encoding="utf-8"
         ) == "sibling context\n"
