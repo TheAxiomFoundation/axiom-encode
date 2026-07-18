@@ -122,12 +122,18 @@ jobs:
             -o -name 'usercustomize*' -o -name 'python3*.zip' \) -print -quit)"
           test ! -e "$RUNNER_TEMP/pth-executed"
           # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
-          # win: the relocation pass pins RPATH (which outranks it), so every
-          # libpython mapping stays inside the provisioned runtime even here.
+          # win: the relocation pass pins RPATH (which outranks it), so libpython
+          # stays inside the runtime AND nothing maps back from the source prefix
+          # even here — the same two conditions the production probe enforces.
           env -i PATH=/usr/bin:/bin LD_LIBRARY_PATH="$src_prefix/lib" "$interp" -I -S -c "
           from pathlib import Path
           dest = Path('''$dest/python''').resolve()
-          libpython = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and 'libpython' in l.rsplit('/', 1)[-1]]
+          src = Path('''$src_prefix''').resolve()
+          maps = [l.split(None, 5)[5].strip() for l in open('/proc/self/maps') if len(l.split(None, 5)) == 6 and l.split(None, 5)[5].startswith('/')]
+          assert maps, 'probe observed no maps'
+          escaped = [m for m in maps if Path(m).resolve().is_relative_to(src)]
+          assert not escaped, ('LD_LIBRARY_PATH pulled code from the source prefix', escaped)
+          libpython = [m for m in maps if 'libpython' in Path(m).name]
           assert libpython, 'expected a shared libpython mapping (static would make this probe vacuous)'
           stray = [m for m in libpython if not Path(m).resolve().is_relative_to(dest)]
           assert not stray, ('LD_LIBRARY_PATH outranked the pinned RPATH', stray)

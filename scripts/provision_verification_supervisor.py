@@ -332,14 +332,29 @@ def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
 def _assert_self_contained(
     runtime: Path, source_runtime: Path, interpreter: Path
 ) -> None:
-    """Prove the launcher's interpreter runs entirely from the provisioned tree.
+    """Prove the launcher's interpreter loads nothing from the source prefix and
+    pins libpython to the runtime.
 
     Runs the interpreter exactly as the launcher will (-I, site enabled, so a
     surviving .pth would execute and show up) with an explicit minimal
-    environment (no LD_LIBRARY_PATH) and, on Linux, requires every file
-    mapping to stay out of the source prefix and every libpython mapping to
-    live under the runtime.
+    environment (no LD_LIBRARY_PATH). On Linux it then requires, from a
+    non-empty /proc/self/maps: NO file mapping under the (user-writable) source
+    prefix, and AT LEAST ONE libpython mapping with every libpython mapping
+    under the runtime. It deliberately does NOT require every mapping to be
+    inside the runtime — the root-owned system loader and libc legitimately map
+    from /lib, /usr/lib, etc. This bounds the launcher interpreter's own
+    load-time closure; C-extensions the encoder imports later are covered by the
+    run-path repin plus the caller's root-ownership, not by this probe.
+
+    The launcher is a `#!<interpreter> -I` shebang, and Linux truncates the
+    shebang interpreter at whitespace, so a destination path containing
+    whitespace would make the launcher select a different interpreter than this
+    execve-based probe validated. Refuse such a path up front.
     """
+    if any(character.isspace() for character in str(interpreter)):
+        raise SystemExit(
+            f"interpreter path is not shebang-safe (contains whitespace): {interpreter}"
+        )
     probe_code = (
         "import json, sys\n"
         "maps = []\n"
@@ -378,6 +393,14 @@ def _assert_self_contained(
             f"provisioning interpreter is {list(sys.version_info[:2])}"
         )
     if sys.platform == "linux":
+        # Fail closed: an empty maps list means the probe observed nothing (a
+        # kernel without /proc, a hardened readfile), so the containment claim
+        # is unverified rather than satisfied.
+        if not report["maps"]:
+            raise SystemExit(
+                "self-containment probe observed no /proc/self/maps entries; "
+                "cannot verify the provisioned runtime"
+            )
         # /proc/self/maps paths are kernel-canonical; compare against resolved
         # bases so a symlinked prefix component cannot desync the containment.
         escaped = [m for m in report["maps"] if Path(m).is_relative_to(source_resolved)]
@@ -387,6 +410,13 @@ def _assert_self_contained(
                 f"prefix: {escaped}"
             )
         libpython = [m for m in report["maps"] if "libpython" in Path(m).name]
+        # The interpreter MUST have mapped its shared libpython from the runtime;
+        # zero libpython mappings would make the "pinned to runtime" check vacuous.
+        if not libpython:
+            raise SystemExit(
+                "self-containment probe mapped no libpython; the shared runtime "
+                "was not exercised (cannot confirm it is pinned)"
+            )
         stray = [m for m in libpython if not Path(m).is_relative_to(runtime_resolved)]
         if stray:
             raise SystemExit(f"libpython mapped outside the runtime: {stray}")

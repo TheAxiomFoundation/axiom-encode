@@ -22,7 +22,7 @@ _SPEC = importlib.util.spec_from_file_location(
     / "provision_verification_supervisor.py",
 )
 provisioner = importlib.util.module_from_spec(_SPEC)
-# Register before exec so @dataclass can resolve the module via sys.modules.
+# Register in sys.modules before exec so the module resolves itself by name.
 sys.modules[_SPEC.name] = provisioner
 _SPEC.loader.exec_module(provisioner)
 
@@ -300,10 +300,10 @@ class TestIsElf:
 
 
 class _FakePatchelf:
-    """subprocess.run stand-in keyed by patchelf flag.
+    """subprocess.run stand-in for a single object under test.
 
-    `rpath_by_path[str(path)]` supplies successive --print-rpath returns (a
-    string, or None to simulate a returncode!=0 read failure). --set-rpath
+    Constructed with the object's current run path (a string, or None to
+    simulate a --print-rpath returncode!=0 read failure). --set-rpath
     records and updates the object's current run path; a subsequent
     --print-rpath then returns that new value.
     """
@@ -395,3 +395,64 @@ class TestPrintRpath:
             lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", "err"),
         )
         assert provisioner._print_rpath("patchelf", Path("obj")) is None
+
+
+class TestAssertSelfContained:
+    """The empirical probe's fail-closed and shebang-safety guards. The probe
+    shells out to the interpreter, so inject the maps report by stubbing
+    subprocess.run; sys.platform is forced to linux to reach the maps checks."""
+
+    def _run_with(self, monkeypatch, tmp_path, maps):
+        runtime = (tmp_path / "python").resolve()
+        (runtime / "bin").mkdir(parents=True)
+        interpreter = runtime / "bin" / "python3"
+        interpreter.write_text("x")
+        source = (tmp_path / "src").resolve()
+        source.mkdir()
+        monkeypatch.setattr(provisioner.sys, "platform", "linux")
+        # Stub the probe subprocess and its parse so the base_prefix/version
+        # checks pass and we reach the maps checks with the injected report.
+        monkeypatch.setattr(
+            provisioner.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "{}", ""),
+        )
+        monkeypatch.setattr(
+            provisioner.json,
+            "loads",
+            lambda _s: {
+                "base_prefix": str(runtime),
+                "version": list(sys.version_info[:2]),
+                "maps": maps,
+            },
+        )
+        provisioner._assert_self_contained(runtime, source, interpreter)
+        return runtime
+
+    def test_empty_maps_fails_closed(self, tmp_path, monkeypatch):
+        with pytest.raises(SystemExit, match="no /proc/self/maps entries"):
+            self._run_with(monkeypatch, tmp_path, [])
+
+    def test_no_libpython_fails_closed(self, tmp_path, monkeypatch):
+        runtime = (tmp_path / "python").resolve()
+        maps = [str(runtime / "bin" / "python3"), "/usr/lib/x86_64-linux-gnu/libc.so.6"]
+        with pytest.raises(SystemExit, match="mapped no libpython"):
+            self._run_with(monkeypatch, tmp_path, maps)
+
+    def test_libc_from_system_is_allowed(self, tmp_path, monkeypatch):
+        runtime = (tmp_path / "python").resolve()
+        # system libc/loader outside the runtime are fine; only source-prefix
+        # mappings and stray libpython are rejected.
+        maps = [
+            str(runtime / "lib" / "libpython3.so"),
+            "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "/lib64/ld-linux-x86-64.so.2",
+        ]
+        self._run_with(monkeypatch, tmp_path, maps)  # no raise
+
+    def test_whitespace_destination_is_refused(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        bad_interp = tmp_path / "a b" / "python3"
+        with pytest.raises(SystemExit, match="not shebang-safe"):
+            provisioner._assert_self_contained(runtime, tmp_path, bad_interp)
