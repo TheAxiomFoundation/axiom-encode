@@ -48,6 +48,7 @@ from axiom_encode.harness.evals import (
     _canonical_rulespec_target_for_path,
     _canonical_target_ref_prefix,
     _clean_generated_file_content,
+    _clear_eval_target_artifacts,
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
     _command_uses_policyengine_skill,
@@ -3507,6 +3508,49 @@ def test_materialize_eval_artifact_rejects_test_only_bundle_with_stale_main(
     assert wrote is False
     assert output_file.read_text(encoding="utf-8") == "stale prior-run main\n"
     assert materialized_paths == {output_file.with_name("294.test.yaml")}
+
+
+def test_clear_eval_target_artifacts_prevents_reused_companion_test(
+    tmp_path,
+):
+    output_root = tmp_path / "output"
+    output_file = output_root / "runner" / "statutes" / "47" / "294.yaml"
+    companion_test = output_file.with_name("294.test.yaml")
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    companion_test.write_text("- name: stale prior-run test\n", encoding="utf-8")
+
+    _clear_eval_target_artifacts(output_file, output_root)
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+        artifact_root=output_root,
+    )
+
+    assert wrote is True
+    assert output_file.read_text(encoding="utf-8") == (
+        "format: rulespec/v1\nrules: []\n"
+    )
+    assert not companion_test.exists()
+
+
+def test_clear_eval_target_artifacts_rejects_symlinked_ancestor(tmp_path):
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_root.mkdir()
+    outside.mkdir()
+    (output_root / "runner").symlink_to(outside, target_is_directory=True)
+    outside_target = outside / "statutes" / "47" / "294.yaml"
+    outside_target.parent.mkdir(parents=True)
+    outside_target.write_text("outside sentinel\n", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        _clear_eval_target_artifacts(
+            output_root / "runner" / "statutes" / "47" / "294.yaml",
+            output_root,
+        )
+
+    assert outside_target.read_text(encoding="utf-8") == "outside sentinel\n"
 
 
 def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(

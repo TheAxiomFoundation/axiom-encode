@@ -7149,6 +7149,8 @@ def _run_single_eval(
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
     response, wrote_artifact, retry_count, materialized_paths = (
         _run_prompt_eval_with_empty_artifact_retry(
             runner=runner,
@@ -7159,7 +7161,7 @@ def _run_single_eval(
             target_file_name=relative_output.name,
             include_tests=include_tests,
             policyengine_rule_hint=policyengine_rule_hint,
-            artifact_root=Path(output_root).resolve(),
+            artifact_root=artifact_root,
         )
     )
     wrote_artifact = wrote_artifact and output_file in materialized_paths
@@ -7328,6 +7330,8 @@ def _run_single_source_eval(
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
     response, wrote_artifact, retry_count, materialized_paths = (
         _run_prompt_eval_with_empty_artifact_retry(
             runner=runner,
@@ -7338,7 +7342,7 @@ def _run_single_source_eval(
             target_file_name=relative_output.name,
             include_tests=True,
             policyengine_rule_hint=policyengine_rule_hint,
-            artifact_root=Path(output_root).resolve(),
+            artifact_root=artifact_root,
         )
     )
     wrote_artifact = wrote_artifact and output_file in materialized_paths
@@ -7663,6 +7667,26 @@ def _write_eval_artifact_text(
 ) -> None:
     root, relative = _eval_artifact_write_location(target_path, artifact_root)
     _secure_atomic_eval_write(root, relative, content.encode("utf-8"))
+
+
+def _clear_eval_target_artifacts(expected_path: Path, artifact_root: Path) -> None:
+    """Remove stale main and companion artifacts without following symlinks."""
+
+    for target_path in (expected_path, _rulespec_test_path(expected_path)):
+        root, relative = _eval_artifact_write_location(target_path, artifact_root)
+        _ensure_secure_eval_root(root)
+        try:
+            with _open_secure_eval_parent(root, relative, create=False) as (
+                parent_fd,
+                target_name,
+            ):
+                try:
+                    os.unlink(target_name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    continue
+                os.fsync(parent_fd)
+        except FileNotFoundError:
+            continue
 
 
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
