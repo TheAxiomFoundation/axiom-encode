@@ -281,6 +281,26 @@ APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
 APPLIED_ENCODING_OFFICIAL_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
+# Trusted-runtime attestation (encode#1147): the git-free, root-provisioned
+# cross-repo apply-identity source that EXTENDS main's checkout binding. When the
+# signing supervisor sets AXIOM_ENCODE_TRUSTED_RUNTIME=1, _apply_encoder_execution_identity
+# sources the encoder identity from the root-written runtime-attestation.json and
+# byte-binds the running package to its recorded tree hash. See
+# _attestation_encoder_execution_identity.
+_TRUSTED_RUNTIME_ENV = "AXIOM_ENCODE_TRUSTED_RUNTIME"
+_RUNTIME_ATTESTATION_FILENAME = "runtime-attestation.json"
+_RUNTIME_ATTESTATION_SCHEMA = "axiom-encode/trusted-runtime-attestation/v1"
+# The provenance mode recorded on every applied manifest identity (contract c).
+APPLY_IDENTITY_SOURCE_GITHUB_SHA = "github-sha"
+APPLY_IDENTITY_SOURCE_GIT = "git"
+APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME = "trusted-runtime-attestation"
+_APPLY_IDENTITY_SOURCES = frozenset(
+    {
+        APPLY_IDENTITY_SOURCE_GITHUB_SHA,
+        APPLY_IDENTITY_SOURCE_GIT,
+        APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME,
+    }
+)
 # Genuine encoder backends (the model-generated path).
 APPLIED_ENCODING_ENCODER_BACKENDS = frozenset({"codex", "openai", "claude"})
 # Machine-generator backends accepted by the protected-content guard.
@@ -17371,10 +17391,16 @@ def _model_apply_validation_execution_issues(
         field: str,
         expected_repository: str | None = None,
         include_version: bool = False,
+        include_identity_source: bool = False,
     ) -> None:
         expected_fields = {"repository", "commit"}
         if include_version:
             expected_fields.add("version")
+        # Only the encoder records identity_source (its provenance can be a dev
+        # checkout, the workflow checkout, or the trusted runtime); the engine
+        # identity never carries it.
+        if include_identity_source:
+            expected_fields.add("identity_source")
         if not isinstance(value, dict) or set(value) != expected_fields:
             issues.append(f"{prefix}.{field} is malformed")
             return
@@ -17390,12 +17416,18 @@ def _model_apply_validation_execution_issues(
             not isinstance(value.get("version"), str) or not value.get("version")
         ):
             issues.append(f"{prefix}.{field}.version is invalid")
+        if (
+            include_identity_source
+            and value.get("identity_source") not in _APPLY_IDENTITY_SOURCES
+        ):
+            issues.append(f"{prefix}.{field}.identity_source is invalid")
 
     check_git_identity(
         execution.get("axiom_encode"),
         field="axiom_encode",
         expected_repository="github.com/TheAxiomFoundation/axiom-encode",
         include_version=True,
+        include_identity_source=True,
     )
     check_git_identity(
         execution.get("axiom_rules_engine"),
@@ -17403,7 +17435,11 @@ def _model_apply_validation_execution_issues(
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
     encoder = execution.get("axiom_encode")
-    if encoder != dict(expected_encoder_identity):
+    # identity_source is informational and may differ between the writing mode
+    # and the verifying mode, so bind on repository + commit + version only.
+    if _encoder_identity_binding_core(encoder) != _encoder_identity_binding_core(
+        dict(expected_encoder_identity)
+    ):
         issues.append(
             f"{prefix}.axiom_encode does not match the running pinned encoder"
         )
@@ -17413,6 +17449,13 @@ def _model_apply_validation_execution_issues(
             issues.append(f"{prefix}.axiom_encode.commit disagrees with manifest")
         if encoder.get("version") != payload.get("axiom_encode_version"):
             issues.append(f"{prefix}.axiom_encode.version disagrees with manifest")
+        # The two signed blocks must agree on HOW the identity was resolved before
+        # the cross-mode binding above deliberately ignores identity_source.
+        if encoder.get("identity_source") != payload_encoder.get("identity_source"):
+            issues.append(
+                f"{prefix}.axiom_encode.identity_source disagrees with "
+                "axiom_encode_git.identity_source"
+            )
 
     policy = execution.get("policy_pre_apply")
     expected_policy_fields = {
@@ -17639,12 +17682,16 @@ def _applied_manifest_exact_schema_issues(
     if not isinstance(version, str) or not version:
         issues.append(f"{manifest_label} axiom_encode_version is invalid")
     provenance = payload.get("axiom_encode_git")
+    # identity_source distinguishes the github-sha / git / trusted-runtime modes
+    # and is written by --apply in every mode, so the exact field set requires it
+    # in lockstep with what apply emits.
     expected_provenance_fields = {
         "root",
         "commit",
         "dirty_tracked",
         "version",
         "version_commit",
+        "identity_source",
     }
     if (
         not isinstance(provenance, dict)
@@ -17671,6 +17718,10 @@ def _applied_manifest_exact_schema_issues(
         ):
             issues.append(
                 f"{manifest_label} axiom_encode_git.version_commit is invalid"
+            )
+        if provenance.get("identity_source") not in _APPLY_IDENTITY_SOURCES:
+            issues.append(
+                f"{manifest_label} axiom_encode_git.identity_source is invalid"
             )
 
     if contract == "retirement" and (
@@ -18530,6 +18581,20 @@ def _is_axiom_encode_versioned_path(path: str) -> bool:
 
 
 def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        # Cross-repo, git-free runtime: the attestation IS the provenance (its
+        # bytes were byte-bound in _apply_encoder_execution_identity). The dev
+        # version gate needs Git and is N/A; the provisioner already enforced the
+        # version-bump invariant against the pinned commit's history.
+        identity = _apply_encoder_execution_identity()
+        return {
+            "root": identity["path"],
+            "commit": identity["commit"],
+            "dirty_tracked": False,
+            "version": identity["version"],
+            "version_commit": identity["commit"],
+            "identity_source": APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME,
+        }
     if os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT"):
         identity = _apply_encoder_execution_identity()
         root = identity.get("path")
@@ -18549,6 +18614,7 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
             "commit": commit,
             "dirty_tracked": False,
             **version_provenance,
+            "identity_source": APPLY_IDENTITY_SOURCE_GITHUB_SHA,
         }
 
     provenance = _git_repo_provenance(_axiom_encode_repo_root())
@@ -18566,6 +18632,7 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
         Path(str(provenance["root"]))
     )
     provenance.update(version_provenance)
+    provenance["identity_source"] = APPLY_IDENTITY_SOURCE_GIT
     return provenance
 
 
@@ -18584,6 +18651,21 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             f"running axiom-encode checkout identity is unavailable: {exc}"
         ) from exc
     commit = checkout_identity.get("commit")
+    if checkout_identity.get("kind") == APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME:
+        # Git-free provisioned runtime: _apply_encoder_execution_identity already
+        # byte-bound the running package to the attestation and bound its version
+        # to __version__, so there is no live Git checkout to read a version from.
+        if (
+            checkout_identity.get("dirty") is not False
+            or not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+        ):
+            raise RuntimeError("running axiom-encode attestation identity is malformed")
+        return {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": __version__,
+        }
     if (
         checkout_identity.get("kind") != "git"
         or checkout_identity.get("dirty") is not False
@@ -37125,10 +37207,243 @@ def _apply_validation_execution_identity(
     }
 
 
+def _runtime_attestation_path() -> Path:
+    """Return the attestation path inside this interpreter's own prefix."""
+
+    return Path(sys.base_prefix) / _RUNTIME_ATTESTATION_FILENAME
+
+
+def _load_trusted_runtime_attestation() -> dict[str, str]:
+    """Read and validate the root-written runtime attestation, or fail closed.
+
+    Every failure raises so a present marker can never silently degrade to a
+    weaker identity. Unknown sibling members (reserved for encode#1158) are
+    tolerated for forward compatibility.
+    """
+
+    path = _runtime_attestation_path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the trusted-runtime marker is set "
+            f"but the runtime attestation is unreadable at {path}: {exc}"
+        ) from exc
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            f"Cannot apply generated RuleSpec: the runtime attestation at {path} "
+            f"is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"Cannot apply generated RuleSpec: the runtime attestation at {path} "
+            "is not a JSON object"
+        )
+    if payload.get("schema") != _RUNTIME_ATTESTATION_SCHEMA:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation schema "
+            f"{payload.get('schema')!r} is not {_RUNTIME_ATTESTATION_SCHEMA!r}"
+        )
+    provisioned_at = payload.get("provisioned_at")
+    if not isinstance(provisioned_at, str) or not provisioned_at:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation is missing "
+            "a provisioned_at timestamp"
+        )
+    encoder = payload.get("axiom_encode")
+    if not isinstance(encoder, dict):
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation lacks an "
+            "axiom_encode identity object"
+        )
+    origin_repository = encoder.get("origin_repository")
+    commit = encoder.get("commit")
+    version = encoder.get("version")
+    package_tree_sha256 = encoder.get("package_tree_sha256")
+    if origin_repository != APPLIED_ENCODING_OFFICIAL_REPOSITORY:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation origin "
+            f"{origin_repository!r} is not {APPLIED_ENCODING_OFFICIAL_REPOSITORY!r}"
+        )
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation commit "
+            f"{commit!r} is not a full 40-hex Git SHA"
+        )
+    if not isinstance(version, str) or not version:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation is missing "
+            "the attested encoder version"
+        )
+    if (
+        not isinstance(package_tree_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", package_tree_sha256) is None
+    ):
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation "
+            "package_tree_sha256 is not a 64-hex digest"
+        )
+    return {
+        "origin_repository": origin_repository,
+        "commit": commit,
+        "provisioned_at": provisioned_at,
+        "version": version,
+        "package_tree_sha256": package_tree_sha256,
+        "path": str(path),
+    }
+
+
+def _live_axiom_encode_apply_commit() -> str | None:
+    """Tri-state view of a live Git checkout at the running package root.
+
+    None ONLY when there is genuinely no repository (the expected git-free
+    runtime state). A validated clean 40-hex commit when a trustworthy repo is
+    present. RAISES when a repo is present but its identity cannot be trusted (a
+    git error, a dirty tree, or a malformed HEAD), so ambiguous live evidence
+    never silently degrades to "no repo, use the attestation".
+    """
+
+    root = _axiom_encode_repo_root()
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            env=environment,
+            check=False,
+        )
+
+    try:
+        inside = run("rev-parse", "--is-inside-work-tree")
+    except OSError:
+        return None
+    if inside.returncode != 0:
+        stderr = inside.stderr.lower()
+        if "not a git repository" in stderr or "not a work tree" in stderr:
+            return None
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: a live axiom-encode repository is "
+            f"present but its worktree state is unverifiable: {inside.stderr.strip()}"
+        )
+    if inside.stdout.strip() != "true":
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: axiom-encode is inside a git dir "
+            "without a work tree; refusing to resolve an ambiguous identity"
+        )
+    head = run("rev-parse", "HEAD")
+    status = run("status", "--porcelain", "--untracked-files=no")
+    if head.returncode != 0 or status.returncode != 0:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: a live axiom-encode checkout is "
+            "present but its commit or status could not be read"
+        )
+    commit = head.stdout.strip()
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the live axiom-encode HEAD "
+            f"{commit!r} is not a full 40-hex commit"
+        )
+    if status.stdout.strip():
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the live axiom-encode checkout is "
+            "dirty; refusing to reconcile it against the trusted-runtime attestation"
+        )
+    return commit
+
+
+def _encoder_identity_binding_core(identity: object) -> object:
+    """Drop the informational ``identity_source`` before an identity match.
+
+    A manifest written in one provenance mode is legitimately verified against a
+    pinned identity resolved in another (e.g. a trusted-runtime apply verified
+    later from a CI Git checkout), so the binding is on repository + commit +
+    version; identity_source is validated on its own elsewhere.
+    """
+
+    if isinstance(identity, dict):
+        return {
+            key: value for key, value in identity.items() if key != "identity_source"
+        }
+    return identity
+
+
+def _attestation_encoder_execution_identity() -> dict[str, object]:
+    """Bind apply provenance to the root-written runtime attestation.
+
+    The cross-repo, git-free case (a pinned encoder dependency in a rulespec
+    signed-apply runtime). The executing package bytes are byte-bound to the
+    attestation's recorded ``package_tree_sha256`` — mirroring, for the git-free
+    runtime, the checkout-vs-runtime tree-hash equality that
+    ``_apply_encoder_execution_identity`` enforces for the workflow-checkout case.
+    """
+
+    attestation = _load_trusted_runtime_attestation()
+    if attestation["version"] != __version__:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the runtime attestation version "
+            f"{attestation['version']!r} does not match the running encoder "
+            f"__version__ {__version__!r}; the executing bytes are not the "
+            "attested build."
+        )
+    runtime_package = _deterministic_tree_identity(
+        Path(__file__).resolve().parent,
+        excluded_directory_names=frozenset({"__pycache__"}),
+    )
+    if (
+        runtime_package.get("state") != "directory"
+        or runtime_package.get("tree_sha256") != attestation["package_tree_sha256"]
+    ):
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the running encoder package bytes do "
+            "not match the trusted-runtime attestation's package_tree_sha256."
+        )
+    live_commit = _live_axiom_encode_apply_commit()
+    if live_commit is not None and live_commit != attestation["commit"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the trusted-runtime attestation "
+            f"commit {attestation['commit']} conflicts with the live axiom-encode "
+            f"Git checkout commit {live_commit}."
+        )
+    return {
+        "kind": APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME,
+        "path": attestation["path"],
+        "commit": attestation["commit"],
+        "origin_repository": attestation["origin_repository"],
+        "dirty": False,
+        "version": __version__,
+        "identity_source": APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME,
+    }
+
+
 def _apply_encoder_execution_identity() -> dict[str, object]:
-    """Bind apply provenance to this checkout or the verified CI source checkout."""
+    """Bind apply provenance to this checkout, the verified CI source checkout,
+    or (cross-repo, git-free) the root-provisioned runtime attestation."""
 
     checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
+    trusted_runtime = os.environ.get(_TRUSTED_RUNTIME_ENV) == "1"
+    # Contract (d): exactly one apply-identity source may be active.
+    if trusted_runtime and checkout_override:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: both AXIOM_ENCODE_APPLY_CHECKOUT and "
+            "the trusted-runtime attestation assert an encoder identity; exactly "
+            "one apply-identity source may be active."
+        )
+    if trusted_runtime:
+        return _attestation_encoder_execution_identity()
     checkout_root = _axiom_encode_repo_root()
     expected_ci_sha: str | None = None
     if checkout_override:
@@ -37200,6 +37515,11 @@ def _apply_encoder_execution_identity() -> dict[str, object]:
                 "Provisioned encoder package bytes do not match the workflow checkout"
             )
     encoder["version"] = __version__
+    encoder["identity_source"] = (
+        APPLY_IDENTITY_SOURCE_GITHUB_SHA
+        if expected_ci_sha is not None
+        else APPLY_IDENTITY_SOURCE_GIT
+    )
     return encoder
 
 
@@ -37208,10 +37528,43 @@ def _portable_clean_apply_git_identity(
     *,
     label: str,
     expected_repository: str,
+    allow_trusted_runtime_attestation: bool = False,
 ) -> dict[str, str]:
-    """Return a path-free commit identity for one required clean checkout."""
+    """Return a path-free commit identity for one required clean checkout.
 
-    if not isinstance(identity, dict) or identity.get("kind") != "git":
+    When ``allow_trusted_runtime_attestation`` is set (only the encoder, whose
+    provenance can vary between a live checkout, a workflow checkout, and the
+    root-provisioned runtime) the returned dict also records ``identity_source``
+    so consumers can tell the modes apart. A ``trusted-runtime-attestation``
+    identity is clean by construction and carries no live checkout path, so only
+    the commit and origin are validated.
+    """
+
+    if not isinstance(identity, dict):
+        raise RuntimeError(
+            f"Cannot apply generated RuleSpec: {label} must be a Git checkout"
+        )
+    if (
+        allow_trusted_runtime_attestation
+        and identity.get("kind") == APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME
+    ):
+        commit = identity.get("commit")
+        origin_repository = identity.get("origin_repository")
+        if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+            raise RuntimeError(
+                f"Cannot apply generated RuleSpec: {label} Git identity is incomplete"
+            )
+        if origin_repository != expected_repository:
+            raise RuntimeError(
+                f"Cannot apply generated RuleSpec: {label} origin must be "
+                f"{expected_repository}, got {origin_repository!r}"
+            )
+        return {
+            "repository": expected_repository,
+            "commit": commit,
+            "identity_source": APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME,
+        }
+    if identity.get("kind") != "git":
         raise RuntimeError(
             f"Cannot apply generated RuleSpec: {label} must be a Git checkout"
         )
@@ -37236,7 +37589,15 @@ def _portable_clean_apply_git_identity(
             f"Cannot apply generated RuleSpec: {label} origin must be "
             f"{expected_repository}, got {origin_repository!r}"
         )
-    return {"repository": expected_repository, "commit": commit}
+    result: dict[str, str] = {"repository": expected_repository, "commit": commit}
+    if allow_trusted_runtime_attestation:
+        # The encoder identity carries its source so consumers can distinguish
+        # git-dev / workflow-checkout / trusted-runtime provenance.
+        source = identity.get("identity_source")
+        result["identity_source"] = (
+            source if source in _APPLY_IDENTITY_SOURCES else APPLY_IDENTITY_SOURCE_GIT
+        )
+    return result
 
 
 def _portable_apply_validation_execution_identity(
@@ -37248,6 +37609,7 @@ def _portable_apply_validation_execution_identity(
         execution.get("axiom_encode_identity"),
         label="axiom-encode",
         expected_repository="github.com/TheAxiomFoundation/axiom-encode",
+        allow_trusted_runtime_attestation=True,
     )
     encoder_identity = execution.get("axiom_encode_identity")
     if not isinstance(encoder_identity, dict) or not isinstance(
@@ -37929,18 +38291,31 @@ def _require_staged_manifest_matches_validation_snapshot(
     encoder_identity = validation_execution.get("axiom_encode_identity")
     if not isinstance(policy_identity, dict) or not isinstance(encoder_identity, dict):
         raise RuntimeError("Apply validation snapshot lacks execution provenance")
+    encoder_kind = encoder_identity.get("kind")
     if (
-        encoder_identity.get("kind") != "git"
+        encoder_kind not in ("git", APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME)
         or encoder_identity.get("dirty") is not False
     ):
         raise RuntimeError(
             "Cannot sign an apply manifest from an uncommitted encoder execution"
         )
+    # Path B (axiom_encode_git) and Path A (encoder_identity) are two views of the
+    # same encoder identity and must agree on root/commit/version. In
+    # trusted-runtime mode the shared "root" is the attestation path Path A also
+    # recorded as its "path", so this cross-check holds unchanged for both modes.
     if (
         axiom_encode_git.get("root") != encoder_identity.get("path")
         or axiom_encode_git.get("commit") != encoder_identity.get("commit")
         or axiom_encode_git.get("dirty_tracked") is not False
         or axiom_encode_git.get("version") != encoder_identity.get("version")
+    ):
+        raise RuntimeError(
+            "Staged apply manifest encoder provenance does not match overlay validation"
+        )
+    if encoder_kind == APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME and (
+        axiom_encode_git.get("identity_source") != APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME
+        or encoder_identity.get("identity_source")
+        != APPLY_IDENTITY_SOURCE_TRUSTED_RUNTIME
     ):
         raise RuntimeError(
             "Staged apply manifest encoder provenance does not match overlay validation"
@@ -39548,7 +39923,9 @@ def _write_applied_encoding_manifest(
             "Cannot sign a model-generated RuleSpec without bound validation "
             "execution provenance"
         )
-    if validation_execution.get("axiom_encode") != encoder_execution_identity:
+    if _encoder_identity_binding_core(
+        validation_execution.get("axiom_encode")
+    ) != _encoder_identity_binding_core(encoder_execution_identity):
         raise RuntimeError(
             "Cannot sign model validation from a different encoder commit or version"
         )

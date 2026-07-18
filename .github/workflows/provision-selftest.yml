@@ -398,3 +398,121 @@ jobs:
           fi
           grep -q "not a self-contained" "$RUNNER_TEMP/neg2.err"
           test ! -e "$RUNNER_TEMP/dest-neg2/python"
+
+      - name: Encoder is built from the attested commit; attestation records it
+        env:
+          PYBIN: ${{ steps.py.outputs.python-path }}
+          PYVER: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          # A throwaway encoder checkout with the shape the provisioner verifies:
+          # agreeing pyproject/__init__/uv.lock versions and a real version-bump
+          # commit reachable in full history.
+          repo="$RUNNER_TEMP/encoder-src"
+          rm -rf "$repo"
+          /usr/bin/git init --quiet "$repo"
+          /usr/bin/git -C "$repo" config user.name 'Axiom selftest'
+          /usr/bin/git -C "$repo" config user.email 'selftest@axiom.invalid'
+          /usr/bin/git -C "$repo" config commit.gpgsign false
+          /usr/bin/git -C "$repo" remote add origin \
+            https://github.com/TheAxiomFoundation/axiom-encode.git
+          write_encoder() {
+            printf '[project]\nname = "axiom-encode"\nversion = "%s"\n' "$1" \
+              > "$repo/pyproject.toml"
+            printf '[[package]]\nname = "axiom-encode"\nversion = "%s"\n' "$1" \
+              > "$repo/uv.lock"
+            printf 'source = { editable = "." }\n' >> "$repo/uv.lock"
+            mkdir -p "$repo/src/axiom_encode"
+            printf '__version__ = "%s"\n' "$1" > "$repo/src/axiom_encode/__init__.py"
+            printf 'MARKER = "committed"\n' > "$repo/src/axiom_encode/cli.py"
+            # export-subst injection surface: `git archive` would expand this
+            # $Format:%s$ into the commit SUBJECT; the raw ls-tree/cat-file export
+            # must keep it literal.
+            printf 'injected.py export-subst\n' \
+              > "$repo/src/axiom_encode/.gitattributes"
+            printf 'TEMPLATE = "$Format:%%s$"\n' \
+              > "$repo/src/axiom_encode/injected.py"
+          }
+          write_encoder 0.0.1
+          /usr/bin/git -C "$repo" add .
+          /usr/bin/git -C "$repo" commit --quiet -m init
+          write_encoder 9.9.9
+          /usr/bin/git -C "$repo" add .
+          # A distinctive subject that export-subst WOULD splice into injected.py.
+          /usr/bin/git -C "$repo" commit --quiet -m 'EXPANDED_IF_VULNERABLE'
+          head="$(/usr/bin/git -C "$repo" rev-parse HEAD)"
+          # Dirty the worktree AFTER committing: the export reads the committed
+          # tree objects, so this hostile edit must NOT reach the runtime.
+          printf 'MARKER = "HOSTILE"\n' > "$repo/src/axiom_encode/cli.py"
+          sudo rm -rf "$RUNNER_TEMP/dest-attest"
+          sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-attest" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git \
+            --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
+            --patchelf /usr/bin/patchelf \
+            --encoder-git-root "$repo" \
+            --encoder-commit "$head" \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
+          att="$RUNNER_TEMP/dest-attest/python/runtime-attestation.json"
+          # Root-owned and read-only (0444) — nothing can rewrite the identity.
+          test "$(stat -c '%U:%a' "$att")" = "root:444"
+          pkg="$RUNNER_TEMP/dest-attest/python/lib/python$PYVER/site-packages/axiom_encode"
+          "$PYBIN" -I -S - "$att" "$head" "$pkg" <<'PY'
+          import importlib.util, json, sys
+          from datetime import datetime
+          spec = importlib.util.spec_from_file_location(
+              "prov", "scripts/provision_verification_supervisor.py"
+          )
+          prov = importlib.util.module_from_spec(spec)
+          sys.modules["prov"] = prov
+          spec.loader.exec_module(prov)
+          from pathlib import Path
+          payload = json.load(open(sys.argv[1]))
+          assert payload["schema"] == "axiom-encode/trusted-runtime-attestation/v1", payload
+          # package_tree_sha256 must byte-bind the INSTALLED runtime package: the
+          # recorded digest equals a fresh hash of the runtime axiom_encode.
+          expected_tree = prov._deterministic_package_tree_sha256(Path(sys.argv[3]))
+          assert payload["axiom_encode"] == {
+              "origin_repository": "github.com/TheAxiomFoundation/axiom-encode",
+              "commit": sys.argv[2],
+              "version": "9.9.9",
+              "package_tree_sha256": expected_tree,
+          }, payload
+          assert datetime.fromisoformat(payload["provisioned_at"]).tzinfo is not None
+          print("attestation OK:", payload["provisioned_at"])
+          PY
+          # Byte-binding: the runtime's axiom_encode is the COMMITTED tree — not
+          # the dirty worktree, and not whatever --site-packages carried.
+          grep -q 'MARKER = "committed"' "$pkg/cli.py"
+          if grep -q HOSTILE "$pkg/cli.py"; then
+            echo "dirty worktree bytes reached the runtime"; exit 1
+          fi
+          grep -q '__version__ = "9.9.9"' "$pkg/__init__.py"
+          # export-subst must NOT have expanded the commit subject into the module.
+          grep -qF 'TEMPLATE = "$Format:%s$"' "$pkg/injected.py"
+          if grep -q EXPANDED_IF_VULNERABLE "$pkg/injected.py"; then
+            echo "export-subst spliced the commit subject into the runtime"; exit 1
+          fi
+          # Fail closed: a HEAD that disagrees with --encoder-commit is refused
+          # and no runtime is left behind.
+          initial="$(/usr/bin/git -C "$repo" rev-parse HEAD~1)"
+          sudo rm -rf "$RUNNER_TEMP/dest-attest-neg"
+          if sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination "$RUNNER_TEMP/dest-attest-neg" \
+            --supervisor "$RUNNER_TEMP/fake-supervisor" \
+            --site-packages "$RUNNER_TEMP/staged" \
+            --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git \
+            --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
+            --patchelf /usr/bin/patchelf \
+            --encoder-git-root "$repo" \
+            --encoder-commit "$initial" \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
+            2> "$RUNNER_TEMP/attest-neg.err"; then
+            echo "provisioner accepted a mismatched encoder commit"; exit 1
+          fi
+          grep -q "does not match --encoder-commit" "$RUNNER_TEMP/attest-neg.err"
+          test ! -e "$RUNNER_TEMP/dest-attest-neg/python/runtime-attestation.json"

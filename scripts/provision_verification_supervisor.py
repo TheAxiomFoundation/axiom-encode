@@ -42,6 +42,7 @@ vectors that do matter.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Prefixes that are never a self-contained CPython runtime. Copying one of
@@ -695,6 +698,656 @@ def _install_trusted_git_wrapper(
     return wrapper
 
 
+# Trusted-runtime identity attestation (encode#1147; extensible for #1158).
+# The provisioned runtime is git-free, so the encoder cannot read its own Git
+# identity at --apply time. When the caller supplies the encoder's clean source
+# checkout, its commit, and its normalized origin, THIS root step verifies them
+# and writes runtime-attestation.json into the interpreter prefix. --apply reads
+# it (only under the trusted-runtime marker the signing supervisor sets) as the
+# encoder identity. The file is a versioned envelope carrying an ``axiom_encode``
+# sub-object; encode#1158 (pinned CLIs) will add a sibling member to the SAME
+# file, so the CLI reader tolerates unknown siblings.
+_RUNTIME_ATTESTATION_FILENAME = "runtime-attestation.json"
+_RUNTIME_ATTESTATION_SCHEMA = "axiom-encode/trusted-runtime-attestation/v1"
+_ENCODER_PACKAGE_PATHSPEC = "src/axiom_encode"
+# Files whose in-tree version must agree for the encoder to declare one version,
+# and the paths whose change after a version bump is "unversioned encoder drift".
+# Mirrors the invariant cli.py enforces in Git mode.
+_ENCODER_VERSION_FILES = (
+    "pyproject.toml",
+    "src/axiom_encode/__init__.py",
+    "uv.lock",
+)
+_ENCODER_VERSIONED_PREFIXES = ("src/axiom_encode/",)
+_ENCODER_VERSIONED_FILES = frozenset({"pyproject.toml", "uv.lock"})
+_GITHUB_REMOTE_PATTERNS = (
+    r"https://github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
+    r"git@github\.com:(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?$",
+    r"ssh://git@github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
+)
+
+# Command-line config that overrides ANY value the caller's repo config could
+# carry, disabling every hook/driver git might otherwise EXECUTE while reading
+# the repo. `-c` has the highest precedence, so a repo-local core.fsmonitor,
+# hooksPath, clean/smudge/textconv driver, or external diff cannot fire.
+_HARDENED_GIT_FLAGS = (
+    "--no-pager",
+    "-c",
+    "core.fsmonitor=",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "core.sshCommand=false",
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "credential.helper=",
+    "-c",
+    "diff.external=/usr/bin/false",
+    "-c",
+    "log.showSignature=false",
+    "-c",
+    "submodule.recurse=false",
+)
+
+
+def _github_repository_identity(remote_url: str) -> str | None:
+    """Return a credential-free canonical github.com/OWNER/REPO identity.
+
+    Mirrors ``axiom_encode.harness.evals._github_repository_identity`` so the
+    attestation records the SAME normalized origin form the CLI compares against.
+    """
+
+    value = remote_url.strip()
+    for pattern in _GITHUB_REMOTE_PATTERNS:
+        match = re.fullmatch(pattern, value)
+        if match is not None:
+            return f"github.com/{match.group('slug')}"
+    return None
+
+
+def _hardened_git_environment(home: Path) -> dict[str, str]:
+    """A minimal environment that ignores every ambient/global/system Git config.
+
+    No inherited ``GIT_*`` (proxy, ssh, askpass) crosses in, replace objects and
+    lazy fetches are off, and ``HOME`` points at an empty root-owned directory so
+    no ``~/.gitconfig`` is read.
+    """
+
+    return {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(home),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
+
+
+def _hardened_git(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> bytes:
+    """Run one read-only, worktree-free Git query against a ROOT-OWNED git dir.
+
+    Every invocation targets ``--git-dir`` only (never a worktree), so git never
+    scans or materializes working-tree files and thus never runs a repo
+    fsmonitor, clean/smudge filter, or textconv driver. The git dir is root-owned
+    by construction, so ``safe.directory`` is unnecessary and is NOT set.
+    """
+
+    try:
+        completed = subprocess.run(
+            [
+                str(trusted_git),
+                *_HARDENED_GIT_FLAGS,
+                "--git-dir",
+                str(git_dir),
+                *args,
+            ],
+            check=True,
+            capture_output=True,
+            env=_hardened_git_environment(home),
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        stderr = getattr(exc, "stderr", b"") or b""
+        detail = (
+            stderr.decode("utf-8", "replace").strip()
+            if isinstance(stderr, bytes)
+            else str(exc)
+        )
+        raise SystemExit(
+            f"refusing to provision: hardened git {' '.join(args)} failed: "
+            f"{detail or exc}"
+        ) from exc
+    return completed.stdout
+
+
+def _hardened_git_text(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> str:
+    return _hardened_git(trusted_git, git_dir, home, *args).decode("utf-8").strip()
+
+
+def _own_encoder_git_directory(encoder_git_root: Path, staging: Path) -> Path:
+    """Copy the caller checkout's ``.git`` into a fresh root-owned directory.
+
+    Owning the objects and refs (instead of running git against the caller-owned,
+    user-writable checkout with ``safe.directory=*``) removes BOTH the
+    dubious-ownership refusal and the caller's ability to race the repository
+    mid-provision. All subsequent git runs bare against this root-owned copy.
+    """
+
+    caller_git = encoder_git_root / ".git"
+    if caller_git.is_symlink() or not caller_git.is_dir():
+        raise SystemExit(
+            f"refusing to provision: {encoder_git_root}/.git is not a plain "
+            "directory (worktree/submodule gitfile pointers are not accepted)"
+        )
+    git_dir = staging / "encoder.git"
+    # symlinks=True copies links AS links, never following one out of the tree
+    # during the copy; bare git never materializes a worktree from them.
+    shutil.copytree(caller_git, git_dir, symlinks=True)
+    # The copy is owned by the provisioning identity (root in production); a
+    # different owner would mean a hijacked staging path.
+    if git_dir.stat().st_uid != os.geteuid():
+        raise SystemExit(
+            "refusing to provision: copied encoder git dir is not owned by the "
+            f"provisioning identity: {git_dir}"
+        )
+    return git_dir
+
+
+def _extract_pyproject_version(content: str) -> str | None:
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', content)
+    return match.group(1) if match else None
+
+
+def _extract_package_init_version(content: str) -> str | None:
+    match = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$', content)
+    return match.group(1) if match else None
+
+
+def _extract_uv_lock_version(content: str) -> str | None:
+    block = re.search(
+        r'(?ms)^\[\[package\]\]\s*^name\s*=\s*"axiom-encode"\s*^version\s*=\s*"([^"]+)"',
+        content,
+    )
+    return block.group(1) if block else None
+
+
+def _encoder_versions_at_ref(
+    trusted_git: Path, git_dir: Path, home: Path, ref: str
+) -> dict[str, str | None]:
+    """Return {pyproject, package, lock} versions declared at one commit."""
+
+    def show(path: str) -> str:
+        try:
+            return _hardened_git_text(
+                trusted_git, git_dir, home, "show", f"{ref}:{path}"
+            )
+        except SystemExit:
+            return ""
+
+    return {
+        "pyproject": _extract_pyproject_version(show("pyproject.toml")),
+        "package": _extract_package_init_version(show("src/axiom_encode/__init__.py")),
+        "lock": _extract_uv_lock_version(show("uv.lock")),
+    }
+
+
+def _snapshot_declared_version(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> str:
+    """Return the single version pyproject/__init__/uv.lock all declare at commit.
+
+    Fails closed unless all three are present and identical, so the recorded
+    version provably comes from the attested tree (not a runtime __version__).
+    """
+
+    versions = _encoder_versions_at_ref(trusted_git, git_dir, home, commit)
+    declared = versions["pyproject"]
+    if not declared or any(value != declared for value in versions.values()):
+        raise SystemExit(
+            "refusing to provision: encoder version metadata at "
+            f"{commit[:12]} is inconsistent or missing: {versions}"
+        )
+    return declared
+
+
+def _parse_numeric_version(version: str) -> tuple[int, ...] | None:
+    parts = version.split(".")
+    if not parts or any(not re.fullmatch(r"\d+", part) for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _encoder_version_increased(
+    current: dict[str, str | None], previous: dict[str, str | None]
+) -> bool:
+    current_version = current.get("pyproject")
+    previous_version = previous.get("pyproject")
+    if not current_version:
+        return False
+    if not previous_version:
+        return True
+    current_key = _parse_numeric_version(current_version)
+    previous_key = _parse_numeric_version(previous_version)
+    if current_key is None or previous_key is None:
+        return current_version > previous_version
+    return current_key > previous_key
+
+
+def _is_encoder_versioned_path(path: str) -> bool:
+    return path in _ENCODER_VERSIONED_FILES or path.startswith(
+        _ENCODER_VERSIONED_PREFIXES
+    )
+
+
+def _require_snapshot_version_bump(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> str:
+    """Preserve, against the attested snapshot, the invariant that no encoder
+    file changed after the latest version bump.
+
+    This is the same guard cli.py enforces in Git mode, run here at provision
+    time against the root-owned history so the runtime does not re-derive it by
+    fiat. It fails closed if the commit's history is too shallow to locate the
+    bump (the workflow must check the encoder out with full history).
+    """
+
+    if (
+        _hardened_git_text(
+            trusted_git, git_dir, home, "rev-parse", "--is-shallow-repository"
+        )
+        == "true"
+    ):
+        raise SystemExit(
+            "refusing to provision: encoder git dir is shallow; the version-bump "
+            "invariant needs full history (check the encoder out with "
+            "fetch-depth: 0)"
+        )
+    lines = _hardened_git_text(
+        trusted_git,
+        git_dir,
+        home,
+        "log",
+        "--format=%H",
+        commit,
+        "--",
+        *_ENCODER_VERSION_FILES,
+    ).splitlines()
+    version_commit: str | None = None
+    for candidate in (line.strip() for line in lines if line.strip()):
+        current = _encoder_versions_at_ref(trusted_git, git_dir, home, candidate)
+        if not current.get("pyproject") or not current.get("package"):
+            continue
+        parents = _hardened_git_text(
+            trusted_git, git_dir, home, "rev-list", "--parents", "-n", "1", candidate
+        ).split()
+        if len(parents) <= 1:
+            version_commit = candidate  # root commit that declares a version
+            break
+        previous = _encoder_versions_at_ref(trusted_git, git_dir, home, parents[1])
+        if _encoder_version_increased(current, previous):
+            version_commit = candidate
+            break
+    if not version_commit:
+        raise SystemExit(
+            "refusing to provision: no committed encoder version bump is reachable "
+            f"from {commit[:12]} (check the encoder out with full history)"
+        )
+    changed = _hardened_git_text(
+        trusted_git,
+        git_dir,
+        home,
+        "diff",
+        "--name-only",
+        "--diff-filter=ACMRT",
+        f"{version_commit}..{commit}",
+    ).splitlines()
+    unversioned = sorted(
+        {
+            path.strip()
+            for path in changed
+            if path.strip() and _is_encoder_versioned_path(path.strip())
+        }
+    )
+    if unversioned:
+        raise SystemExit(
+            "refusing to provision: encoder files changed after the latest version "
+            f"bump ({version_commit[:12]}) without a bump: {', '.join(unversioned)}"
+        )
+    return version_commit
+
+
+def _export_encoder_package(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str, staging: Path
+) -> Path:
+    """Export the tracked ``src/axiom_encode`` tree at ``commit`` into a
+    root-owned directory by reading raw tree objects.
+
+    Deliberately NOT ``git archive``: archive honors in-tree ``.gitattributes``.
+    ``export-subst`` would expand ``$Format:...$`` from the COMMIT MESSAGE into a
+    module (arbitrary code at encoder import, inside the signing runtime) while
+    ``git show``/``cat-file`` — and therefore the version binding — see the
+    benign unexpanded template; ``export-ignore`` would silently drop a module.
+    No git config disables either. ``ls-tree`` enumerates the exact tree objects
+    and ``cat-file blob`` returns their raw bytes with ZERO attribute processing,
+    so every tracked blob is emitted verbatim and export-ignore cannot hide one.
+    Committed symlinks and gitlinks are refused rather than materialized.
+    """
+
+    listing = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "ls-tree",
+        "-r",
+        "-z",
+        commit,
+        "--",
+        _ENCODER_PACKAGE_PATHSPEC,
+    )
+    export_root = staging / "encoder-snapshot"
+    export_root.mkdir()
+    package = export_root / _ENCODER_PACKAGE_PATHSPEC
+    package_root = package.resolve()
+    entries = [entry for entry in listing.split(b"\0") if entry]
+    if not entries:
+        raise SystemExit(
+            f"refusing to provision: {commit[:12]} has no tracked "
+            f"{_ENCODER_PACKAGE_PATHSPEC} package"
+        )
+    for entry in entries:
+        # `-z` emits raw (unquoted) "<mode> <type> <oid>\t<path>" records.
+        meta, separator, raw_path = entry.partition(b"\t")
+        fields = meta.split(b" ")
+        if separator != b"\t" or len(fields) != 3:
+            raise SystemExit(
+                f"refusing to provision: malformed ls-tree entry: {entry!r}"
+            )
+        mode = fields[0].decode("ascii", "replace")
+        object_type = fields[1]
+        oid = fields[2].decode("ascii", "replace")
+        relative = os.fsdecode(raw_path)
+        if mode == "120000":
+            raise SystemExit(
+                "refusing to provision: encoder tree contains a committed symlink "
+                f"at {relative}; refusing to materialize it"
+            )
+        if mode == "160000":
+            raise SystemExit(
+                "refusing to provision: encoder tree contains a committed "
+                f"gitlink/submodule at {relative}; refusing to materialize it"
+            )
+        if object_type != b"blob" or mode not in ("100644", "100755"):
+            raise SystemExit(
+                "refusing to provision: unsupported encoder tree entry "
+                f"{mode} {object_type!r} at {relative}"
+            )
+        if re.fullmatch(r"[0-9a-f]{40,64}", oid) is None:
+            raise SystemExit(
+                f"refusing to provision: malformed object id for {relative}: {oid}"
+            )
+        # ls-tree paths are already inside the pathspec, but normalize and confirm
+        # containment as defense-in-depth against any traversal component.
+        destination = (export_root / relative).resolve()
+        if not destination.is_relative_to(package_root):
+            raise SystemExit(
+                f"refusing to provision: encoder tree path escapes the package: "
+                f"{relative}"
+            )
+        blob = _hardened_git(trusted_git, git_dir, home, "cat-file", "blob", oid)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(blob)
+        if mode == "100755":
+            destination.chmod(0o755)
+    if package.is_symlink() or not package.is_dir():
+        raise SystemExit(
+            f"refusing to provision: {commit[:12]} has no tracked "
+            f"{_ENCODER_PACKAGE_PATHSPEC} package"
+        )
+    return package
+
+
+def _tree_hash_update(hasher: "hashlib._Hash", relative_path: str, raw: bytes) -> None:
+    relative_bytes = relative_path.encode("utf-8")
+    hasher.update(len(relative_bytes).to_bytes(8, "big"))
+    hasher.update(relative_bytes)
+    hasher.update(len(raw).to_bytes(8, "big"))
+    hasher.update(raw)
+
+
+def _deterministic_package_tree_sha256(package: Path) -> str:
+    """Replicate ``axiom_encode.harness.evals._deterministic_tree_identity``'s
+    directory digest so the attestation records the SAME ``tree_sha256`` the CLI
+    computes over the running package at apply time (byte-binding).
+
+    Identical algorithm: domain-separated ``axiom-eval-tree-v1\\0`` seed, sorted
+    walk that never follows symlinks, ``__pycache__`` excluded, symlinks and
+    non-regular files rejected, and each ``<relpath>``/``<bytes>`` pair framed
+    with 8-byte big-endian lengths. The provisioner cannot import the module
+    (``-I -S`` standalone), so this mirror is kept in lockstep with it.
+    """
+
+    root = package.resolve()
+    hasher = hashlib.sha256(b"axiom-eval-tree-v1\0")
+    for directory, directory_names, file_names in os.walk(root, followlinks=False):
+        directory_path = Path(directory)
+        retained: list[str] = []
+        for name in sorted(directory_names):
+            if name == "__pycache__":
+                continue
+            if (directory_path / name).is_symlink():
+                raise SystemExit(
+                    "refusing to provision: package tree contains a directory "
+                    f"symlink: {directory_path / name}"
+                )
+            retained.append(name)
+        directory_names[:] = retained
+        for name in sorted(file_names):
+            path = directory_path / name
+            if path.is_symlink():
+                raise SystemExit(
+                    f"refusing to provision: package tree contains a file symlink: "
+                    f"{path}"
+                )
+            if not path.is_file():
+                raise SystemExit(
+                    f"refusing to provision: package tree contains a non-regular "
+                    f"file: {path}"
+                )
+            _tree_hash_update(
+                hasher, path.relative_to(root).as_posix(), path.read_bytes()
+            )
+    return hasher.hexdigest()
+
+
+def _overlay_encoder_package(runtime: Path, package: Path) -> Path:
+    """Replace the runtime's ``axiom_encode`` with the attested snapshot bytes.
+
+    This is what makes the executing package provably the attested commit: the
+    caller-supplied ``--site-packages`` provides only third-party dependencies;
+    the encoder itself comes from a raw ``ls-tree``+``cat-file`` export of the
+    verified commit. Returns the installed package directory.
+    """
+
+    site_packages = (
+        runtime
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    if not site_packages.is_dir():
+        raise SystemExit(
+            f"refusing to provision: runtime site-packages missing at {site_packages}"
+        )
+    target = site_packages / "axiom_encode"
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    elif target.is_dir():
+        shutil.rmtree(target)
+    shutil.copytree(package, target, symlinks=True)
+    # The attested tree carries no startup hooks, but re-run the purge over it so
+    # the same guarantee the staged tree got also covers the overlaid package.
+    doomed = sorted(
+        {
+            match
+            for pattern in _FORBIDDEN_STARTUP_GLOBS
+            for match in target.rglob(pattern)
+        }
+    )
+    for forbidden in doomed:
+        if forbidden.is_symlink() or forbidden.is_file():
+            forbidden.unlink()
+        elif forbidden.is_dir():
+            shutil.rmtree(forbidden)
+    return target
+
+
+def _publish_runtime_attestation(
+    runtime: Path,
+    encoder_origin_repository: str,
+    encoder_commit: str,
+    declared_version: str,
+    package_tree_sha256: str,
+) -> Path:
+    """Atomically publish the attestation into a root-owned prefix, fail-closed.
+
+    The containing directory must be root-owned and is stripped of group/other
+    write first. The file is created with ``O_EXCL | O_NOFOLLOW`` (a pre-placed
+    inode or symlink at the predictable path aborts the provision), written and
+    fsync'd, then pinned 0444. A retained write descriptor on a pre-existing
+    inode cannot survive this because the inode is created fresh here.
+    """
+
+    metadata = runtime.stat()
+    # Owned by the provisioning identity (root in production); a foreign owner
+    # would mean the prefix was pre-seeded by someone else.
+    if metadata.st_uid != os.geteuid():
+        raise SystemExit(
+            "refusing to provision: runtime prefix is not owned by the "
+            f"provisioning identity: {runtime}"
+        )
+    runtime.chmod(metadata.st_mode & ~(stat.S_IWGRP | stat.S_IWOTH))
+    path = runtime / _RUNTIME_ATTESTATION_FILENAME
+    payload = (
+        json.dumps(
+            {
+                "schema": _RUNTIME_ATTESTATION_SCHEMA,
+                "provisioned_at": datetime.now(timezone.utc).isoformat(),
+                "axiom_encode": {
+                    "origin_repository": encoder_origin_repository,
+                    "commit": encoder_commit,
+                    "version": declared_version,
+                    "package_tree_sha256": package_tree_sha256,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o444)
+    except FileExistsError as exc:
+        raise SystemExit(
+            f"refusing to provision: attestation path already exists: {path}"
+        ) from exc
+    except OSError as exc:
+        raise SystemExit(
+            f"refusing to provision: cannot create attestation safely at {path}: {exc}"
+        ) from exc
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(path, 0o444)
+    return path
+
+
+def _verify_and_export_encoder_snapshot(
+    trusted_git: Path,
+    encoder_git_root: Path,
+    encoder_commit: str,
+    encoder_origin_repository: str,
+    staging: Path,
+) -> tuple[str, Path]:
+    """Own the encoder git dir, verify the attested commit, and export its
+    tracked ``src/axiom_encode``. Returns (declared_version, package_path)."""
+
+    if re.fullmatch(r"[0-9a-f]{40}", encoder_commit) is None:
+        raise SystemExit(
+            "refusing to provision: --encoder-commit is not a full 40-hex SHA: "
+            f"{encoder_commit}"
+        )
+    if re.fullmatch(r"github\.com/[^/\s]+/[^/\s]+", encoder_origin_repository) is None:
+        raise SystemExit(
+            "refusing to provision: --encoder-origin-repository is not a canonical "
+            f"github.com/OWNER/REPO identity: {encoder_origin_repository}"
+        )
+    try:
+        root = encoder_git_root.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(
+            f"refusing to provision: --encoder-git-root does not exist: "
+            f"{encoder_git_root} ({exc})"
+        ) from exc
+    home = staging / "git-home"
+    home.mkdir()
+    git_dir = _own_encoder_git_directory(root, staging)
+    try:
+        resolved = _hardened_git_text(
+            trusted_git,
+            git_dir,
+            home,
+            "rev-parse",
+            "--verify",
+            f"{encoder_commit}^{{commit}}",
+        )
+    except SystemExit as exc:
+        raise SystemExit(
+            f"refusing to provision: {encoder_commit} is not a commit object in "
+            "--encoder-git-root"
+        ) from exc
+    if resolved != encoder_commit:
+        raise SystemExit(
+            f"refusing to provision: {encoder_commit} is not a commit object in "
+            "--encoder-git-root"
+        )
+    head = _hardened_git_text(trusted_git, git_dir, home, "rev-parse", "HEAD")
+    if head != encoder_commit:
+        raise SystemExit(
+            f"refusing to provision: --encoder-git-root HEAD {head} does not match "
+            f"--encoder-commit {encoder_commit}"
+        )
+    try:
+        remote_url = _hardened_git_text(
+            trusted_git, git_dir, home, "config", "--get", "remote.origin.url"
+        )
+    except SystemExit:
+        remote_url = ""
+    origin = _github_repository_identity(remote_url)
+    if origin != encoder_origin_repository:
+        raise SystemExit(
+            f"refusing to provision: --encoder-git-root origin {origin!r} does not "
+            f"match --encoder-origin-repository {encoder_origin_repository!r}"
+        )
+    declared_version = _snapshot_declared_version(
+        trusted_git, git_dir, home, encoder_commit
+    )
+    _require_snapshot_version_bump(trusted_git, git_dir, home, encoder_commit)
+    package = _export_encoder_package(
+        trusted_git, git_dir, home, encoder_commit, staging
+    )
+    return declared_version, package
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -706,44 +1359,107 @@ def provision(
     require_prefix_under: Path | None = None,
     patchelf: str | None = None,
     max_runtime_files: int = DEFAULT_MAX_RUNTIME_FILES,
+    encoder_origin_repository: str | None = None,
+    encoder_commit: str | None = None,
+    encoder_git_root: Path | None = None,
 ) -> None:
+    encoder_attestation_args = (
+        encoder_origin_repository,
+        encoder_commit,
+        encoder_git_root,
+    )
+    provision_encoder = all(arg is not None for arg in encoder_attestation_args)
+    if (
+        any(arg is not None for arg in encoder_attestation_args)
+        and not provision_encoder
+    ):
+        raise SystemExit(
+            "refusing to provision: --encoder-origin-repository, --encoder-commit, "
+            "and --encoder-git-root must be supplied together or not at all"
+        )
     trusted_git = _resolve_trusted_git(git)
     source_runtime = Path(sys.base_prefix).resolve(strict=True)
     source_interpreter = Path(sys.executable).resolve(strict=True)
     _assert_sane_source_prefix(source_runtime, require_prefix_under, max_runtime_files)
-    runtime = destination / "python"
-    _stage_runtime_tree(source_runtime, runtime, site_packages)
-    if sys.platform == "linux":
-        if not patchelf:
-            patchelf = shutil.which("patchelf")
-            if patchelf is None:
-                raise SystemExit(
-                    "patchelf is required on linux to relocate the runtime "
-                    "(install it or pass --patchelf)"
-                )
-        _relocate_elf_rpaths(runtime, patchelf)
-    interpreter = runtime / source_interpreter.relative_to(source_runtime)
-    _assert_self_contained(runtime, source_runtime, interpreter)
-    _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
-    launcher = destination / "axiom-encode"
-    launcher.write_text(f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n")
-    launcher.chmod(0o755)
-    trust = destination / "signing-trust-roots.json"
-    trust.write_text(
-        json.dumps(
-            {
-                "schema": "axiom-encode/signing-trust-roots/v2",
-                "apply_ed25519_public_key": apply_root,
-                "eval_ed25519_public_key": eval_root,
-                "corpus_release_ed25519_public_key": corpus_release_root,
-            },
-            sort_keys=True,
+
+    # Verify + export the encoder from the attested commit BEFORE staging, into a
+    # root-owned scratch tree that is discarded at the end. The overlaid bytes —
+    # not an arbitrary caller --site-packages axiom_encode — are what execute and
+    # what the attestation names, so the runtime provably IS the attested commit.
+    encoder_staging: Path | None = None
+    declared_version: str | None = None
+    encoder_package: Path | None = None
+    if provision_encoder:
+        assert encoder_git_root is not None  # narrowed by provision_encoder
+        assert encoder_commit is not None
+        assert encoder_origin_repository is not None
+        encoder_staging = Path(tempfile.mkdtemp(prefix="axiom-encoder-snapshot-"))
+        declared_version, encoder_package = _verify_and_export_encoder_snapshot(
+            trusted_git,
+            encoder_git_root,
+            encoder_commit,
+            encoder_origin_repository,
+            encoder_staging,
         )
-        + "\n"
-    )
-    trust.chmod(0o644)
-    shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
-    (destination / "axiom-encode-signing-supervisor").chmod(0o755)
+    try:
+        runtime = destination / "python"
+        _stage_runtime_tree(source_runtime, runtime, site_packages)
+        package_tree_sha256: str | None = None
+        if provision_encoder:
+            assert encoder_package is not None
+            installed_package = _overlay_encoder_package(runtime, encoder_package)
+            # Hash the INSTALLED package (exactly what the CLI hashes at apply
+            # time via Path(__file__).parent) so the recorded tree digest binds
+            # the executing bytes.
+            package_tree_sha256 = _deterministic_package_tree_sha256(installed_package)
+        if sys.platform == "linux":
+            if not patchelf:
+                patchelf = shutil.which("patchelf")
+                if patchelf is None:
+                    raise SystemExit(
+                        "patchelf is required on linux to relocate the runtime "
+                        "(install it or pass --patchelf)"
+                    )
+            _relocate_elf_rpaths(runtime, patchelf)
+        interpreter = runtime / source_interpreter.relative_to(source_runtime)
+        _assert_self_contained(runtime, source_runtime, interpreter)
+        _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
+        launcher = destination / "axiom-encode"
+        launcher.write_text(
+            f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n"
+        )
+        launcher.chmod(0o755)
+        trust = destination / "signing-trust-roots.json"
+        trust.write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/signing-trust-roots/v2",
+                    "apply_ed25519_public_key": apply_root,
+                    "eval_ed25519_public_key": eval_root,
+                    "corpus_release_ed25519_public_key": corpus_release_root,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        trust.chmod(0o644)
+        if provision_encoder:
+            assert encoder_origin_repository is not None
+            assert encoder_commit is not None
+            assert declared_version is not None
+            assert package_tree_sha256 is not None
+            _publish_runtime_attestation(
+                runtime,
+                encoder_origin_repository,
+                encoder_commit,
+                declared_version,
+                package_tree_sha256,
+            )
+        shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
+        (destination / "axiom-encode-signing-supervisor").chmod(0o755)
+    finally:
+        if encoder_staging is not None:
+            shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
 if __name__ == "__main__":
@@ -779,6 +1495,29 @@ if __name__ == "__main__":
         help="Refuse prefixes holding more files than this (copy-equivalent "
         "count, following symlinks the way the copy will).",
     )
+    parser.add_argument(
+        "--encoder-origin-repository",
+        default=None,
+        help="Canonical github.com/OWNER/REPO identity the encoder git dir's "
+        "origin must normalize to. Recorded in runtime-attestation.json. Requires "
+        "--encoder-commit and --encoder-git-root.",
+    )
+    parser.add_argument(
+        "--encoder-commit",
+        default=None,
+        help="Full 40-hex commit to attest. The runtime's axiom_encode package is "
+        "built from a git archive of THIS commit (not from --site-packages), and "
+        "--encoder-git-root HEAD must equal it.",
+    )
+    parser.add_argument(
+        "--encoder-git-root",
+        type=Path,
+        default=None,
+        help="Encoder checkout whose .git is copied root-owned and verified "
+        "(commit present, HEAD==commit, origin, declared version, version-bump "
+        "invariant) before its src/axiom_encode is archived into the runtime. Must "
+        "have full history (fetch-depth: 0) for the version-bump check.",
+    )
     args = parser.parse_args()
     provision(
         args.destination.resolve(),
@@ -791,4 +1530,7 @@ if __name__ == "__main__":
         args.require_prefix_under,
         args.patchelf,
         args.max_runtime_files,
+        args.encoder_origin_repository,
+        args.encoder_commit,
+        args.encoder_git_root.resolve() if args.encoder_git_root is not None else None,
     )

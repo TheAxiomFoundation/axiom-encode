@@ -339,6 +339,37 @@ def trusted_real_cli_runtime(
         capture_output=True,
         text=True,
     )
+    head = subprocess.run(
+        [real_git, "-C", str(runtime_root), "rev-parse", "HEAD"],
+        check=True,
+        env=git_environment,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    # Model the root-provisioned runtime end to end: the supervisor sets
+    # AXIOM_ENCODE_TRUSTED_RUNTIME=1, so _apply_encoder_execution_identity takes
+    # the attestation branch and byte-binds the running package to
+    # package_tree_sha256. Record the digest of the runtime's own package and a
+    # commit that agrees with the live checkout (the agreement path).
+    from axiom_encode.harness.evals import _deterministic_tree_identity
+
+    package_tree_sha256 = _deterministic_tree_identity(
+        package_root, excluded_directory_names=frozenset({"__pycache__"})
+    )["tree_sha256"]
+    (runtime_root / "runtime-attestation.json").write_text(
+        json.dumps(
+            {
+                "schema": "axiom-encode/trusted-runtime-attestation/v1",
+                "provisioned_at": "2026-07-18T00:00:00+00:00",
+                "axiom_encode": {
+                    "origin_repository": "github.com/TheAxiomFoundation/axiom-encode",
+                    "commit": head,
+                    "version": __version__,
+                    "package_tree_sha256": package_tree_sha256,
+                },
+            }
+        )
+    )
     return interpreter, runtime_root, package_root
 
 
@@ -509,6 +540,7 @@ def _write_signed_guard_fixture(
             "dirty_tracked": False,
             "version": __version__,
             "version_commit": commit,
+            "identity_source": "git",
         },
         "generation_prompt_sha256": None,
         "run_id": None,
@@ -537,6 +569,7 @@ def _write_signed_guard_fixture(
                 "repository": "github.com/TheAxiomFoundation/axiom-encode",
                 "commit": commit,
                 "version": __version__,
+                "identity_source": "git",
             },
             "axiom_rules_engine": {
                 "repository": ("github.com/TheAxiomFoundation/axiom-rules-engine"),

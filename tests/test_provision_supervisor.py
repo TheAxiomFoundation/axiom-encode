@@ -9,8 +9,10 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -1107,3 +1109,396 @@ class TestAssertSelfContained:
         bad_interp = tmp_path / "a b" / "python3"
         with pytest.raises(SystemExit, match="not shebang-safe"):
             provisioner._assert_self_contained(runtime, tmp_path, bad_interp)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git required")
+@pytest.mark.skipif(shutil.which("git") is None, reason="git required")
+class TestEncoderSnapshotProvisioning:
+    """Cover the encode#1147 hardening: the runtime encoder is BUILT from a
+    verified git-archive of the attested commit (not an arbitrary
+    --site-packages), root git never scans a worktree, and the attestation is
+    published safely and records the snapshot's declared version."""
+
+    GIT = Path(shutil.which("git") or "git")
+    OFFICIAL = "github.com/TheAxiomFoundation/axiom-encode"
+
+    def _git(self, path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(self.GIT), "-C", str(path), "-c", "safe.directory=*", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _write_version_files(
+        self, repo: Path, version: str, cli_body: str = "MARKER = 'committed'\n"
+    ) -> None:
+        (repo / "pyproject.toml").write_text(
+            f'[project]\nname = "axiom-encode"\nversion = "{version}"\n'
+        )
+        (repo / "uv.lock").write_text(
+            f'[[package]]\nname = "axiom-encode"\nversion = "{version}"\n'
+            'source = { editable = "." }\n'
+        )
+        pkg = repo / "src" / "axiom_encode"
+        pkg.mkdir(parents=True, exist_ok=True)
+        (pkg / "__init__.py").write_text(f'__version__ = "{version}"\n')
+        (pkg / "cli.py").write_text(cli_body)
+
+    def _init_encoder_repo(
+        self,
+        path: Path,
+        *,
+        origin: str = "https://github.com/TheAxiomFoundation/axiom-encode.git",
+        version: str = "9.9.9",
+    ) -> str:
+        path.mkdir(parents=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@example.com")
+        self._git(path, "config", "user.name", "Test")
+        self._git(path, "config", "commit.gpgsign", "false")
+        self._git(path, "remote", "add", "origin", origin)
+        # Two commits so the bump to `version` is a genuine, detectable increase.
+        self._write_version_files(path, "0.0.1")
+        self._git(path, "add", ".")
+        self._git(path, "commit", "-q", "-m", "init")
+        self._write_version_files(path, version)
+        self._git(path, "add", ".")
+        self._git(path, "commit", "-q", "-m", f"Bump to {version}")
+        return self._git(path, "rev-parse", "HEAD").stdout.strip()
+
+    def _export(self, repo: Path, commit: str, staging: Path):
+        return provisioner._verify_and_export_encoder_snapshot(
+            self.GIT, repo, commit, self.OFFICIAL, staging
+        )
+
+    def test_exports_declared_version_and_package(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        version, package = self._export(repo, head, staging)
+        assert version == "9.9.9"
+        assert (package / "__init__.py").read_text() == '__version__ = "9.9.9"\n'
+        assert (package / "cli.py").read_text() == "MARKER = 'committed'\n"
+
+    def test_export_uses_committed_tree_not_dirty_worktree(self, tmp_path):
+        # Attest-A-stage-B: a dirty/hostile worktree must NOT reach the runtime;
+        # the archive is taken from the committed tree at the pinned commit.
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        (repo / "src" / "axiom_encode" / "cli.py").write_text("MARKER = 'HOSTILE'\n")
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        _version, package = self._export(repo, head, staging)
+        assert (package / "cli.py").read_text() == "MARKER = 'committed'\n"
+
+    def test_git_no_replace_objects_defeats_replace_ref(self, tmp_path):
+        # A replace ref that swaps the real cli.py blob for a hostile one must
+        # NOT poison the export (GIT_NO_REPLACE_OBJECTS in the hardened env).
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        # Create a hostile blob and a replace mapping real->hostile for cli.py.
+        real_blob = self._git(
+            repo, "rev-parse", f"{head}:src/axiom_encode/cli.py"
+        ).stdout.strip()
+        hostile_file = tmp_path / "hostile.txt"
+        hostile_file.write_text("MARKER = 'REPLACED'\n")
+        hostile_blob = subprocess.run(
+            [str(self.GIT), "-C", str(repo), "hash-object", "-w", str(hostile_file)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self._git(repo, "replace", real_blob, hostile_blob)
+        # With replace refs honored, `show` would return the hostile content; the
+        # hardened export must ignore replacements.
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        _version, package = self._export(repo, head, staging)
+        assert (package / "cli.py").read_text() == "MARKER = 'committed'\n"
+
+    def test_hardened_git_does_not_run_repo_drivers(self, tmp_path):
+        # Hostile core.fsmonitor / clean / smudge drivers in the repo config must
+        # never execute while the provisioner reads/exports the repo. They are
+        # planted AFTER the clean commits, so only a provisioner read could fire
+        # them; the bare, worktree-free git operations never do.
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        marker = tmp_path / "driver-ran"
+        helper = tmp_path / "helper.sh"
+        helper.write_text(f"#!/bin/sh\ntouch {marker}\ncat\n")
+        helper.chmod(0o755)
+        for key in (
+            "core.fsmonitor",
+            "filter.hostile.clean",
+            "filter.hostile.smudge",
+            "diff.hostile.textconv",
+        ):
+            self._git(repo, "config", key, str(helper))
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        self._export(repo, head, staging)
+        assert not marker.exists()
+
+    def test_export_subst_gitattribute_is_not_expanded(self, tmp_path):
+        # A committed .gitattributes `export-subst` + a $Format:%s$ template would,
+        # under `git archive`, expand the COMMIT SUBJECT into the module (arbitrary
+        # code at encoder import) while cat-file/version binding see the benign
+        # template. The raw ls-tree/cat-file export must emit the LITERAL template.
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        pkg = repo / "src" / "axiom_encode"
+        (pkg / ".gitattributes").write_text("injected.py export-subst\n")
+        (pkg / "injected.py").write_text('INJECTED = "$Format:%s$"\n')
+        self._write_version_files(repo, "9.9.10")
+        self._git(repo, "add", ".")
+        self._git(
+            repo,
+            "commit",
+            "-q",
+            "-m",
+            'x"; import os; os.system("touch PWNED")  #',
+        )
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        _version, package = self._export(repo, head, staging)
+        injected = (package / "injected.py").read_text()
+        assert injected == 'INJECTED = "$Format:%s$"\n'
+        assert "os.system" not in injected
+        assert "PWNED" not in injected
+
+    def test_export_ignore_gitattribute_does_not_drop_module(self, tmp_path):
+        # A committed .gitattributes `export-ignore` would drop a module from a
+        # `git archive` (e.g. silently removing a guard). Every tracked blob must
+        # still be exported.
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        pkg = repo / "src" / "axiom_encode"
+        (pkg / ".gitattributes").write_text("secret_guard.py export-ignore\n")
+        (pkg / "secret_guard.py").write_text("GUARD = True\n")
+        self._write_version_files(repo, "9.9.10")
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "Bump to 9.9.10")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        _version, package = self._export(repo, head, staging)
+        assert (package / "secret_guard.py").read_text() == "GUARD = True\n"
+
+    def test_refuses_committed_symlink(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        (repo / "src" / "axiom_encode" / "evil_link").symlink_to("/etc/passwd")
+        self._write_version_files(repo, "9.9.10")
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "Bump to 9.9.10")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="symlink"):
+            self._export(repo, head, staging)
+
+    def test_refuses_committed_gitlink(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        self._write_version_files(repo, "9.9.10")
+        self._git(repo, "add", ".")
+        # Stage a gitlink (submodule pointer) with no real submodule on disk.
+        self._git(
+            repo,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"160000,{'a' * 40},src/axiom_encode/vendored",
+        )
+        self._git(repo, "commit", "-q", "-m", "Bump to 9.9.10")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="gitlink|submodule"):
+            self._export(repo, head, staging)
+
+    def test_rejects_head_mismatch(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        initial = self._git(repo, "rev-parse", "HEAD~1").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="HEAD"):
+            self._export(repo, initial, staging)
+
+    def test_rejects_absent_commit(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="not a commit object"):
+            self._export(repo, "a" * 40, staging)
+
+    def test_rejects_origin_mismatch(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(
+            repo, origin="https://github.com/someone-else/axiom-encode.git"
+        )
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="origin"):
+            self._export(repo, head, staging)
+
+    def test_rejects_inconsistent_version_metadata(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        # __init__ disagrees with pyproject/uv.lock at HEAD.
+        (repo / "src" / "axiom_encode" / "__init__.py").write_text(
+            '__version__ = "0.0.0"\n'
+        )
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "skew", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="inconsistent"):
+            self._export(repo, head, staging)
+
+    def test_rejects_unversioned_encoder_change(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        # Change encoder code AFTER the bump without bumping the version.
+        (repo / "src" / "axiom_encode" / "cli.py").write_text("MARKER = 'drift'\n")
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "unversioned change", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="after the latest version bump"):
+            self._export(repo, head, staging)
+
+    def test_rejects_shallow_history(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        shallow = tmp_path / "shallow"
+        subprocess.run(
+            [
+                str(self.GIT),
+                "-c",
+                "safe.directory=*",
+                "-c",
+                "protocol.file.allow=always",
+                "clone",
+                "--depth",
+                "1",
+                "--no-local",
+                f"file://{repo}",
+                str(shallow),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self._git(shallow, "remote", "set-url", "origin", self.OFFICIAL_URL)
+        head = self._git(shallow, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with pytest.raises(SystemExit, match="shallow"):
+            self._export(shallow, head, staging)
+
+    OFFICIAL_URL = "https://github.com/TheAxiomFoundation/axiom-encode.git"
+
+    def test_own_git_dir_rejects_gitfile_pointer(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        repo.mkdir()
+        (repo / ".git").symlink_to(tmp_path / "elsewhere")
+        with pytest.raises(SystemExit, match="not a plain directory"):
+            provisioner._own_encoder_git_directory(repo, tmp_path / "staging-dir")
+
+    def test_overlay_replaces_site_packages_axiom_encode(self, tmp_path):
+        runtime = tmp_path / "python"
+        site = (
+            runtime
+            / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        (site / "axiom_encode").mkdir(parents=True)
+        (site / "axiom_encode" / "cli.py").write_text("MARKER = 'PIP_STAGED'\n")
+        (site / "axiom_encode" / "stale.pth").write_text("import evil\n")
+        package = tmp_path / "snapshot" / "axiom_encode"
+        package.mkdir(parents=True)
+        (package / "cli.py").write_text("MARKER = 'ATTESTED'\n")
+        provisioner._overlay_encoder_package(runtime, package)
+        assert (site / "axiom_encode" / "cli.py").read_text() == "MARKER = 'ATTESTED'\n"
+        assert not (site / "axiom_encode" / "stale.pth").exists()
+
+    def test_publishes_readonly_attestation_with_version(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        out = provisioner._publish_runtime_attestation(
+            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+        )
+        assert out == runtime / "runtime-attestation.json"
+        assert stat.S_IMODE(out.stat().st_mode) == 0o444
+        payload = json.loads(out.read_text())
+        assert payload["schema"] == "axiom-encode/trusted-runtime-attestation/v1"
+        assert payload["axiom_encode"] == {
+            "origin_repository": self.OFFICIAL,
+            "commit": "a" * 40,
+            "version": "9.9.9",
+            "package_tree_sha256": "b" * 64,
+        }
+        assert (
+            __import__("datetime")
+            .datetime.fromisoformat(payload["provisioned_at"])
+            .tzinfo
+            is not None
+        )
+
+    def test_publish_refuses_preplaced_inode(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        (runtime / "runtime-attestation.json").write_text("{}\n")
+        with pytest.raises(SystemExit, match="already exists"):
+            provisioner._publish_runtime_attestation(
+                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+            )
+
+    def test_publish_refuses_preplaced_symlink(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        (runtime / "runtime-attestation.json").symlink_to(tmp_path / "target")
+        with pytest.raises(SystemExit, match="already exists|cannot create"):
+            provisioner._publish_runtime_attestation(
+                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+            )
+
+    def test_package_tree_sha256_matches_deterministic_tree_identity(self, tmp_path):
+        # The provisioner's mirror MUST equal the evals primitive the CLI uses at
+        # apply time, or the byte-binding check would false-reject every runtime.
+        from axiom_encode.harness.evals import _deterministic_tree_identity
+
+        package = tmp_path / "axiom_encode"
+        (package / "sub").mkdir(parents=True)
+        (package / "__init__.py").write_text('__version__ = "9.9.9"\n')
+        (package / "cli.py").write_text("MARKER = 'x'\n")
+        (package / "sub" / "mod.py").write_text("Y = 1\n")
+        # A __pycache__ artifact must be excluded identically on both sides.
+        (package / "__pycache__").mkdir()
+        (package / "__pycache__" / "cli.pyc").write_bytes(b"\x00\x01")
+        mirror = provisioner._deterministic_package_tree_sha256(package)
+        canonical = _deterministic_tree_identity(
+            package, excluded_directory_names=frozenset({"__pycache__"})
+        )
+        assert mirror == canonical["tree_sha256"]
+
+    def test_github_repository_identity_normalizes_remotes(self):
+        for url in (
+            "https://github.com/TheAxiomFoundation/axiom-encode.git",
+            "https://github.com/TheAxiomFoundation/axiom-encode",
+            "git@github.com:TheAxiomFoundation/axiom-encode.git",
+            "ssh://git@github.com/TheAxiomFoundation/axiom-encode.git",
+        ):
+            assert provisioner._github_repository_identity(url) == self.OFFICIAL
+        assert (
+            provisioner._github_repository_identity("https://example.com/x/y") is None
+        )

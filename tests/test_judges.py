@@ -760,6 +760,7 @@ def _regeneration_fixture(
             "dirty_tracked": False,
             "version": __version__,
             "version_commit": "b" * 40,
+            "identity_source": "git",
         },
         "generation_prompt_sha256": None,
         "run_id": "judges-test-run",
@@ -785,6 +786,7 @@ def _regeneration_fixture(
         "repository": "github.com/TheAxiomFoundation/axiom-encode",
         "commit": "a" * 40,
         "version": __version__,
+        "identity_source": "git",
     }
     payload["validation_execution"] = {
         "schema": "axiom-encode/apply-validation-execution/v1",
