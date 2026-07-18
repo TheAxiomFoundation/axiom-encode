@@ -500,6 +500,38 @@ class TestTrustedGit:
             assert refused_filter.returncode != 0
             assert "refused worktree filter for" in refused_filter.stderr
         assert not marker.exists()
+        for driver in ("unspecified", "unset"):
+            (repository / ".gitattributes").write_text(f"*.txt filter={driver}\n")
+            subprocess.run(
+                [
+                    git,
+                    "-C",
+                    str(repository),
+                    "config",
+                    f"filter.{driver}.clean",
+                    str(helper),
+                ],
+                check=True,
+            )
+            refused_sentinel = subprocess.run(
+                [
+                    str(wrapper),
+                    "-C",
+                    str(repository),
+                    "diff",
+                    "--binary",
+                    "HEAD",
+                    "--",
+                    "a.txt",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_sentinel.returncode != 0
+            assert "refused worktree filter for" in refused_sentinel.stderr
+            assert not marker.exists()
 
         refused_arguments = (
             ["cat-file", "--filters", "HEAD:a.txt"],
@@ -544,6 +576,90 @@ class TestTrustedGit:
         )
         assert refused_command.returncode != 0
         assert "refused command: fetch" in refused_command.stderr
+
+        child_source = tmp_path / "child-source"
+        subprocess.run([git, "init", "--quiet", str(child_source)], check=True)
+        (child_source / "a.txt").write_text("original\n")
+        (child_source / ".gitattributes").write_text("*.txt filter=hostile\n")
+        subprocess.run([git, "-C", str(child_source), "add", "."], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(child_source),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        parent = tmp_path / "parent"
+        subprocess.run([git, "init", "--quiet", str(parent)], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "protocol.file.allow=always",
+                "-C",
+                str(parent),
+                "submodule",
+                "add",
+                "--quiet",
+                str(child_source),
+                "sub",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(parent),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        initialized_submodule = parent / "sub"
+        subprocess.run(
+            [
+                git,
+                "-C",
+                str(initialized_submodule),
+                "config",
+                "filter.hostile.clean",
+                str(helper),
+            ],
+            check=True,
+        )
+        (initialized_submodule / "a.txt").write_text("changed\n")
+        gitlink_commands = (
+            ["status", "--porcelain"],
+            ["status", "--porcelain", "--untracked-files=no"],
+            ["diff", "--binary", "HEAD", "--", "sub"],
+        )
+        for command in gitlink_commands:
+            refused_gitlink = subprocess.run(
+                [str(wrapper), "-C", str(parent), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_gitlink.returncode != 0
+            assert "refused gitlink at sub" in refused_gitlink.stderr
+        assert not marker.exists()
 
 
 class TestIsElf:

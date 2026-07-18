@@ -152,6 +152,19 @@ jobs:
               exit 1
             fi
           done
+          for driver in unspecified unset; do
+            printf '*.txt filter=%s\n' "$driver" \
+              > "$hostile_repo/.gitattributes"
+            /usr/bin/git -C "$hostile_repo" config \
+              "filter.$driver.clean" "$RUNNER_TEMP/hostile-git-helper"
+            if env -i \
+              PATH="$dest" \
+              HOME="$dest/python" \
+              git -C "$hostile_repo" diff --binary HEAD -- a.txt >/dev/null; then
+              echo "trusted Git wrapper accepted sentinel filter: $driver" >&2
+              exit 1
+            fi
+          done
           if env -i \
             PATH="$dest" \
             HOME="$dest/python" \
@@ -169,8 +182,41 @@ jobs:
             HOME="$dest/python" \
             git -C "$hostile_repo" cat-file --filters HEAD:a.txt >/dev/null; then
             echo "trusted Git wrapper accepted cat-file --filters" >&2
-            exit 1
+              exit 1
           fi
+          child_source="$RUNNER_TEMP/hostile-submodule-source"
+          parent_repo="$RUNNER_TEMP/hostile-submodule-parent"
+          /usr/bin/git init --quiet "$child_source"
+          printf 'original\n' > "$child_source/a.txt"
+          printf '*.txt filter=hostile\n' > "$child_source/.gitattributes"
+          /usr/bin/git -C "$child_source" add .
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$child_source" commit --quiet -m fixture
+          /usr/bin/git init --quiet "$parent_repo"
+          /usr/bin/git \
+            -c protocol.file.allow=always \
+            -C "$parent_repo" submodule add --quiet "$child_source" sub
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$parent_repo" commit --quiet -m fixture
+          /usr/bin/git -C "$parent_repo/sub" config \
+            filter.hostile.clean "$RUNNER_TEMP/hostile-git-helper"
+          printf 'changed\n' > "$parent_repo/sub/a.txt"
+          for args in \
+            'status --porcelain' \
+            'status --porcelain --untracked-files=no' \
+            'diff --binary HEAD -- sub'; do
+            if env -i \
+              PATH="$dest" \
+              HOME="$dest/python" \
+              git -C "$parent_repo" $args >/dev/null; then
+              echo "trusted Git wrapper accepted gitlink: $args" >&2
+              exit 1
+            fi
+          done
           test ! -e "$hostile_marker"
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
