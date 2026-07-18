@@ -51,6 +51,7 @@ from axiom_encode.harness.evals import (
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
     _command_uses_policyengine_skill,
+    _contained_eval_output_file,
     _context_file_executable_surfaces,
     _context_import_target,
     _eval_result_from_payload,
@@ -1933,6 +1934,9 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
         # while RuleSpec represents the separator as a directory boundary.
         ("us-la/statute/47:294", "statutes/47/294.yaml"),
         ("us-la/statute/47:297.4", "statutes/47/297/4.yaml"),
+        # Colon expansion is a Louisiana source convention, not a generic
+        # rewrite for every jurisdiction.
+        ("us-tx/statute/1:2", "statutes/1:2.yaml"),
         # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
         # are regression cases for the dot-stripping fix.
         (
@@ -2107,8 +2111,47 @@ def test_resolve_eval_output_path_expands_louisiana_title_section_separator(
 
 
 def test_resolve_eval_output_path_rejects_empty_colon_statute_component():
-    with pytest.raises(ValueError, match="Invalid colon-structured statute segment"):
+    with pytest.raises(ValueError, match="Invalid Louisiana title:section"):
         _resolve_eval_output_path("us-la/statute/47::294")
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us-la/statute/47:..",
+        "us-la/statute/47:294/../outside",
+        "us-la/statute/47:294:outside",
+        "us-la/statute/47:294/sub:section",
+    ],
+)
+def test_resolve_eval_output_path_rejects_unsafe_louisiana_components(citation):
+    with pytest.raises(ValueError):
+        _resolve_eval_output_path(citation)
+
+
+def test_contained_eval_output_file_rejects_runner_root_escape(tmp_path):
+    with pytest.raises(ValueError, match="escapes runner root"):
+        _contained_eval_output_file(tmp_path, "runner", Path("../../outside.yaml"))
+
+
+def test_contained_eval_output_file_rejects_output_root_escape(tmp_path):
+    with pytest.raises(ValueError, match="runner path escapes output root"):
+        _contained_eval_output_file(tmp_path, "../outside", Path("artifact.yaml"))
+
+
+def test_contained_eval_output_file_rejects_symlink_escape(tmp_path):
+    runner_root = tmp_path / "runner"
+    outside = tmp_path / "outside"
+    runner_root.mkdir()
+    outside.mkdir()
+    (runner_root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes runner root"):
+        _contained_eval_output_file(
+            tmp_path,
+            "runner",
+            Path("linked/artifact.yaml"),
+        )
 
 
 class TestCorpusSourceResolution:

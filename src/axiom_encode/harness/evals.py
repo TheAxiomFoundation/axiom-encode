@@ -7141,7 +7141,7 @@ def _run_single_eval(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    output_file = Path(output_root) / runner.name / relative_output
+    output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
         runner=runner,
@@ -7312,7 +7312,7 @@ def _run_single_source_eval(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    output_file = Path(output_root) / runner.name / relative_output
+    output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
         runner=runner,
@@ -7442,6 +7442,25 @@ def _resolve_eval_output_path(
     )
 
 
+def _contained_eval_output_file(
+    output_root: Path,
+    runner_name: str,
+    relative_output: Path,
+) -> Path:
+    """Resolve an eval artifact path and require runner-root containment."""
+
+    resolved_output_root = Path(output_root).resolve()
+    runner_root = (resolved_output_root / runner_name).resolve()
+    if not runner_root.is_relative_to(resolved_output_root):
+        raise ValueError(f"Eval runner path escapes output root: {runner_name!r}")
+    output_file = (runner_root / relative_output).resolve()
+    if not output_file.is_relative_to(runner_root):
+        raise ValueError(
+            f"Eval output path escapes runner root: {relative_output.as_posix()!r}"
+        )
+    return output_file
+
+
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
     """Return the canonical requested path bound by the resolver attestation."""
 
@@ -7465,12 +7484,16 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         for part in source_id.strip().strip("/").split("/")
         if part
     ]
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError(
+            f"Unsafe RuleSpec path component in source identifier: {source_id!r}"
+        )
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
             tail = parts[1:]
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
-            tail = _expand_colon_structured_statute_tail(root, tail)
+            tail = _expand_louisiana_title_section_tail(jurisdiction, root, tail)
             if (
                 tail
                 and jurisdiction == "us"
@@ -7491,7 +7514,6 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         tail = parts[1:]
         if tail:
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
-            tail = _expand_colon_structured_statute_tail(root, tail)
             if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
                 tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
@@ -7499,7 +7521,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
             tail = parts[2:]
-            tail = _expand_colon_structured_statute_tail(root, tail)
+            tail = _expand_louisiana_title_section_tail(parts[0], root, tail)
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
             if parts[0] == "uk":
@@ -7511,18 +7533,28 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
 
 
-def _expand_colon_structured_statute_tail(root: str, tail: list[str]) -> list[str]:
-    """Expand state statute ``title:section`` labels into path components."""
+def _expand_louisiana_title_section_tail(
+    jurisdiction: str,
+    root: str,
+    tail: list[str],
+) -> list[str]:
+    """Expand Louisiana statute ``title:section`` labels into path components."""
 
-    if root != "statutes":
+    if jurisdiction != "us-la" or root != "statutes" or not tail:
         return tail
-    expanded: list[str] = []
-    for part in tail:
-        components = part.split(":")
-        if any(not component for component in components):
-            raise ValueError(f"Invalid colon-structured statute segment: {part!r}")
-        expanded.extend(components)
-    return expanded
+    title_section = tail[0]
+    if any(":" in component for component in tail[1:]):
+        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
+    if ":" not in title_section:
+        return tail
+    components = title_section.split(":")
+    if len(components) != 2 or any(
+        component in {"", ".", ".."} for component in components
+    ):
+        raise ValueError(
+            f"Invalid Louisiana title:section statute segment: {title_section!r}"
+        )
+    return [*components, *tail[1:]]
 
 
 def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
