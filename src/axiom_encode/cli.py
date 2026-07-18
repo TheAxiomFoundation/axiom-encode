@@ -37129,7 +37129,7 @@ def _apply_encoder_execution_identity() -> dict[str, object]:
     """Bind apply provenance to this checkout or the verified CI source checkout."""
 
     checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
-    checkout_root = Path(__file__).resolve().parents[2]
+    checkout_root = _axiom_encode_repo_root()
     expected_ci_sha: str | None = None
     if checkout_override:
         if os.environ.get("GITHUB_ACTIONS") != "true":
