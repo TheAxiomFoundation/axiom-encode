@@ -323,7 +323,9 @@ class TestTrustedGit:
         repository = tmp_path / "rulespec-us"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
         (repository / "a.txt").write_text("original\n")
-        (repository / ".gitattributes").write_text("*.txt diff=hostile\n")
+        (repository / ".gitattributes").write_text(
+            "*.txt diff=hostile filter=hostile\n"
+        )
         subprocess.run([git, "-C", str(repository), "add", "."], check=True)
         subprocess.run(
             [
@@ -345,44 +347,174 @@ class TestTrustedGit:
         helper = tmp_path / "hostile-helper"
         helper.write_text(
             f"#!{Path(sys.executable).resolve()}\n"
+            "import sys\n"
             "from pathlib import Path\n"
             f"Path({str(marker)!r}).touch()\n"
+            "sys.stdout.buffer.write(sys.stdin.buffer.read())\n"
         )
         helper.chmod(0o755)
-        for key in ("core.fsmonitor", "diff.external", "diff.hostile.textconv"):
+        for key in (
+            "core.fsmonitor",
+            "diff.external",
+            "diff.hostile.textconv",
+            "filter.hostile.smudge",
+        ):
             subprocess.run(
                 [git, "-C", str(repository), "config", key, str(helper)], check=True
             )
+        subprocess.run(
+            [
+                git,
+                "-C",
+                str(repository),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/TheAxiomFoundation/rulespec-us.git",
+            ],
+            check=True,
+        )
         (repository / "a.txt").write_text("changed\n")
+        (repository / "untracked.txt").write_text("untracked\n")
         clean_environment = {
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.fsmonitor",
+            "GIT_CONFIG_VALUE_0": str(helper),
+            "GIT_EXTERNAL_DIFF": str(helper),
             "HOME": str(tmp_path),
             "PATH": str(destination),
         }
-        subprocess.run(
-            [str(wrapper), "-C", str(repository), "status", "--porcelain"],
-            check=True,
-            capture_output=True,
-            env=clean_environment,
+        object_id = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD:a.txt"], text=True
+        ).strip()
+        allowed_commands = (
+            (["rev-parse", "HEAD"], None),
+            (["rev-parse", "--is-inside-work-tree"], None),
+            (["rev-parse", "--show-toplevel"], None),
+            (["rev-parse", "--verify", "HEAD^{commit}"], None),
+            (["status", "--porcelain"], None),
+            (["status", "--porcelain", "--untracked-files=no"], None),
+            (["remote", "get-url", "origin"], None),
+            (["diff", "--binary", "HEAD", "--", "a.txt"], None),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "HEAD",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "HEAD",
+                    "HEAD",
+                ],
+                None,
+            ),
+            (
+                ["diff", "--name-only", "--diff-filter=ACMRT", "HEAD..HEAD"],
+                None,
+            ),
+            (["ls-files", "-z"], None),
+            (["ls-files", "--others", "--exclude-standard", "-z"], None),
+            (
+                [
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    "untracked.txt",
+                ],
+                None,
+            ),
+            (
+                [
+                    "log",
+                    "--format=%H",
+                    "--",
+                    "pyproject.toml",
+                    "src/axiom_encode/__init__.py",
+                    "uv.lock",
+                ],
+                None,
+            ),
+            (["ls-tree", "-z", "HEAD", "--", "a.txt"], None),
+            (["ls-tree", "-r", "-z", "HEAD"], None),
+            (["cat-file", "blob", object_id], None),
+            (["cat-file", "--batch"], f"{object_id}\n".encode()),
+            (["merge-base", "--is-ancestor", "HEAD", "HEAD"], None),
+            (["rev-list", "--parents", "-n", "1", "HEAD"], None),
+            (["show", "HEAD:a.txt"], None),
         )
+        for command, command_input in allowed_commands:
+            subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                input=command_input,
+                check=True,
+                capture_output=True,
+                env=clean_environment,
+            )
         subprocess.run(
-            [str(wrapper), "-C", str(repository), "diff", "--binary", "HEAD"],
+            [str(wrapper), "rev-parse", "--show-prefix"],
+            cwd=repository,
             check=True,
             capture_output=True,
             env=clean_environment,
         )
         assert not marker.exists()
 
-        refused = subprocess.run(
+        refused_arguments = (
+            ["cat-file", "--filters", "HEAD:a.txt"],
+            ["diff", "--stat", "HEAD"],
+            ["log", "--oneline"],
+            ["ls-files", "--stage"],
+            ["ls-tree", "--name-only", "HEAD"],
+            ["merge-base", "--octopus", "HEAD", "HEAD"],
+            ["remote", "add", "blocked", "https://example.invalid/repo.git"],
+            ["remote", "update"],
+            ["rev-list", "--all"],
+            ["rev-parse", "--git-dir"],
+            ["show", "--stat", "HEAD"],
+            ["status", "--short"],
+        )
+        for command in refused_arguments:
+            refused = subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused.returncode != 0
+            assert f"refused arguments for {command[0]}" in refused.stderr
+        assert not marker.exists()
+        assert (
+            subprocess.run(
+                [git, "-C", str(repository), "remote", "get-url", "blocked"],
+                check=False,
+                capture_output=True,
+            ).returncode
+            != 0
+        )
+
+        refused_command = subprocess.run(
             [str(wrapper), "-C", str(repository), "fetch"],
             check=False,
             capture_output=True,
             text=True,
             env=clean_environment,
         )
-        assert refused.returncode != 0
-        assert "refused command: fetch" in refused.stderr
+        assert refused_command.returncode != 0
+        assert "refused command: fetch" in refused_command.stderr
 
 
 class TestIsElf:
