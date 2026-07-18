@@ -6,6 +6,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+_RULESPEC_PATH_DASH_TRANSLATION = str.maketrans(
+    {
+        ord(character): "-"
+        for character in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"
+    }
+)
+
+
+def normalize_rulespec_path_segment(segment: str) -> str:
+    """Return an ASCII-dash filesystem segment without changing legal IDs."""
+
+    return segment.translate(_RULESPEC_PATH_DASH_TRANSLATION)
+
 
 @dataclass(frozen=True)
 class CitationParts:
@@ -76,7 +89,10 @@ def citation_to_relative_rulespec_path(citation: str | CitationParts) -> Path:
         if isinstance(citation, CitationParts)
         else parse_usc_citation(citation)
     )
-    section_path = Path("statutes") / parts.title / parts.section
-    if not parts.fragments:
+    title = normalize_rulespec_path_segment(parts.title)
+    section = normalize_rulespec_path_segment(parts.section)
+    fragments = tuple(normalize_rulespec_path_segment(item) for item in parts.fragments)
+    section_path = Path("statutes") / title / section
+    if not fragments:
         return section_path.with_suffix(".yaml")
-    return section_path / Path(*parts.fragments).with_suffix(".yaml")
+    return section_path / Path(*fragments).with_suffix(".yaml")

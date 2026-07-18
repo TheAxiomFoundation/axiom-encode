@@ -53,6 +53,7 @@ from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
     citation_to_relative_rulespec_path,
+    normalize_rulespec_path_segment,
     parse_usc_citation,
 )
 from axiom_encode.toolchain import (
@@ -4965,8 +4966,10 @@ def select_context_files(
     )
     if statutes_root is None:
         return []
+    title = normalize_rulespec_path_segment(parts.title)
+    section = normalize_rulespec_path_segment(parts.section)
     section_root = validate_rulespec_context_directory(
-        statutes_root / parts.title / parts.section,
+        statutes_root / title / section,
         repo_root,
     )
     target_rel = citation_to_relative_rulespec_path(parts)
@@ -4985,7 +4988,7 @@ def select_context_files(
 
     if not candidates:
         title_root = validate_rulespec_context_directory(
-            statutes_root / parts.title,
+            statutes_root / title,
             repo_root,
         )
         if title_root is not None:
@@ -7448,14 +7451,20 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
-    Each path segment is treated as a directory and a dot inside the leaf
-    segment is treated as a further nesting separator (CDSS-style numbering
-    like ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
+    Unicode dash punctuation is normalized only in the returned filesystem
+    path; the authoritative source identifier remains unchanged. Each path
+    segment is treated as a directory and a dot inside the leaf segment is
+    treated as a further nesting separator (CDSS-style numbering like
+    ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
     ``with_suffix`` pitfall where a dotted leaf would be silently truncated
     to a section-level path and collide with sibling subsections at apply
     time (issue #71).
     """
-    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    parts = [
+        normalize_rulespec_path_segment(part)
+        for part in source_id.strip().strip("/").split("/")
+        if part
+    ]
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:

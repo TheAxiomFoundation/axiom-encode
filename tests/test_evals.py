@@ -110,6 +110,7 @@ from axiom_encode.harness.validator_pipeline import (
 )
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
+from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
 from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
 )
@@ -1952,6 +1953,45 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
 )
 def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
     assert str(_source_identifier_to_relative_rulespec_path(citation)) == expected
+
+
+@pytest.mark.parametrize(
+    "dash",
+    [
+        "\u2010",
+        "\u2011",
+        "\u2012",
+        "\u2013",
+        "\u2014",
+        "\u2015",
+        "\u2212",
+        "\ufe58",
+        "\ufe63",
+        "\uff0d",
+    ],
+)
+def test_source_identifier_normalizes_unicode_dashes_only_in_output_path(dash):
+    citation = f"us/statute/42/1437c{dash}1"
+
+    assert _source_identifier_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1.yaml"
+    )
+
+
+def test_slash_usc_alias_normalizes_unicode_dash_in_output_path():
+    assert _resolve_eval_output_path(
+        "42/1437c\u20131",
+        fallback=citation_to_relative_rulespec_path,
+    ) == Path("statutes/42/1437c-1.yaml")
+
+
+def test_structured_usc_citation_normalizes_only_output_path():
+    citation = CitationParts(title="42", section="1437c\u20131", fragments=("d",))
+
+    assert citation_to_relative_rulespec_path(citation) == Path(
+        "statutes/42/1437c-1/d.yaml"
+    )
+    assert citation.section == "1437c\u20131"
 
 
 @pytest.mark.parametrize(
@@ -13811,6 +13851,32 @@ class TestRepoAugmentedContext:
         assert section_dir / "a.yaml" not in selected
         assert section_dir / "b.yaml" in selected
         assert section_dir / "c.yaml" in selected
+
+    @pytest.mark.parametrize(
+        "citation",
+        [
+            "42/1437c\u20131/d",
+            CitationParts(title="42", section="1437c\u20131", fragments=("d",)),
+        ],
+        ids=["slash-alias", "structured-citation"],
+    )
+    def test_select_context_files_uses_normalized_section_path(
+        self,
+        tmp_path,
+        citation,
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+        title_dir = policy_repo_root / "statutes" / "42"
+        section_dir = title_dir / "1437c-1"
+        section_dir.mkdir(parents=True)
+        sibling = section_dir / "e.yaml"
+        sibling.write_text("same-section sibling")
+        for index in range(6):
+            (title_dir / f"{index}.yaml").write_text("unrelated title context")
+
+        selected = select_context_files(citation, policy_repo_root)
+
+        assert sibling in selected
 
     def test_prepare_eval_workspace_writes_manifest_and_context(self, tmp_path):
         repo_root = tmp_path / "repos"
