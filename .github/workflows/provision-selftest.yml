@@ -1,12 +1,13 @@
 name: Provision selftest
 
-# Proves scripts/provision_verification_supervisor.py builds a genuinely
-# self-contained runtime on the hosted Ubuntu image — the environment where
-# the rulespec signed-apply workflows run it. The hosted toolcache CPython is
-# --enable-shared with an absolute RUNPATH into the (user-writable) toolcache,
-# so without the relocation pass a copied runtime keeps mapping libpython from
-# the original location. This job re-derives the assertions independently of
-# the provisioner's own internal checks, and exercises the fail-closed paths.
+# Proves scripts/provision_verification_supervisor.py builds a runtime whose
+# launcher maps no file from the source prefix and pins libpython to the runtime,
+# on the hosted Ubuntu image — the environment where the rulespec signed-apply
+# workflows run it. The hosted toolcache CPython is --enable-shared with an
+# absolute RUNPATH into the (user-writable) toolcache, so without the relocation
+# pass a copied runtime keeps mapping libpython from the original location. This
+# job re-derives the assertions independently of the provisioner's own internal
+# checks, and exercises the fail-closed paths.
 
 on:
   push:
@@ -82,7 +83,7 @@ jobs:
             --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
             --patchelf /usr/bin/patchelf
 
-      - name: Independently assert the runtime is self-contained
+      - name: Independently assert the launcher maps nothing from the source prefix
         env:
           PYBIN: ${{ steps.py.outputs.python-path }}
         run: |
@@ -112,7 +113,7 @@ jobs:
           assert not stray, stray
           import yaml
           assert Path(yaml.__file__).resolve().is_relative_to(dest), yaml.__file__
-          print('self-contained OK:', len(maps), 'mappings, libpython =', sorted(set(libpython)))
+          print('launcher containment OK:', len(maps), 'mappings, libpython =', sorted(set(libpython)))
           "
           # Every planted startup carrier must be gone AND must not have
           # executed during the -I probe above (the marker file is untouched).

@@ -1,12 +1,15 @@
-"""Build a protected, self-contained verification-supervisor execution tree.
+"""Build a protected verification-supervisor execution tree.
 
 The load-bearing guarantee is EMPIRICAL: the provisioned launcher interpreter is
 run under a minimal environment and ``/proc/self/maps`` is required to show it
-maps ``libpython`` and all code from inside the root-owned runtime and nothing
-from the (user-writable) source prefix — even under a hostile ``LD_LIBRARY_PATH``.
-That check observes exactly what the loader does (interpreter, every mapped
-library, audit hooks, ``$ORIGIN`` expansion) with no dependence on hand-parsed
-ELF metadata. The static passes below make that outcome reachable and durable:
+maps its OWN binary from the root-owned runtime, maps NO file from the
+(user-writable) source prefix, and pins any mapped ``libpython`` to the runtime —
+even under a hostile ``LD_LIBRARY_PATH``. This bounds the launcher interpreter's
+own load-time closure; it does NOT assert that every mapping is inside the runtime
+(the root-owned system loader and libc legitimately map from ``/lib``, ``/usr/lib``).
+The check observes exactly what the loader does (interpreter, every mapped library,
+audit hooks, ``$ORIGIN`` expansion) with no dependence on hand-parsed ELF metadata.
+The static passes below make that outcome reachable and durable:
 
 * Source prefix: a system/FHS prefix, a prefix outside ``--require-prefix-under``,
   one exceeding the file cap, or one whose tree escapes itself via a symlink is
@@ -344,9 +347,11 @@ def _assert_self_contained(
     (user-writable) source prefix, and every libpython mapping (if any) under
     the runtime. It deliberately does NOT require every mapping to be inside the
     runtime — the root-owned system loader and libc legitimately map from /lib,
-    /usr/lib, etc. This bounds the launcher interpreter's own load-time closure;
-    C-extensions the encoder imports later are covered by the run-path repin plus
-    the caller's root-ownership, not by this probe.
+    /usr/lib, etc. This bounds the launcher interpreter's own load-time closure.
+    C-extensions the encoder imports later are OUTSIDE this probe: the run-path
+    repin neutralizes their escaping DT_RPATH/DT_RUNPATH, but an absolute
+    DT_NEEDED or DT_AUDIT in one of them is not covered here and remains bounded
+    by the pinned-dependency provenance boundary documented below.
 
     The launcher is a `#!<interpreter> -I` shebang, and Linux truncates the
     shebang interpreter at whitespace, so a destination path containing
