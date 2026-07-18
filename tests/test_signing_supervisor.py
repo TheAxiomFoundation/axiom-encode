@@ -1486,6 +1486,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "sudo chown 0:0 /opt" in provision_step["run"]
     assert "sudo chmod go-w /opt" in provision_step["run"]
+    assert "--git /usr/bin/git" in provision_step["run"]
 
     apply_step = next(
         step

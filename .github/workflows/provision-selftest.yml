@@ -80,6 +80,7 @@ jobs:
             --apply-root test-apply-root \
             --eval-root test-eval-root \
             --corpus-release-root test-corpus-root \
+            --git /usr/bin/git \
             --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
             --patchelf /usr/bin/patchelf
 
@@ -92,6 +93,12 @@ jobs:
           interp="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' "$dest/axiom-encode")"
           echo "launcher interpreter: $interp"
           case "$interp" in "$dest"/python/*) ;; *) echo "launcher points outside the runtime"; exit 1 ;; esac
+          env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 \
+            git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel >/dev/null
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
           # Path containment (not startswith) so <dest>-evil cannot slip by.
@@ -151,6 +158,7 @@ jobs:
             --supervisor "$RUNNER_TEMP/fake-supervisor" \
             --site-packages "$RUNNER_TEMP/staged" \
             --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git \
             --require-prefix-under /etc 2> "$RUNNER_TEMP/neg.err"; then
             echo "provisioner accepted a prefix outside --require-prefix-under"; exit 1
           fi
@@ -160,7 +168,8 @@ jobs:
             --destination "$RUNNER_TEMP/dest-neg2" \
             --supervisor "$RUNNER_TEMP/fake-supervisor" \
             --site-packages "$RUNNER_TEMP/staged" \
-            --apply-root a --eval-root b --corpus-release-root c 2> "$RUNNER_TEMP/neg2.err"; then
+            --apply-root a --eval-root b --corpus-release-root c \
+            --git /usr/bin/git 2> "$RUNNER_TEMP/neg2.err"; then
             echo "provisioner accepted the system interpreter"; exit 1
           fi
           grep -q "not a self-contained" "$RUNNER_TEMP/neg2.err"

@@ -9,6 +9,7 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -285,6 +286,48 @@ class TestSanePrefixPreflight:
         (inner / "loop").symlink_to(prefix)
         with pytest.raises(SystemExit, match="symlink cycle"):
             provisioner._assert_sane_source_prefix(prefix, None, 100)
+
+
+class TestTrustedGit:
+    def test_accepts_root_owned_system_git(self):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        resolved = Path(git).resolve()
+        assert provisioner._resolve_trusted_git(resolved) == resolved
+
+    def test_rejects_relative_path(self):
+        with pytest.raises(SystemExit, match="absolute and normalized"):
+            provisioner._resolve_trusted_git(Path("git"))
+
+    def test_rejects_symlinked_path(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        alias = tmp_path / "git"
+        alias.symlink_to(Path(git).resolve())
+        with pytest.raises(SystemExit, match="contains a symlink"):
+            provisioner._resolve_trusted_git(alias)
+
+    def test_installed_wrapper_uses_exact_git_without_path_lookup(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        completed = subprocess.run(
+            [str(wrapper), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={"PATH": ""},
+        )
+        assert completed.stdout.startswith("git version ")
 
 
 class TestIsElf:
