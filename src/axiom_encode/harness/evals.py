@@ -7162,6 +7162,7 @@ def _run_single_eval(
             artifact_root=Path(output_root).resolve(),
         )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
         protected_paths = [relative_output]
@@ -7178,7 +7179,7 @@ def _run_single_eval(
     )
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7208,7 +7209,7 @@ def _run_single_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7340,6 +7341,7 @@ def _run_single_source_eval(
             artifact_root=Path(output_root).resolve(),
         )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
         protected_paths = [relative_output]
@@ -7358,7 +7360,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7388,7 +7390,7 @@ def _run_single_source_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7661,15 +7663,6 @@ def _write_eval_artifact_text(
 ) -> None:
     root, relative = _eval_artifact_write_location(target_path, artifact_root)
     _secure_atomic_eval_write(root, relative, content.encode("utf-8"))
-
-
-def _eval_artifact_exists(target_path: Path, artifact_root: Path | None) -> bool:
-    root, relative = _eval_artifact_write_location(target_path, artifact_root)
-    try:
-        _secure_eval_read(root, relative)
-    except FileNotFoundError:
-        return False
-    return True
 
 
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
@@ -13795,7 +13788,7 @@ def _materialize_eval_artifact(
                 materialized_paths.add(target_path)
             if target_path == expected_path:
                 wrote_main = True
-        if wrote_main or _eval_artifact_exists(expected_path, artifact_root):
+        if wrote_main:
             return True
 
     rulespec_content = _extract_rulespec_content(llm_response)

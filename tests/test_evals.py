@@ -3490,6 +3490,25 @@ rules:
     }
 
 
+def test_materialize_eval_artifact_rejects_test_only_bundle_with_stale_main(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "47" / "294.yaml"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    materialized_paths: set[Path] = set()
+
+    wrote = _materialize_eval_artifact(
+        "=== FILE: 294.test.yaml ===\n- name: current test only\n",
+        output_file,
+        materialized_paths=materialized_paths,
+    )
+
+    assert wrote is False
+    assert output_file.read_text(encoding="utf-8") == "stale prior-run main\n"
+    assert materialized_paths == {output_file.with_name("294.test.yaml")}
+
+
 def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(
     tmp_path,
 ):
