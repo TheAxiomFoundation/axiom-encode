@@ -139,6 +139,95 @@ jobs:
           uv pip install --python .venv/bin/python \
             --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
 
+      - name: Fetch pinned signed corpus release object
+        shell: bash
+        env:
+          SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ANON_KEY"
+          mapfile -t release_pin < <(axiom-encode/.venv/bin/python - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+
+          toolchain_path = Path("rulespec-us/.axiom/toolchain.toml")
+          toolchain = tomllib.loads(toolchain_path.read_text(encoding="utf-8"))[
+              "toolchain"
+          ]
+          release_name = toolchain["axiom_corpus_release"]
+          release_sha = toolchain["axiom_corpus_release_content_sha256"]
+          if not isinstance(release_name, str) or re.fullmatch(
+              r"[a-z0-9][a-z0-9._-]*", release_name
+          ) is None:
+              raise SystemExit("RuleSpec corpus release name is invalid")
+          if not isinstance(release_sha, str) or re.fullmatch(
+              r"[0-9a-f]{64}", release_sha
+          ) is None:
+              raise SystemExit("RuleSpec corpus release digest is invalid")
+          print(release_name)
+          print(release_sha)
+          PY
+          )
+          if [ "${#release_pin[@]}" -ne 2 ]; then
+            echo "RuleSpec toolchain did not yield exactly one corpus release pin" >&2
+            exit 1
+          fi
+          release_name="${release_pin[0]}"
+          release_sha="${release_pin[1]}"
+          destination="$GITHUB_WORKSPACE/axiom-corpus/releases/$release_name/$release_sha.json"
+          mkdir -p "$(dirname "$destination")"
+          url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --header "apikey: $SUPABASE_ANON_KEY" \
+            --header "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            --header "Accept-Profile: corpus" \
+            --output "$destination.tmp" "$url"
+          release_commit="$(axiom-encode/.venv/bin/python - \
+            "$destination.tmp" "$destination" "$release_name" "$release_sha" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          source, destination = Path(sys.argv[1]), Path(sys.argv[2])
+          expected_name, expected_sha = sys.argv[3], sys.argv[4]
+          try:
+              rows = json.loads(source.read_bytes())
+          except (OSError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Corpus release acquisition returned invalid JSON: {exc}")
+          if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+              raise SystemExit("Corpus release registry did not return exactly one object")
+          payload = rows[0].get("release_object")
+          if not isinstance(payload, dict) or payload.get("release") != expected_name:
+              raise SystemExit("Corpus release registry returned the wrong object")
+          content = payload.get("content")
+          if not isinstance(content, dict):
+              raise SystemExit("Corpus release registry returned invalid content")
+          actual = hashlib.sha256(json.dumps(
+              content, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+          ).encode()).hexdigest()
+          if payload.get("content_sha256") != actual or actual != expected_sha:
+              raise SystemExit("Corpus release registry returned a content-address mismatch")
+          git = content.get("git")
+          release_commit = git.get("commit") if isinstance(git, dict) else None
+          if not isinstance(release_commit, str):
+              raise SystemExit("Corpus release registry returned invalid Git provenance")
+          source.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+          source.replace(destination)
+          print(release_commit)
+          PY
+          )"
+          if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          git -C axiom-corpus merge-base --is-ancestor "$release_commit" HEAD || {
+            echo "Pinned corpus checkout predates signed release provenance" >&2
+            exit 1
+          }
+
       - name: Provision protected signing supervisor
         working-directory: axiom-encode
         env:
