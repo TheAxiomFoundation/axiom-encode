@@ -25,6 +25,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
+    inspect_canonical_rulespec_checkout,
     is_composition_policy_repo_root,
     is_policy_repo_root,
     jurisdiction_subdir_names,
@@ -70,10 +71,16 @@ def test_composition_checkout_identity_admits_only_top_level_programs(tmp_path):
 
     assert is_policy_repo_root(checkout) is False
     assert is_composition_policy_repo_root(checkout) is True
+    assert inspect_canonical_rulespec_checkout(
+        checkout, allow_composition_specs=True
+    ) == ("rulespec-us", None)
     assert jurisdiction_subdir_names(checkout, allow_composition_specs=True) == set()
 
     (checkout / "statutes").mkdir()
     assert is_composition_policy_repo_root(checkout) is False
+    assert inspect_canonical_rulespec_checkout(
+        checkout, allow_composition_specs=True
+    ) == (None, "atomic-root-at-checkout")
 
 
 def test_composition_checkout_identity_rejects_symlinked_programs(tmp_path):
@@ -233,6 +240,9 @@ def test_canonical_identity_observes_changed_git_origin(tmp_path):
     )
 
     assert canonical_rulespec_root_identity(policy_root) is None
+    assert inspect_canonical_rulespec_checkout(
+        checkout, allow_composition_specs=True
+    ) == (None, "git-origin-name-mismatch")
 
 
 def test_canonical_identity_rejects_observed_git_boundary_when_git_unavailable(

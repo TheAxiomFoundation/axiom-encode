@@ -20,12 +20,20 @@ import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
 from .constants import RULESPEC_COMPOSITION_SPEC_ROOT, RULESPEC_FILESYSTEM_ROOTS
 
 
 class _GitProbeError(RuntimeError):
     """Git identity could not be checked for an observed repository boundary."""
+
+
+class CanonicalRuleSpecCheckoutInspection(NamedTuple):
+    """Canonical checkout identity and a stable rejection code."""
+
+    name: str | None
+    rejection: str | None
 
 
 def jurisdiction_country(prefix: str) -> str:
@@ -74,54 +82,69 @@ def _canonical_country_checkout_name(
 ) -> str | None:
     """Return the exact canonical country-checkout name for ``path``."""
 
+    return inspect_canonical_rulespec_checkout(
+        path,
+        allow_composition_specs=allow_composition_specs,
+    ).name
+
+
+def inspect_canonical_rulespec_checkout(
+    path: Path,
+    *,
+    allow_composition_specs: bool = False,
+) -> CanonicalRuleSpecCheckoutInspection:
+    """Inspect one exact country checkout without weakening route acceptance."""
+
     lexical = _lexical_rulespec_path(path)
     if lexical is None:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "lexical-path-rejected")
     if not lexical.is_dir():
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "checkout-not-directory")
     checkout = lexical.resolve()
     name = checkout.name
     if not name.startswith("rulespec-"):
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "checkout-name-prefix")
     country = name.removeprefix("rulespec-")
     if re.fullmatch(r"[a-z]{2}", country) is None:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "checkout-country-name")
     blocked_roots = RULESPEC_FILESYSTEM_ROOTS
     if allow_composition_specs:
         composition_root = checkout / RULESPEC_COMPOSITION_SPEC_ROOT
         if (composition_root.exists() or composition_root.is_symlink()) and (
             composition_root.is_symlink() or not composition_root.is_dir()
         ):
-            return None
+            return CanonicalRuleSpecCheckoutInspection(
+                None, "composition-root-not-directory"
+            )
         blocked_roots = blocked_roots - {RULESPEC_COMPOSITION_SPEC_ROOT}
     if any(
         (checkout / root_name).exists() or (checkout / root_name).is_symlink()
         for root_name in blocked_roots
     ):
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "atomic-root-at-checkout")
     try:
         git_boundary = _nearest_git_boundary(checkout)
     except _GitProbeError:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-boundary-probe-error")
     if git_boundary is not None and git_boundary != checkout:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-boundary-mismatch")
     if git_boundary is None:
-        return name
+        return CanonicalRuleSpecCheckoutInspection(name, None)
     try:
         git_top_level = _git_top_level(str(checkout))
     except _GitProbeError:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-probe-error")
     if git_top_level is None:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-unavailable")
     if git_top_level is not None and git_top_level != checkout:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-mismatch")
     try:
         origin_name = _git_origin_repo_name(str(checkout))
     except _GitProbeError:
-        return None
+        return CanonicalRuleSpecCheckoutInspection(None, "git-origin-probe-error")
     if origin_name is not None and origin_name != name:
-        return None
-    return name
+        return CanonicalRuleSpecCheckoutInspection(None, "git-origin-name-mismatch")
+    return CanonicalRuleSpecCheckoutInspection(name, None)
 
 
 def canonical_rulespec_root_identity(path: Path) -> str | None:

@@ -7555,6 +7555,17 @@ class TestCmdEncode:
 
         mock_run.assert_not_called()
 
+    def test_encode_apply_reports_canonical_checkout_rejection(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            apply=True,
+            policy_repo_path=tmp_path / "rulespec-usa",
+            create_content_root=False,
+        )
+
+        with pytest.raises(ValueError, match=r"rejection: checkout-country-name"):
+            cmd_encode(args)
+
     @pytest.mark.parametrize("allow_shrink", [False, True])
     def test_encode_apply_propagates_allow_shrink_to_apply_guard(
         self, tmp_path, allow_shrink
