@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,7 @@ from axiom_encode.cli import (
     _repair_unit_scoped_person_definition_entities,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
+    _require_clean_axiom_encode_git_provenance,
     _resolve_applied_manifest_placement,
     _resolve_explicit_policy_repo_for_corpus_source,
     _rewrite_gpt_runner_backend,
@@ -1148,9 +1150,13 @@ def _init_encoder_identity_checkout(
 ) -> str:
     _init_test_git_repo(repo)
     source_root = Path(__file__).resolve().parents[1]
+    shutil.copytree(
+        source_root / "src/axiom_encode",
+        repo / "src/axiom_encode",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     version_files = (
         "pyproject.toml",
-        "src/axiom_encode/__init__.py",
         "uv.lock",
     )
     for relative in version_files:
@@ -1160,7 +1166,12 @@ def _init_encoder_identity_checkout(
         if version != AXIOM_ENCODE_TEST_VERSION:
             content = content.replace(AXIOM_ENCODE_TEST_VERSION, version)
         target.write_text(content)
-    _git(repo, "add", *version_files)
+    if version != AXIOM_ENCODE_TEST_VERSION:
+        package_init = repo / "src/axiom_encode/__init__.py"
+        package_init.write_text(
+            package_init.read_text().replace(AXIOM_ENCODE_TEST_VERSION, version)
+        )
+    _git(repo, "add", *version_files, "src/axiom_encode")
     _git(repo, "commit", "-m", "test encoder identity")
     return _git(repo, "rev-parse", "HEAD").stdout.strip()
 
@@ -1271,6 +1282,96 @@ def test_apply_encoder_identity_override_is_ci_only(tmp_path, monkeypatch):
         match="AXIOM_ENCODE_APPLY_CHECKOUT is only allowed in GitHub Actions",
     ):
         _apply_encoder_execution_identity()
+
+
+def test_apply_encoder_identity_rejects_same_version_runtime_code_tampering(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    checkout = workspace / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+    runtime_package = tmp_path / "runtime/axiom_encode"
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / "src/axiom_encode",
+        runtime_package,
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    (runtime_package / "cli.py").write_text(
+        (runtime_package / "cli.py").read_text() + "\nTAMPERED = True\n"
+    )
+    monkeypatch.setattr("axiom_encode.cli.__file__", str(runtime_package / "cli.py"))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    with pytest.raises(
+        RuntimeError,
+        match="Provisioned encoder package bytes do not match the workflow checkout",
+    ):
+        _apply_encoder_execution_identity()
+
+
+def test_apply_encoder_identity_rejects_ancestor_symlink(tmp_path, monkeypatch):
+    real_workspace = tmp_path / "real-workspace"
+    checkout = real_workspace / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+    linked_workspace = tmp_path / "linked-workspace"
+    linked_workspace.symlink_to(real_workspace, target_is_directory=True)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(linked_workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_APPLY_CHECKOUT", str(linked_workspace / "axiom-encode")
+    )
+
+    with pytest.raises(RuntimeError, match="canonical, symlink-free"):
+        _apply_encoder_execution_identity()
+
+
+def test_apply_encoder_identity_rejects_nested_checkout(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    parent = workspace
+    _init_test_git_repo(parent)
+    checkout = workspace / "axiom-encode"
+    source_root = Path(__file__).resolve().parents[1]
+    shutil.copytree(
+        source_root / "src/axiom_encode",
+        checkout / "src/axiom_encode",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    for relative in ("pyproject.toml", "uv.lock"):
+        shutil.copy2(source_root / relative, checkout / relative)
+    _git(parent, "add", "axiom-encode")
+    _git(parent, "commit", "-m", "nested encoder")
+    commit = _git(parent, "rev-parse", "HEAD").stdout.strip()
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    with pytest.raises(RuntimeError, match="Git repository top level"):
+        _apply_encoder_execution_identity()
+
+
+def test_clean_encoder_provenance_uses_verified_workflow_checkout(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    checkout = workspace / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    provenance = _require_clean_axiom_encode_git_provenance()
+
+    assert provenance["root"] == str(checkout)
+    assert provenance["commit"] == commit
+    assert provenance["dirty_tracked"] is False
+    assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+    assert provenance["version_commit"] == commit
 
 
 def _write_active_corpus_row(
