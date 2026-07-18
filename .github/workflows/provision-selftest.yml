@@ -276,6 +276,52 @@ jobs:
             git -C "$replace_repo" cat-file blob "$original_oid" \
             > "$RUNNER_TEMP/trusted-object-output"
           cmp "$replace_repo/original.txt" "$RUNNER_TEMP/trusted-object-output"
+          signature_repo="$RUNNER_TEMP/signature-repo"
+          /usr/bin/git init --quiet "$signature_repo"
+          printf '[project]\nname = "fixture"\n' \
+            > "$signature_repo/pyproject.toml"
+          /usr/bin/git -C "$signature_repo" add pyproject.toml
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$signature_repo" commit --quiet -m fixture
+          /usr/bin/git -C "$signature_repo" cat-file commit HEAD \
+            > "$RUNNER_TEMP/unsigned-commit"
+          "$PYBIN" - \
+            "$RUNNER_TEMP/unsigned-commit" \
+            "$RUNNER_TEMP/signed-commit" <<'PY'
+          import sys
+          from pathlib import Path
+
+          raw = Path(sys.argv[1]).read_bytes()
+          headers, message = raw.split(b"\n\n", 1)
+          Path(sys.argv[2]).write_bytes(
+              headers
+              + b"\ngpgsig -----BEGIN PGP SIGNATURE-----\n"
+              + b" fake\n -----END PGP SIGNATURE-----\n\n"
+              + message
+          )
+          PY
+          signed_oid="$(
+            /usr/bin/git -C "$signature_repo" \
+              hash-object -t commit -w "$RUNNER_TEMP/signed-commit"
+          )"
+          /usr/bin/git -C "$signature_repo" update-ref HEAD "$signed_oid"
+          /usr/bin/git -C "$signature_repo" config log.showSignature true
+          /usr/bin/git -C "$signature_repo" config \
+            gpg.program "$RUNNER_TEMP/hostile-git-helper"
+          rm -f "$hostile_marker"
+          /usr/bin/git -C "$signature_repo" log --format=%H -- \
+            pyproject.toml src/axiom_encode/__init__.py uv.lock \
+            >/dev/null 2>&1 || true
+          test -e "$hostile_marker"
+          rm -f "$hostile_marker"
+          env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            git -C "$signature_repo" log --format=%H -- \
+              pyproject.toml src/axiom_encode/__init__.py uv.lock >/dev/null
+          test ! -e "$hostile_marker"
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
           # Path containment (not startswith) so <dest>-evil cannot slip by.

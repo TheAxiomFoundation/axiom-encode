@@ -618,6 +618,7 @@ def _install_trusted_git_wrapper(
         "    '-c', 'core.sshCommand=false',\n"
         "    '-c', 'protocol.ext.allow=never',\n"
         "    '-c', 'diff.external=/usr/bin/false',\n"
+        "    '-c', 'log.showSignature=false',\n"
         "    '-c', 'submodule.recurse=false',\n"
         "]\n"
         "def worktree_sensitive():\n"

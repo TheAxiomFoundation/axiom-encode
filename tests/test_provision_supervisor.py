@@ -787,6 +787,110 @@ class TestTrustedGit:
         )
         assert wrapped.stdout == original
 
+    def test_installed_wrapper_disables_log_signature_verification(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        (repository / "pyproject.toml").write_text('[project]\nname = "fixture"\n')
+        subprocess.run(
+            [git, "-C", str(repository), "add", "pyproject.toml"], check=True
+        )
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        raw_commit = subprocess.check_output(
+            [git, "-C", str(repository), "cat-file", "commit", "HEAD"]
+        )
+        headers, message = raw_commit.split(b"\n\n", 1)
+        signed_commit = (
+            headers
+            + b"\ngpgsig -----BEGIN PGP SIGNATURE-----\n"
+            + b" fake\n -----END PGP SIGNATURE-----\n\n"
+            + message
+        )
+        signed_id = (
+            subprocess.check_output(
+                [
+                    git,
+                    "-C",
+                    str(repository),
+                    "hash-object",
+                    "-t",
+                    "commit",
+                    "-w",
+                    "--stdin",
+                ],
+                input=signed_commit,
+                text=False,
+            )
+            .decode()
+            .strip()
+        )
+        subprocess.run(
+            [git, "-C", str(repository), "update-ref", "HEAD", signed_id], check=True
+        )
+        marker = tmp_path / "verifier-executed"
+        helper = tmp_path / "fake-gpg"
+        helper.write_text(
+            f"#!{Path(sys.executable).resolve()}\n"
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+            "raise SystemExit(1)\n"
+        )
+        helper.chmod(0o755)
+        subprocess.run(
+            [git, "-C", str(repository), "config", "log.showSignature", "true"],
+            check=True,
+        )
+        subprocess.run(
+            [git, "-C", str(repository), "config", "gpg.program", str(helper)],
+            check=True,
+        )
+        log_arguments = [
+            "log",
+            "--format=%H",
+            "--",
+            "pyproject.toml",
+            "src/axiom_encode/__init__.py",
+            "uv.lock",
+        ]
+        subprocess.run(
+            [git, "-C", str(repository), *log_arguments],
+            check=False,
+            capture_output=True,
+        )
+        assert marker.exists()
+        marker.unlink()
+        subprocess.run(
+            [str(wrapper), "-C", str(repository), *log_arguments],
+            check=True,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert not marker.exists()
+
 
 class TestIsElf:
     def test_elf_magic(self, tmp_path):
