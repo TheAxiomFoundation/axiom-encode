@@ -1479,6 +1479,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "rev-parse HEAD" in identity_command
     assert "merge-base --is-ancestor" in identity_command
 
+    provision_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Provision protected signing supervisor"
+    )
+    assert "sudo chown 0:0 /opt" in provision_step["run"]
+    assert "sudo chmod go-w /opt" in provision_step["run"]
+
     apply_step = next(
         step
         for step in steps
