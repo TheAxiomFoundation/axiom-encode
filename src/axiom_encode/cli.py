@@ -18577,9 +18577,8 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     exact encoder commit and version pinned by the consumer workflow.
     """
 
-    repo_root = _axiom_encode_repo_root()
     try:
-        checkout_identity = _git_checkout_execution_identity(repo_root)
+        checkout_identity = _apply_encoder_execution_identity()
     except (OSError, ValueError, RuntimeError) as exc:
         raise RuntimeError(
             f"running axiom-encode checkout identity is unavailable: {exc}"
@@ -18594,7 +18593,10 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
-    versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
+    repo_root = checkout_identity.get("path")
+    if not isinstance(repo_root, str):
+        raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
     ):
@@ -37127,7 +37129,7 @@ def _apply_encoder_execution_identity() -> dict[str, object]:
     """Bind apply provenance to this checkout or the verified CI source checkout."""
 
     checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
-    checkout_root = Path(__file__).resolve().parents[2]
+    checkout_root = _axiom_encode_repo_root()
     expected_ci_sha: str | None = None
     if checkout_override:
         if os.environ.get("GITHUB_ACTIONS") != "true":
