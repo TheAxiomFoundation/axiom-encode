@@ -11,3 +11,4 @@ build/
 .axiom/
 hook_debug.log
 artifacts/eval-suites/
+.gitnexus/
