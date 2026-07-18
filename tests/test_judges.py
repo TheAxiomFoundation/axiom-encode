@@ -1240,7 +1240,7 @@ def test_drift_regenerator_supports_root_mirror_state_manifest(tmp_path):
     )
 
 
-def test_drift_regenerator_allows_colon_in_contained_module_path(tmp_path):
+def test_drift_regenerator_requires_canonical_path_for_colon_citation(tmp_path):
     root, module, _manifest = _regeneration_fixture(
         tmp_path,
         module="us-la/statutes/47:294.yaml",
@@ -1249,10 +1249,14 @@ def test_drift_regenerator_allows_colon_in_contained_module_path(tmp_path):
     relative = regeneration.validate_module_path(root, module)
 
     assert regeneration.generated_subpath(relative) == Path("statutes/47:294.yaml")
-    assert regeneration.require_citation_derived_output_path(
-        relative,
-        "us-la/statute/47:294",
-    ) == Path("statutes/47:294.yaml")
+    with pytest.raises(
+        regeneration.RegenerationInputError,
+        match=r"canonically encodes to statutes/47/294\.yaml",
+    ):
+        regeneration.require_citation_derived_output_path(
+            relative,
+            "us-la/statute/47:294",
+        )
 
 
 @pytest.mark.parametrize(
