@@ -1457,12 +1457,24 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert set(trigger) == {"workflow_dispatch"}
     assert workflow["permissions"] == {"contents": "read"}
 
-    steps = workflow["jobs"]["encode"]["steps"]
+    job = workflow["jobs"]["encode"]
+    assert job["environment"] == "production-signing"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    steps = job["steps"]
     checkout_steps = [
         step for step in steps if step.get("uses", "").startswith("actions/checkout@")
     ]
     assert checkout_steps
     assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
+    assert all(step["with"]["fetch-depth"] == 0 for step in checkout_steps)
+
+    identity_step = next(
+        step for step in steps if step.get("name") == "Verify immutable checkout identities"
+    )
+    identity_command = identity_step["run"]
+    assert "^[0-9a-f]{40}$" in identity_command
+    assert "rev-parse HEAD" in identity_command
+    assert "merge-base --is-ancestor" in identity_command
 
     apply_step = next(
         step
@@ -1473,7 +1485,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
     )
     command = apply_step["run"]
-    assert "axiom-encode-apply-signer run" in command
+    assert "exec /opt/axiom-verification/axiom-encode-apply-signer run" in command
     assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
     assert (
         "TheAxiomFoundation/axiom-encode/.github/workflows/"
@@ -1482,6 +1494,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "--allowed-event-name workflow_dispatch" in command
     assert "--apply" in command
     assert "--skip-reviewers" not in command
+    assert "printf '%s\\n' \"$REVIEW_FINDING\"" in command
+    assert 'args+=(--review-findings "$review_finding_path")' in command
+
+    guard_step = next(
+        step for step in steps if step.get("name") == "Verify generated provenance"
+    )
+    assert "guard-generated" in guard_step["run"]
+    assert "--base-ref" not in guard_step["run"]
 
     secret_steps = [
         step
