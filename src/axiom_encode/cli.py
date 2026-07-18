@@ -1050,6 +1050,22 @@ def main():
     )
     inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+    normalize_proof_kinds_parser = subparsers.add_parser(
+        "normalize-proof-atom-kinds",
+        help="Normalize classifiable invalid proof atom kinds in place",
+    )
+    normalize_proof_kinds_parser.add_argument(
+        "--root",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout to rewrite",
+    )
+    normalize_proof_kinds_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output a machine-readable normalization report",
+    )
+
     migration_inventory_parser = subparsers.add_parser(
         "migration-inventory",
         help="Report RuleSpec corpus citations that fail a pinned release object",
@@ -2334,6 +2350,8 @@ def main():
         cmd_stats(args)
     elif args.command == "inventory":
         cmd_inventory(args)
+    elif args.command == "normalize-proof-atom-kinds":
+        cmd_normalize_proof_atom_kinds(args)
     elif args.command == "migration-inventory":
         cmd_migration_inventory(args)
     elif args.command == "interval-table-audit":
@@ -4557,6 +4575,123 @@ def cmd_inventory(args):
             f"rules={repo['rules']} "
             f"roots={_format_counter(repo['roots'])}"
         )
+
+
+def _proof_atom_kind_normalization_module_paths(checkout: Path) -> list[Path]:
+    """Select primary atomic modules without validating unrelated checkout YAML."""
+    modules: list[Path] = []
+    jurisdiction_names = jurisdiction_subdir_names(
+        checkout, allow_composition_specs=True
+    )
+    for jurisdiction_name in sorted(jurisdiction_names):
+        content_root = checkout / jurisdiction_name
+        for root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+            module_root = content_root / root_name
+            if module_root.is_symlink():
+                raise ValueError(
+                    f"RuleSpec atomic module root must not be a symlink: {module_root}"
+                )
+            if not module_root.exists():
+                continue
+            if not module_root.is_dir():
+                raise ValueError(
+                    f"RuleSpec atomic module root must be a directory: {module_root}"
+                )
+            for candidate in sorted(module_root.rglob("*")):
+                if candidate.is_symlink():
+                    raise ValueError(
+                        f"RuleSpec atomic module content must not contain symlinks: "
+                        f"{candidate}"
+                    )
+                if (
+                    candidate.is_file()
+                    and candidate.suffix == RULESPEC_FILE_SUFFIX
+                    and not candidate.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+                ):
+                    modules.append(candidate)
+    return modules
+
+
+def build_proof_atom_kind_normalization_report(root: Path) -> dict[str, object]:
+    """Normalize repairable proof kinds across one canonical RuleSpec checkout."""
+    checkout = _resolve_canonical_rulespec_checkout(Path(root))
+    modules = _proof_atom_kind_normalization_module_paths(checkout)
+    repairs: list[dict[str, object]] = []
+    unclassified: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+    changed_files: set[str] = set()
+
+    for rules_file in modules:
+        relative_path = rules_file.relative_to(checkout).as_posix()
+        result = _normalize_invalid_proof_atom_kinds_file(rules_file)
+        if result.error is not None:
+            errors.append({"path": relative_path, "error": result.error})
+        if result.repairs:
+            changed_files.add(relative_path)
+        for repair in result.repairs:
+            repairs.append(
+                {
+                    "path": relative_path,
+                    "rule": repair.rule,
+                    "atom_index": repair.atom_index,
+                    "old_kind": repair.old_kind,
+                    "new_kind": repair.new_kind,
+                }
+            )
+        for issue in result.unclassified:
+            unclassified.append(
+                {
+                    "path": relative_path,
+                    "rule": issue.rule,
+                    "atom_index": issue.atom_index,
+                    "kind": "custom",
+                    "reason": issue.reason,
+                }
+            )
+
+    return {
+        "root": str(checkout),
+        "files_scanned": len(modules),
+        "files_changed": len(changed_files),
+        "repair_count": len(repairs),
+        "unclassified_count": len(unclassified),
+        "error_count": len(errors),
+        "repairs": repairs,
+        "unclassified": unclassified,
+        "errors": errors,
+    }
+
+
+def cmd_normalize_proof_atom_kinds(args) -> None:
+    """Rewrite only classifiable invalid proof atom kinds in existing modules."""
+    report = build_proof_atom_kind_normalization_report(args.root)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("Proof atom kind normalization")
+        print(f"Root: {report['root']}")
+        print(
+            f"Files: {report['files_scanned']} scanned; "
+            f"{report['files_changed']} changed"
+        )
+        print(f"Repairs: {report['repair_count']}")
+        for repair in report["repairs"]:
+            print(
+                f"  {repair['path']}: {repair['rule']}[{repair['atom_index']}]:"
+                f"{repair['old_kind']}->{repair['new_kind']}"
+            )
+        print(f"Unclassified custom atoms: {report['unclassified_count']}")
+        for issue in report["unclassified"]:
+            print(
+                f"  {issue['path']}: {issue['rule']}[{issue['atom_index']}]: "
+                f"{issue['reason']}"
+            )
+        print(f"File errors: {report['error_count']}")
+        for error in report["errors"]:
+            print(f"  {error['path']}: {error['error']}")
+
+    if report["unclassified_count"] or report["error_count"]:
+        sys.exit(1)
 
 
 def _rulespec_module_paths(checkout: Path) -> list[Path]:
@@ -20406,13 +20541,37 @@ def _run_encode_attempt(
                     if can_apply:
                         break
             if not can_apply:
-                repaired_kinds = (
+                kind_normalization = (
                     _try_repair_generated_invalid_proof_atom_kinds_for_apply(
                         result,
                         output_root=args.output,
                         issues=apply_issues,
                     )
                 )
+                if kind_normalization.error is not None:
+                    outcome["proof_atom_kind_normalization_error"] = (
+                        kind_normalization.error
+                    )
+                    printable_error = " ".join(kind_normalization.error.splitlines())
+                    print(
+                        "  apply=proof_atom_kind_normalization_error:" + printable_error
+                    )
+                unclassified_kinds = [
+                    _unclassified_proof_atom_kind_label(issue)
+                    for issue in kind_normalization.unclassified
+                ]
+                if unclassified_kinds:
+                    outcome["unclassified_invalid_proof_atom_kinds"] = (
+                        unclassified_kinds
+                    )
+                    print(
+                        "  apply=unclassified_invalid_proof_atom_kinds:"
+                        + ",".join(unclassified_kinds)
+                    )
+                repaired_kinds = [
+                    _proof_atom_kind_repair_label(repair)
+                    for repair in kind_normalization.repairs
+                ]
                 if repaired_kinds:
                     outcome["auto_repaired_invalid_proof_atom_kinds"] = repaired_kinds
                     print(
@@ -26999,55 +27158,466 @@ def _try_repair_generated_proof_import_hashes_for_apply(
     return [f"hash[{index}]" for index in range(repair_count)]
 
 
+class _ProofAtomKindRepair(NamedTuple):
+    rule: str
+    atom_index: int
+    old_kind: str
+    new_kind: str
+
+
+class _UnclassifiedProofAtomKind(NamedTuple):
+    rule: str
+    atom_index: int
+    reason: str
+
+
+class _ProofAtomKindNormalizationResult(NamedTuple):
+    content: str
+    repairs: tuple[_ProofAtomKindRepair, ...]
+    unclassified: tuple[_UnclassifiedProofAtomKind, ...]
+    error: str | None
+
+
+class _CustomProofAtomKindDerivation(NamedTuple):
+    kind: str | None
+    reason: str | None
+    version_indices: tuple[int, ...]
+
+
+class _ProofAtomKindCandidate(NamedTuple):
+    rule: dict[str, object]
+    atom: dict[str, object]
+    rule_node: object
+    atom_node: object
+    node_path: tuple[object, ...]
+    rule_name: str
+    atom_index: int
+
+
+_GENERATED_PROOF_RULE_KINDS = frozenset({"parameter", "derived", "derived_relation"})
+_VERSION_OUTPUT_PROOF_PATH = re.compile(r"^versions\[(\d+)\]\.(?:formula|values)\b")
+
+
+def _proof_atom_kind_repair_label(repair: _ProofAtomKindRepair) -> str:
+    return f"{repair.rule}[{repair.atom_index}]:{repair.old_kind}->{repair.new_kind}"
+
+
+def _unclassified_proof_atom_kind_label(
+    issue: _UnclassifiedProofAtomKind,
+) -> str:
+    return f"{issue.rule}[{issue.atom_index}]:custom ({issue.reason})"
+
+
+def _proof_atoms_from_rule(rule: dict[str, object]) -> object:
+    metadata = rule.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict):
+        return metadata["proof"].get("atoms")
+    proof = rule.get("proof")
+    if isinstance(proof, dict):
+        return proof.get("atoms")
+    return None
+
+
+def _yaml_unique_mapping_value(node: object, key: str) -> object | None:
+    if not isinstance(node, MappingNode):
+        return None
+    matches = [
+        value_node
+        for key_node, value_node in node.value
+        if isinstance(key_node, ScalarNode) and key_node.value == key
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _yaml_node_reference_counts(root_node: object) -> Counter[int]:
+    """Count every composed-node edge so aliases can be rejected before surgery."""
+    references: Counter[int] = Counter()
+    expanded: set[int] = set()
+    pending = [root_node]
+    while pending:
+        node = pending.pop()
+        references[id(node)] += 1
+        if id(node) in expanded:
+            continue
+        expanded.add(id(node))
+        if isinstance(node, MappingNode):
+            for key_node, value_node in node.value:
+                pending.extend((key_node, value_node))
+        elif isinstance(node, SequenceNode):
+            pending.extend(node.value)
+    return references
+
+
+def _yaml_mapping_has_unique_scalar_keys(node: object) -> bool:
+    if not isinstance(node, MappingNode):
+        return False
+    keys: list[str] = []
+    for key_node, _ in node.value:
+        if not isinstance(key_node, ScalarNode):
+            return False
+        keys.append(key_node.value)
+    return len(keys) == len(set(keys))
+
+
+def _proof_atom_nodes_from_rule_node(
+    rule: dict[str, object],
+    rule_node: object,
+) -> tuple[object, tuple[object, ...]]:
+    """Follow the same metadata/top-level proof route as the parsed rule."""
+    node_path: list[object] = [rule_node]
+    metadata = rule.get("metadata")
+    use_metadata_proof = isinstance(metadata, dict) and isinstance(
+        metadata.get("proof"), dict
+    )
+    if use_metadata_proof:
+        metadata_node = _yaml_unique_mapping_value(rule_node, "metadata")
+        node_path.append(metadata_node)
+        proof_node = _yaml_unique_mapping_value(metadata_node, "proof")
+    else:
+        proof_node = _yaml_unique_mapping_value(rule_node, "proof")
+    node_path.append(proof_node)
+    atoms_node = _yaml_unique_mapping_value(proof_node, "atoms")
+    node_path.append(atoms_node)
+    return atoms_node, tuple(node_path)
+
+
+def _proof_derivation_nodes(
+    rule_node: object,
+    version_indices: tuple[int, ...],
+) -> tuple[object, ...]:
+    versions_node = _yaml_unique_mapping_value(rule_node, "versions")
+    nodes: list[object] = [versions_node]
+    if not isinstance(versions_node, SequenceNode):
+        return tuple(nodes)
+    for version_index in version_indices:
+        version_node = (
+            versions_node.value[version_index]
+            if version_index < len(versions_node.value)
+            else None
+        )
+        nodes.append(version_node)
+    return tuple(nodes)
+
+
+def _yaml_node_path_is_unambiguous(
+    node_path: tuple[object, ...],
+    reference_counts: Counter[int],
+) -> bool:
+    for node in node_path:
+        if node is None or reference_counts[id(node)] != 1:
+            return False
+        if isinstance(node, MappingNode) and not _yaml_mapping_has_unique_scalar_keys(
+            node
+        ):
+            return False
+    return True
+
+
+def _proof_version_output_kind(
+    rule: dict[str, object],
+    version: object,
+) -> tuple[str | None, str | None]:
+    if not isinstance(version, dict):
+        return None, "selected version is not a mapping"
+
+    has_formula = "formula" in version
+    has_values = "values" in version
+    if has_formula and has_values:
+        return None, "selected version declares both formula and values"
+    if has_values:
+        if not isinstance(version.get("values"), dict):
+            return None, "selected version values are not a mapping"
+        if str(rule.get("kind") or "").strip() != "parameter":
+            return None, "versioned values belong to a non-parameter rule"
+        return "parameter_table", None
+    if has_formula:
+        if version.get("formula") is None:
+            return None, "selected version formula is null"
+        return _generated_proof_atom_kind(rule), None
+    return None, "selected version declares neither formula nor values"
+
+
+def _derived_custom_proof_atom_kind(
+    rule: dict[str, object],
+    atom: dict[str, object],
+) -> _CustomProofAtomKindDerivation:
+    rule_kind = str(rule.get("kind") or "").strip()
+    if rule_kind not in _GENERATED_PROOF_RULE_KINDS:
+        return _CustomProofAtomKindDerivation(
+            None,
+            f"unsupported rule kind {rule_kind or '<missing>'}",
+            (),
+        )
+
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return _CustomProofAtomKindDerivation(
+            None, "rule has no non-empty versions list", ()
+        )
+
+    path = str(atom.get("path") or "").strip()
+    if not path:
+        return _CustomProofAtomKindDerivation(None, "proof atom path is missing", ())
+    normalized_path = re.sub(r"\s+", "", path).rstrip(".")
+    normalized_path = re.sub(r"^versions\.", "versions[0].", normalized_path)
+    match = _VERSION_OUTPUT_PROOF_PATH.match(normalized_path)
+    if match is not None:
+        version_index = int(match.group(1))
+        if version_index >= len(versions):
+            return _CustomProofAtomKindDerivation(
+                None,
+                f"proof atom path selects missing version {version_index}",
+                (),
+            )
+        kind, reason = _proof_version_output_kind(rule, versions[version_index])
+        return _CustomProofAtomKindDerivation(kind, reason, (version_index,))
+
+    if normalized_path != "versions":
+        return _CustomProofAtomKindDerivation(
+            None, "proof atom path does not identify a generated output", ()
+        )
+
+    version_kinds: list[str] = []
+    for version_index, version in enumerate(versions):
+        version_kind, reason = _proof_version_output_kind(rule, version)
+        if version_kind is None:
+            return _CustomProofAtomKindDerivation(
+                None,
+                f"broad versions path is not classifiable: {reason}",
+                tuple(range(version_index + 1)),
+            )
+        version_kinds.append(version_kind)
+    if len(set(version_kinds)) != 1:
+        return _CustomProofAtomKindDerivation(
+            None,
+            "broad versions path spans mixed formula and values outputs",
+            tuple(range(len(versions))),
+        )
+    return _CustomProofAtomKindDerivation(
+        version_kinds[0], None, tuple(range(len(versions)))
+    )
+
+
+def _replacement_for_proof_kind_scalar(
+    content: str,
+    node: object,
+    *,
+    old_kind: str,
+    new_kind: str,
+) -> tuple[int, int, str] | None:
+    if not isinstance(node, ScalarNode):
+        return None
+    if not isinstance(node.value, str) or node.value.strip() != old_kind:
+        return None
+    start = node.start_mark.index
+    end = node.end_mark.index
+    scalar = content[start:end]
+    if scalar == old_kind:
+        replacement = new_kind
+    elif scalar == f"'{old_kind}'":
+        replacement = f"'{new_kind}'"
+    elif scalar == f'"{old_kind}"':
+        replacement = f'"{new_kind}"'
+    else:
+        return None
+    return start, end, replacement
+
+
+def _normalize_invalid_proof_atom_kinds(
+    content: str,
+) -> _ProofAtomKindNormalizationResult:
+    """Normalize known invalid proof kinds without rewriting unrelated YAML bytes."""
+    try:
+        payload = yaml.safe_load(content) or {}
+        root_node = yaml.compose(content)
+    except (yaml.YAMLError, ValueError) as exc:
+        return _ProofAtomKindNormalizationResult(content, (), (), str(exc))
+    if not isinstance(payload, dict) or not isinstance(root_node, MappingNode):
+        return _ProofAtomKindNormalizationResult(content, (), (), None)
+
+    rules = payload.get("rules")
+    rules_node = _yaml_unique_mapping_value(root_node, "rules")
+    if not isinstance(rules, list):
+        return _ProofAtomKindNormalizationResult(content, (), (), None)
+    rule_nodes = rules_node.value if isinstance(rules_node, SequenceNode) else []
+
+    reference_counts = _yaml_node_reference_counts(root_node)
+    candidates: list[_ProofAtomKindCandidate] = []
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or f"rules[{rule_index}]").strip()
+        rule_name = rule_name or f"rules[{rule_index}]"
+        atoms = _proof_atoms_from_rule(rule)
+        if not isinstance(atoms, list):
+            continue
+        rule_node = rule_nodes[rule_index] if rule_index < len(rule_nodes) else None
+        atoms_node, proof_node_path = _proof_atom_nodes_from_rule_node(rule, rule_node)
+        atom_nodes = atoms_node.value if isinstance(atoms_node, SequenceNode) else []
+        for atom_index, atom in enumerate(atoms):
+            if not isinstance(atom, dict):
+                continue
+            kind = str(atom.get("kind") or "").strip()
+            if kind not in {"custom", "rate"}:
+                continue
+            atom_node = atom_nodes[atom_index] if atom_index < len(atom_nodes) else None
+            candidates.append(
+                _ProofAtomKindCandidate(
+                    rule,
+                    atom,
+                    rule_node,
+                    atom_node,
+                    (root_node, rules_node, *proof_node_path, atom_node),
+                    rule_name,
+                    atom_index,
+                )
+            )
+
+    span_counts: Counter[tuple[int, int]] = Counter()
+    for candidate in candidates:
+        kind_node = _yaml_unique_mapping_value(candidate.atom_node, "kind")
+        if isinstance(kind_node, ScalarNode):
+            span_counts[(kind_node.start_mark.index, kind_node.end_mark.index)] += 1
+
+    replacements: list[tuple[int, int, str]] = []
+    repairs: list[_ProofAtomKindRepair] = []
+    unclassified: list[_UnclassifiedProofAtomKind] = []
+    for candidate in candidates:
+        old_kind = str(candidate.atom.get("kind") or "").strip()
+        derivation_nodes: tuple[object, ...] = ()
+        if old_kind == "rate":
+            new_kind, reason = "parameter", None
+        else:
+            derivation = _derived_custom_proof_atom_kind(candidate.rule, candidate.atom)
+            new_kind, reason = derivation.kind, derivation.reason
+            derivation_nodes = _proof_derivation_nodes(
+                candidate.rule_node, derivation.version_indices
+            )
+        if new_kind is None:
+            unclassified.append(
+                _UnclassifiedProofAtomKind(
+                    candidate.rule_name,
+                    candidate.atom_index,
+                    reason or "rule structure is not classifiable",
+                )
+            )
+            continue
+
+        kind_node = _yaml_unique_mapping_value(candidate.atom_node, "kind")
+        if not _yaml_node_path_is_unambiguous(
+            (*candidate.node_path, kind_node, *derivation_nodes), reference_counts
+        ):
+            if old_kind == "custom":
+                unclassified.append(
+                    _UnclassifiedProofAtomKind(
+                        candidate.rule_name,
+                        candidate.atom_index,
+                        "YAML proof atom route is ambiguous or aliased",
+                    )
+                )
+            continue
+        replacement = _replacement_for_proof_kind_scalar(
+            content,
+            kind_node,
+            old_kind=old_kind,
+            new_kind=new_kind,
+        )
+        if replacement is None or span_counts[(replacement[0], replacement[1])] != 1:
+            if old_kind == "custom":
+                unclassified.append(
+                    _UnclassifiedProofAtomKind(
+                        candidate.rule_name,
+                        candidate.atom_index,
+                        "kind scalar cannot be rewritten safely",
+                    )
+                )
+            continue
+        replacements.append(replacement)
+        repairs.append(
+            _ProofAtomKindRepair(
+                candidate.rule_name, candidate.atom_index, old_kind, new_kind
+            )
+        )
+
+    normalized = content
+    for start, end, replacement in sorted(replacements, reverse=True):
+        normalized = normalized[:start] + replacement + normalized[end:]
+    return _ProofAtomKindNormalizationResult(
+        normalized,
+        tuple(repairs),
+        tuple(unclassified),
+        None,
+    )
+
+
+def _normalize_invalid_proof_atom_kinds_file(
+    rules_file: Path,
+) -> _ProofAtomKindNormalizationResult:
+    try:
+        original_bytes = rules_file.read_bytes()
+        original = original_bytes.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _ProofAtomKindNormalizationResult("", (), (), str(exc))
+    result = _normalize_invalid_proof_atom_kinds(original)
+    if result.content != original:
+        normalized_bytes = result.content.encode("utf-8")
+        try:
+            mode = stat.S_IMODE(rules_file.stat().st_mode)
+            _atomic_replace_bytes(
+                rules_file,
+                normalized_bytes,
+                mode=mode,
+            )
+        except (OSError, RuntimeError, UnicodeError) as exc:
+            try:
+                current_bytes = rules_file.read_bytes()
+            except OSError as read_exc:
+                return _ProofAtomKindNormalizationResult(
+                    "",
+                    (),
+                    (),
+                    f"{exc}; failed to verify target after write error: {read_exc}",
+                )
+            if current_bytes == normalized_bytes:
+                return _ProofAtomKindNormalizationResult(
+                    result.content,
+                    result.repairs,
+                    result.unclassified,
+                    f"{exc} (normalized bytes were installed, but directory "
+                    "durability could not be confirmed)",
+                )
+            if current_bytes != original_bytes:
+                return _ProofAtomKindNormalizationResult(
+                    "",
+                    (),
+                    (),
+                    f"{exc}; target bytes no longer match original or normalized content",
+                )
+            return _ProofAtomKindNormalizationResult(original, (), (), str(exc))
+    return result
+
+
 def _try_repair_generated_invalid_proof_atom_kinds_for_apply(
     result,
     *,
     output_root: Path,
     issues: list[str],
-) -> list[str]:
-    """Normalize schema-invalid proof kind synonyms in generated output."""
+) -> _ProofAtomKindNormalizationResult:
+    """Normalize classifiable invalid proof kinds in generated output."""
+    empty = _ProofAtomKindNormalizationResult("", (), (), None)
     if not any("Proof atom kind invalid" in str(issue) for issue in issues):
-        return []
+        return empty
     try:
         _relative_generated_output_path(result, output_root=output_root)
     except RuntimeError:
-        return []
+        return empty
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     if not rules_file.exists():
-        return []
-    try:
-        payload = yaml.safe_load(rules_file.read_text()) or {}
-    except (OSError, yaml.YAMLError, ValueError):
-        return []
-    if not isinstance(payload, dict):
-        return []
-
-    repairs: list[str] = []
-    for rule in payload.get("rules") or []:
-        if not isinstance(rule, dict):
-            continue
-        rule_name = str(rule.get("name") or "<unnamed>")
-        atoms = (
-            ((rule.get("metadata") or {}).get("proof") or {}).get("atoms")
-            if isinstance(rule.get("metadata"), dict)
-            else None
-        )
-        if not isinstance(atoms, list):
-            continue
-        for index, atom in enumerate(atoms):
-            if not isinstance(atom, dict):
-                continue
-            kind = str(atom.get("kind") or "").strip()
-            if kind != "rate":
-                continue
-            atom["kind"] = "parameter"
-            repairs.append(f"{rule_name}[{index}]:rate->parameter")
-
-    if not repairs:
-        return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
-    return repairs
+        return empty
+    return _normalize_invalid_proof_atom_kinds_file(rules_file)
 
 
 def _try_repair_generated_empty_deferred_source_values_for_apply(

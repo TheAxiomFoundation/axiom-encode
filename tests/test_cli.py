@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,8 @@ from axiom_encode.cli import (
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
     _medicaid_magi_income_helper_issue_names,
+    _normalize_invalid_proof_atom_kinds,
+    _normalize_invalid_proof_atom_kinds_file,
     _normalize_top_level_parameter_values_to_versions,
     _parse_child_fragment_reencoding_issue,
     _parse_child_numeric_reencoding_issue,
@@ -216,6 +219,7 @@ from axiom_encode.cli import (
     cmd_log,
     cmd_log_event,
     cmd_manifest_census,
+    cmd_normalize_proof_atom_kinds,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
     cmd_retire,
@@ -1708,6 +1712,21 @@ class TestMain:
             ["axiom_encode", "inventory", "--root", "/tmp/rulespec-us"],
         ):
             with patch("axiom_encode.cli.cmd_inventory") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_normalize_proof_atom_kinds_command_dispatches(self):
+        with patch(
+            "sys.argv",
+            [
+                "axiom_encode",
+                "normalize-proof-atom-kinds",
+                "--root",
+                "/tmp/rulespec-us",
+                "--json",
+            ],
+        ):
+            with patch("axiom_encode.cli.cmd_normalize_proof_atom_kinds") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -6379,8 +6398,382 @@ class TestCmdStats:
 
 
 # =========================================================================
-# Test cmd_inventory
+# Test proof atom kind normalization and cmd_inventory
 # =========================================================================
+
+
+class TestProofAtomKindNormalization:
+    def test_derives_custom_kinds_and_preserves_all_other_bytes(self):
+        original = """format: rulespec/v1
+rules:
+  - name: scalar_parameter
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom  # scalar parameter atom
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: |-
+                kind: custom remains literal evidence
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_jointly:
+            42
+          else:
+            21
+  - name: indexed_parameter
+    kind: parameter
+    indexed_by: filing_status
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: 'custom'  # stale path; actual output shape wins
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: "Table values are source-exact."
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.1
+          2: 0.2
+  - name: derived_formula
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions.formula
+            kind: "custom"  # formula atom
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: Derived formula excerpt.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: scalar_parameter * 2
+  - name: mixed_parameter
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions
+            kind: custom  # intentionally unclassifiable
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: Mixed output shapes.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+      - effective_from: '2027-01-01'
+        values:
+          1: 2
+  - name: legacy_rate
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: rate  # existing compatibility repair
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: 0.6 percent
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.006
+""".replace("\n", "\r\n")
+        expected = (
+            original.replace(
+                "kind: custom  # scalar parameter atom",
+                "kind: parameter  # scalar parameter atom",
+            )
+            .replace(
+                "kind: 'custom'  # stale path; actual output shape wins",
+                "kind: 'parameter_table'  # stale path; actual output shape wins",
+            )
+            .replace(
+                'kind: "custom"  # formula atom',
+                'kind: "formula"  # formula atom',
+            )
+            .replace(
+                "kind: rate  # existing compatibility repair",
+                "kind: parameter  # existing compatibility repair",
+            )
+        )
+
+        result = _normalize_invalid_proof_atom_kinds(original)
+
+        assert result.error is None
+        assert result.content == expected
+        assert [
+            (repair.rule, repair.old_kind, repair.new_kind) for repair in result.repairs
+        ] == [
+            ("scalar_parameter", "custom", "parameter"),
+            ("indexed_parameter", "custom", "parameter_table"),
+            ("derived_formula", "custom", "formula"),
+            ("legacy_rate", "rate", "parameter"),
+        ]
+        assert [
+            (issue.rule, issue.atom_index, issue.reason)
+            for issue in result.unclassified
+        ] == [
+            (
+                "mixed_parameter",
+                0,
+                "broad versions path spans mixed formula and values outputs",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "ambiguous_yaml",
+        [
+            pytest.param(
+                """format: rulespec/v1
+rules:
+  - name: ambiguous_metadata
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+    proof:
+      atoms:
+        - path: versions[0].formula
+          kind: custom
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+                id="duplicate-mapping-key",
+            ),
+            pytest.param(
+                """format: rulespec/v1
+atom_defaults: &atom_defaults
+  path: versions[0].formula
+  kind: custom
+  source:
+    excerpt: Preserve the shared atom.
+rules:
+  - name: aliased_atom
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - *atom_defaults
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+                id="mapping-alias",
+            ),
+            pytest.param(
+                """format: rulespec/v1
+atom_defaults: &atom_defaults
+  - path: versions[0].formula
+    kind: custom
+    source:
+      excerpt: Preserve the shared atom list.
+rules:
+  - name: aliased_atom_sequence
+    kind: derived
+    metadata:
+      proof:
+        atoms: *atom_defaults
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+                id="sequence-alias",
+            ),
+        ],
+    )
+    def test_ambiguous_or_aliased_yaml_routes_fail_closed(self, ambiguous_yaml):
+        result = _normalize_invalid_proof_atom_kinds(ambiguous_yaml)
+
+        assert result.error is None
+        assert result.content == ambiguous_yaml
+        assert result.repairs == ()
+        assert len(result.unclassified) == 1
+        assert result.unclassified[0].reason == (
+            "YAML proof atom route is ambiguous or aliased"
+        )
+
+    def test_replace_failure_leaves_original_module_bytes(self, tmp_path):
+        rules_file = tmp_path / "rule.yaml"
+        original = b"""format: rulespec/v1
+rules:
+  - name: derived_amount
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        rules_file.write_bytes(original)
+
+        with patch(
+            "axiom_encode.cli.os.replace",
+            side_effect=OSError("injected proof-kind replace failure"),
+        ):
+            result = _normalize_invalid_proof_atom_kinds_file(rules_file)
+
+        assert result.error == "injected proof-kind replace failure"
+        assert result.repairs == ()
+        assert rules_file.read_bytes() == original
+        assert not list(tmp_path.glob(".rule.yaml.apply-*"))
+
+    def test_successful_replacement_preserves_original_file_mode(self, tmp_path):
+        rules_file = tmp_path / "rule.yaml"
+        original = b"""format: rulespec/v1
+rules:
+  - name: derived_amount
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        rules_file.write_bytes(original)
+        rules_file.chmod(0o640)
+
+        result = _normalize_invalid_proof_atom_kinds_file(rules_file)
+
+        assert result.error is None
+        assert len(result.repairs) == 1
+        assert stat.S_IMODE(rules_file.stat().st_mode) == 0o640
+        assert rules_file.read_bytes() == original.replace(b"custom", b"formula")
+
+    def test_post_replace_fsync_error_retains_committed_repair(self, tmp_path):
+        rules_file = tmp_path / "rule.yaml"
+        original = b"""format: rulespec/v1
+rules:
+  - name: derived_amount
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        rules_file.write_bytes(original)
+
+        with patch(
+            "axiom_encode.cli._fsync_directory",
+            side_effect=OSError("injected directory fsync failure"),
+        ):
+            result = _normalize_invalid_proof_atom_kinds_file(rules_file)
+
+        assert result.error == (
+            "injected directory fsync failure (normalized bytes were installed, "
+            "but directory durability could not be confirmed)"
+        )
+        assert [(repair.old_kind, repair.new_kind) for repair in result.repairs] == [
+            ("custom", "formula")
+        ]
+        assert rules_file.read_bytes() == original.replace(b"custom", b"formula")
+
+    def test_batch_rewrites_only_primary_modules_and_reports_unclassified(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        repaired_file = checkout / "us/statutes/26/1.yaml"
+        repaired_file.parent.mkdir(parents=True)
+        original_repaired = """format: rulespec/v1
+rules:
+  - name: derived_amount
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+            source:
+              excerpt: |-
+                Keep this excerpt byte-for-byte.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          amount + 1
+"""
+        repaired_file.write_bytes(original_repaired.encode())
+
+        unresolved_file = checkout / "us/policies/example/unresolved.yaml"
+        unresolved_file.parent.mkdir(parents=True)
+        original_unresolved = """format: rulespec/v1
+rules:
+  - name: unit_proof
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: unit
+            kind: custom
+            source:
+              excerpt: dollars
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+"""
+        unresolved_file.write_bytes(original_unresolved.encode())
+        test_file = unresolved_file.with_name("unresolved.test.yaml")
+        test_bytes = b"kind: custom\n"
+        test_file.write_bytes(test_bytes)
+        auxiliary_test_file = checkout / "us/manual/legacy/block-1.test.yaml"
+        auxiliary_test_file.parent.mkdir(parents=True)
+        auxiliary_test_bytes = b"kind: custom\n"
+        auxiliary_test_file.write_bytes(auxiliary_test_bytes)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_normalize_proof_atom_kinds(SimpleNamespace(root=checkout, json=True))
+
+        assert exc_info.value.code == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["files_scanned"] == 2
+        assert report["files_changed"] == 1
+        assert report["repair_count"] == 1
+        assert report["repairs"][0] == {
+            "path": "us/statutes/26/1.yaml",
+            "rule": "derived_amount",
+            "atom_index": 0,
+            "old_kind": "custom",
+            "new_kind": "formula",
+        }
+        assert report["unclassified"] == [
+            {
+                "path": "us/policies/example/unresolved.yaml",
+                "rule": "unit_proof",
+                "atom_index": 0,
+                "kind": "custom",
+                "reason": "proof atom path does not identify a generated output",
+            }
+        ]
+        assert (
+            repaired_file.read_bytes()
+            == original_repaired.replace("kind: custom", "kind: formula").encode()
+        )
+        assert unresolved_file.read_bytes() == original_unresolved.encode()
+        assert test_file.read_bytes() == test_bytes
+        assert auxiliary_test_file.read_bytes() == auxiliary_test_bytes
 
 
 class TestCmdInventory:
@@ -14455,6 +14848,318 @@ rules:
         mock_apply.assert_called_once()
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_proof_import_hashes"] == ["hash[0]"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_derives_custom_proof_atom_kind_from_formula_rule(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3302"
+            / "f.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: credit_reduction_limitation
+  kind: derived
+  dtype: Money
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: custom
+        source:
+          corpus_citation_path: us/statute/26/3302
+          excerpt: |-
+            Reduce the credit by the limitation amount.
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      wages * credit_reduction_rate
+"""
+        output_file.write_bytes(original.encode())
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3302/f.yaml"
+        kind_issue = (
+            "statutes/26/3302/f.yaml: ci: Proof atom kind invalid: "
+            "rule `credit_reduction_limitation` proof atom 0 has kind `custom`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [kind_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_invalid_proof_atom_kinds:"
+            "credit_reduction_limitation[0]:custom->formula" in output
+        )
+        assert (
+            output_file.read_bytes()
+            == original.replace("kind: custom", "kind: formula").encode()
+        )
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_proof_atom_kinds"] == [
+            "credit_reduction_limitation[0]:custom->formula"
+        ]
+        assert "unclassified_invalid_proof_atom_kinds" not in run.outcome
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_leaves_and_reports_unclassifiable_custom_proof_kind(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3302"
+            / "f.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: credit_reduction_limitation
+  kind: derived
+  dtype: Money
+  metadata:
+    proof:
+      atoms:
+      - path: unit
+        kind: custom
+        source:
+          corpus_citation_path: us/statute/26/3302
+          excerpt: dollars
+  versions:
+  - effective_from: '2026-01-01'
+    formula: wages * credit_reduction_rate
+"""
+        output_file.write_bytes(original.encode())
+        result.output_file = str(output_file)
+        kind_issue = (
+            "statutes/26/3302/f.yaml: ci: Proof atom kind invalid: "
+            "rule `credit_reduction_limitation` proof atom 0 has kind `custom`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(False, [kind_issue], {}),
+            ) as mock_overlay,
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert (
+            "apply=unclassified_invalid_proof_atom_kinds:"
+            "credit_reduction_limitation[0]:custom "
+            "(proof atom path does not identify a generated output)" in output
+        )
+        assert output_file.read_bytes() == original.encode()
+        mock_overlay.assert_called_once()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "auto_repaired_invalid_proof_atom_kinds" not in run.outcome
+        assert run.outcome["unclassified_invalid_proof_atom_kinds"] == [
+            "credit_reduction_limitation[0]:custom "
+            "(proof atom path does not identify a generated output)"
+        ]
+        assert run.outcome["overlay_validation_success"] is False
+        assert run.outcome["status"] == "apply_blocked_validation"
+
+    def test_encode_apply_reports_proof_kind_normalization_write_error(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3302"
+            / "f.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: credit_reduction_limitation
+  kind: derived
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: custom
+  versions:
+  - effective_from: '2026-01-01'
+    formula: wages * credit_reduction_rate
+"""
+        output_file.write_bytes(original.encode())
+        result.output_file = str(output_file)
+        kind_issue = (
+            "statutes/26/3302/f.yaml: ci: Proof atom kind invalid: "
+            "rule `credit_reduction_limitation` proof atom 0 has kind `custom`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(False, [kind_issue], {}),
+            ),
+            patch(
+                "axiom_encode.cli._atomic_replace_bytes",
+                side_effect=OSError("injected proof-kind write failure"),
+            ),
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        assert output_file.read_bytes() == original.encode()
+        output = capsys.readouterr().out
+        assert (
+            "apply=proof_atom_kind_normalization_error:"
+            "injected proof-kind write failure" in output
+        )
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["proof_atom_kind_normalization_error"] == (
+            "injected proof-kind write failure"
+        )
+        assert "auto_repaired_invalid_proof_atom_kinds" not in run.outcome
+        assert run.outcome["overlay_validation_success"] is False
+        assert run.outcome["status"] == "apply_blocked_validation"
+
+    def test_encode_apply_revalidates_committed_repair_after_fsync_error(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3302"
+            / "f.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: credit_reduction_limitation
+  kind: derived
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: custom
+  versions:
+  - effective_from: '2026-01-01'
+    formula: wages * credit_reduction_rate
+"""
+        output_file.write_bytes(original.encode())
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3302/f.yaml"
+        kind_issue = (
+            "statutes/26/3302/f.yaml: ci: Proof atom kind invalid: "
+            "rule `credit_reduction_limitation` proof atom 0 has kind `custom`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [kind_issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._fsync_directory",
+                side_effect=OSError("injected directory fsync failure"),
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert (
+            output_file.read_bytes()
+            == original.replace("kind: custom", "kind: formula").encode()
+        )
+        output = capsys.readouterr().out
+        assert "apply=proof_atom_kind_normalization_error:" in output
+        assert (
+            "apply=auto_repaired_invalid_proof_atom_kinds:"
+            "credit_reduction_limitation[0]:custom->formula" in output
+        )
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert (
+            "directory durability could not be confirmed"
+            in run.outcome["proof_atom_kind_normalization_error"]
+        )
+        assert run.outcome["auto_repaired_invalid_proof_atom_kinds"] == [
+            "credit_reduction_limitation[0]:custom->formula"
+        ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
