@@ -5082,6 +5082,7 @@ def prepare_eval_workspace(
         provision_metadata_file.write_text(provision_metadata_text + "\n")
 
     review_findings_files: list[EvalContextFile] = []
+    review_findings_evidence: list[dict[str, object]] = []
     for index, raw_path in enumerate(review_findings_paths or [], start=1):
         source_path = validate_explicit_context_file(
             Path(raw_path),
@@ -5093,22 +5094,37 @@ def prepare_eval_workspace(
             raise ValueError(
                 f"Review findings file is not valid UTF-8 text: {source_path}"
             ) from exc
-        if not findings_text.strip():
+        normalized_findings_text = findings_text.replace("\r\n", "\n").replace(
+            "\r", "\n"
+        )
+        if not normalized_findings_text.strip():
             raise ValueError(f"Review findings file is empty: {source_path}")
         workspace_relative_path = (
             Path("review-findings") / f"{index:02d}-{source_path.name}"
         )
         workspace_path = workspace_root / workspace_relative_path
         workspace_path.parent.mkdir(parents=True, exist_ok=True)
-        workspace_path.write_text(findings_text)
-        review_findings_files.append(
-            EvalContextFile(
-                source_path=str(source_path),
-                workspace_path=str(workspace_relative_path),
-                import_path=str(workspace_relative_path),
-                kind="mandatory_review_findings",
-                label=source_path.name,
-            )
+        workspace_path.write_text(
+            normalized_findings_text,
+            encoding="utf-8",
+            newline="",
+        )
+        context_file = EvalContextFile(
+            source_path=str(source_path),
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label=source_path.name,
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": normalized_findings_text,
+                "sha256": hashlib.sha256(
+                    normalized_findings_text.encode("utf-8")
+                ).hexdigest(),
+            }
         )
 
     context_files: list[EvalContextFile] = []
@@ -5236,9 +5252,7 @@ def prepare_eval_workspace(
                     else None
                 ),
                 "context_files": [asdict(item) for item in context_files],
-                "review_findings_files": [
-                    asdict(item) for item in review_findings_files
-                ],
+                "review_findings_files": review_findings_evidence,
             },
             indent=2,
             sort_keys=True,

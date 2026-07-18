@@ -4625,9 +4625,9 @@ def test_run_source_eval_rejects_symlinked_explicit_context(tmp_path):
 def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
     findings = tmp_path / "review-findings.md"
-    findings.write_text(
-        "- Start the FY 2025 amount on October 1.\n"
-        "- Preserve the FY 2026 imported amount and boundary test.\n"
+    findings.write_bytes(
+        b"- Start the FY 2025 amount on October 1.\r\n"
+        b"- Preserve the FY 2026 imported amount and boundary test.\r\n"
     )
     workspace = prepare_eval_workspace(
         citation="us/manual/example/block-1",
@@ -4654,8 +4654,15 @@ def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     assert "Start the FY 2025 amount on October 1" in prompt
     assert "Preserve the FY 2026 imported amount" in prompt
     assert len(manifest["review_findings_files"]) == 1
-    persisted = workspace.root / manifest["review_findings_files"][0]["workspace_path"]
-    assert persisted.read_text() == findings.read_text()
+    evidence = manifest["review_findings_files"][0]
+    persisted = workspace.root / evidence["workspace_path"]
+    expected = (
+        "- Start the FY 2025 amount on October 1.\n"
+        "- Preserve the FY 2026 imported amount and boundary test.\n"
+    )
+    assert persisted.read_text() == expected
+    assert evidence["content"] == expected
+    assert evidence["sha256"] == hashlib.sha256(expected.encode()).hexdigest()
 
 
 def test_review_findings_reject_empty_file(tmp_path):

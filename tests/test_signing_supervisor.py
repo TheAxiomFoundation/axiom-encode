@@ -29,6 +29,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MODEL_TOOL,
     _sign_applied_encoding_manifest,
 )
+from axiom_encode.harness.dependency_stubs import validate_explicit_context_file
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from tests.release_object_fixtures import bind_test_corpus_release
 from tests.signing_broker_fixtures import SigningBrokerFixture
@@ -1549,10 +1550,25 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "--allowed-event-name workflow_dispatch" in command
     assert "--apply" in command
     assert "--skip-reviewers" not in command
-    assert 'mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX"' in command
+    assert 'mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX.txt"' in command
     assert "$GITHUB_WORKSPACE/axiom-rules-engine/.axiom-targeted" not in command
     assert "printf '%s\\n' \"$REVIEW_FINDING\"" in command
     assert 'args+=(--review-findings "$review_finding_path")' in command
+
+    package_step = next(
+        step for step in steps if step.get("name") == "Package exact generated changes"
+    )
+    package_command = package_step["run"]
+    assert package_step["env"]["REVIEW_FINDING_PRESENT"] == (
+        "${{ inputs.review_finding != '' }}"
+    )
+    assert '"$artifact/context-manifest.json"' in package_command
+    assert '".axiom/encoding-manifests"' in package_command
+    assert 'payload.get("citation") == os.environ["CITATION"]' in package_command
+    assert 'applied_manifest["context_manifest_file"]' in package_command
+    assert 'applied_manifest.get("context_manifest_sha256")' in package_command
+    assert 'finding.get("content")' in package_command
+    assert 'finding.get("sha256")' in package_command
 
     guard_step = next(
         step for step in steps if step.get("name") == "Verify generated provenance"
@@ -1566,6 +1582,108 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
     assert secret_steps == [apply_step]
+
+
+def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> None:
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    policy_root = tmp_path / "rulespec-us" / "us"
+    policy_root.mkdir(parents=True)
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'path="$(mktemp "$RUNNER_TEMP/'
+            'axiom-targeted-review-finding.XXXXXX.txt")"; '
+            "printf '%s\\n' 'Preserve the supported provision.' > \"$path\"; "
+            "printf '%s' \"$path\"",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RUNNER_TEMP": str(runner_temp)},
+    )
+
+    finding_path = Path(completed.stdout)
+    assert finding_path.parent == runner_temp
+    assert finding_path.suffix == ".txt"
+    assert validate_explicit_context_file(finding_path, policy_root) == finding_path
+
+
+def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    package_command = next(
+        step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Package exact generated changes"
+    )["run"]
+    marker = "python - \"$artifact/context-manifest.json\" <<'PY'\n"
+    script = package_command.split(marker, 1)[1].split(
+        '\nPY\npython - "$artifact/metadata.json"', 1
+    )[0]
+
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    base = rulespec / "README.md"
+    base.write_text("fixture\n")
+    subprocess.run(["git", "add", "README.md"], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=rulespec, check=True)
+
+    citation = "us-la/statute/47:294"
+    review_content = "Preserve every supported provision.\n"
+    context_payload = {
+        "citation": citation,
+        "review_findings_files": [
+            {
+                "content": review_content,
+                "sha256": hashlib.sha256(review_content.encode()).hexdigest(),
+            }
+        ],
+    }
+    context_bytes = json.dumps(context_payload, sort_keys=True).encode()
+    context_path = tmp_path / "generated" / "context-manifest.json"
+    context_path.parent.mkdir()
+    context_path.write_bytes(context_bytes)
+    applied_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+    }
+    applied_path = (
+        rulespec / ".axiom" / "encoding-manifests" / "statutes" / "47" / "294.yaml.json"
+    )
+    applied_path.parent.mkdir(parents=True)
+    applied_path.write_text(json.dumps(applied_manifest))
+
+    packaged_context = tmp_path / "artifact" / "context-manifest.json"
+    packaged_context.parent.mkdir()
+    completed = subprocess.run(
+        [sys.executable, "-", str(packaged_context)],
+        cwd=tmp_path,
+        input=script,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "REVIEW_FINDING_PRESENT": "true",
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert packaged_context.read_bytes() == context_bytes
 
 
 def test_apply_signing_key_migration_workflow_is_main_only() -> None:
