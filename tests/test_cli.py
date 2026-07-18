@@ -7567,9 +7567,7 @@ class TestCmdEncode:
             cmd_encode(args)
 
     def test_encode_apply_rejects_nested_checkout_name(self, tmp_path):
-        nested_checkout = (
-            tmp_path / "rulespec-us" / "us-co" / "scratch" / "rulespec-us"
-        )
+        nested_checkout = tmp_path / "rulespec-us" / "us-co" / "scratch" / "rulespec-us"
         nested_checkout.parent.mkdir(parents=True)
         args = self._make_args(
             tmp_path,
@@ -7578,9 +7576,7 @@ class TestCmdEncode:
             create_content_root=False,
         )
 
-        with pytest.raises(
-            ValueError, match=r"rejection: repository-context-mismatch"
-        ):
+        with pytest.raises(ValueError, match=r"rejection: repository-context-mismatch"):
             cmd_encode(args)
 
     @pytest.mark.parametrize("allow_shrink", [False, True])
