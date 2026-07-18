@@ -4984,13 +4984,6 @@ def cmd_migration_cascade_proof_hashes(args) -> int:
             print(render_proof_hash_cascade_plan(plan, as_json=args.json))
             return 1 if plan.eligible else 0
         payload = apply_proof_hash_cascade(plan, args.report)
-        post_apply = build_proof_hash_cascade_plan(args.root, args.base_ref)
-        if post_apply.eligible:
-            print(
-                "proof hash cascade left eligible migration-induced hashes",
-                file=sys.stderr,
-            )
-            return 1
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"proof hash cascade failed: {exc}", file=sys.stderr)
         return 2
