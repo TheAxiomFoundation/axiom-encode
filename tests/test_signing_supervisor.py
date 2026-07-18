@@ -1489,17 +1489,19 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "SUPABASE_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
     }
     release_command = release_step["run"]
-    assert "tomllib" in release_command
+    assert "materialize_corpus_release.py" in release_command
     assert "rulespec-us/.axiom/toolchain.toml" in release_command
-    assert 'r"[a-z0-9][a-z0-9._-]*"' in release_command
-    assert 'r"[0-9a-f]{64}"' in release_command
-    assert "/axiom-corpus/releases/$release_name/$release_sha.json" in release_command
+    assert 'pin --toolchain "$toolchain"' in release_command
+    assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/rest/v1/release_objects?select=release_object" in release_command
     assert "content_sha256=eq.${release_sha}&limit=2" in release_command
-    assert "--proto '=https' --tlsv1.2" in release_command
+    assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
+    assert "--max-filesize 16777216" in release_command
     assert "Accept-Profile: corpus" in release_command
-    assert 'payload.get("content_sha256") != actual' in release_command
-    assert 'content.get("git")' in release_command
+    assert (
+        'materialize --toolchain "$toolchain" --response "$response"' in release_command
+    )
+    assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
 
     provision_step = next(
