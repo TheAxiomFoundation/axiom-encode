@@ -249,6 +249,7 @@ from .repo_routing import (
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
+    inspect_canonical_rulespec_checkout,
     is_composition_policy_repo_root,
     jurisdiction_content_dir,
     jurisdiction_subdir_names,
@@ -18497,13 +18498,21 @@ def cmd_encode(args):
                 args.policy_repo_path,
                 label="RuleSpec checkout",
             )
+            checkout_inspection = inspect_canonical_rulespec_checkout(
+                policy_checkout_path,
+                allow_composition_specs=True,
+            )
             if (
                 canonical_rulespec_repo_name(policy_checkout_path)
                 != policy_checkout_path.name
             ):
+                rejection = (
+                    checkout_inspection.rejection or "repository-context-mismatch"
+                )
                 raise ValueError(
                     "encode --apply requires the exact canonical "
-                    "rulespec-<country> checkout"
+                    "rulespec-<country> checkout "
+                    f"(rejection: {rejection})"
                 )
             # Recovery needs no signing capability and must happen before any
             # model, corpus, or live-checkout preflight consumes partial state.
