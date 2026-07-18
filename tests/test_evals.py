@@ -48,6 +48,7 @@ from axiom_encode.harness.evals import (
     _canonical_rulespec_target_for_path,
     _canonical_target_ref_prefix,
     _clean_generated_file_content,
+    _clear_eval_target_artifacts,
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
     _command_uses_policyengine_skill,
@@ -3450,6 +3451,7 @@ rules:
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
     output_file = tmp_path / "runner" / "source" / "tn-snap.yaml"
+    materialized_paths: set[Path] = set()
     llm_response = """=== FILE: tn-snap.yaml ===
 format: rulespec/v1
 module:
@@ -3476,12 +3478,79 @@ rules:
         llm_response,
         output_file,
         source_text="The standard utility allowance is $451.",
+        materialized_paths=materialized_paths,
     )
 
     assert wrote is True
     assert output_file.exists()
     assert output_file.with_name("tn-snap.test.yaml").exists()
     assert output_file.read_text().startswith("format: rulespec/v1")
+    assert materialized_paths == {
+        output_file,
+        output_file.with_name("tn-snap.test.yaml"),
+    }
+
+
+def test_materialize_eval_artifact_rejects_test_only_bundle_with_stale_main(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "47" / "294.yaml"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    materialized_paths: set[Path] = set()
+
+    wrote = _materialize_eval_artifact(
+        "=== FILE: 294.test.yaml ===\n- name: current test only\n",
+        output_file,
+        materialized_paths=materialized_paths,
+    )
+
+    assert wrote is False
+    assert output_file.read_text(encoding="utf-8") == "stale prior-run main\n"
+    assert materialized_paths == {output_file.with_name("294.test.yaml")}
+
+
+def test_clear_eval_target_artifacts_prevents_reused_companion_test(
+    tmp_path,
+):
+    output_root = tmp_path / "output"
+    output_file = output_root / "runner" / "statutes" / "47" / "294.yaml"
+    companion_test = output_file.with_name("294.test.yaml")
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("stale prior-run main\n", encoding="utf-8")
+    companion_test.write_text("- name: stale prior-run test\n", encoding="utf-8")
+
+    _clear_eval_target_artifacts(output_file, output_root)
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+        artifact_root=output_root,
+    )
+
+    assert wrote is True
+    assert output_file.read_text(encoding="utf-8") == (
+        "format: rulespec/v1\nrules: []\n"
+    )
+    assert not companion_test.exists()
+
+
+def test_clear_eval_target_artifacts_rejects_symlinked_ancestor(tmp_path):
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_root.mkdir()
+    outside.mkdir()
+    (output_root / "runner").symlink_to(outside, target_is_directory=True)
+    outside_target = outside / "statutes" / "47" / "294.yaml"
+    outside_target.parent.mkdir(parents=True)
+    outside_target.write_text("outside sentinel\n", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        _clear_eval_target_artifacts(
+            output_root / "runner" / "statutes" / "47" / "294.yaml",
+            output_root,
+        )
+
+    assert outside_target.read_text(encoding="utf-8") == "outside sentinel\n"
 
 
 def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(
@@ -15367,6 +15436,69 @@ rules:
         assert (eval_root / "statutes" / "26" / "24" / "c.yaml").read_text() == (
             "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
         )
+
+    def test_hydrate_eval_root_preserves_generated_target_and_copies_sibling(
+        self, tmp_path
+    ):
+        workspace_root = tmp_path / "workspace"
+        context_root = workspace_root / "context" / "statutes" / "47"
+        context_root.mkdir(parents=True)
+        old_target = context_root / "294.yaml"
+        old_target_test = context_root / "294.test.yaml"
+        sibling = context_root / "295.yaml"
+        old_target.write_text("old target\n", encoding="utf-8")
+        old_target_test.write_text("old target test\n", encoding="utf-8")
+        sibling.write_text("sibling context\n", encoding="utf-8")
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=workspace_root / "source.txt",
+            manifest_file=workspace_root / "context-manifest.json",
+            context_files=[
+                EvalContextFile(
+                    source_path=old_target,
+                    workspace_path=Path("context/statutes/47/294.yaml"),
+                    import_path="us-la:statutes/47/294",
+                    kind="implementation_precedent",
+                ),
+                EvalContextFile(
+                    source_path=old_target_test,
+                    workspace_path=Path("context/statutes/47/294.test.yaml"),
+                    import_path="us-la:statutes/47/294.test",
+                    kind="existing_target_test_context",
+                ),
+                EvalContextFile(
+                    source_path=sibling,
+                    workspace_path=Path("context/statutes/47/295.yaml"),
+                    import_path="us-la:statutes/47/295",
+                    kind="implementation_precedent",
+                ),
+            ],
+            policy_prefix="us-la",
+        )
+        eval_root = tmp_path / "eval-root"
+        generated_target = eval_root / "statutes" / "47" / "294.yaml"
+        generated_target.parent.mkdir(parents=True)
+        generated_target.write_text("generated target\n", encoding="utf-8")
+        generated_target_test = eval_root / "statutes" / "47" / "294.test.yaml"
+        generated_target_test.write_text("generated target test\n", encoding="utf-8")
+
+        _hydrate_eval_root(
+            eval_root,
+            workspace,
+            protected_paths=(
+                Path("statutes/47/294.yaml"),
+                Path("statutes/47/294.test.yaml"),
+            ),
+        )
+
+        assert generated_target.read_text(encoding="utf-8") == "generated target\n"
+        assert (
+            generated_target_test.read_text(encoding="utf-8")
+            == "generated target test\n"
+        )
+        assert (eval_root / "statutes/47/295.yaml").read_text(
+            encoding="utf-8"
+        ) == "sibling context\n"
 
     def test_prepare_eval_workspace_expands_transitive_context_imports(self, tmp_path):
         repo_root = tmp_path / "repos"

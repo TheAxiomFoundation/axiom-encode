@@ -7035,8 +7035,9 @@ def _run_prompt_eval_with_empty_artifact_retry(
     include_tests: bool,
     policyengine_rule_hint: str | None = None,
     artifact_root: Path | None = None,
-) -> tuple[EvalPromptResponse, bool, int]:
+) -> tuple[EvalPromptResponse, bool, int, frozenset[Path]]:
     """Run an eval and retry once if no RuleSpec artifact can be materialized."""
+    materialized_paths: set[Path] = set()
     response = _run_prompt_eval(runner, workspace, prompt)
     wrote_artifact = _materialize_eval_artifact(
         response.text,
@@ -7045,9 +7046,10 @@ def _run_prompt_eval_with_empty_artifact_retry(
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
         artifact_root=artifact_root,
+        materialized_paths=materialized_paths,
     )
     if wrote_artifact or not _response_allows_empty_artifact_retry(response):
-        return response, wrote_artifact, 0
+        return response, wrote_artifact, 0, frozenset(materialized_paths)
 
     retry_prompt = _build_empty_artifact_retry_prompt(
         prompt,
@@ -7062,11 +7064,13 @@ def _run_prompt_eval_with_empty_artifact_retry(
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
         artifact_root=artifact_root,
+        materialized_paths=materialized_paths,
     )
     return (
         _combine_retry_response(response, retry_response, retry_prompt),
         retry_wrote_artifact,
         1,
+        frozenset(materialized_paths),
     )
 
 
@@ -7145,20 +7149,28 @@ def _run_single_eval(
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
-    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
-        runner=runner,
-        workspace=workspace,
-        prompt=prompt,
-        output_file=output_file,
-        source_text=source_text,
-        target_file_name=relative_output.name,
-        include_tests=include_tests,
-        policyengine_rule_hint=policyengine_rule_hint,
-        artifact_root=Path(output_root).resolve(),
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
+    response, wrote_artifact, retry_count, materialized_paths = (
+        _run_prompt_eval_with_empty_artifact_retry(
+            runner=runner,
+            workspace=workspace,
+            prompt=prompt,
+            output_file=output_file,
+            source_text=source_text,
+            target_file_name=relative_output.name,
+            include_tests=include_tests,
+            policyengine_rule_hint=policyengine_rule_hint,
+            artifact_root=artifact_root,
+        )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        protected_paths = [relative_output]
+        if _rulespec_test_path(output_file) in materialized_paths:
+            protected_paths.append(_rulespec_test_path(relative_output))
+        _hydrate_eval_root(eval_root, workspace, protected_paths=protected_paths)
 
     trace_relative = Path("traces") / runner.name / f"{_slugify(citation)}.json"
     trace_file = Path(output_root).resolve() / trace_relative
@@ -7169,7 +7181,7 @@ def _run_single_eval(
     )
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7199,7 +7211,7 @@ def _run_single_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7318,20 +7330,28 @@ def _run_single_source_eval(
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
-    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
-        runner=runner,
-        workspace=workspace,
-        prompt=prompt,
-        output_file=output_file,
-        source_text=source_text,
-        target_file_name=relative_output.name,
-        include_tests=True,
-        policyengine_rule_hint=policyengine_rule_hint,
-        artifact_root=Path(output_root).resolve(),
+    artifact_root = Path(output_root).resolve()
+    _clear_eval_target_artifacts(output_file, artifact_root)
+    response, wrote_artifact, retry_count, materialized_paths = (
+        _run_prompt_eval_with_empty_artifact_retry(
+            runner=runner,
+            workspace=workspace,
+            prompt=prompt,
+            output_file=output_file,
+            source_text=source_text,
+            target_file_name=relative_output.name,
+            include_tests=True,
+            policyengine_rule_hint=policyengine_rule_hint,
+            artifact_root=artifact_root,
+        )
     )
+    wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+        protected_paths = [relative_output]
+        if _rulespec_test_path(output_file) in materialized_paths:
+            protected_paths.append(_rulespec_test_path(relative_output))
+        _hydrate_eval_root(eval_root, workspace, protected_paths=protected_paths)
 
     trace_relative = (
         Path("traces") / runner.name / f"{_slugify(source_identifier)}.json"
@@ -7344,7 +7364,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
-    if output_file.exists():
+    if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -7374,7 +7394,7 @@ def _run_single_source_eval(
             label="generated eval RuleSpec",
             max_bytes=32 * 1024 * 1024,
         )
-        if output_file.exists() or output_file.is_symlink()
+        if wrote_artifact
         else None
     )
     result = EvalResult(
@@ -7649,13 +7669,24 @@ def _write_eval_artifact_text(
     _secure_atomic_eval_write(root, relative, content.encode("utf-8"))
 
 
-def _eval_artifact_exists(target_path: Path, artifact_root: Path | None) -> bool:
-    root, relative = _eval_artifact_write_location(target_path, artifact_root)
-    try:
-        _secure_eval_read(root, relative)
-    except FileNotFoundError:
-        return False
-    return True
+def _clear_eval_target_artifacts(expected_path: Path, artifact_root: Path) -> None:
+    """Remove stale main and companion artifacts without following symlinks."""
+
+    for target_path in (expected_path, _rulespec_test_path(expected_path)):
+        root, relative = _eval_artifact_write_location(target_path, artifact_root)
+        _ensure_secure_eval_root(root)
+        try:
+            with _open_secure_eval_parent(root, relative, create=False) as (
+                parent_fd,
+                target_name,
+            ):
+                try:
+                    os.unlink(target_name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    continue
+                os.fsync(parent_fd)
+        except FileNotFoundError:
+            continue
 
 
 def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
@@ -11802,8 +11833,22 @@ def _relative_to_root(path: Path, root: Path) -> Path | None:
         return None
 
 
-def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
+def _hydrate_eval_root(
+    eval_root: Path,
+    workspace: EvalWorkspace,
+    *,
+    protected_paths: Sequence[Path] = (),
+) -> None:
     """Copy allowed precedent files into the eval root so imports resolve."""
+
+    protected = {Path(path) for path in protected_paths}
+    if any(
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        for path in protected
+    ):
+        raise ValueError("Protected eval artifact paths must be canonical and relative")
 
     def copy_context(source: Path, target_relative: Path) -> None:
         source_raw = source.read_bytes()
@@ -11826,6 +11871,8 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
             continue
 
         target_relative = _import_target_to_path(item.import_path)
+        if target_relative in protected:
+            continue
         source = workspace.root / workspace_path
         prefix = _import_target_prefix(item.import_path)
         if prefix and prefix != workspace.policy_prefix:
@@ -13644,6 +13691,7 @@ def _materialize_eval_artifact(
     workspace_root: Path | None = None,
     policyengine_rule_hint: str | None = None,
     artifact_root: Path | None = None,
+    materialized_paths: set[Path] | None = None,
 ) -> bool:
     """Write an eval artifact and optional companion test file from model output."""
     single_amount_table_slice = bool(
@@ -13660,6 +13708,7 @@ def _materialize_eval_artifact(
             source_text=source_text,
             policyengine_rule_hint=policyengine_rule_hint,
             artifact_root=artifact_root,
+            materialized_paths=materialized_paths,
         )
         if wrote_from_workspace:
             return True
@@ -13759,9 +13808,11 @@ def _materialize_eval_artifact(
                     rule_names=stripped_test_output_names,
                 )
             _write_eval_artifact_text(target_path, content, artifact_root)
+            if materialized_paths is not None:
+                materialized_paths.add(target_path)
             if target_path == expected_path:
                 wrote_main = True
-        if wrote_main or _eval_artifact_exists(expected_path, artifact_root):
+        if wrote_main:
             return True
 
     rulespec_content = _extract_rulespec_content(llm_response)
@@ -13778,6 +13829,8 @@ def _materialize_eval_artifact(
         return False
 
     _write_eval_artifact_text(expected_path, rulespec_content, artifact_root)
+    if materialized_paths is not None:
+        materialized_paths.add(expected_path)
     return True
 
 
@@ -13789,6 +13842,7 @@ def _materialize_workspace_artifacts(
     source_text: str | None,
     policyengine_rule_hint: str | None = None,
     artifact_root: Path | None = None,
+    materialized_paths: set[Path] | None = None,
 ) -> bool:
     """Salvage eval artifacts that a model wrote directly into the workspace."""
     workspace_main = workspace_root / expected_path.name
@@ -13813,6 +13867,8 @@ def _materialize_workspace_artifacts(
     stripped_test_output_names.update(_indexed_parameter_rule_names(main_content))
 
     _write_eval_artifact_text(expected_path, main_content, artifact_root)
+    if materialized_paths is not None:
+        materialized_paths.add(expected_path)
 
     if workspace_test.exists():
         test_content = workspace_test.read_text()
@@ -13844,6 +13900,8 @@ def _materialize_workspace_artifacts(
             rule_names=stripped_test_output_names,
         )
         _write_eval_artifact_text(expected_test_path, test_content, artifact_root)
+        if materialized_paths is not None:
+            materialized_paths.add(expected_test_path)
 
     return True
 
