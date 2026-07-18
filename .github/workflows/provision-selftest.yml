@@ -99,6 +99,37 @@ jobs:
             GIT_CONFIG_GLOBAL=/dev/null \
             GIT_CONFIG_NOSYSTEM=1 \
             git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel >/dev/null
+          hostile_repo="$RUNNER_TEMP/hostile-git-config"
+          hostile_marker="$RUNNER_TEMP/hostile-git-helper-executed"
+          /usr/bin/git init --quiet "$hostile_repo"
+          printf 'original\n' > "$hostile_repo/a.txt"
+          printf '*.txt diff=hostile\n' > "$hostile_repo/.gitattributes"
+          /usr/bin/git -C "$hostile_repo" add .
+          /usr/bin/git \
+            -c user.name='Axiom selftest' \
+            -c user.email='selftest@axiom.invalid' \
+            -C "$hostile_repo" commit --quiet -m fixture
+          printf '#!/bin/sh\ntouch %s\n' "$hostile_marker" \
+            > "$RUNNER_TEMP/hostile-git-helper"
+          chmod 755 "$RUNNER_TEMP/hostile-git-helper"
+          for key in core.fsmonitor diff.external diff.hostile.textconv; do
+            /usr/bin/git -C "$hostile_repo" config \
+              "$key" "$RUNNER_TEMP/hostile-git-helper"
+          done
+          printf 'changed\n' > "$hostile_repo/a.txt"
+          env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 \
+            git -C "$hostile_repo" status --porcelain >/dev/null
+          env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 \
+            git -C "$hostile_repo" diff --binary HEAD >/dev/null
+          test ! -e "$hostile_marker"
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
           # Path containment (not startswith) so <dest>-evil cannot slip by.

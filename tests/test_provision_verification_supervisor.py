@@ -57,14 +57,6 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
     )
     git_wrapper = destination / "git"
     assert git_wrapper.read_text().splitlines()[0] == f"#!{interpreter} -I"
-    git_version = subprocess.run(
-        [str(git_wrapper), "--version"],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={"PATH": ""},
-    )
-    assert git_version.stdout.startswith("git version ")
     repository = tmp_path / "rulespec-us"
     subprocess.run(
         [str(Path(git).resolve()), "init", "--quiet", str(repository)], check=True

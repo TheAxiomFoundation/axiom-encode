@@ -309,7 +309,7 @@ class TestTrustedGit:
         with pytest.raises(SystemExit, match="contains a symlink"):
             provisioner._resolve_trusted_git(alias)
 
-    def test_installed_wrapper_uses_exact_git_without_path_lookup(self, tmp_path):
+    def test_installed_wrapper_blocks_local_executable_config(self, tmp_path):
         git = shutil.which("git")
         if git is None:
             pytest.skip("Git is required")
@@ -320,14 +320,69 @@ class TestTrustedGit:
             Path(sys.executable).resolve(),
             provisioner._resolve_trusted_git(Path(git).resolve()),
         )
-        completed = subprocess.run(
-            [str(wrapper), "--version"],
+        repository = tmp_path / "rulespec-us"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        (repository / "a.txt").write_text("original\n")
+        (repository / ".gitattributes").write_text("*.txt diff=hostile\n")
+        subprocess.run([git, "-C", str(repository), "add", "."], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        marker = tmp_path / "helper-executed"
+        helper = tmp_path / "hostile-helper"
+        helper.write_text(
+            f"#!{Path(sys.executable).resolve()}\n"
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+        )
+        helper.chmod(0o755)
+        for key in ("core.fsmonitor", "diff.external", "diff.hostile.textconv"):
+            subprocess.run(
+                [git, "-C", str(repository), "config", key, str(helper)], check=True
+            )
+        (repository / "a.txt").write_text("changed\n")
+        clean_environment = {
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "HOME": str(tmp_path),
+            "PATH": str(destination),
+        }
+        subprocess.run(
+            [str(wrapper), "-C", str(repository), "status", "--porcelain"],
             check=True,
             capture_output=True,
-            text=True,
-            env={"PATH": ""},
+            env=clean_environment,
         )
-        assert completed.stdout.startswith("git version ")
+        subprocess.run(
+            [str(wrapper), "-C", str(repository), "diff", "--binary", "HEAD"],
+            check=True,
+            capture_output=True,
+            env=clean_environment,
+        )
+        assert not marker.exists()
+
+        refused = subprocess.run(
+            [str(wrapper), "-C", str(repository), "fetch"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=clean_environment,
+        )
+        assert refused.returncode != 0
+        assert "refused command: fetch" in refused.stderr
 
 
 class TestIsElf:
